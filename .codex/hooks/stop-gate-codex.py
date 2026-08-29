@@ -29,6 +29,10 @@ HANDOFF_SOURCE_REGISTRY = (
 )
 DELTA_LINE_RE = re.compile(
     r"^__DELTA__:\s*(?P<agent>[^\s|](?:[^|\r\n]*[^\s|])?)\s*\|\s*"
+    r"(?P<score>[012])\s*\|\s*(?P<category>[^\s|]*)\s*\|\s*(?P<evidence>\S(?:[^\r\n]*\S)?)\s*$"
+)
+DELTA_LINE_RE_LEGACY = re.compile(
+    r"^__DELTA__:\s*(?P<agent>[^\s|](?:[^|\r\n]*[^\s|])?)\s*\|\s*"
     r"(?P<score>[012])\s*\|\s*(?P<evidence>\S(?:[^\r\n]*\S)?)\s*$"
 )
 DELTA_TOKEN_RE = re.compile(r"^__DELTA__:")
@@ -93,7 +97,9 @@ def delta_status(content: str) -> str:
     for line in content.splitlines():
         if not DELTA_TOKEN_RE.match(line):
             continue
-        statuses.append(DELTA_LINE_RE.fullmatch(line) is not None)
+        # 新格式优先，兼容旧格式
+        match = DELTA_LINE_RE.fullmatch(line) or DELTA_LINE_RE_LEGACY.fullmatch(line)
+        statuses.append(match is not None)
     if not statuses:
         return "missing"
     return "valid" if all(statuses) else "invalid"

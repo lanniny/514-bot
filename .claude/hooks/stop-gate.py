@@ -40,10 +40,14 @@ TRANSCRIPT_SCAN_BYTES = 1024 * 1024
 TRANSCRIPT_SCAN_LINES = 256
 HANDOFF_SOURCE_REGISTRY = Path(__file__).with_name("handoff-sources.json")
 
-# Exactly: __DELTA__: <agent> | 0/1/2 | <non-empty evidence>
-# Agent may not contain a pipe. Evidence may, because file:line explanations
-# occasionally include structured alternatives separated by a pipe.
+# Exactly: __DELTA__: <agent> | 0/1/2 | [category] | <non-empty evidence>
+# Agent may not contain a pipe. Category is optional (backward compatible).
+# Evidence may contain pipes (file:line alternatives).
 DELTA_LINE_RE = re.compile(
+    r"^__DELTA__:\s*(?P<agent>[^\s|](?:[^|\r\n]*[^\s|])?)\s*\|\s*(?P<score>[012])\s*\|\s*"
+    r"(?P<category>[^\s|]*)\s*\|\s*(?P<evidence>\S(?:[^\r\n]*\S)?)\s*$"
+)
+DELTA_LINE_RE_LEGACY = re.compile(
     r"^__DELTA__:\s*(?P<agent>[^\s|](?:[^|\r\n]*[^\s|])?)\s*\|\s*(?P<score>[012])\s*\|\s*"
     r"(?P<evidence>\S(?:[^\r\n]*\S)?)\s*$"
 )
@@ -110,7 +114,9 @@ def delta_status(content: str) -> str:
     for line in content.splitlines():
         if not DELTA_TOKEN_RE.match(line):
             continue
-        statuses.append(DELTA_LINE_RE.fullmatch(line) is not None)
+        # 新格式优先，兼容旧格式
+        match = DELTA_LINE_RE.fullmatch(line) or DELTA_LINE_RE_LEGACY.fullmatch(line)
+        statuses.append(match is not None)
     if not statuses:
         return "missing"
     return "valid" if all(statuses) else "invalid"
