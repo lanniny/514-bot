@@ -103,6 +103,28 @@ fetch 会把目录清空。查远端状态改用 `git ls-remote`（只读不写�
 `did not send all necessary objects`。negotiation 依赖本地 ref，
 必须先把 ref 落到一个**有效** SHA 再 fetch。
 
+**坑 3（代价最惨重的一个）**：**不要用 `git show HEAD:<path> > <path>` 做 A/B 对照。**
+它直接覆盖在用的工作树文件，一旦恢复步骤失效就是不可逆的工作丢失。本仓已真实踩过：
+备份放在 `/tmp`、提交前被 `rm` 清理，恢复用的 `cp` 在 Windows 上静默失效
+（目标文件可能仍被刚跑完的测试进程持有），结果提交里**只有测试没有实现**，
+而测试立刻开始引用根本不存在的 API。
+
+正确做法（按优先级）：
+
+1. **首选 `git worktree add`** —— 在原仓外开一个独立工作树做对照，完全不碰在用的工作树：
+   ```sh
+   git worktree add /tmp/ab-baseline <baseline-sha>
+   # 在 /tmp/ab-baseline 里跑对照，主工作树不受影响
+   git worktree remove /tmp/ab-baseline
+   ```
+2. 次选：把当前文件备份到**项目外的稳定路径**，且**提交完成前绝不删除备份**。
+3. 恢复后**必须立即验证**，不能假设 `cp` 成功：
+   ```sh
+   grep -c "<本次实现的特征字符串>" <path>   # 为 0 就是没恢复，立刻查备份
+   ```
+4. 提交后立即 `git show --stat HEAD` 核对文件清单——这是发现"漏提交"的最后一道闸。
+   本仓这次事故正是靠这一步发现的。
+
 ## 5. 补回远端历史
 
 ```sh
