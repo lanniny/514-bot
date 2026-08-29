@@ -190,6 +190,74 @@ function extractMappedV4(bytes) {
 }
 
 // ---------------------------------------------------------------------------
+// 非标准 IP 表示法检测
+// ---------------------------------------------------------------------------
+
+/**
+ * 检测非标准 IPv4 表示法（八进制 / 十六进制 / 十进制整数），
+ * 返回标准点分十进制形式；非此类格式则返回 null。
+ *
+ * 背景：Node.js 的 `isIP()` 只识别标准点分十进制，但部分 HTTP 客户端
+ * （浏览器、curl、某些库）会将以下格式解释为 IP：
+ *   - 八进制：`0177.0.0.1` → 127.0.0.1
+ *   - 十六进制：`0x7f000001` → 127.0.0.1
+ *   - 十进制整数：`2130706433` → 127.0.0.1
+ * 攻击者可借此绕过只检查 `isIP()` 的 SSRF 守卫。
+ */
+export function normalizeNonStandardIp(host) {
+  if (typeof host !== "string" || !host) return null;
+
+  // 十六进制整数：0x7f000001
+  if (/^0x[0-9a-fA-F]+$/i.test(host)) {
+    const value = Number(host);
+    if (!Number.isFinite(value) || value < 0 || value > 0xffffffff) return null;
+    return [
+      (value >>> 24) & 0xff,
+      (value >>> 16) & 0xff,
+      (value >>> 8) & 0xff,
+      value & 0xff,
+    ].join(".");
+  }
+
+  // 纯十进制整数：2130706433
+  if (/^\d+$/.test(host) && !host.includes(".")) {
+    const value = Number(host);
+    if (!Number.isFinite(value) || value < 0 || value > 0xffffffff) return null;
+    // 排除太短的数（如 "80"、"443"）——这些更像端口号或无意义数字
+    // 只拦截 256~4294967295 范围（低于 256 的不会映射到有用 IP）
+    if (value < 256) return null;
+    return [
+      (value >>> 24) & 0xff,
+      (value >>> 16) & 0xff,
+      (value >>> 8) & 0xff,
+      value & 0xff,
+    ].join(".");
+  }
+
+  // 含前导零的点分四段（八进制）：0177.0.0.1
+  // 八进制可以只出现在部分段，其余段按十进制解析。
+  // 关键信号：至少一段有前导零（"0" 后跟数字）。
+  const parts = host.split(".");
+  if (
+    parts.length === 4 &&
+    parts.every((p) => /^\d+$/.test(p) && p.length > 0) &&
+    parts.some((p) => /^0\d+$/.test(p))  // 至少一段有前导零
+  ) {
+    const octets = parts.map((p) => parseInt(p, 8));
+    // 验证：每段解析回八进制字符串必须与原段一致（排除 "192" → 1 这种静默截断）
+    if (
+      octets.every((o) => !Number.isNaN(o) && o >= 0 && o <= 255) &&
+      parts.every((p, i) => octets[i].toString(8) === p.replace(/^0+/, "") || (p === "0" && octets[i] === 0))
+    ) {
+      return octets.join(".");
+    }
+    return null;
+  }
+
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // 判定入口
 // ---------------------------------------------------------------------------
 
@@ -272,6 +340,22 @@ export function assertHostAllowed(hostname, { allowedHosts = [], policy = EGRESS
   if (allowedHosts.map(normalizeHost).includes(host)) return host;
 
   if (isIP(host) === 0) {
+    // 非标准 IP 表示法（八进制/十六进制/十进制整数）：某些 HTTP 客户端会
+    // 将其解释为 IP 地址，但 Node.js isIP() 不认。归一化后走 IP 规则。
+    const normalized = normalizeNonStandardIp(host);
+    if (normalized) {
+      const verdict = classifyIp(normalized, { policy });
+      if (verdict) {
+        throw egressError(
+          EGRESS_BLOCKED,
+          `outbound target ${host} (→ ${normalized}) is not publicly routable (${verdict.label})`,
+          { host, normalized, ...verdict },
+        );
+      }
+      // 即使是非标准格式，如果归一化后是合法公网 IP，也放行
+      return host;
+    }
+
     // 普通域名交给异步层 DNS 校验；但保留域名此刻就能定案，不必等 DNS
     const reserved = reservedNameVerdict(host, policy);
     if (reserved) {
