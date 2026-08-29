@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   checkReachability,
+  defaultBillingProbe,
   buildModelsUrlCandidates,
   fetchProviderModels,
   parseDeeplink,
@@ -623,4 +624,68 @@ test("envConflicts：进程环境变量撞车如实报告（掩码）", async ()
       delete process.env.ANTHROPIC_BASE_URL;
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// F-044 自建端点守卫
+// ---------------------------------------------------------------------------
+
+test("F-044: 云元数据与保留段端点被拒绝（可达性探测 + 端点测速）", async () => {
+  for (const url of [
+    "http://169.254.169.254/latest/meta-data/",
+    "http://169.254.170.2/v2/credentials",
+    "http://metadata.google.internal/computeMetadata/v1/",
+    "http://100.64.0.1/v1",
+    "http://198.18.0.1/v1",
+    "http://0.0.0.0/v1",
+  ]) {
+    await assert.rejects(
+      () => checkReachability(url),
+      (error) => error.code === "PROVIDER_TARGET_BLOCKED",
+      `${url} 必须被拒绝`,
+    );
+    const [result] = await testEndpoints([url]);
+    assert.match(result.error, /不允许的地址/, `${url} 测速也必须失败`);
+  }
+});
+
+test("F-044: 环回与私网自建端点不被误伤（Ollama / LM Studio / 内网网关）", async () => {
+  // 这些地址本机没有服务在听，连接失败是预期的；要断言的是**守卫没有拦下它们**
+  for (const url of ["http://127.0.0.1:11434/v1", "http://localhost:1234/v1", "http://10.0.0.5:8000/v1"]) {
+    const [result] = await testEndpoints([url]);
+    assert.doesNotMatch(result.error ?? "", /不允许的地址/, `${url} 不应被守卫拦下`);
+  }
+});
+
+test("F-044: 模型测试与余额探测在发请求前就拦住危险 base_url", async () => {
+  const provider = { baseUrl: "http://169.254.169.254/", apiKey: "sk-should-never-leak", meta: {} };
+  await assert.rejects(
+    () => testModelRequest(provider, "claude"),
+    (error) => error.code === "PROVIDER_TARGET_BLOCKED",
+  );
+  await assert.rejects(
+    () => defaultBillingProbe(provider, async () => { throw new Error("fetch must not run"); }),
+    (error) => error.code === "PROVIDER_TARGET_BLOCKED",
+  );
+});
+
+test("F-044: custom 模板脚本也无法把 apiKey 发往元数据端点", async () => {
+  const script = `({
+    request: { url: "http://169.254.169.254/latest/meta-data/", method: "GET", headers: { Authorization: "Bearer \${apiKey}" } },
+    extractor: function(response) { return { remaining: 1, unit: "USD" }; }
+  })`;
+  // 这里断言的是「请求根本没发出去」：fetch 一旦被调用就会连到元数据服务
+  await assert.rejects(
+    () => queryUsageScript({
+      code: script,
+      apiKey: "sk-should-never-leak",
+      templateType: "custom",
+      fetchImpl: async () => { throw new Error("fetch must not run"); },
+    }),
+    (error) => error.code === "PROVIDER_TARGET_BLOCKED",
+  );
+  // 上层 queryProviderUsage 把确定性失败折叠成 success:false 展示文案
+  const folded = await queryProviderUsage({ meta: { usageScript: { enabled: true, code: script, templateType: "custom" } }, apiKey: "sk-should-never-leak" });
+  assert.equal(folded.success, false);
+  assert.equal(folded.code, "PROVIDER_TARGET_BLOCKED");
 });

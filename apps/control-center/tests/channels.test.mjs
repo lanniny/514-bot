@@ -10,23 +10,30 @@ function hmac(secret, payload) {
   return createHmac("sha256", secret).update(payload).digest("hex");
 }
 
-async function fixture(t, fetchImpl) {
+/**
+ * 出站守卫要解析 DNS 才能判断域名目标是否安全。CI 或本机若开了 fake-ip 代理
+ * （Clash 一类，常见 198.18.0.0/15），真实 DNS 会把所有域名解析到保留段，
+ * 守卫就会一律误报。测试注入固定公网 IP，让断言只依赖被测逻辑、不依赖本机网络栈。
+ */
+const PUBLIC_DNS = async () => [{ address: "93.184.216.34", family: 4 }];
+
+async function fixture(t, fetchImpl, dnsLookup = PUBLIC_DNS) {
   const dir = await mkdtemp(join(tmpdir(), "514cc-channels-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const events = [];
   const eventStore = { emit: async (type, detail) => { events.push({ type, detail }); } };
-  const service = await createChannelService({ dataRoot: dir, eventStore, fetchImpl, pollIdleMs: 10 }).init();
+  const service = await createChannelService({ dataRoot: dir, eventStore, fetchImpl, pollIdleMs: 10, dnsLookup }).init();
   t.after(() => service.close());
   return { dir, service, events };
 }
 
 test("channels: CRUD persists atomically and secrets never leak to public shape", async (t) => {
   const { dir, service } = await fixture(t);
-  const channel = await service.create({ type: "webhook_in", name: "入站", config: { secret: "s3cr3t" }, enabled: true });
+  const channel = await service.create({ type: "webhook_in", name: "入站", config: { secret: "s3cr3t-514" }, enabled: true });
   assert.equal(channel.config.secret, "***", "public shape redacts secret");
 
   const raw = JSON.parse(await readFile(join(dir, "channels.json"), "utf8"));
-  assert.equal(raw.channels[0].config.secret, "s3cr3t", "disk keeps the real secret");
+  assert.equal(raw.channels[0].config.secret, "s3cr3t-514", "disk keeps the real secret");
 
   const listed = service.list();
   assert.equal(listed[0].config.secret, "***");
@@ -58,7 +65,7 @@ test("channels: webhook_out signs body with HMAC header", async (t) => {
 
 test("channels: webhook_in verifies HMAC over raw body (good and bad paths)", async (t) => {
   const { service } = await fixture(t);
-  const channel = await service.create({ type: "webhook_in", name: "入站", config: { secret: "s3cr3t" } });
+  const channel = await service.create({ type: "webhook_in", name: "入站", config: { secret: "s3cr3t-514" } });
   const id = channel.id;
   const rawText = '{"event":"deploy","n":1}';
 
@@ -66,7 +73,7 @@ test("channels: webhook_in verifies HMAC over raw body (good and bad paths)", as
     () => service.receiveWebhook(id, rawText, hmac("wrong", rawText)),
     { code: "CHANNEL_BAD_SIGNATURE" },
   );
-  const ok = await service.receiveWebhook(id, rawText, hmac("s3cr3t", rawText));
+  const ok = await service.receiveWebhook(id, rawText, hmac("s3cr3t-514", rawText));
   assert.equal(ok.ok, true);
 
   const events = service.recentEvents();
@@ -76,15 +83,31 @@ test("channels: webhook_in verifies HMAC over raw body (good and bad paths)", as
 
 test("channels: webhook_in rate limit trips at 60/min", async (t) => {
   const { service } = await fixture(t);
-  const channel = await service.create({ type: "webhook_in", name: "限流", config: { secret: "s" } });
+  const channel = await service.create({ type: "webhook_in", name: "限流", config: { secret: "rate-limit-secret" } });
   const rawText = "x";
-  const signature = hmac("s", rawText);
+  const signature = hmac("rate-limit-secret", rawText);
   for (let index = 0; index < 60; index += 1) {
     await service.receiveWebhook(channel.id, rawText, signature);
   }
   await assert.rejects(
     () => service.receiveWebhook(channel.id, rawText, signature),
     { code: "CHANNEL_RATE_LIMITED" },
+  );
+});
+
+test("channels: webhook_in create/update enforce 8+ char secret (parity with probe and UI)", async (t) => {
+  const { service } = await fixture(t);
+  await assert.rejects(
+    () => service.create({ type: "webhook_in", config: { secret: "short" } }),
+    { code: "CHANNEL_CONFIG" },
+  );
+  const channel = await service.create({ type: "webhook_in", config: { secret: "long-enough-514" } });
+  // 掩码回传不算改动；真实新值低于下限必须拒写
+  const masked = await service.update(channel.id, { config: { secret: "***" } });
+  assert.equal(masked.config.secret, "***");
+  await assert.rejects(
+    () => service.update(channel.id, { config: { secret: "tiny" } }),
+    { code: "CHANNEL_CONFIG" },
   );
 });
 

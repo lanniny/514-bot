@@ -1,6 +1,7 @@
 import { connect } from "node:net";
 import { performance } from "node:perf_hooks";
 import { getGlobalDispatcher, ProxyAgent, setGlobalDispatcher } from "undici";
+import { assertHostAllowed } from "../security/egress-guard.mjs";
 
 const DIRECT_DISPATCHER = getGlobalDispatcher();
 const LOOPBACKS = new Set(["127.0.0.1", "::1", "localhost"]);
@@ -113,6 +114,13 @@ function validateTarget(value) {
     fail("proxy test target must use https (http is allowed only for loopback)", "UPSTREAM_PROXY_TEST_TARGET_FORBIDDEN", 403);
   }
   if (url.username || url.password) fail("proxy test target must not contain credentials", "UPSTREAM_PROXY_TEST_TARGET_FORBIDDEN", 403);
+  // F-044：探测目标是让「代理去连它」，天然是个出站探针。用 lan 策略保留
+  // 上面那条 loopback 豁免，同时挡掉云元数据与保留段。
+  try {
+    assertHostAllowed(url.hostname, { policy: "lan" });
+  } catch (error) {
+    fail(`proxy test target is not publicly routable: ${error.message}`, "UPSTREAM_PROXY_TEST_TARGET_FORBIDDEN", 403);
+  }
   return url.href;
 }
 

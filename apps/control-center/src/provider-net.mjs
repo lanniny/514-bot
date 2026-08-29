@@ -7,9 +7,30 @@
 // ⑤ testConfig 真实小请求 → testModelRequest（claude /v1/messages、openai /chat/completions）
 import { Worker } from "node:worker_threads";
 import { codexBaseUrl } from "./providers.mjs";
+import { assertHostAllowed } from "./security/egress-guard.mjs";
 
 function fail(message, code) {
   throw Object.assign(new Error(message), { code });
+}
+
+/**
+ * 自建端点守卫（F-044）。
+ *
+ * base_url / 候选端点列表都是用户可编辑输入，等于把「让本机去请求任意地址」
+ * 的能力交了出去；而 testEndpoints 还会把延迟和 HTTP 状态回显出来，天然构成
+ * 内网测绘探针。
+ *
+ * 这里用 `lan` 策略：环回与私网段放行（Ollama / LM Studio / 公司内网网关是
+ * 正当用法，一刀切会直接弄坏产品），云元数据 169.254.169.254、链路本地、
+ * RFC2544 测速段这类**不存在正当模型服务**的地址一律拒绝。
+ */
+function assertProviderHostAllowed(parsed, label) {
+  try {
+    assertHostAllowed(parsed.hostname, { policy: "lan" });
+  } catch (error) {
+    fail(`${label}指向了不允许的地址：${error.message}`, "PROVIDER_TARGET_BLOCKED");
+  }
+  return parsed;
 }
 
 const clampTimeout = (secs, fallback = 8) => {
@@ -183,6 +204,8 @@ export async function fetchProviderModels({
   if (!key) fail("API Key 不能为空", "VALIDATION_FAILED");
   const userAgent = String(customUserAgent ?? "").trim();
   if (userAgent.length > 200 || /[\r\n]/.test(userAgent)) fail("User-Agent 必须是 200 字符以内的单行文本", "VALIDATION_FAILED");
+  // 候选地址全部由 baseUrl 推导，且请求头带 apiKey —— 在派生之前就审掉
+  assertProviderHostAllowed(parseUrl(String(baseUrl ?? "").trim(), "base_url 无效"), "base_url");
   const candidates = buildModelsUrlCandidates(baseUrl, { isFullUrl });
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.min(30000, Math.max(100, Number(timeoutMs) || MODEL_FETCH_TIMEOUT_MS)));
@@ -230,6 +253,11 @@ export async function testEndpoints(urls, timeoutSecs = 8) {
     }
     if (!/^https?:$/.test(parsed.protocol)) return { url, latency: null, status: null, error: "仅支持 http(s) URL" };
     try {
+      assertProviderHostAllowed(parsed, "候选端点");
+    } catch (error) {
+      return { url, latency: null, status: null, error: error.message };
+    }
+    try {
       const first = withTimeoutSignal(timeout);
       await fetch(parsed, { signal: first.signal, redirect: "manual" }).then((r) => r.arrayBuffer().catch(() => {})).catch(() => {});
       first.done();
@@ -264,6 +292,7 @@ export async function checkReachability(baseUrl, testConfig = {}) {
   if (!url) fail("base_url 为空", "VALIDATION_FAILED");
   const parsed = parseUrl(url, "base_url 无效");
   if (!/^https?:$/.test(parsed.protocol)) fail("base_url 必须是 http(s)", "VALIDATION_FAILED");
+  assertProviderHostAllowed(parsed, "base_url");
   const timeoutSecs = clampTimeout(testConfig.timeoutSecs, 8);
   const maxRetries = Math.min(5, Math.max(0, Number(testConfig.maxRetries) || 0));
   const degradedThresholdMs = Math.min(60000, Math.max(100, Number(testConfig.degradedThresholdMs) || 6000));
@@ -412,6 +441,9 @@ function validateBaseUrl(baseUrl) {
 /** validate_request_url 复刻：HTTPS 强制 + 非 custom 同源同端口（port_or_known_default 语义）。 */
 function validateRequestUrl(requestUrl, baseUrl, isCustomTemplate) {
   const parsedRequest = parseUrl(requestUrl, "无效的请求 URL");
+  // 自建端点守卫：custom 模板会跳过下面的同源校验，请求地址完全由脚本决定，
+  // 而请求头里带着 apiKey / accessToken —— 必须挡住元数据与保留段目标。
+  assertProviderHostAllowed(parsedRequest, "用量脚本请求地址");
   if (!isCustomTemplate && parsedRequest.protocol !== "https:" && !isLoopbackHost(parsedRequest)) {
     fail("请求 URL 必须使用 HTTPS 协议（localhost 除外）", "USAGE_HTTPS_REQUIRED");
   }
@@ -607,6 +639,8 @@ export async function defaultBillingProbe(provider, fetchImpl = fetch) {
   if (!baseUrl || !/^https?:\/\//i.test(baseUrl)) {
     return { success: false, data: null, error: "供应商缺少请求地址，无法查询余额", code: "BALANCE_UNSUPPORTED" };
   }
+  // 余额探测会把 Bearer apiKey 发往该地址，守卫不能省
+  assertProviderHostAllowed(parseUrl(baseUrl, "无效的 base_url"), "base_url");
   if (!apiKey) {
     return { success: false, data: null, error: "供应商缺少 API Key，无法查询余额", code: "BALANCE_UNSUPPORTED" };
   }
@@ -744,6 +778,7 @@ export async function testModelRequest(provider, app) {
   const baseUrl = trimUrl(provider.baseUrl);
   if (!baseUrl) fail("provider 缺少 baseUrl，无法发起模型测试", "VALIDATION_FAILED");
   if (!provider.apiKey) fail("provider 缺少 apiKey，无法发起模型测试", "VALIDATION_FAILED");
+  assertProviderHostAllowed(parseUrl(baseUrl, "base_url 无效"), "base_url");
 
   const appConfig = provider.meta?.appConfig?.[app] ?? {};
   const settingsConfig = appConfig.settingsConfig ?? {};

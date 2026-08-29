@@ -12,6 +12,7 @@ import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { appendFile, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { scrub } from "./redaction.mjs";
+import { assertEgressAllowed, assertHostAllowed } from "./security/egress-guard.mjs";
 
 const CHANNEL_TYPES = new Set(["telegram", "webhook_out", "webhook_in"]);
 const EVENTS_CAP = 500;
@@ -41,6 +42,10 @@ export function normalizeWebhookUrl(value) {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw channelError("CHANNEL_CONFIG", "出站 Webhook 只接受 http 或 https");
   }
+  // F-044 SSRF：只查协议等于没查。目标必须不是环回/内网/链路本地（云元数据），
+  // 否则用户可以借服务端之手去打 169.254.169.254 或本机控制面 127.0.0.1:51400。
+  // 这里只挡 IP 字面量与保留域名；普通域名由发送前的 assertEgressAllowed 解析 DNS 后判决。
+  assertHostAllowed(parsed.hostname);
   return parsed.toString();
 }
 
@@ -61,7 +66,16 @@ export function publicChannel(channel) {
   return published;
 }
 
-export function createChannelService({ dataRoot, eventStore = null, fetchImpl = globalThis.fetch, pollIdleMs = 500 } = {}) {
+export function createChannelService({
+  dataRoot,
+  eventStore = null,
+  fetchImpl = globalThis.fetch,
+  pollIdleMs = 500,
+  // DNS 注入点：出站守卫要靠解析结果判断目标是否安全，测试必须能替换掉真实 DNS。
+  // 本机若开了 fake-ip 代理（Clash 一类，常见 198.18.0.0/15），真实 DNS 会把
+  // 所有域名解析到保留段，导致守卫一律误报——因此生产环境也可能需要显式注入。
+  dnsLookup = null,
+} = {}) {
   const root = String(dataRoot);
   const storePath = join(root, "channels.json");
   const eventsPath = join(root, "channel-events.jsonl");
@@ -89,9 +103,10 @@ export function createChannelService({ dataRoot, eventStore = null, fetchImpl = 
 
   function persist() {
     const payload = JSON.stringify({ schema: "514cc.channels/v1", channels: [...state.channels.values()] }, null, 2);
+    // pid+uuid 临时名：固定 `.tmp` 在跨进程/崩溃残留场景会互相踩写（对齐全仓原子写惯例）
+    const tmp = `${storePath}.${process.pid}.${randomUUID()}.tmp`;
     state.writeChain = state.writeChain.then(async () => {
       await mkdir(dirname(storePath), { recursive: true });
-      const tmp = `${storePath}.tmp`;
       await writeFile(tmp, payload, "utf8");
       await rename(tmp, storePath);
     });
@@ -122,6 +137,19 @@ export function createChannelService({ dataRoot, eventStore = null, fetchImpl = 
     for (const channel of state.channels.values()) {
       if (channel.type === "telegram" && channel.enabled) startTelegramPoller(channel.id);
     }
+    // 事件时间线回填：jsonl 是 append-only 账本（recordEvent），此前只写不读——重启后
+    // 「最近事件」归零、文件却无限增长。读尾部恢复最近事件，损坏行跳过。
+    try {
+      const raw = await readFile(eventsPath, "utf8");
+      const lines = raw.split("\n").filter(Boolean);
+      for (const line of lines.slice(-EVENTS_CAP)) {
+        try {
+          const event = JSON.parse(line);
+          if (event && typeof event === "object") state.events.push(event);
+        } catch { /* 单行损坏不致命 */ }
+      }
+      if (state.events.length > EVENTS_CAP) state.events.splice(0, state.events.length - EVENTS_CAP);
+    } catch { /* 无历史文件属正常首启 */ }
     return service;
   }
 
@@ -139,6 +167,8 @@ export function createChannelService({ dataRoot, eventStore = null, fetchImpl = 
     if (type === "telegram" && !config.token) throw channelError("CHANNEL_CONFIG", "telegram channel requires config.token");
     if (type === "webhook_out" && !config.url) throw channelError("CHANNEL_CONFIG", "webhook_out channel requires config.url");
     if (type === "webhook_in" && !config.secret) throw channelError("CHANNEL_CONFIG", "webhook_in channel requires config.secret");
+    // 与 probe() 同口径：跳过验通直接创建也不得落下弱签名密钥
+    if (type === "webhook_in" && String(config.secret).trim().length < 8) throw channelError("CHANNEL_CONFIG", "验签 Secret 至少 8 位");
     const nextConfig = { ...config };
     if (type === "webhook_out") nextConfig.url = normalizeWebhookUrl(config.url);
     const channel = {
@@ -170,6 +200,10 @@ export function createChannelService({ dataRoot, eventStore = null, fetchImpl = 
       }
       channel.config = merged;
     }
+    // 更新入口同样守住最小密钥长度（跳过掩码未改动的旧值不受影响）
+    if (channel.type === "webhook_in" && String(channel.config.secret ?? "").trim().length < 8) {
+      throw channelError("CHANNEL_CONFIG", "验签 Secret 至少 8 位");
+    }
     if (patch.enabled != null) channel.enabled = Boolean(patch.enabled);
     await persist();
     if (channel.type === "telegram") {
@@ -197,7 +231,10 @@ export function createChannelService({ dataRoot, eventStore = null, fetchImpl = 
     const signature = channel.config.secret ? hmacSha256(channel.config.secret, bodyText) : null;
     const headers = { "content-type": "application/json" };
     if (signature) headers["x-signature-sha256"] = signature;
-    const response = await fetchImpl(channel.config.url, { method: "POST", headers, body: bodyText });
+    // F-044：配置期只挡得住 IP 字面量。域名随时可能被 DNS 重绑定到内网，
+    // 所以真正发送前必须解析 DNS 再判一次（防 TOCTOU / DNS rebinding）。
+    const url = await assertEgressAllowed(channel.config.url, { dnsLookup });
+    const response = await fetchImpl(url, { method: "POST", headers, body: bodyText });
     await recordEvent({ kind: "outbound", channelId: channel.id, type: channel.type, status: response?.status ?? 0 });
     return { ok: Boolean(response?.ok), status: response?.status ?? 0 };
   }
@@ -223,7 +260,8 @@ export function createChannelService({ dataRoot, eventStore = null, fetchImpl = 
       };
     }
     if (type === "webhook_out") {
-      const url = normalizeWebhookUrl(config.url);
+      // 探测同样会真的把请求发出去，是带回显的 SSRF 面，必须走同一道出站守卫
+      const url = await assertEgressAllowed(normalizeWebhookUrl(config.url), { dnsLookup });
       const body = JSON.stringify({ type: "514cc.channel.probe", at: new Date().toISOString() });
       const headers = { "content-type": "application/json" };
       if (config.secret) headers["x-signature-sha256"] = hmacSha256(config.secret, body);
