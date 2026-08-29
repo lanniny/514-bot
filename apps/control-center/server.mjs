@@ -30,6 +30,7 @@ import { createAgentControlActionRunner } from "./src/agent-actions.mjs";
 import { buildNativeSettings, hasNativeSettingsAgent } from "./src/cli-config-panel.mjs";
 import { ResponseLeaseLimiter } from "./src/response-limiter.mjs";
 import { collectPulseSnapshot } from "./src/pulse.mjs";
+import { handleHealthz, handleReadyz, createReadinessChecker, traceIdFromRequest, collectCrashSnapshot, writeCrashSnapshot } from "./src/observability-probes.mjs";
 import { eventForUi } from "./src/event-view.mjs";
 import { auditBusDiagnostics, MISSION_CONTROL_LIMITS, projectMissionControl } from "./src/mission-control.mjs";
 import { collectTeamInbox, INBOX_LIMITS } from "./src/collaboration-inbox.mjs";
@@ -90,6 +91,11 @@ function logKernelFatal(kind, error) {
 }
 process.on("uncaughtException", (error) => {
   logKernelFatal("uncaughtException", error);
+  // F-063 崩溃快照：uncaughtException 时写 JSON 诊断文件（同步，写完再退出）
+  try {
+    const snapshot = collectCrashSnapshot({ pid: process.pid });
+    writeCrashSnapshot(snapshot, join(process.env.CC_ROOT || appRoot, ".scratch", "crash-snapshots"));
+  } catch { /* 崩溃路径不能再抛 */ }
   process.exit(1);
 });
 process.on("unhandledRejection", (reason) => {
@@ -1041,7 +1047,7 @@ function secretReferenceStatus(health) {
 function statusFor(error) {
   if (error.httpStatus) return error.httpStatus; // 渠道/office 等自带语义化状态码的错误，避免误报 500
   if (["CHANNEL_NOT_FOUND"].includes(error.code)) return 404;
-  if (["CHANNELS_STORE_UNAVAILABLE"].includes(error.code)) return 503;
+  if (["CHANNELS_STORE_UNAVAILABLE", "APPROVAL_AUDIT_TIMEOUT"].includes(error.code)) return 503;
   if (["SOURCE_NOT_FOUND", "RUN_NOT_FOUND", "PROJECT_NOT_FOUND", "CONVERSATION_NOT_FOUND", "VERSION_NOT_FOUND", "APPROVAL_NOT_FOUND", "LEASE_NOT_FOUND", "AUTOMATION_NOT_FOUND", "RUNTIME_SEAT_NOT_FOUND", "REMOTE_HOST_NOT_FOUND", "BACKUP_NOT_FOUND", "MODEL_FETCH_NOT_FOUND", "AVATAR_NOT_FOUND", "BACKGROUND_NOT_FOUND", "SSH_NOT_FOUND"].includes(error.code)) return 404;
   if (["STALE_BASE", "RUN_ACTIVE", "RUN_TERMINAL", "RUN_INTERRUPTING", "TURN_ACTIVE", "CONTROL_TRANSITION_FORBIDDEN", "APPROVAL_HASH_MISMATCH", "APPROVAL_IN_PROGRESS", "PLAN_REQUIRED", "PLAN_MISMATCH", "PLAN_EXPIRED", "PLAN_STALE", "APPROVAL_REQUIRED", "RECOVERY_REQUIRED", "RUNTIME_BUSY", "AGENT_ACTION_BUSY", "AUTOMATION_BUSY", "AUTOMATION_RECOVERY_REQUIRED", "PREFS_REVISION_MISMATCH", "PROJECT_REVISION_MISMATCH", "PROJECT_ID_CONFLICT", "PROJECT_DEFAULT_CONVERSATION_CONFLICT", "PROJECT_ARCHIVED", "CONVERSATION_REVISION_MISMATCH", "CONVERSATION_STORE_REVISION_MISMATCH", "WORKSPACE_CONVERSATION_CONFLICT", "RUN_CONVERSATION_CONFLICT", "CONVERSATION_DELETED", "CONVERSATION_MEMBERS_CHANGED", "MCP_RESTORE_CONFLICT", "MCP_QUARANTINE_CONFLICT", "MCP_SOURCE_CONFLICT", "SKILL_EXISTS", "TEAM_CATALOG_CONFLICT", "MEMBER_IN_USE", "MEMBER_RUNTIME_CONFLICT", "RUNTIME_SEAT_EXISTS", "RUNTIME_SEAT_IN_USE", "PROVIDER_IN_USE", "PROVIDER_RESERVED_NAME", "ASK_NOT_PENDING", "ASK_MISMATCH", "ASK_OWNER_MISMATCH", "ANSWER_IN_PROGRESS", "DUPLICATE_MESSAGE", "GIT_ACTION_FAILED", "REMOTE_HOST_DISABLED", "BACKUP_TARGET_CHANGED", "CODEX_MODEL_CATALOG_CONFLICT", "SSH_HOST_DISABLED", "OFFICE_FILE_EXISTS", "WORKSPACE_VERSION_CONFLICT"].includes(error.code)) return 409;
   if (["CONFIRMATION_REQUIRED", "DEPLOYMENT_REQUIRED", "READ_ONLY_SOURCE", "FROZEN_BLOCK", "SFTP_PATH_BOUNDARY", "SFTP_BAD_PATH"].includes(error.code)) return 403;
@@ -1053,7 +1059,7 @@ function statusFor(error) {
   if (error.code === "MODEL_FETCH_TIMEOUT") return 504;
   if (["PROVIDER_TURN_INCOMPLETE", "MODEL_FETCH_UNAUTHORIZED", "MODEL_FETCH_UPSTREAM_FAILED", "MODEL_FETCH_REDIRECT_BLOCKED", "MODEL_FETCH_REDIRECT_LIMIT", "SFTP_FAILED", "SSH_CONNECT_FAILED"].includes(error.code)) return 502;
   if (error.code === "OUTPUT_LIMIT") return 413;
-  if (["AGENT_ACTION_CAPACITY", "MODEL_DISCOVERY_CAPACITY"].includes(error.code)) return 429;
+  if (["AGENT_ACTION_CAPACITY", "MODEL_DISCOVERY_CAPACITY", "APPROVAL_CAPACITY"].includes(error.code)) return 429;
   if (["EVENT_INDEX_BUSY", "HEALTH_PROBE_BUSY", "TEAM_STORE_UNAVAILABLE", "PROJECT_STORE_UNAVAILABLE", "CONVERSATION_STORE_UNAVAILABLE", "CONVERSATION_CONTEXT_STORE_UNAVAILABLE", "TRANSACTION_INCONSISTENT", "MEMBER_REFERENCE_CHECK_FAILED", "PROVIDER_REFERENCE_CHECK_FAILED", "REMOTE_UNAVAILABLE", "SSH_UNAVAILABLE"].includes(error.code)) return 503;
   if ([
     "AUTOMATION_STORE_CORRUPT",
@@ -2700,7 +2706,16 @@ if (request.method === "DELETE" && conversationMatch) {
 
   let match = pathname.match(/^\/api\/approvals\/([^/]+)\/resolve$/);
   if (request.method === "POST" && match) {
-    const resolution = await state.approvalBroker.resolve(decodeURIComponent(match[1]), await body(request));
+    const payload = await body(request);
+    const resolution = await state.approvalBroker.resolve(decodeURIComponent(match[1]), {
+      ...payload,
+      // F-047：actor 不接受请求体自证。控制面只有一份共享 bearer 凭证（/api 全局门已校验），
+      // 所有持有者等价，鉴别不到具体的人 —— 所以账本只写"经本地凭证"，由服务端盖章；
+      // 请求体自称的身份另存 clientActor 留档，事后审计不得把它当作身份证据。
+      actor: "local-operator",
+      actorSource: "local-bearer",
+      clientActor: typeof payload?.actor === "string" ? payload.actor.slice(0, 128) : null,
+    });
     let lease = null;
     if (resolution.decision === "approve" && resolution.method === "control/runBuild/requestApproval" && resolution.runId) {
       // The approval promise wakes Orchestrator asynchronously. Return only its authoritative,
@@ -3020,10 +3035,17 @@ if (request.method === "DELETE" && conversationMatch) {
   return json(response, 404, { error: { code: "NOT_FOUND", message: "API route not found" } });
 }
 
+const readiness = createReadinessChecker();
+let serverReady = false;
+
 const server = createServer(async (request, response) => {
-  const requestId = randomUUID();
+  const requestId = traceIdFromRequest(request);
+  response.setHeader("x-request-id", requestId);
   try {
     const url = new URL(request.url || "/", `http://${request.headers.host || host}`);
+    // F-060 健康探针（无认证，K8s/桌面壳标准 liveness + readiness）
+    if (request.method === "GET" && url.pathname === "/healthz") return handleHealthz(response);
+    if (request.method === "GET" && url.pathname === "/readyz") return await handleReadyz(response, readiness);
     if (request.method === "POST" && url.pathname === "/auth/bootstrap") {
       const payload = await body(request, 4 * 1024);
       if (bootstrapConsumed || Date.now() > bootstrapExpiresAt || !secretEquals(payload.nonce, bootstrapNonce)) {
@@ -3094,8 +3116,14 @@ const server = createServer(async (request, response) => {
   }
 });
 
+// F-060 就绪检查注册：核心服务初始化完成后 /readyz 才返回 200
+readiness.register("event-store", () => Boolean(state.eventStore));
+readiness.register("orchestrator", () => Boolean(state.orchestrator));
+readiness.register("health-service", () => Boolean(state.healthService));
+
 let actualPort = null;
 server.listen(port, host, () => {
+  serverReady = true;
   const address = server.address();
   actualPort = typeof address === "object" && address ? address.port : port;
   const url = `http://${host}:${actualPort}/#bootstrap=${bootstrapNonce}`;
