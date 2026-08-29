@@ -80,3 +80,41 @@ test("collectRunSettlement probes diff only when asked and never merges", async 
   assert.equal(skipped.verdict, "partial");
   assert.ok(skipped.risks.some((item) => item.id === "diff-unprobed"));
 });
+
+test("collectRunSettlement projects only run-matching handoff and DELTA evidence", async () => {
+  const record = await collectRunSettlement({
+    run: { ...WORKTREE_RUN, title: "settlement-1 delivery" },
+    handoffs: [
+      { name: "codex-to-claude__run-settlement-1__20260822-1200.md", modifiedAt: "2026-08-22T12:00:00.000Z", exists: true },
+      { name: "codex-to-claude__other-run__20260822-1201.md", modifiedAt: "2026-08-22T12:01:00.000Z", exists: true },
+    ],
+    deltas: [
+      { id: "handoff#1", agent: "烛", score: 1, topic: "settlement-1", evidence: "run-settlement-1 diff" },
+      { id: "handoff#2", agent: "烛", score: 1, topic: "other-run", evidence: "unrelated" },
+    ],
+  });
+  assert.equal(record.artifacts.length, 2);
+  assert.deepEqual(record.artifacts.map((artifact) => artifact.kind), ["handoff", "delta"]);
+  assert.ok(record.artifacts.every((artifact) => artifact.published === false));
+});
+
+test("evidence source failures block settlement instead of looking reviewable", () => {
+  const record = synthesizeRunSettlement({
+    run: WORKTREE_RUN,
+    diffSummary: { available: true, dirty: true },
+    evidenceSource: {
+      status: "unavailable",
+      issues: [{ id: "handoffs", ok: false, reason: "permission denied" }],
+    },
+  });
+  assert.equal(record.verdict, "blocked");
+  assert.equal(record.risks[0].id, "handoffs");
+  assert.match(record.nextAction.reason, /permission denied/);
+});
+
+test("missing run is represented by the HTTP layer as RUN_NOT_FOUND-compatible input", () => {
+  const record = synthesizeRunSettlement({ run: null });
+  assert.equal(record.verdict, "unknown");
+  assert.equal(record.runId, null);
+  assert.equal(record.risks[0].id, "missing-run");
+});

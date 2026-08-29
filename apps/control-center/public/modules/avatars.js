@@ -17,7 +17,9 @@ export const MAX_AVATAR_FILE_BYTES = 1024 * 1024;
 
 export function officialCliIconMarkup(brand, className = "cli-logo") {
   const icon = CLI_BRAND_ICONS[brand];
-  return icon ? `<svg class="${className}" aria-hidden="true"><use href="#${icon}"></use></svg>` : "";
+  return icon
+    ? `<svg class="${escapeAttr(`${className} cli-brand-${brand}`)}" data-cli-brand="${escapeAttr(brand)}" aria-hidden="true"><use href="#${icon}"></use></svg>`
+    : "";
 }
 
 export function brandForMember(member = {}) {

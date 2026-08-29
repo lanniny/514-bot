@@ -141,7 +141,7 @@ function configSyncResultMarkup(result) {
     const suffix = entry?.ok === true
       ? `（${String(entry?.bytes ?? 0)}B）`
       : `：${String(entry?.error ?? "未知错误")}`;
-    return `${entry?.ok === true ? "✓" : "✗"} ${String(label)} → ${String(remote)}${suffix}`;
+    return `${entry?.ok === true ? "已写入" : "失败"} ${String(label)} → ${String(remote)}${suffix}`;
   }).join("\n");
   return {
     complete,
@@ -752,7 +752,7 @@ async function openSyncConfigDialog(root, host) {
       <button type="button" class="icon-button" data-act="cancel" aria-label="关闭对话框" title="关闭">${lucideIcon("x", "icon lucide")}</button>
     </div>
     <div class="dialog-body">
-      <p class="subtle">推送本机运行时实况文件到远端 <code>$HOME</code> 同名路径（整文件覆盖远端同名文件）。凭据文件（auth.json / .env）永不在清单内。</p>
+      <p class="subtle">推送本机运行时实况文件到远端用户主目录同名路径（整文件覆盖远端同名文件）。凭据文件（auth.json / .env）永不在清单内。</p>
       <div class="sshconn-sync-list">
         ${files.map((file) => `
           <label class="sshconn-sync-row${file.exists ? "" : " is-missing"}">

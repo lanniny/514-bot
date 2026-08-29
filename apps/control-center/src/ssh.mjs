@@ -27,6 +27,22 @@ function sshError(code, message, httpStatus = 400) {
   return Object.assign(new Error(message), { code, httpStatus });
 }
 
+/**
+ * 台账 host/user 的 argv 安全形：拼进 `${user}@${host}` 单个 argv 后不能以 "-" 开头
+ * （否则 OpenSSH 把整个 token 当选项解析，如 -oProxyCommand=…），也不允许空白/控制字符。
+ */
+const SSH_USER_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$/;
+const SSH_HOST_PATTERN = /^[A-Za-z0-9._:\[%][A-Za-z0-9._:%\[\]-]{0,252}$/;
+
+export function assertSshIdentityShape(host, user) {
+  if (!SSH_USER_PATTERN.test(String(user))) {
+    throw sshError("SSH_BAD_USER", `ssh user failed safe argv shape: ${JSON.stringify(String(user).slice(0, 40))}`);
+  }
+  if (!SSH_HOST_PATTERN.test(String(host))) {
+    throw sshError("SSH_BAD_HOST", `ssh host failed safe argv shape: ${JSON.stringify(String(host).slice(0, 80))}`);
+  }
+}
+
 async function readJson(path, fallback) {
   try {
     return JSON.parse(await readFile(path, "utf8"));
@@ -103,6 +119,7 @@ export function createSshService({
 
   async function create({ name, host, port = 22, user, auth = {}, rootAllowlist = [], enabled = true, identityFile = null } = {}) {
     if (!host || !user) throw sshError("SSH_BAD_HOST", "host and user are required");
+    assertSshIdentityShape(host, user);
     const id = randomUUID().slice(0, 8);
     let authRef = null;
     if (auth.password || auth.privateKey) {
@@ -206,6 +223,7 @@ export function createSshService({
     // 远程探测实测回写的远端 $HOME（POSIX 或 Windows 盘符形态）：SFTP 围栏根的准确来源
     if (typeof fields.home === "string" && (/^\//.test(fields.home) || /^[A-Za-z]:[\\/]/.test(fields.home))) next.home = fields.home;
     const endpointChanged = (next.host && next.host !== entry.host) || (next.port && next.port !== entry.port);
+    if (next.host || next.user) assertSshIdentityShape(next.host ?? entry.host, next.user ?? entry.user);
     Object.assign(entry, next);
     dropPooled(id);
     if (endpointChanged) {

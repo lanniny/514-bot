@@ -467,7 +467,21 @@ export function mountHooksPanel({
     }
     try {
       if (state.editing?.id) {
-        if (state.editing.protected) payload.confirmProtected = true;
+        // 治理钩子改写必须过显式确认（与删除同礼）：此前静默带 confirmProtected，一次误点保存即改写守卫命令
+        if (state.editing.protected) {
+          const ok = await ask({
+            title: "改写这条治理钩子？",
+            rows: [["事件", state.editing.event], ["命令", state.editing.command || state.editing.url]],
+            warning: "这是 514cc route/stop/mirror-gate。保存会立即改写守卫命令，可能改变路由/门禁行为。",
+            confirmLabel: "确认改写",
+            danger: true,
+          });
+          if (!ok) return;
+          payload.confirmProtected = true;
+        }
+        // CAS：带当前台账 mtime，表单基于的文件被外部改写时服务端拒写（STALE_BASE）
+        const store = storeById(payload.store);
+        if (store?.mtimeMs != null) payload.knownMtimeMs = store.mtimeMs;
         const listed = await request(`/api/hooks/${encodeURIComponent(state.editing.id)}`, { method: "PUT", body: payload });
         state.items = listed.items ?? [];
         state.stores = listed.stores ?? state.stores;
@@ -502,7 +516,7 @@ export function mountHooksPanel({
     try {
       const listed = await request(`/api/hooks/${encodeURIComponent(id)}`, {
         method: "DELETE",
-        body: { confirmProtected: item.protected },
+        body: { confirmProtected: item.protected, knownMtimeMs: storeById(item.store)?.mtimeMs },
       });
       state.items = listed.items ?? [];
       state.stores = listed.stores ?? state.stores;

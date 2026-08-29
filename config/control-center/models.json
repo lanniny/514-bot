@@ -12,12 +12,12 @@
       "provider": "anthropic",
       "adapter": "claude-stream-json",
       "command": "claude",
-      "model": "fable",
+      "model": null,
       "systemPromptFile": "config/control-center/claude-coordinator.md",
       "capabilities": [
         "*"
       ],
-      "defaultPermissionMode": "plan",
+      "defaultPermissionMode": "workspace-write",
       "quality": 0.96,
       "speed": 0.68,
       "costTier": 4,
@@ -68,7 +68,10 @@
         "high",
         "xhigh",
         "max"
-      ]
+      ],
+      "providerId": null,
+      "defaultEffort": "max",
+      "coordinatorEligible": true
     },
     {
       "id": "codex-technical",
@@ -264,6 +267,11 @@
           "detail": "Grok 4.5 model capability is distinct from optional Web/X Search tool capability",
           "url": "https://docs.x.ai/developers/models",
           "verifiedAt": "2026-07-15"
+        },
+        {
+          "source": "local-cli",
+          "detail": "~/.grok/docs/user-guide/04-slash-commands.md:120-122 /effort 菜单四档实证（low/medium/high/xhigh）；grok 1.0.5 --permission-mode 六档见 22-permissions-and-safety.md:33-42",
+          "verifiedAt": "2026-08-27"
         }
       ],
       "modelOptions": [
@@ -278,7 +286,9 @@
       ],
       "effortLevels": [
         "low",
-        "high"
+        "medium",
+        "high",
+        "xhigh"
       ],
       "defaultEffort": null
     },

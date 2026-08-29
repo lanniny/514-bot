@@ -1,50 +1,87 @@
 /**
  * Provider-native resume commands for multi-CLI sessions.
- * Fail-closed: unknown providers get canResume=false.
+ * Prefer server-truth (`run.resumeHints` / runtimeProfileId). Prefix guessing is
+ * only a last-resort fallback for builtin ids when the roster is missing.
  */
 
-export function resumeHintsFromSessions(sessions = {}) {
+const CODEX_RESUME_UUID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+
+const RESUME_BY_ADAPTER = Object.freeze({
+  "claude-stream-json": { protocol: "claude-stream-json", command: "claude", args: (sessionId) => ["-r", sessionId] },
+  "codex-app-server": { protocol: "codex-app-server", command: "codex", args: (sessionId) => ["resume", codexId(sessionId)] },
+  "codex-exec-json": { protocol: "codex-exec-json", command: "codex", args: (sessionId) => ["resume", codexId(sessionId)] },
+  "gemini-stream-json": { protocol: "gemini-stream-json", command: "gemini", args: (sessionId) => ["--resume", sessionId] },
+  "grok-build-headless": { protocol: "grok-build-headless", command: "grok", args: (sessionId) => ["-r", sessionId] },
+  "kimi-headless-resume": { protocol: "kimi-headless-resume", command: "kimi", args: (sessionId) => ["-S", sessionId] },
+  "opencode-run-json": { protocol: "opencode-run-json", command: "opencode", args: (sessionId) => ["--session", sessionId] },
+  "pi-rpc": { protocol: "pi-rpc", command: "pi", args: (sessionId) => ["--session-id", sessionId] },
+});
+
+const PROFILE_TO_ADAPTER = Object.freeze({
+  "claude-fable": "claude-stream-json",
+  "codex-technical": "codex-app-server",
+  "codex-technical-fallback": "codex-exec-json",
+  "gemini-research": "gemini-stream-json",
+  "grok-build": "grok-build-headless",
+  "kimi-frontend": "kimi-headless-resume",
+  "pi-resident": "pi-rpc",
+});
+
+function codexId(sessionId) {
+  const match = CODEX_RESUME_UUID.exec(String(sessionId ?? ""));
+  return match ? match[1] : String(sessionId ?? "");
+}
+
+function guessAdapterId(agentId) {
+  const id = String(agentId || "");
+  if (id.startsWith("claude") || id.includes("fable")) return "claude-stream-json";
+  if (id.startsWith("codex")) return "codex-app-server";
+  if (id.startsWith("kimi")) return "kimi-headless-resume";
+  if (id.startsWith("grok-build") || id.includes("grok-build")) return "grok-build-headless";
+  if (id.startsWith("gemini")) return "gemini-stream-json";
+  if (id.startsWith("opencode")) return "opencode-run-json";
+  if (id.startsWith("pi")) return "pi-rpc";
+  return null;
+}
+
+function hintFor(agentId, sessionId, adapterId) {
+  const feature = RESUME_BY_ADAPTER[adapterId];
+  if (!feature || !sessionId) {
+    return {
+      agentId: String(agentId || ""),
+      sessionId: String(sessionId || ""),
+      protocol: adapterId || "unknown",
+      canResume: false,
+      command: null,
+      note: "no verified native resume for this adapter",
+    };
+  }
+  const command = [feature.command, ...feature.args(String(sessionId))].join(" ");
+  return {
+    agentId: String(agentId || ""),
+    sessionId: String(sessionId),
+    protocol: feature.protocol,
+    canResume: true,
+    command,
+    note: "native-session resume only; never cross-provider",
+  };
+}
+
+export function resumeHintsFromSessions(sessions = {}, { members = [] } = {}) {
+  const memberById = new Map((Array.isArray(members) ? members : []).map((item) => [String(item?.id || ""), item]));
   const hints = [];
   for (const [agentId, session] of Object.entries(sessions || {})) {
     const sessionId = typeof session === "string"
       ? session
       : (session?.sessionId || session?.id || null);
     if (!sessionId) continue;
-    const id = String(agentId || "");
-    let canResume = false;
-    let command = null;
-    let protocol = "unknown";
-    if (id.startsWith("claude") || id.includes("fable")) {
-      canResume = true;
-      protocol = "claude-stream-json";
-      command = `claude -r ${sessionId}`;
-    } else if (id.startsWith("codex")) {
-      canResume = true;
-      protocol = "codex";
-      command = `codex exec resume ${sessionId}`;
-    } else if (id.startsWith("kimi")) {
-      canResume = true;
-      protocol = "kimi";
-      command = `kimi -S ${sessionId}`;
-    } else if (id.startsWith("grok-build") || id.includes("grok-build")) {
-      canResume = true;
-      protocol = "grok-build";
-      command = `grok -r ${sessionId}`;
-    } else if (id.startsWith("pi")) {
-      canResume = false;
-      protocol = "pi-rpc";
-      command = null;
-    }
-    hints.push({
-      agentId: id,
-      sessionId: String(sessionId),
-      protocol,
-      canResume,
-      command,
-      note: canResume
-        ? "native-session resume only; never cross-provider"
-        : "no verified native resume for this adapter",
-    });
+    const member = memberById.get(String(agentId || ""));
+    const profileId = String(member?.runtimeProfileId || member?.id || agentId || "").trim();
+    const adapterId = PROFILE_TO_ADAPTER[profileId]
+      || member?.adapterId
+      || guessAdapterId(profileId)
+      || guessAdapterId(agentId);
+    hints.push(hintFor(agentId, sessionId, adapterId));
   }
   return hints;
 }

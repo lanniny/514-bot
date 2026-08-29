@@ -30,30 +30,51 @@ test("window controls sit at the end of topbar-actions, hidden by default (brows
   }
 });
 
+test("Bot default surface has its own hidden-by-default desktop window controls", async () => {
+  const html = await source("public/index.html");
+  const headerStart = html.indexOf('<header class="bot-conversation-header">');
+  const headerEnd = html.indexOf("</header>", headerStart);
+  assert.ok(headerStart > -1 && headerEnd > headerStart, "缺少 Bot 对话标题栏");
+  const header = html.slice(headerStart, headerEnd);
+  assertIncludes(header, '<span class="window-controls bot-window-controls" id="bot-window-controls" hidden', "Bot 标题栏缺少桌面窗口控件宿主");
+  for (const [id, icon] of [["bot-window-minimize", "#lucide-minus"], ["bot-window-maximize", "#lucide-square"], ["bot-window-close", "#lucide-x"]]) {
+    assertIncludes(header, `id="${id}"`, `Bot 窗口钮缺失：${id}`);
+    assertIncludes(header, icon, `Bot 窗口钮图标缺失：${icon}`);
+  }
+});
+
 test("new window-control ids are registered in the cacheElements list", async () => {
   const app = await source("public/app.js");
   const listStart = app.indexOf("function cacheElements()");
   const listEnd = app.indexOf("].forEach", listStart);
   const list = listEnd > -1 ? app.slice(listStart, listEnd) : app.slice(listStart, listStart + 12000);
-  for (const id of ["window-controls", "window-minimize", "window-maximize", "window-close"]) {
+  for (const id of ["window-controls", "window-minimize", "window-maximize", "window-close", "bot-window-controls", "bot-window-minimize", "bot-window-maximize", "bot-window-close"]) {
     assertIncludes(list, `"${id}"`, `cacheElements 未登记 ${id}（规则：新 id 必须登记）`);
   }
 });
 
-test("initializeWindowChrome guards on the Tauri bridge and wires drag + window commands", async () => {
+test("initializeWindowChrome guards on the Tauri bridge and wires desktop drag surfaces + window commands", async () => {
   const app = await source("public/app.js");
   const fnStart = app.indexOf("function initializeWindowChrome()");
   assert.ok(fnStart > -1, "缺少 initializeWindowChrome 定义");
   const fn = app.slice(fnStart, fnStart + 2800);
   assertIncludes(fn, 'const invoke = window.__TAURI_INTERNALS__?.invoke;');
-  assertIncludes(fn, 'if (typeof invoke !== "function" || !controls) return;', "浏览器模式必须早退（钮保持 hidden）");
+  assertIncludes(fn, 'if (typeof invoke !== "function" || (!controls && !botControls)) return;', "浏览器模式必须早退（钮保持 hidden）");
   assertIncludes(fn, 'document.documentElement.classList.add("is-desktop-shell");');
   assertIncludes(fn, "controls.hidden = false;");
   for (const cmd of ["plugin:window|minimize", "plugin:window|toggle_maximize", "plugin:window|close", "plugin:window|start_dragging"]) {
     assertIncludes(fn, `"${cmd}"`, `缺窗口命令：${cmd}`);
   }
+  for (const id of ["bot-window-controls", "bot-window-minimize", "bot-window-maximize", "bot-window-close"]) {
+    assertIncludes(fn, `"${id}"`, `Bot 窗口控件未接入初始化：${id}`);
+  }
   assertIncludes(fn, 'event.detail === 2 ? "plugin:window|toggle_maximize" : "plugin:window|start_dragging"', "双击应 toggle_maximize，单击 start_dragging");
-  assertIncludes(fn, 'event.target.closest("button, a, input, select, textarea, .topbar-nav, .topbar-actions")', "拖拽命中必须放行交互元素");
+  assertIncludes(fn, 'const interactiveSelector = "button, a, input, select, textarea, .topbar-nav, .topbar-actions, [contenteditable=\\"true\\"]";', "拖拽命中必须放行交互元素");
+  assertIncludes(fn, 'document.querySelectorAll(dragSurfaceSelector)', "拖拽面必须绑定到当前可见视图标题栏");
+  assertIncludes(fn, 'surface.addEventListener("pointerdown"', "拖拽面必须支持 Pointer Events");
+  for (const selector of [".bot-roster-header", ".bot-conversation-header", ".bot-panel-header"]) {
+    assertIncludes(fn, selector, `Bot 拖拽面缺失：${selector}`);
+  }
   // 启动序列：紧跟 initializeTheme 之后调用
   const boot = app.slice(app.indexOf("initializeTheme();"), app.indexOf("initializeTheme();") + 240);
   assertIncludes(boot, "initializeWindowChrome();", "启动序列未调用 initializeWindowChrome");

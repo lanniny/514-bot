@@ -504,7 +504,15 @@ export class AutomationStore {
     if (this.timer) return true;
     this.timer = setInterval(() => {
       if (this.tickPromise) return;
-      this.tickPromise = this.#tick().finally(() => { this.tickPromise = null; });
+      // tick 内部的单条触发失败已各自落账（automation.trigger_failed 等），这里兜的是
+      // 失败处理路径自身再炸（如 #commit 磁盘错误）冒泡为 unhandled rejection：
+      // 落 automation.tick_failed 事件 + stderr，吞掉二次异常，下一次 tick 照常。
+      this.tickPromise = this.#tick()
+        .catch((error) => {
+          console.error("[automations] scheduler tick crashed:", error?.stack || error);
+          return this.#emit("automation.tick_failed", { message: String(error?.message ?? error).slice(0, 200) }).catch(() => {});
+        })
+        .finally(() => { this.tickPromise = null; });
     }, this.tickMs);
     this.timer.unref?.(); // 调度器不该拖住进程退出
     return true;

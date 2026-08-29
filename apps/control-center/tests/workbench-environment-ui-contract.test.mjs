@@ -75,6 +75,10 @@ test("environment panel keeps the reference layout affordances without inventing
   assert.match(server, /readiness-unavailable/);
   assert.match(server, /\/api\/release-record/);
   assert.match(server, /\/settlement\$/);
+  assert.match(server, /state\.observability\.handoffs\(\{ limit: 80, strict: true \}\)/);
+  assert.match(server, /state\.observability\.deltaLedger\(\{ recent: 80, strict: true \}\)/);
+  assert.match(server, /handoffs: handoffs\.map\(\(file\) => \(\{ \.\.\.file, exists: true \}\)\)/);
+  assert.match(server, /deltas: Array\.isArray\(deltaLedger\?\.deltas\)/);
   assert.match(api, /releaseRecord:\s*"\/api\/release-record"/);
   assert.match(api, /runSettlement:\s*\(runId\)\s*=>/);
   assert.match(panel, /run-settlement/);

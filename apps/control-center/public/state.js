@@ -59,6 +59,7 @@ export function emptyComposerDraft() {
 // 视图标题映射
 export const VIEW_TITLES = Object.freeze({
   overview: "系统总览",
+  bot: "514 Bot",
   workbench: "协作台",
   team: "团队协作",
   channels: "渠道",
@@ -124,7 +125,7 @@ export const state = {
   sourceFilter: "",
   selectedSourceId: null,
   config: null,
-  configSurface: "providers",
+  configSurface: "sources",
   // 配置目标（v41 波六）：本机 / SSH 主机 / 远程项目；项目与主机互斥，hostId 仍供运行席位动作复用
   configHostId: null,
   configProjectId: null,
@@ -173,6 +174,7 @@ export const state = {
   diagnostics: [],
   diagnosticLog: [],
   diagnosticLogFilter: "all",
+  cliRuntimeHealth: null, // 安全诊断的 CLI 完整性计数 { broken, upgrade, missing, total } | { error } | null=未检查
   capabilitiesData: null,
   capabilitiesError: null,
   capabilityFilter: "", // Skill 矩阵筛选词；只影响展示与批量作用域，覆盖率统计始终按全集
@@ -184,6 +186,8 @@ export const state = {
   providersData: null,
   providersLoading: false,
   editingProviderId: null,
+  selectedProviderId: null,
+  providerQuery: "",
   // 供应商列表当前聚焦的 app（CC Switch 形态：一次只看一个 app）；app.js 启动时从 localStorage 回填
   providerActiveApp: "claude",
   // cc-switch 二波会话缓存：健康检查/用量/测速结果（不落盘，刷新即重查）
@@ -274,6 +278,7 @@ export const state = {
   previewSeq: 0,
   projectsSeq: 0,
   teams: [],
+  wallpaperPickerPending: null, // { kind: "preset"|"custom", value }：壁纸弹窗点选后的待应用选择，弹窗确认时消费
   teamStoreStatus: null,
   selectedTeamId: "team-514cc",
   editingTeamId: null,

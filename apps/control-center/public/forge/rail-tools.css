@@ -606,6 +606,44 @@
   white-space: nowrap;
 }
 
+/* 浏览器历史：固定星标 + 清除入口（团队需求 2026-08-27） */
+.rail-browser-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px 0;
+}
+
+.rail-browser-history li {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.rail-browser-history li.is-pinned > [data-rail-browser-open] span {
+  color: var(--text-strong);
+}
+
+.rail-browser-history .rail-browser-pin {
+  width: 24px;
+  min-height: 24px;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  opacity: 0;
+}
+
+.rail-browser-history li:hover .rail-browser-pin,
+.rail-browser-history .rail-browser-pin:focus-visible {
+  opacity: 1;
+}
+
+.rail-browser-history li.is-pinned .rail-browser-pin {
+  opacity: 1;
+  color: var(--accent, #b85c3e);
+}
+
 /* ── 文件页 ─────────────────────────────────────────── */
 
 .rail-files-head {
@@ -629,10 +667,11 @@
 }
 
 .rail-files-split {
+  container-type: inline-size;
   display: grid;
   min-height: 0;
   flex: 1 1 auto;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-rows: minmax(132px, 0.58fr) minmax(220px, 1fr);
 }
 
 .rail-files-preview {
@@ -641,14 +680,23 @@
   min-height: 0;
   flex-direction: column;
   overflow: hidden;
-  border-right: 1px solid var(--border);
+  border-top: 1px solid var(--border);
+  grid-row: 2;
 }
 
 .rail-files-preview-head {
-  display: grid;
+  display: flex;
   flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
+  gap: 8px;
+}
+
+.rail-files-preview-head > div:first-child {
+  display: grid;
+  min-width: 0;
   gap: 2px;
 }
 
@@ -663,6 +711,84 @@
 .rail-files-preview-head span {
   color: var(--text-soft);
   font-size: 9px;
+}
+
+.rail-files-preview-head b {
+  color: inherit;
+  font-weight: 560;
+}
+
+.rail-files-preview-head b.is-dirty {
+  color: var(--warning, #a8612d);
+}
+
+.rail-files-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+}
+
+.rail-files-actions .icon-button {
+  width: 27px;
+  min-width: 27px;
+  height: 27px;
+}
+
+.rail-files-save {
+  display: inline-flex;
+  min-height: 27px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in oklab, var(--primary) 38%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--primary) 12%, var(--surface));
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.rail-files-save .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.rail-files-save:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--primary) 19%, var(--surface));
+}
+
+.rail-files-save:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.rail-files-editor {
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  resize: none;
+  padding: 11px 12px 48px;
+  border: 0;
+  outline: 0;
+  background:
+    linear-gradient(90deg, transparent 31px, color-mix(in oklab, var(--primary) 10%, transparent) 32px, transparent 33px),
+    var(--surface);
+  color: var(--text);
+  caret-color: var(--primary);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.65;
+  tab-size: 2;
+  white-space: pre;
+  scrollbar-width: thin;
+}
+
+.rail-files-editor:focus {
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--primary) 72%, transparent);
 }
 
 .rail-files-preview-body {
@@ -683,6 +809,7 @@
   min-width: 0;
   min-height: 0;
   flex-direction: column;
+  grid-row: 1;
 }
 
 .rail-files-filter {
@@ -767,6 +894,25 @@
 
 .rail-files-entry.is-parent {
   color: var(--text-muted);
+}
+
+@container (min-width: 460px) {
+  .rail-files-split {
+    grid-template-columns: minmax(150px, 0.72fr) minmax(260px, 1.28fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .rail-files-tree {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .rail-files-preview {
+    border-top: 0;
+    border-left: 1px solid var(--border);
+    grid-column: 2;
+    grid-row: 1;
+  }
 }
 
 /* ── 底部终端抽屉 ───────────────────────────────────── */

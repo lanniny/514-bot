@@ -5,9 +5,16 @@ import { detectClipboardImageType } from "./clipboard-attachment.mjs";
 
 export const MAX_AVATAR_BYTES = 1024 * 1024;
 export const MAX_AVATAR_REQUEST_BYTES = Math.ceil(MAX_AVATAR_BYTES / 3) * 4 + 4096;
+// 团队背景（dsh-wallpaper-engine 式）：静态图 ~8MB；视频壁纸放宽到 64MB（本机单用户
+// 控制面，且前端在最小化/失焦时暂停解码，常驻成本受控）。
+export const MAX_TEAM_BACKGROUND_BYTES = 8 * 1024 * 1024;
+export const MAX_TEAM_BACKGROUND_VIDEO_BYTES = 64 * 1024 * 1024;
+export const MAX_TEAM_BACKGROUND_REQUEST_BYTES = Math.ceil(MAX_TEAM_BACKGROUND_VIDEO_BYTES / 3) * 4 + 4096;
 export const OPERATOR_DEFAULT_LABEL = "AEMEATH";
 
 const STORE_VERSION = 1;
+const HIDDEN_MEMBER_MAX = 512;
+const MEMBER_ID_MAX = 128;
 const IMAGE_EXT = Object.freeze({
   "image/png": "png",
   "image/jpeg": "jpg",
@@ -20,37 +27,112 @@ const EXT_MIME = Object.freeze({
   jpeg: "image/jpeg",
   gif: "image/gif",
   webp: "image/webp",
+  mp4: "video/mp4",
+  webm: "video/webm",
 });
+
+/** 团队背景媒体类型判定：图片走既有魔数表；视频按容器魔数（mp4=ftyp box / webm=EBML）。
+    返回 null 表示既不是可接受图片也不是可接受视频。 */
+function detectBackgroundMediaKind(mimeType, bytes) {
+  if (IMAGE_EXT[mimeType]) return "image";
+  if (mimeType === "video/mp4") {
+    return bytes.length > 8 && bytes.subarray(4, 8).toString("latin1") === "ftyp" ? "video" : null;
+  }
+  if (mimeType === "video/webm") {
+    return bytes.length > 4 && bytes[0] === 0x1a && bytes[1] === 0x45
+      && bytes[2] === 0xdf && bytes[3] === 0xa3 ? "video" : null;
+  }
+  return null;
+}
 
 function fail(message, code = "VALIDATION_FAILED") {
   throw Object.assign(new Error(message), { code });
 }
 
-function parseAvatarDataUrl(dataUrl) {
-  if (typeof dataUrl !== "string") fail("avatar dataUrl is required", "INVALID_IMAGE_DATA");
+function parseImageDataUrl(dataUrl, maxBytes) {
+  if (typeof dataUrl !== "string") fail("image dataUrl is required", "INVALID_IMAGE_DATA");
   const match = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]*={0,2})$/i.exec(dataUrl);
-  if (!match) fail("avatar must be a base64 data URL", "INVALID_IMAGE_DATA");
+  if (!match) fail("image must be a base64 data URL", "INVALID_IMAGE_DATA");
   const declaredType = match[1].toLowerCase();
-  if (!IMAGE_EXT[declaredType]) fail(`unsupported avatar type: ${declaredType}`, "UNSUPPORTED_IMAGE_TYPE");
+  if (!IMAGE_EXT[declaredType]) fail(`unsupported image type: ${declaredType}`, "UNSUPPORTED_IMAGE_TYPE");
   const encoded = match[2];
-  if (!encoded || encoded.length % 4 !== 0) fail("avatar base64 is malformed", "INVALID_IMAGE_DATA");
-  if (encoded.length > Math.ceil(MAX_AVATAR_BYTES / 3) * 4) {
-    fail(`avatar exceeds ${MAX_AVATAR_BYTES} bytes`, "IMAGE_TOO_LARGE");
+  if (!encoded || encoded.length % 4 !== 0) fail("image base64 is malformed", "INVALID_IMAGE_DATA");
+  if (encoded.length > Math.ceil(maxBytes / 3) * 4) {
+    fail(`image exceeds ${maxBytes} bytes`, "IMAGE_TOO_LARGE");
   }
   const bytes = Buffer.from(encoded, "base64");
-  if (bytes.toString("base64") !== encoded) fail("avatar base64 is malformed", "INVALID_IMAGE_DATA");
-  if (!bytes.length) fail("avatar is empty", "INVALID_IMAGE_DATA");
-  if (bytes.length > MAX_AVATAR_BYTES) fail(`avatar exceeds ${MAX_AVATAR_BYTES} bytes`, "IMAGE_TOO_LARGE");
+  if (bytes.toString("base64") !== encoded) fail("image base64 is malformed", "INVALID_IMAGE_DATA");
+  if (!bytes.length) fail("image is empty", "INVALID_IMAGE_DATA");
+  if (bytes.length > maxBytes) fail(`image exceeds ${maxBytes} bytes`, "IMAGE_TOO_LARGE");
   const detected = detectClipboardImageType(bytes);
-  if (!detected) fail("avatar bytes are not a valid image", "INVALID_IMAGE_DATA");
-  if (detected !== declaredType) fail("avatar MIME type does not match file bytes", "IMAGE_TYPE_MISMATCH");
+  if (!detected) fail("image bytes are not a valid image", "INVALID_IMAGE_DATA");
+  if (detected !== declaredType) fail("image MIME type does not match file bytes", "IMAGE_TYPE_MISMATCH");
   return { mimeType: detected, bytes };
+}
+
+function parseAvatarDataUrl(dataUrl) {
+  return parseImageDataUrl(dataUrl, MAX_AVATAR_BYTES);
+}
+
+/** 团队背景专用：接受图片（沿用图片魔数表）与视频（mp4=ftyp box / webm=EBML 容器魔数），
+    各自独立体积档。返回 { mimeType, bytes, mediaKind }。 */
+function parseTeamBackgroundDataUrl(dataUrl) {
+  if (typeof dataUrl !== "string") fail("background dataUrl is required", "INVALID_IMAGE_DATA");
+  const match = /^data:((?:image|video)\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/]*={0,2})$/i.exec(dataUrl);
+  if (!match) fail("background must be a base64 data URL (image/* or video/*)", "INVALID_IMAGE_DATA");
+  const declaredType = match[1].toLowerCase();
+  const maxBytes = declaredType.startsWith("video/") ? MAX_TEAM_BACKGROUND_VIDEO_BYTES : MAX_TEAM_BACKGROUND_BYTES;
+  // 初筛只认 MIME 白名单（mp4/webm 视频容器 + 既有图片表）；字节级真伪由末尾
+  // detectBackgroundMediaKind 终验（ftyp / EBML / 图片魔数），空 buffer 预检探不出视频头。
+  const VIDEO_MIME = new Set(["video/mp4", "video/webm"]);
+  if (!IMAGE_EXT[declaredType] && !VIDEO_MIME.has(declaredType)) {
+    fail(`unsupported background type: ${declaredType}`, "UNSUPPORTED_IMAGE_TYPE");
+  }
+  const encoded = match[2];
+  if (!encoded || encoded.length % 4 !== 0) fail("background base64 is malformed", "INVALID_IMAGE_DATA");
+  if (encoded.length > Math.ceil(maxBytes / 3) * 4) {
+    fail(declaredType.startsWith("video/")
+      ? `background video exceeds ${maxBytes} bytes`
+      : `background image exceeds ${maxBytes} bytes`, "IMAGE_TOO_LARGE");
+  }
+  const bytes = Buffer.from(encoded, "base64");
+  if (bytes.toString("base64") !== encoded) fail("background base64 is malformed", "INVALID_IMAGE_DATA");
+  if (!bytes.length) fail("background is empty", "INVALID_IMAGE_DATA");
+  if (bytes.length > maxBytes) {
+    fail(declaredType.startsWith("video/")
+      ? `background video exceeds ${maxBytes} bytes`
+      : `background image exceeds ${maxBytes} bytes`, "IMAGE_TOO_LARGE");
+  }
+  const kind = detectBackgroundMediaKind(declaredType, bytes);
+  if (!kind || (kind === "image" && !detectClipboardImageType(bytes))) {
+    fail("background bytes do not match the declared media type", "INVALID_IMAGE_DATA");
+  }
+  return { mimeType: declaredType, bytes, mediaKind: kind };
 }
 
 function safeFileStem(id) {
   const stem = String(id ?? "").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 128);
   if (!stem || stem === "." || stem === "..") fail("avatar owner id is invalid", "VALIDATION_FAILED");
   return stem;
+}
+
+function cleanHiddenMemberIds(value) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) fail("hiddenMemberIds must be an array", "VALIDATION_FAILED");
+  if (value.length > HIDDEN_MEMBER_MAX) fail(`hiddenMemberIds exceeds ${HIDDEN_MEMBER_MAX} entries`, "VALIDATION_FAILED");
+  const ids = [];
+  const seen = new Set();
+  for (const raw of value) {
+    if (typeof raw !== "string") fail("hiddenMemberIds entries must be strings", "VALIDATION_FAILED");
+    const id = raw.trim();
+    if (!id || id.length > MEMBER_ID_MAX || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(id)) {
+      fail("hiddenMemberIds contains an invalid member id", "VALIDATION_FAILED");
+    }
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
 }
 
 async function writeAtomicBytes(path, bytes) {
@@ -112,13 +194,15 @@ export function createAvatarStore({ dataRoot, teamMembers } = {}) {
     await Promise.all(names.map((name) => rm(join(avatarDir, name), { force: true })));
   }
 
-  async function readFileRecord(prefix) {
+  // maxBytes 是读取侧上限：头像恒 1MB；团队背景走写入侧同一预算（视频 64MB/图 8MB），
+  // 否则合法落盘的壁纸会被头像级上限误判成不存在（存量 bug：>1MB 壁纸 GET 恒 404）。
+  async function readFileRecord(prefix, maxBytes = MAX_AVATAR_BYTES) {
     const names = await listFiles(prefix);
     if (!names.length) return null;
     const name = names.sort().at(-1);
     const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
     const bytes = await readFile(join(avatarDir, name));
-    if (!bytes.length || bytes.length > MAX_AVATAR_BYTES) return null;
+    if (!bytes.length || bytes.length > maxBytes) return null;
     const mimeType = detectClipboardImageType(bytes) || EXT_MIME[ext];
     if (!mimeType) return null;
     return { bytes, mimeType, fileName: name };
@@ -142,6 +226,7 @@ export function createAvatarStore({ dataRoot, teamMembers } = {}) {
       return {
         label,
         avatar: parsed.avatar === "custom" ? "custom" : "",
+        hiddenMemberIds: cleanHiddenMemberIds(parsed.hiddenMemberIds ?? []),
       };
     } catch (error) {
       if (error?.code === "ENOENT") return defaultOperator();
@@ -150,7 +235,7 @@ export function createAvatarStore({ dataRoot, teamMembers } = {}) {
   }
 
   function defaultOperator() {
-    return { label: OPERATOR_DEFAULT_LABEL, avatar: "" };
+    return { label: OPERATOR_DEFAULT_LABEL, avatar: "", hiddenMemberIds: [] };
   }
 
   async function writeOperatorRecord(record) {
@@ -158,6 +243,7 @@ export function createAvatarStore({ dataRoot, teamMembers } = {}) {
       version: STORE_VERSION,
       label: record.label,
       avatar: record.avatar === "custom" ? "custom" : "",
+      hiddenMemberIds: cleanHiddenMemberIds(record.hiddenMemberIds ?? []),
     });
     return readOperatorRecord();
   }
@@ -174,6 +260,16 @@ export function createAvatarStore({ dataRoot, teamMembers } = {}) {
         return { ...record, avatar: "" };
       }
       return record;
+    },
+
+    async setOperatorProfile(input = {}) {
+      const label = typeof input?.label === "string" ? input.label.trim().slice(0, 48) : "";
+      if (!label) fail("operator label is required", "VALIDATION_FAILED");
+      const current = await readOperatorRecord();
+      const hiddenMemberIds = Object.hasOwn(input, "hiddenMemberIds")
+        ? cleanHiddenMemberIds(input.hiddenMemberIds)
+        : current.hiddenMemberIds;
+      return writeOperatorRecord({ ...current, label, hiddenMemberIds });
     },
 
     async setOperatorAvatar(dataUrl) {
@@ -222,6 +318,38 @@ export function createAvatarStore({ dataRoot, teamMembers } = {}) {
       const file = await readFileRecord(memberPrefix(member.id));
       if (!file) fail("member avatar not found", "AVATAR_NOT_FOUND");
       return file;
+    },
+
+    // ---- 团队背景 ----
+    // 与头像同一套原子写/魔数校验，但放宽到背景图体积；文件名前缀即团队 id。
+    async setTeamBackground(teamId, dataUrl) {
+      const stem = safeFileStem(teamId);
+      const { mimeType, bytes, mediaKind } = parseTeamBackgroundDataUrl(dataUrl);
+      const ext = IMAGE_EXT[mimeType] || (mediaKind === "video" ? mimeType.replace("video/", "") : "png");
+      const path = join(avatarDir, `teambg--${stem}.${ext}`);
+      await removeFiles(`teambg--${stem}`);
+      try {
+        await writeAtomicBytes(path, bytes);
+      } catch (error) {
+        await removeFiles(`teambg--${stem}`);
+        throw error;
+      }
+      return { mimeType, mediaKind, bytes: bytes.length };
+    },
+
+    async clearTeamBackground(teamId) {
+      await removeFiles(`teambg--${safeFileStem(teamId)}`);
+    },
+
+    async readTeamBackgroundFile(teamId) {
+      // 读取上限与写入侧对齐（视频 64MB）：壁纸不是头像，不能被 1MB 头像上限拦截。
+      const file = await readFileRecord(`teambg--${safeFileStem(teamId)}`, MAX_TEAM_BACKGROUND_VIDEO_BYTES);
+      if (!file) fail("team background not found", "BACKGROUND_NOT_FOUND");
+      return file;
+    },
+
+    async hasTeamBackground(teamId) {
+      return (await listFiles(`teambg--${safeFileStem(teamId)}`)).length > 0;
     },
   };
 }

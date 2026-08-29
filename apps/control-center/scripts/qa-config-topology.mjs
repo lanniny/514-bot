@@ -235,7 +235,7 @@ async function assertSurface(page, surface) {
       bodyOverflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - innerWidth,
       mainContentOverflow: mainContent ? mainContent.scrollWidth - mainContent.clientWidth : null,
       providerTitleWidth: document.querySelector("#provider-deck-title")?.getBoundingClientRect().width ?? null,
-      providerControlsOffscreen: expected === "providers"
+      providerControlsOffscreen: expected === "sources"
         ? [...document.querySelectorAll(".provider-deck-heading button, .provider-deck-heading select")]
             .filter((control) => control instanceof HTMLElement && control.offsetParent !== null)
             .filter((control) => {
@@ -257,7 +257,7 @@ async function assertSurface(page, surface) {
   if (snapshot.mainContentOverflow == null || snapshot.mainContentOverflow > 2) {
     throw new Error(`main content horizontal overflow: ${JSON.stringify(snapshot)}`);
   }
-  if (surface === "providers" && snapshot.providerTitleWidth < Math.min(180, page.viewportSize().width * 0.6)) {
+  if (surface === "sources" && snapshot.providerTitleWidth < Math.min(180, page.viewportSize().width * 0.6)) {
     throw new Error(`provider heading was squeezed: ${JSON.stringify(snapshot)}`);
   }
   if (snapshot.providerControlsOffscreen.length) throw new Error(`provider controls are offscreen: ${JSON.stringify(snapshot)}`);
@@ -265,10 +265,10 @@ async function assertSurface(page, surface) {
 }
 
 async function inspect(name, viewport, theme) {
-  const { page, errors } = await openPage({ viewport, theme, route: "config/providers" });
+  const { page, errors } = await openPage({ viewport, theme, route: "config/sources" });
   await waitForTopology(page);
   const screenshots = [];
-  for (const surface of ["providers", "local-runtime", "capabilities", "hooks", "sources"]) {
+  for (const surface of ["sources", "capabilities", "hooks", "local-runtime"]) {
     await page.locator(`[data-config-surface="${surface}"]`).click();
     await assertSurface(page, surface);
     if (surface === "local-runtime") await page.waitForSelector("#ccswitch-workbench .ccs-tabs");
@@ -292,7 +292,7 @@ async function inspect(name, viewport, theme) {
   await page.keyboard.press("ArrowRight");
   await assertSurface(page, "hooks");
   await page.keyboard.press("ArrowRight");
-  await assertSurface(page, "sources");
+  await assertSurface(page, "local-runtime");
   await page.keyboard.press("ArrowLeft");
   await assertSurface(page, "hooks");
   await page.keyboard.press("ArrowLeft");

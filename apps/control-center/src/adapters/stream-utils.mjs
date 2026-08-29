@@ -199,6 +199,18 @@ function toolResultText(part) {
   return "";
 }
 
+export function claudeResultUsage(event) {
+  if (event?.type !== "result") return { costUsd: null, durationMs: null, tokens: null };
+  const usage = event.usage || {};
+  const tokens =
+    (usage.input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.output_tokens ?? 0);
+  return {
+    costUsd: Number.isFinite(event.total_cost_usd) ? Number(event.total_cost_usd) : null,
+    durationMs: Number.isFinite(event.duration_ms) ? Number(event.duration_ms) : null,
+    tokens: tokens || null,
+  };
+}
+
 export function publicClaudeEvent(event) {
   if (event?.type === "system" && event?.subtype === "init") {
     return { type: "session.started", sessionId: event.session_id, model: event.model || null };
@@ -243,6 +255,11 @@ export function publicCodexEvent(event) {
     if (item.type === "agent_message") return { type: "assistant.message", text: scrub(item.text || "") };
     if (item.type === "command_execution") return { type: "tool.event", tool: "command", status: item.status || null, command: item.command == null ? null : clip(item.command, 600) };
     if (item.type === "file_change") return { type: "tool.event", tool: "file_change", status: item.status || null };
+    if (["mcp_tool_call", "tool_call", "web_search"].includes(item.type) || item.server || item.tool) {
+      const name = [item.server, item.tool || item.name].filter(Boolean).join(".") || item.type || "tool";
+      const input = item.arguments ?? item.args ?? item.input ?? item.query ?? "";
+      return { type: "tool.event", tool: name, status: item.status || null, command: clip(input, 600) };
+    }
   }
   if (event?.type === "turn.completed") return { type: "turn.completed", usage: event.usage || null };
   if (event?.type === "error") return { type: "agent.error", message: clip(event.message || "Codex error") };

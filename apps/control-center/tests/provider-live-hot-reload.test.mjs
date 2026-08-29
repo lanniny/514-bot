@@ -177,7 +177,8 @@ test("通知条按钮走对话框事件委托，只改表单不落盘", () => {
 test("live 轮询：只在供应商面可见时开，远程配置目标生效时不开，后台不空转", () => {
   const poll = sourceSection("function providerLiveViewVisible", "function providerById");
   assert.match(poll, /state\.view === "config"/);
-  assert.match(poll, /state\.configSurface === "providers"/);
+  assert.match(poll, /state\.configSurface === "sources"/);
+  assert.match(poll, /state\.runtimeWorkspaceMode === "seats"/);
   assert.match(poll, /!state\.configHostId/);
   assert.match(poll, /document\.visibilityState !== "hidden"/);
   // 只换 live 段，不动档案列表；内容没变就不重画（避免每 8 秒销毁一次焦点）
@@ -188,7 +189,7 @@ test("live 轮询：只在供应商面可见时开，远程配置目标生效时
   assert.doesNotMatch(poll, /toast\(/);
   // 开停归属挂在视图/面板切换与前后台切换上
   assert.match(appSource, /reconcileProviderLivePoll\(\); \/\/ 离开配置页即停轮询/);
-  assert.match(appSource, /reconcileProviderLivePoll\(\); \/\/ 供应商面进出即开停 live 轮询/);
+  assert.match(appSource, /reconcileProviderLivePoll\(\); \/\/ 席位连接区进出即开停 live 轮询/);
   assert.match(appSource, /document\.addEventListener\("visibilitychange", \(\) => \{\s*\n\s*reconcileProviderLivePoll\(\);/);
   assert.match(appSource, /window\.addEventListener\("focus", \(\) => \{\s*\n\s*if \(providerLiveViewVisible\(\)\) void refreshProviderLive\(\);/);
 });

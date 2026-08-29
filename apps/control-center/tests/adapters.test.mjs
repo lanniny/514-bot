@@ -1570,6 +1570,33 @@ test("Claude CLI arguments keep tool availability aligned with the per-turn perm
   assert.equal(valueAfter(planArgs, "--session-id"), "new-session");
   assert.equal(valueAfter(writeArgs, "--permission-mode"), "acceptEdits");
   assert.equal(valueAfter(writeArgs, "--resume"), "existing-session");
+  assert.equal(valueAfter(planArgs, "--max-budget-usd"), "2");
+  assert.equal(valueAfter(writeArgs, "--max-budget-usd"), "2");
+});
+
+test("Claude CLI native approval passthrough applies on read-only turns and the write-turn red line holds", () => {
+  const bypassArgs = buildClaudeArgs({
+    nativeSessionId: "native-session",
+    requestedModel: "fable-test",
+    permissionMode: "plan",
+    nativeApprovalMode: "native:bypassPermissions",
+  });
+  const acceptArgs = buildClaudeArgs({
+    nativeSessionId: "native-session",
+    permissionMode: "plan",
+    nativeApprovalMode: "native:acceptEdits",
+  });
+  const writeWithNative = buildClaudeArgs({
+    sessionId: "existing-session",
+    nativeSessionId: "unused",
+    permissionMode: "workspace-write",
+    nativeApprovalMode: "native:bypassPermissions",
+  });
+  const valueAfter = (args, flag) => args[args.indexOf(flag) + 1];
+  assert.equal(valueAfter(bypassArgs, "--permission-mode"), "bypassPermissions");
+  assert.equal(valueAfter(acceptArgs, "--permission-mode"), "acceptEdits");
+  // 写盘轮红线：native 覆盖完全无效，固定 acceptEdits + 审批
+  assert.equal(valueAfter(writeWithNative, "--permission-mode"), "acceptEdits");
 });
 
 test("Claude CLI omits --model when the runtime has no explicit model", () => {
@@ -2217,6 +2244,145 @@ test("Codex app-server keeps an unclassified turn error ambiguous after the requ
   await adapter.close();
 });
 
+test("Codex app-server classifies context exhaustion as a settled native turn", async (t) => {
+  const cases = [
+    {
+      label: "structured",
+      error: {
+        message: "localized provider failure",
+        codexErrorInfo: "contextWindowExceeded",
+      },
+    },
+    {
+      label: "legacy-text",
+      error: {
+        message: "Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.",
+      },
+    },
+  ];
+
+  for (const item of cases) {
+    await t.test(item.label, async () => {
+      class ContextOverflowChild extends FakeChild {
+        handle(message) {
+          if (message.method !== "turn/start") return super.handle(message);
+          this.messages.push(message);
+          this.reply(message.id, { turn: { id: "turn-context-full", status: "inProgress", items: [] } });
+          setImmediate(() => this.stdout.write(encodeJsonLine({
+            method: "turn/completed",
+            params: {
+              threadId: "thread-1",
+              turn: {
+                id: "turn-context-full",
+                status: "failed",
+                items: [],
+                error: item.error,
+              },
+            },
+          })));
+        }
+      }
+
+      const adapter = new CodexAppServerAdapter({
+        eventStore: { emit: async () => {} },
+        cwd: "C:/repo",
+        spawnImpl: () => new ContextOverflowChild(),
+      });
+      await assert.rejects(
+        () => adapter.send({ prompt: "continue", runId: `run-context-${item.label}`, permissionMode: "read-only" }),
+        (error) => {
+          assert.equal(error.code, "CONTEXT_WINDOW_EXCEEDED");
+          assert.equal(error.nativeTurnSettled, true);
+          assert.equal(error.requiresContextCompaction, true);
+          assert.equal(error.safeToFallback, false);
+          assert.equal(error.codexPhase, "turn-settled-failed");
+          assert.equal(error.sessionId, "thread-1");
+          assert.equal(error.turnId, "turn-context-full");
+          return true;
+        },
+      );
+      assert.equal(adapter.activeByThread.size, 0);
+      await adapter.close();
+    });
+  }
+});
+
+test("Codex app-server waits for the native compact turn terminal boundary", async () => {
+  class CompactChild extends FakeChild {
+    constructor() {
+      super();
+      this.compactStarted = deferred();
+    }
+
+    handle(message) {
+      if (message.method !== "thread/compact/start") return super.handle(message);
+      this.messages.push(message);
+      this.reply(message.id, {});
+      setImmediate(() => {
+        this.stdout.write(encodeJsonLine({
+          method: "turn/started",
+          params: {
+            threadId: "thread-1",
+            turn: { id: "turn-compact", status: "inProgress", items: [] },
+          },
+        }));
+        this.stdout.write(encodeJsonLine({
+          method: "item/started",
+          params: {
+            threadId: "thread-1",
+            turnId: "turn-compact",
+            item: { id: "compact-item", type: "contextCompaction" },
+          },
+        }));
+        this.compactStarted.resolve();
+      });
+    }
+
+    finishCompaction() {
+      this.stdout.write(encodeJsonLine({
+        method: "item/completed",
+        params: {
+          threadId: "thread-1",
+          turnId: "turn-compact",
+          item: { id: "compact-item", type: "contextCompaction" },
+        },
+      }));
+      this.stdout.write(encodeJsonLine({
+        method: "turn/completed",
+        params: {
+          threadId: "thread-1",
+          turn: { id: "turn-compact", status: "completed", items: [] },
+        },
+      }));
+    }
+  }
+
+  const child = new CompactChild();
+  const adapter = new CodexAppServerAdapter({
+    eventStore: { emit: async () => {} },
+    cwd: "C:/repo",
+    spawnImpl: () => child,
+  });
+  await adapter.createThread();
+  let settled = false;
+  const compacting = adapter.compactThread("thread-1").then((result) => {
+    settled = true;
+    return result;
+  });
+  await child.compactStarted.promise;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(settled, false, "compact RPC acknowledgement is not the terminal boundary");
+  child.finishCompaction();
+  const result = await compacting;
+  assert.deepEqual(result, {
+    sessionId: "thread-1",
+    turnId: "turn-compact",
+    protocol: "app-server-v2",
+  });
+  assert.equal(adapter.compactionsByThread.size, 0);
+  await adapter.close();
+});
+
 test("Codex app-server setup failure is explicitly safe for CLI fallback", async () => {
   const adapter = new CodexAppServerAdapter({
     eventStore: { emit: async () => {} },
@@ -2253,6 +2419,121 @@ test("Codex idle watchdog kills a silent turn while the max-duration gate stays 
         && error.safeToFallback === false
         && error.codexPhase === "turn-submitted-or-unknown"
         && error.sessionId === "thread-1",
+    );
+  } finally {
+    await adapter.close();
+  }
+});
+
+test("Codex terminal text reaches the conversation stream exactly once on a normal turn", async () => {
+  class FinalAnswerChild extends FakeChild {
+    handle(message) {
+      if (message.method !== "turn/start") return super.handle(message);
+      this.reply(message.id, { turn: { id: "turn-1", status: "inProgress", items: [] } });
+      setTimeout(() => {
+        this.stdout.write(encodeJsonLine({
+          method: "item/completed",
+          params: { threadId: "thread-1", turnId: "turn-1", item: { id: "answer", type: "agentMessage", phase: "final_answer", text: "完整结论" } },
+        }));
+        this.stdout.write(encodeJsonLine({
+          method: "turn/completed",
+          params: { threadId: "thread-1", turn: { id: "turn-1", status: "completed", items: [] } },
+        }));
+      }, 5);
+    }
+  }
+  const events = [];
+  const child = new FinalAnswerChild();
+  const adapter = new CodexAppServerAdapter({
+    eventStore: { emit: async (type, data) => { events.push({ type, data }); } },
+    cwd: "C:/repo",
+    spawnImpl: () => child,
+  });
+  try {
+    const result = await adapter.send({ prompt: "answer", runId: "run-final-answer", permissionMode: "read-only", timeoutMs: 10_000 });
+    assert.equal(result.text, "完整结论");
+    const finals = events.filter((event) => event.type === "assistant.message");
+    assert.equal(finals.length, 1, "终局正文必须恰好进会话流一次");
+    assert.equal(finals[0].data.text, "完整结论");
+    assert.equal(events.some((event) => event.type === "assistant.partial_message"), false);
+  } finally {
+    await adapter.close();
+  }
+});
+
+test("Codex partial text from an aborted turn never masquerades as a normal reply", async () => {
+  class HalfAnswerChild extends FakeChild {
+    handle(message) {
+      if (message.method === "turn/interrupt") return this.reply(message.id, {});
+      if (message.method !== "turn/start") return super.handle(message);
+      this.reply(message.id, { turn: { id: "turn-1", status: "inProgress", items: [] } });
+      // 先吐半截正文，然后彻底沉默：静默闸开火 → cancelActive → 异常终局。
+      setTimeout(() => {
+        this.stdout.write(encodeJsonLine({
+          method: "item/completed",
+          params: { threadId: "thread-1", turnId: "turn-1", item: { id: "answer", type: "agentMessage", phase: "final_answer", text: "答到一半就被杀了" } },
+        }));
+      }, 5);
+    }
+  }
+  const events = [];
+  const child = new HalfAnswerChild();
+  const adapter = new CodexAppServerAdapter({
+    eventStore: { emit: async (type, data) => { events.push({ type, data }); } },
+    cwd: "C:/repo",
+    spawnImpl: () => child,
+  });
+  try {
+    await assert.rejects(
+      () => adapter.send({ prompt: "half", runId: "run-half-answer", permissionMode: "read-only", idleTimeoutMs: 60, timeoutMs: 10_000 }),
+      { code: "TURN_IDLE_TIMEOUT" },
+    );
+    assert.equal(
+      events.some((event) => event.type === "assistant.message"),
+      false,
+      "被打断的半截正文不得以正常回复出现——否则 LO 无法区分「答完了」和「答了一半被杀」",
+    );
+    const partial = events.filter((event) => event.type === "assistant.partial_message");
+    assert.equal(partial.length, 1, "半截正文仍必须可见，只是要明确标注未形成交付");
+    assert.equal(partial[0].data.text, "答到一半就被杀了");
+    assert.equal(partial[0].data.code, "TURN_IDLE_TIMEOUT");
+  } finally {
+    await adapter.close();
+  }
+});
+
+test("Codex turn errors without a message still fail the turn instead of settling empty", async () => {
+  class SilentErrorChild extends FakeChild {
+    handle(message) {
+      if (message.method !== "turn/start") return super.handle(message);
+      this.reply(message.id, { turn: { id: "turn-1", status: "inProgress", items: [] } });
+      setTimeout(() => {
+        // provider 报错但没给 message，只给 errorInfo：此前会被判成"成功但正文为空"（silent fallback）
+        this.stdout.write(encodeJsonLine({
+          method: "turn/completed",
+          params: {
+            threadId: "thread-1",
+            turn: { id: "turn-1", status: "failed", items: [], error: { codexErrorInfo: { contextWindowExceeded: {} } } },
+          },
+        }));
+      }, 5);
+    }
+  }
+  const child = new SilentErrorChild();
+  const adapter = new CodexAppServerAdapter({
+    eventStore: { emit: async () => {} },
+    cwd: "C:/repo",
+    spawnImpl: () => child,
+  });
+  try {
+    await assert.rejects(
+      () => adapter.send({ prompt: "silent failure", runId: "run-silent-error", permissionMode: "read-only", timeoutMs: 10_000 }),
+      (error) => {
+        assert.equal(error.code, "CONTEXT_WINDOW_EXCEEDED", "缺 message 的 contextWindowExceeded 必须仍然触发压缩恢复链");
+        assert.equal(error.requiresContextCompaction, true);
+        assert.equal(error.nativeTurnSettled, true);
+        return true;
+      },
     );
   } finally {
     await adapter.close();

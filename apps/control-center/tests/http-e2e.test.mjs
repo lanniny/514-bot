@@ -627,6 +627,17 @@ test("loopback API enforces bearer auth and supports the operator workflow", { t
   assert.ok(bootstrap.teamCatalog.some((profile) => profile.id === "gemini-research" && profile.teamMemberEligible === false && profile.eligibilityReason === "profile-disabled"));
   assert.ok(bootstrap.sources.some((source) => source.id === "control.routing"));
   assert.ok(bootstrap.security.secrets.some((item) => item.id === "grok-search-env" && typeof item.configured === "boolean"));
+  assert.ok(Array.isArray(bootstrap.approvals), "legacy bootstrap approvals array remains available");
+  assert.ok(Array.isArray(bootstrap.approvalSnapshot?.approvals));
+  assert.match(bootstrap.approvalSnapshot?.epoch ?? "", /^[0-9a-f-]{36}$/);
+  assert.equal(Number.isSafeInteger(bootstrap.approvalSnapshot?.revision), true);
+  assert.equal(String(bootstrap.approvalSnapshot?.runtimeGeneration), String(bootstrap.runtime.generation));
+  const approvalSnapshotResponse = await fetch(`${origin}/api/approvals`, { headers: auth });
+  assert.equal(approvalSnapshotResponse.status, 200);
+  const approvalSnapshot = await approvalSnapshotResponse.json();
+  assert.match(approvalSnapshot.epoch ?? "", /^[0-9a-f-]{36}$/);
+  assert.equal(Number.isSafeInteger(approvalSnapshot.revision), true);
+  assert.equal(String(approvalSnapshot.runtimeGeneration), String(bootstrap.runtime.generation));
 
   const reload = await fetch(`${origin}/api/runtime/reload`, { method: "POST", headers: auth });
   assert.equal(reload.status, 200);

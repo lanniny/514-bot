@@ -11,15 +11,59 @@ import {
 const DEFAULT_OUTPUT_LIMIT_SETTLE_MS = 2_000;
 const DEFAULT_EVENT_PERSISTENCE_TIMEOUT_MS = 1_000;
 const DEFAULT_LIFECYCLE_TIMEOUT_MS = 30_000;
+const DEFAULT_CONTEXT_COMPACTION_TIMEOUT_MS = 5 * 60_000;
+// 压缩收尾时打断原生轮的等待上限，必须显著小于编排器的中断闸（interruptTimeoutMs 默认 30s）。
+// 两者取同值时，压缩窗口内的一次中断会让执行链恰好卡在闸的上限才 settle：run 被写成
+// recovery_required，而 interruptingRuns 的释放只挂在 settlement.finally 上——此后每一次
+// 「继续」都撞 RUN_INTERRUPTING，正是原报障的另一半"无法继续执行"。
+const CONTEXT_COMPACTION_INTERRUPT_MS = 10_000;
 // 双闸看门狗：静默闸测"挂死"（无任何原生事件即杀），总时长闸（send 的 timeoutMs）测"跑飞"。
 // 静默闸必须远小于总时长闸才有意义；<=0 或非法值如实关闭静默闸，只留总时长兜底。
 const DEFAULT_TURN_IDLE_TIMEOUT_MS = 5 * 60_000;
 const MAX_LATE_RESPONSES = 64;
 const DEFINITIVE_TURN_REJECTION_MARKERS = new Set(["INSUFFICIENT_BALANCE"]);
+const CONTEXT_WINDOW_EXCEEDED_TEXT = /(?:ran out of room in the model'?s context window|context window (?:was )?(?:exceeded|is full)|maximum context length)/i;
+const ACTIVE_WRITER_TEXT = /already has an active writer/i;
+
+function codexErrorInfoKind(value) {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (typeof value.codexErrorInfo === "string") return value.codexErrorInfo;
+  if (value.codexErrorInfo && typeof value.codexErrorInfo === "object") {
+    return Object.keys(value.codexErrorInfo)[0] || null;
+  }
+  return Object.keys(value)[0] || null;
+}
+
+function nativeTurnError(turnError, { threadId, turnId } = {}) {
+  // turn.error 存在即代表这一轮失败了。此前以 `!turnError?.message` 判空返回 null，只要 provider
+  // 报错但未附 message（只给 codexErrorInfo / 只给字符串），失败轮就会走成功分支被结算成
+  // "成功但正文为空"——contextWindowExceeded 落进这里就等于压缩恢复整条链不触发。这是 silent
+  // fallback，按 §二.3 不允许：错误存在必须产出错误，message 缺失时用 errorInfo kind 兜底。
+  if (turnError == null) return null;
+  const raw = typeof turnError === "string" ? { message: turnError } : turnError;
+  if (typeof raw !== "object") return null;
+  const errorInfoKind = codexErrorInfoKind(raw.codexErrorInfo);
+  const message = String(raw.message ?? "").trim()
+    || (errorInfoKind ? `Codex turn failed: ${errorInfoKind}` : "Codex turn failed without an error message");
+  const contextWindowExceeded = errorInfoKind === "contextWindowExceeded"
+    || CONTEXT_WINDOW_EXCEEDED_TEXT.test(message);
+  return Object.assign(new Error(message), {
+    code: contextWindowExceeded ? "CONTEXT_WINDOW_EXCEEDED" : "CODEX_TURN_FAILED",
+    codexErrorInfo: raw.codexErrorInfo ?? null,
+    providerAdditionalDetails: raw.additionalDetails ?? null,
+    nativeTurnSettled: true,
+    requiresContextCompaction: contextWindowExceeded,
+    sessionResumable: true,
+    sessionId: threadId || null,
+    turnId: turnId || null,
+  });
+}
 
 function isDefinitiveTurnRejection(error) {
   if (error?.rpcResponseError !== true || error.rpcMethod !== "turn/start") return false;
   if (error.rpcErrorData?.submissionRejected === true) return true;
+  if (error.nativeSessionBusy === true) return true;
   const marker = String(error.message ?? "").trim().toUpperCase().replace(/[\s-]+/g, "_");
   return [402, 403].includes(Number(error.code)) && DEFINITIVE_TURN_REJECTION_MARKERS.has(marker);
 }
@@ -107,10 +151,180 @@ const PROGRESS_CHANGE_LIMIT = 20;
 
 /** 头尾各留一段：命令输出的结论与报错通常在尾部，只留头部等于把最有用的信息裁掉。 */
 function boundedProgressText(value, limit) {
-  const text = typeof value === "string" ? value : "";
+  const text = progressValueText(value);
   if (text.length <= limit) return { text, truncated: false };
   const head = Math.floor(limit * 0.4);
   return { text: `${text.slice(0, head)}\n…\n${text.slice(text.length - (limit - head))}`, truncated: true };
+}
+
+function progressValueText(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "";
+  }
+}
+
+/** 这些 item 不是"工具调用卡"。其余未知工作 item 一律落 tool 卡，不许再静默丢掉。 */
+const SILENT_ITEM_TYPES = new Set([
+  "usermessage",
+  "hookprompt",
+  "agentmessage",
+  "plan",
+  "reasoning",
+  "commandexecution",
+  "filechange",
+  "contextcompaction",
+  "enteredreviewmode",
+  "exitedreviewmode",
+]);
+
+/** 工具调用 item 类型（归一化 key，与 codex app-server v2 JSON Schema 的 ThreadItem 枚举对齐）。
+ *  collabAgentToolCall / subAgentActivity 无 server/tool 字段，必须显式列名，
+ *  否则靠 `item.server || item.tool` 兜不住，整条工具卡又会静默蒸发。 */
+const TOOL_ITEM_TYPES = new Set([
+  "mcptoolcall",
+  "dynamictoolcall",
+  "collabagenttoolcall",
+  "websearch",
+  "subagentactivity",
+]);
+
+function itemTypeKey(type) {
+  return String(type || "").replace(/_/g, "").toLowerCase();
+}
+
+/** 子代理活动 → 中文动词（codex app-server v2 SubAgentActivityKind：started/interacted/interrupted）。 */
+const SUB_AGENT_ACTIVITY_VERBS = Object.freeze({
+  started: "已启动",
+  interacted: "已交互",
+  interrupted: "已中断",
+});
+
+function stringField(...values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function parseMaybeJson(value) {
+  if (value == null) return null;
+  if (typeof value === "object") return value;
+  if (typeof value !== "string") return value;
+  const text = value.trim();
+  if (!text || (text[0] !== "{" && text[0] !== "[")) return value;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return value;
+  }
+}
+
+function objectField(value, key) {
+  const parsed = parseMaybeJson(value);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return "";
+  return stringField(parsed[key], parsed[camelToSnake(key)], parsed[snakeToCamel(key)]);
+}
+
+function camelToSnake(value) {
+  return String(value).replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+}
+
+function snakeToCamel(value) {
+  return String(value).replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+}
+
+function enumText(value) {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && typeof value.type === "string") return value.type;
+  return "";
+}
+
+function mcpNamespace(value) {
+  return stringField(value).replace(/^mcp__/i, "");
+}
+
+function firstAgentPath(item) {
+  const direct = stringField(item.agentPath, item.agent_path);
+  if (direct) return direct;
+  const task = objectField(item.arguments ?? item.args, "task_name")
+    || objectField(item.result, "task_name")
+    || objectField(item.output, "task_name");
+  if (!task) return "";
+  return task.startsWith("/") ? task : `/root/${task}`;
+}
+
+function toolItemName(item) {
+  const path = firstAgentPath(item);
+  if (path) return path;
+  const server = mcpNamespace(item.server) || mcpNamespace(item.namespace);
+  const tool = stringField(typeof item.tool === "string" ? item.tool : "", item.name, enumText(item.tool));
+  if (server && tool) return `${server}.${tool}`;
+  if (tool) return tool;
+  if (server) return server;
+  // webSearch 没有 server/tool 字段，只有 query——固定用协议名，别把 query 当工具名顶掉
+  if (itemTypeKey(item.type) === "websearch") return "web_search";
+  return stringField(item.title, item.path) || String(item.type || "tool");
+}
+
+function toolItemInput(item) {
+  return item.arguments ?? item.args ?? item.input ?? item.params ?? item.query ?? item.prompt ?? item.path ?? null;
+}
+
+/** MCP/动态工具的输出块 → 纯文本：优先 content 数组里的 text 字段，别把整块 JSON 泼进会话流。 */
+function contentBlocksToText(blocks) {
+  if (!Array.isArray(blocks)) return "";
+  return blocks
+    .map((block) => {
+      if (typeof block === "string") return block;
+      if (block && typeof block === "object" && typeof block.text === "string") return block.text;
+      return "";
+    })
+    .filter((part) => part)
+    .join("\n");
+}
+
+function toolItemOutput(item) {
+  // 错误优先（MCP 错误是 { message }，dynamic 错误可能是字符串）——有错且无正常结果才展示
+  if (item.error != null && item.result == null) {
+    const message = typeof item.error === "string" ? item.error : (item.error?.message ?? "");
+    if (message) return message;
+  }
+  // MCP result = { content:[{type:"text",text}], structuredContent }——展开 content 的 text
+  if (item.result && typeof item.result === "object" && !Array.isArray(item.result)) {
+    const text = contentBlocksToText(item.result.content);
+    if (text) return text;
+    if (item.result.structuredContent != null) return item.result.structuredContent;
+  }
+  if (Array.isArray(item.contentItems)) {
+    const text = contentBlocksToText(item.contentItems);
+    if (text) return text;
+  }
+  if (Array.isArray(item.content_items)) {
+    const text = contentBlocksToText(item.content_items);
+    if (text) return text;
+  }
+  if (Array.isArray(item.results)) return item.results;
+  return item.result ?? item.aggregatedOutput ?? item.output ?? item.content ?? "";
+}
+
+/** 落盘用的短快照：旧会话没有 progress 时，前端还能凭 itemType/agentPath 把工具卡画出来。 */
+export function compactCodexItemHint(item) {
+  if (!item || typeof item !== "object") return undefined;
+  const hint = {
+    type: typeof item.type === "string" ? item.type : null,
+    id: typeof item.id === "string" ? item.id : null,
+    server: stringField(item.server) || null,
+    namespace: stringField(item.namespace) || null,
+    tool: stringField(typeof item.tool === "string" ? item.tool : "", enumText(item.tool)) || null,
+    name: stringField(item.name, item.title) || null,
+    agentPath: firstAgentPath(item) || null,
+    status: stringField(item.status, enumText(item.kind)) || null,
+  };
+  return Object.values(hint).some((value) => value) ? hint : undefined;
 }
 
 /** reasoning item 的 summary/content 是分段数组；各家分段结构不同，只捞得出文本的部分。 */
@@ -172,6 +386,25 @@ export function codexItemProgress(method, params) {
   if (item.type === "agentMessage" && !started && item.phase && item.phase !== "final_answer") {
     const text = boundedProgressText(item.text, PROGRESS_TEXT_LIMIT);
     return text.text ? { kind: "note", id, phase: String(item.phase), text: text.text, truncated: text.truncated } : null;
+  }
+  if (TOOL_ITEM_TYPES.has(itemTypeKey(item.type)) || item.server || item.tool || item.arguments || item.args) {
+    // app-server 的 started item 已经携带有界工具参数。保留它，实时活动行才能在
+    // 工具完成前显示实际命令/路径；输出仍只接受 completed，绝不猜测执行结果。
+    const input = boundedProgressText(toolItemInput(item), PROGRESS_TEXT_LIMIT);
+    const output = started ? { text: "", truncated: false } : boundedProgressText(toolItemOutput(item), PROGRESS_OUTPUT_LIMIT);
+    const isSubAgent = itemTypeKey(item.type) === "subagentactivity";
+    return {
+      kind: "tool",
+      id,
+      name: toolItemName(item),
+      server: typeof item.server === "string" ? item.server : null,
+      status: typeof item.status === "string" ? item.status : null,
+      verb: isSubAgent ? (SUB_AGENT_ACTIVITY_VERBS[item.kind] ?? "已启动") : null,
+      input: input.text,
+      inputTruncated: input.truncated,
+      output: output.text,
+      outputTruncated: output.truncated,
+    };
   }
   if (item.type === "reasoning") {
     // started：无摘要也发「思考开始」信号——活跃呼吸行据此显示「正在思考」（LO 2026-08-10）。
@@ -301,6 +534,7 @@ export class CodexAppServerAdapter {
     this.compensationReservations = new Set();
     this.loadedThreads = new Set();
     this.activeByThread = new Map();
+    this.compactionsByThread = new Map();
     this.startPromise = null;
     this.failPromise = null;
   }
@@ -505,12 +739,17 @@ export class CodexAppServerAdapter {
       this.compensationReservations.delete(message.id);
       pending.signal?.removeEventListener("abort", pending.onAbort);
       if (message.error) {
+        const messageText = message.error.message || "app-server error";
+        const errorInfoKind = codexErrorInfoKind(message.error.data?.codexErrorInfo ?? message.error.data);
+        const nativeSessionBusy = pending.method === "turn/start"
+          && (ACTIVE_WRITER_TEXT.test(messageText) || errorInfoKind === "activeTurnNotSteerable");
         // An error response does not by itself prove that turn/start had no provider-side effect.
-        pending.reject(Object.assign(new Error(message.error.message || "app-server error"), {
-          code: message.error.code,
+        pending.reject(Object.assign(new Error(messageText), {
+          code: nativeSessionBusy ? "TURN_ACTIVE" : message.error.code,
           rpcResponseError: true,
           rpcMethod: pending.method,
           rpcErrorData: message.error.data ?? null,
+          nativeSessionBusy,
         }));
       }
       else pending.resolve(message.result);
@@ -639,17 +878,21 @@ export class CodexAppServerAdapter {
   }
 
   notificationEvent(method, params, threadId) {
+    const item = params?.item;
     return {
       type: `codex.${method}`,
       data: {
         method,
         threadId,
         turnId: this.notificationTurnId(params),
-        itemType: params.item?.type || null,
+        itemType: item?.type || null,
         delta: TEXT_DELTA_METHODS.has(method) ? params.delta : undefined,
         // 过程可见性：只带 itemType 的事件等于"发生过某件事但不告诉你是什么"，
         // 会话流除了审批什么都渲染不出来（LO 2026-08-08 报障的根因之一）
         progress: codexItemProgress(method, params) ?? undefined,
+        // 短快照兜底：progress 为 null（字段不识别/边界 item）时，前端仍凭 hint 画降级工具卡，
+        // 不重演"CLI 里有、会话框里蒸发"的历史丢件
+        hint: compactCodexItemHint(item),
       },
     };
   }
@@ -820,7 +1063,7 @@ export class CodexAppServerAdapter {
       if (current === active && !current.closing) {
         void this.cancelActive(current, current.outputLimitError || Object.assign(
           new Error(`Codex turn silent for ${Math.round(active.idleTimeoutMs / 1000)}s`),
-          { code: "TURN_IDLE_TIMEOUT" },
+          { code: "TURN_IDLE_TIMEOUT", timeoutKind: "idle", timeoutMs: active.idleTimeoutMs, idleTimeoutMs: active.idleTimeoutMs },
         ));
       }
     }, active.idleTimeoutMs);
@@ -890,6 +1133,25 @@ export class CodexAppServerAdapter {
     this.cancelDeltaFlush(active);
     void this.flushDelta(active);
     if (terminal) void this.queueActiveNotification(active, terminal.method, terminal.params);
+    const text = String(active.text || "");
+    if (text.trim() && !active.assistantMessageEmitted) {
+      // 评论说 final_answer 走 assistant.message，但此前只写进 active.text / run.turns，
+      // 会话流不认 turns——正文在 CLI 里完整、控制台里蒸发（LO 2026-08-19）。
+      // 终态判据不可省：被中断/超时/OUTPUT_LIMIT 的轮同样带半截正文，一律发 assistant.message
+      // 会让"答完了"和"答了一半被杀"在会话流里长得一模一样。grok-build.mjs 与 pi-rpc.mjs
+      // 早有同款负向契约（异常收束不得冒充正常回复），此处对齐：异常终局改发
+      // assistant.partial_message，正文照样可见但明确标注未形成交付。
+      active.assistantMessageEmitted = true;
+      if (error) {
+        void this.queueActiveEvent(active, "assistant.partial_message", {
+          text,
+          code: error.code || null,
+          reason: error.message || null,
+        });
+      } else {
+        void this.queueActiveEvent(active, "assistant.message", { text });
+      }
+    }
     active.finalizePromise = active.eventChain.then(() => {
       if (this.activeByThread.get(threadId) === active) this.activeByThread.delete(threadId);
       if (active.settled) return;
@@ -902,6 +1164,7 @@ export class CodexAppServerAdapter {
 
   handleNotification(method, params) {
     const threadId = params.threadId || params.thread?.id || null;
+    this.observeCompaction(method, params, threadId);
     const registered = threadId ? this.activeByThread.get(threadId) : null;
     if (registered?.closing) return;
     // 任何抵达该线程的原生流量都是"健在"证据：delta、item、审批请求、reasoning 都算。
@@ -962,8 +1225,10 @@ export class CodexAppServerAdapter {
       }
     }
     if (active && method === "turn/completed") {
-      const message = params.turn?.error?.message;
-      const providerError = message ? new Error(message) : null;
+      const providerError = nativeTurnError(params.turn?.error, {
+        threadId,
+        turnId: eventTurnId || active.turnId,
+      });
       const error = active.cancellationError || providerError;
       if (active.cancellationError && providerError) active.cancellationError.providerError = providerError.message;
       const result = error ? null : {
@@ -1030,6 +1295,168 @@ export class CodexAppServerAdapter {
     this.loadedThreads.add(threadId);
   }
 
+  finishCompaction(compaction, { error = null, result = null } = {}) {
+    if (!compaction || compaction.settled) return;
+    compaction.settled = true;
+    clearTimeout(compaction.timer);
+    compaction.signal?.removeEventListener("abort", compaction.onAbort);
+    if (this.compactionsByThread.get(compaction.threadId) === compaction) {
+      this.compactionsByThread.delete(compaction.threadId);
+    }
+    if (error) compaction.reject(error);
+    else compaction.resolve(result || {
+      sessionId: compaction.threadId,
+      turnId: compaction.turnId,
+      protocol: "app-server-v2",
+    });
+  }
+
+  observeCompaction(method, params, threadId) {
+    const compaction = threadId ? this.compactionsByThread.get(threadId) : null;
+    if (!compaction || compaction.settled) return;
+    const eventTurnId = this.notificationTurnId(params);
+    const itemIsCompaction = itemTypeKey(params.item?.type) === "contextcompaction";
+
+    if (method === "turn/started" && eventTurnId && !compaction.turnId) {
+      compaction.turnId = eventTurnId;
+    }
+    if ((method === "item/started" || method === "item/completed") && itemIsCompaction && eventTurnId) {
+      if (compaction.turnId && compaction.turnId !== eventTurnId) {
+        this.finishCompaction(compaction, {
+          error: Object.assign(new Error("Codex context compaction turn id changed"), {
+            code: "APP_SERVER_PROTOCOL",
+            sessionId: threadId,
+          }),
+        });
+        return;
+      }
+      compaction.turnId = eventTurnId;
+    }
+    if (method === "thread/compacted") {
+      if (eventTurnId) compaction.turnId ||= eventTurnId;
+      this.finishCompaction(compaction);
+      return;
+    }
+    if (method !== "turn/completed" || !eventTurnId) return;
+    // turnId 未绑定前不得认任意 turn/completed 为压缩成功：跨实例迟到通知会制造假成功，
+    // 编排器会在未压缩的线程上立刻重试并再次撞满上下文。
+    if (!compaction.turnId || compaction.turnId !== eventTurnId) return;
+    const providerError = nativeTurnError(params.turn?.error, { threadId, turnId: eventTurnId });
+    if (providerError) {
+      this.finishCompaction(compaction, {
+        error: Object.assign(new Error(`Codex context compaction failed: ${providerError.message}`), {
+          code: "CONTEXT_COMPACTION_FAILED",
+          providerCode: providerError.code,
+          codexErrorInfo: providerError.codexErrorInfo,
+          nativeTurnSettled: true,
+          sessionId: threadId,
+          turnId: eventTurnId,
+        }),
+      });
+      return;
+    }
+    this.finishCompaction(compaction);
+  }
+
+  async compactThread(threadId, {
+    signal,
+    timeoutMs = DEFAULT_CONTEXT_COMPACTION_TIMEOUT_MS,
+    runId = null,
+    agentId = this.runtimeProfileId,
+  } = {}) {
+    if (!threadId) throw Object.assign(new Error("Codex context compaction requires a thread id"), { code: "INVALID_SESSION" });
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
+      throw Object.assign(new Error("Codex context compaction timeout must be a positive safe integer"), { code: "INVALID_EVENT_POLICY" });
+    }
+    if (signal?.aborted) throw requestAbortReason(signal);
+    await this.ensureThread(threadId, { signal });
+    if (this.activeByThread.has(threadId)) {
+      throw Object.assign(new Error("Codex thread still has an active turn"), {
+        code: "TURN_ACTIVE",
+        nativeSessionBusy: true,
+        sessionId: threadId,
+      });
+    }
+    if (this.compactionsByThread.has(threadId)) {
+      throw Object.assign(new Error("Codex thread context compaction is already active"), {
+        code: "CONTEXT_COMPACTION_ACTIVE",
+        nativeSessionBusy: true,
+        sessionId: threadId,
+      });
+    }
+
+    let resolveCompaction;
+    let rejectCompaction;
+    const promise = new Promise((resolve, reject) => {
+      resolveCompaction = resolve;
+      rejectCompaction = reject;
+    });
+    void promise.catch(() => {});
+    const compaction = {
+      threadId,
+      runId,
+      agentId,
+      turnId: null,
+      settled: false,
+      signal,
+      onAbort: null,
+      timer: null,
+      promise,
+      resolve: resolveCompaction,
+      reject: rejectCompaction,
+    };
+    compaction.onAbort = () => {
+      const reason = requestAbortReason(signal);
+      if (compaction.turnId) {
+        void this.interruptTurn(threadId, compaction.turnId, CONTEXT_COMPACTION_INTERRUPT_MS, {
+          reason: "context compaction caller cancelled",
+          runId,
+          agentId,
+        }).catch(() => {}).finally(() => this.finishCompaction(compaction, { error: reason }));
+      } else {
+        this.finishCompaction(compaction, { error: reason });
+      }
+    };
+    compaction.timer = setTimeout(() => {
+      // 超时路径同样要打断原生轮：只 reject 会让 provider 侧的 contextCompaction turn 继续活着，
+      // 而适配器已把它从 compactionsByThread 里遗忘——之后同 thread 的 send() 必撞 active writer。
+      // 这条路径没有调用方在等打断结果，故走后台补偿，不再往已满 5 分钟的窗口上加时间。
+      if (compaction.turnId) {
+        void this.interruptTurn(threadId, compaction.turnId, CONTEXT_COMPACTION_INTERRUPT_MS, {
+          reason: "context compaction timed out",
+          runId,
+          agentId,
+        }).catch(() => {});
+      }
+      this.finishCompaction(compaction, {
+        error: Object.assign(new Error("Codex context compaction timed out"), {
+          code: "CONTEXT_COMPACTION_TIMEOUT",
+          nativeTurnSettled: false,
+          sessionId: threadId,
+          turnId: compaction.turnId,
+        }),
+      });
+    }, timeoutMs);
+    this.compactionsByThread.set(threadId, compaction);
+    signal?.addEventListener("abort", compaction.onAbort, { once: true });
+    if (signal?.aborted) compaction.onAbort();
+
+    try {
+      // The RPC only acknowledges that compaction was launched. Codex 0.147.0 starts a
+      // separate contextCompaction turn afterwards, so completion is observed above.
+      await this.request("thread/compact/start", { threadId }, 30_000, { signal });
+    } catch (error) {
+      this.finishCompaction(compaction, {
+        error: Object.assign(error, {
+          code: error.code || "CONTEXT_COMPACTION_FAILED",
+          contextCompactionPhase: "start",
+          sessionId: threadId,
+        }),
+      });
+    }
+    return promise;
+  }
+
   async send({
     sessionId,
     prompt,
@@ -1065,7 +1492,15 @@ export class CodexAppServerAdapter {
       error.sessionId = threadId;
       throw error;
     }
-    if (this.activeByThread.has(threadId)) throw Object.assign(new Error("thread already has an active turn"), { code: "TURN_ACTIVE" });
+    if (this.activeByThread.has(threadId) || this.compactionsByThread.has(threadId)) {
+      throw Object.assign(new Error("thread already has an active writer"), {
+        code: "TURN_ACTIVE",
+        submissionRejected: true,
+        nativeSessionBusy: true,
+        safeToFallback: false,
+        sessionId: threadId,
+      });
+    }
     const clientUserMessageId = randomUUID();
     let abortHandler;
     let activeTurn;
@@ -1077,6 +1512,8 @@ export class CodexAppServerAdapter {
         reject,
         timer: null,
         text: "",
+        assistantMessageEmitted: false,
+        sawFinalAnswer: false,
         outputBytes: 0,
         endsWithHighSurrogate: false,
         outputLimitError: null,
@@ -1113,7 +1550,12 @@ export class CodexAppServerAdapter {
         if (current) {
           void this.cancelActive(
             current,
-            current.outputLimitError || Object.assign(new Error("Codex turn timed out"), { code: "TURN_TIMEOUT" }),
+            current.outputLimitError || Object.assign(new Error(`Codex turn reached the ${Math.round(timeoutMs / 60_000)} minute duration limit`), {
+              code: "TURN_TIMEOUT",
+              timeoutKind: "max-duration",
+              timeoutMs,
+              idleTimeoutMs,
+            }),
           );
         }
       }, timeoutMs);
@@ -1227,12 +1669,16 @@ export class CodexAppServerAdapter {
       } else if (active?.finalizePromise) {
         await active.finalizePromise;
       }
-      primaryError.codexPhase = submissionRejected
-        ? "turn-rejected"
-        : turnSubmissionAttempted ? "turn-submitted-or-unknown" : "session-ready";
-      primaryError.safeToFallback = submissionRejected || !turnSubmissionAttempted;
+      primaryError.codexPhase = primaryError.nativeTurnSettled === true
+        ? "turn-settled-failed"
+        : submissionRejected ? "turn-rejected" : turnSubmissionAttempted ? "turn-submitted-or-unknown" : "session-ready";
+      primaryError.safeToFallback = primaryError.nativeSessionBusy === true
+        ? false
+        : primaryError.nativeTurnSettled === true ? false : submissionRejected || !turnSubmissionAttempted;
       primaryError.submissionRejected = submissionRejected;
       primaryError.sessionId = threadId;
+      primaryError.turnId ||= acceptedTurnId;
+      primaryError.protocol ||= "app-server-v2";
       primaryError.clientUserMessageId = clientUserMessageId;
       throw primaryError;
     } finally {
@@ -1250,6 +1696,9 @@ export class CodexAppServerAdapter {
     this.lateResponses.clear();
     this.compensationReservations.clear();
     this.loadedThreads.clear();
+    for (const compaction of [...this.compactionsByThread.values()]) {
+      this.finishCompaction(compaction, { error });
+    }
     const finalizations = [...this.activeByThread.entries()].map(([threadId, active]) =>
       this.finalizeActive(threadId, active, { error: active.outputLimitError || error }));
     const previous = this.failPromise || Promise.resolve();

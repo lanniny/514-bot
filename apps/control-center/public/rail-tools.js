@@ -179,7 +179,9 @@ export function createRailTools({
     if (activeId === id) activeId = openTabs[Math.min(index, openTabs.length - 1)] ?? null;
     persist();
     render();
-    if (activeId) onActivate?.(activeId);
+    // Closing the last tab still deactivates the previous panel; consumers use
+    // the null activation to abort in-flight work owned by the hidden tool.
+    onActivate?.(activeId);
   }
 
   const handleClick = (event) => {

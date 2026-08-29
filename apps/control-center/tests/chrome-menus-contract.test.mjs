@@ -17,6 +17,7 @@ function assertIncludes(source, snippet, message) {
 
 test("chrome menu cluster sits in the topbar before the breadcrumb", async () => {
   const html = await source("public/index.html");
+  const app = await source("public/app.js");
   const menus = html.indexOf('<div class="chrome-menus" id="chrome-menus">');
   const title = html.indexOf('<div class="topbar-title"');
   assert.ok(menus > -1 && title > -1 && menus < title, "chrome-menus 必须在 topbar-title 之前");
@@ -26,9 +27,9 @@ test("chrome menu cluster sits in the topbar before the breadcrumb", async () =>
   for (const icon of ["#lucide-arrow-left", "#lucide-arrow-right"]) {
     assertIncludes(html, icon, `菜单列图标缺失：${icon}`);
   }
-  assertIncludes(html, 'class="icon lucide chrome-rail-glyph"', "左栏开关必须是可动画的双态字形");
-  assertIncludes(html, 'class="chrome-rail-glyph-bar"', "双态字形缺侧栏分隔线");
-  assertIncludes(html, 'class="chrome-rail-glyph-hint"', "双态字形缺展开提示箭头");
+  assertIncludes(html, 'class="icon lucide chrome-rail-glyph"', "左栏开关必须使用 Lucide 双态图标");
+  assertIncludes(html, '<use href="#lucide-panel-left"></use>', "左栏开关缺 Lucide panel-left 图标");
+  assertIncludes(app, 'collapsed ? "#lucide-panel-right" : "#lucide-panel-left"', "左栏开关未随状态切换 Lucide 图标");
   for (const label of [">文件</button>", ">编辑</button>", ">视图</button>", ">帮助</button>"]) {
     assertIncludes(html, label, `缺文字菜单：${label}`);
   }
@@ -93,8 +94,8 @@ test("unified chrome color + floating conversation card styles", async () => {
   assertIncludes(wave, "box-shadow: 0 1px 2px rgba(59, 48, 38, 0.06), 0 10px 28px rgba(59, 48, 38, 0.10);");
   assertIncludes(wave, '[data-theme="dark"] .atelier .conversation-pane {');
   assertIncludes(wave, "#chrome-nav-back.is-fired .icon {");
-  assertIncludes(wave, "#chrome-rail-toggle[aria-pressed=\"true\"] .chrome-rail-glyph-bar {");
-  assertIncludes(wave, "#chrome-rail-toggle[aria-pressed=\"true\"] .chrome-rail-glyph-hint {");
+  assertIncludes(wave, "#chrome-rail-toggle.is-fired .chrome-rail-glyph {");
+  assertIncludes(wave, "@keyframes chrome-rail-pulse {");
   assertIncludes(wave, "@keyframes chrome-nav-nudge-left {");
   assertIncludes(wave, "@media (prefers-reduced-motion: reduce) {");
   // rail 收起：抽屉式收轨，会话框顶到窗缘不留缝

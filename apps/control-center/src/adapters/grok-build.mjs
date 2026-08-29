@@ -13,11 +13,22 @@ import { createLfCollector } from "./stream-utils.mjs";
 // 只批准当前 session cwd 内的 Edit/Write；run_terminal_cmd 仍可用于 Grok 自带的
 // 只读命令判据，但不授予 Bash 规则，任何非只读命令都由 dontAsk 直接拒绝。
 // 不再用 acceptEdits 在首次创建文件时弹出一个 2ms 后自动取消的无人权限框。
+// 原生审批透传（2026-08-27 实证）：仅作用于只读语义轮（非写盘轮），把控制面的
+// native:* 覆盖值原样透传给 grok（--permission-mode auto/acceptEdits 或 --always-approve）；
+// 写盘轮完全忽略该值，仍固定 dontAsk + 白名单安全不变量。
 const GROK_BUILD_TOOLS = "read_file,grep,list_dir,search_replace,run_terminal_cmd,todo_write";
 const GROK_BUILD_ALLOW_RULES = Object.freeze([
   "Edit(./**)",
   "Write(./**)",
 ]);
+
+// 原生审批透传白名单：每一档均经 2026-08-27 本机实证（headless 正常收尾、无权限挂起）。
+// 未实证或行为异常的档位不得出现在这里；未知/非法值在 buildGrokArgs 中回落 plan。
+const GROK_NATIVE_APPROVAL_ARGS = Object.freeze({
+  "native:auto": Object.freeze(["--permission-mode", "auto"]),
+  "native:acceptEdits": Object.freeze(["--permission-mode", "acceptEdits"]),
+  "native:always-approve": Object.freeze(["--always-approve"]),
+});
 
 export function buildGrokArgs({
   prompt,
@@ -26,6 +37,7 @@ export function buildGrokArgs({
   model = null,
   effort = null,
   permissionMode = "plan",
+  nativeApprovalMode = null,
 }) {
   const args = ["-p", prompt];
   if (sessionId) args.push("-r", sessionId);
@@ -35,11 +47,18 @@ export function buildGrokArgs({
   // 强制 orchestrator 的 coordinator-plan 安全不变量：主脑/只读轮锁 plan（只读探索），
   // 仅审批过的 build 专家轮启用 headless deny-by-default 白名单，不依赖 grok 环境默认。
   if (permissionMode === "workspace-write") {
+    // 写盘轮红线：原生审批档在此完全无效，忽略任何传入的 nativeApprovalMode。
     args.push("--permission-mode", "dontAsk", "--tools", GROK_BUILD_TOOLS, "--no-subagents", "--disable-web-search");
     for (const rule of GROK_BUILD_ALLOW_RULES) args.push("--allow", rule);
     args.push("--deny", "MCPTool");
   } else {
-    args.push("--permission-mode", "plan");
+    const nativeArgs = GROK_NATIVE_APPROVAL_ARGS[nativeApprovalMode];
+    if (nativeArgs) {
+      // 实证通过的只读语义轮原生透传；非法/未知值回落 plan（fail-safe，不抛错）。
+      args.push(...nativeArgs);
+    } else {
+      args.push("--permission-mode", "plan");
+    }
   }
   args.push("--output-format", "streaming-json");
   return args;
@@ -121,7 +140,7 @@ export class GrokBuildAdapter {
     this.sessionIdFactory = sessionIdFactory;
   }
 
-  async send({ sessionId, prompt, runId, agentId = "grok-build", signal, permissionMode = "plan", model = null, effort = null, timeoutMs = 15 * 60_000, cwd = null, onSessionStarted, onTurnSubmitting }) {
+  async send({ sessionId, prompt, runId, agentId = "grok-build", signal, permissionMode = "plan", nativeApprovalMode = null, model = null, effort = null, timeoutMs = 15 * 60_000, cwd = null, onSessionStarted, onTurnSubmitting }) {
     // Windows 命令行长度上限约 32K；-p 传参超限时如实拒绝而非静默截断
     if (prompt.length > 24_000) {
       const error = new Error("prompt exceeds the grok -p argument budget (24k chars); split the task instead");
@@ -138,6 +157,7 @@ export class GrokBuildAdapter {
       model: model || this.model,
       effort,
       permissionMode,
+      nativeApprovalMode,
     });
     let resolvedSessionId = sessionId || newSessionId;
     let endReceived = false;
@@ -159,7 +179,10 @@ export class GrokBuildAdapter {
         }
         if (event?.type === "text" && typeof event.data === "string") {
           finalText += event.data;
-          return; // 文本在 end 时随 completed 事件一次性入库
+          pendingEvents.push(
+            this.eventStore.emit("grok.item/agentMessage/delta", { delta: event.data }, { runId, sessionId: resolvedSessionId, agentId }),
+          );
+          return;
         }
         if (event?.type === "end") {
           endReceived = true;

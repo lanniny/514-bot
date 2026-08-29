@@ -7,6 +7,7 @@ import {
   assertPackageLockConsistent,
   classifyOwnedPath,
   collectDeliveryManifest,
+  collectDesktopManifest,
   main,
   renderDeliveryReport,
 } from "../scripts/qa-delivery-manifest.mjs";
@@ -60,6 +61,42 @@ test("delivery manifest reports untracked source/tests and deleted tracked files
   assert.match(report, /apps\/control-center\/src\/new\.mjs/);
 });
 
+test("desktop manifest closes the Tauri source tree and excludes target/ build artifacts", async (t) => {
+  const root = await createGitFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const desktop = [
+    "apps/desktop/src-tauri/Cargo.toml",
+    "apps/desktop/src-tauri/src/main.rs",
+    "apps/desktop/src-tauri/capabilities/native.json",
+    "apps/desktop/src-tauri/tauri.conf.json",
+  ];
+  for (const file of desktop) {
+    const path = resolve(root, file);
+    await mkdir(resolve(path, ".."), { recursive: true });
+    await writeFile(path, "x\n", "utf8");
+  }
+  // 巨型构建目录必须在桌面闭包之外（P0-11）
+  await mkdir(resolve(root, "apps/desktop/src-tauri/target/release"), { recursive: true });
+  await writeFile(resolve(root, "apps/desktop/src-tauri/target/release/cc-desktop.exe"), "MZ", "utf8");
+  execFileSync("git", ["-C", root, "add", "."], { windowsHide: true });
+  execFileSync("git", ["-C", root, "commit", "-qm", "desktop fixture"], { windowsHide: true });
+
+  const manifest = await collectDesktopManifest({ repoRoot: root });
+  assert.equal(manifest.clean, true, "all desktop source tracked; build artifact excluded from closure");
+  assert.equal(manifest.strictFailure, false);
+  assert.ok(manifest.trackedFiles.includes("apps/desktop/src-tauri/src/main.rs"), "desktop Rust source is closed");
+  assert.ok(!manifest.trackedFiles.includes("apps/desktop/src-tauri/target/release/cc-desktop.exe"), "target/ is never part of the delivery closure");
+  assert.ok(!manifest.physicalFiles.some((path) => path.includes("/target/")), "physical walk excludes target/");
+  assert.ok(!manifest.untrackedFiles.some((path) => path.includes("/target/")), "git-untracked walk excludes target/");
+
+  const iconPath = resolve(root, "apps/desktop/src-tauri/icons/icon.svg");
+  await mkdir(resolve(iconPath, ".."), { recursive: true });
+  await writeFile(iconPath, "<svg/>\n", "utf8");
+  const drifted = await collectDesktopManifest({ repoRoot: root });
+  assert.equal(drifted.clean, false);
+  assert.equal(drifted.strictFailure, true, "every focused desktop asset is must-ship even when it is not a code extension");
+  assert.deepEqual(drifted.untrackedFiles, ["apps/desktop/src-tauri/icons/icon.svg"]);
+});
 test("delivery manifest is clean when physical focus files equal Git delivery set", async (t) => {
   const root = await createGitFixture();
   t.after(() => rm(root, { recursive: true, force: true }));

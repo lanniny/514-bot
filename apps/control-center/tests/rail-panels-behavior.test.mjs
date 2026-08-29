@@ -20,7 +20,13 @@ class FakeNode {
     this.textContent = "";
     this.value = "";
     this.hidden = false;
+    this.disabled = false;
     this.listeners = new Map();
+    this.classList = {
+      add() {},
+      remove() {},
+      toggle() {},
+    };
   }
 
   addEventListener(type, listener) {
@@ -47,6 +53,10 @@ function createHarness() {
     "#rail-files-list",
     "#rail-files-preview",
     "#rail-files-filter",
+    "#rail-files-editor",
+    "#rail-files-editor-status",
+    "#rail-files-save",
+    "#rail-files-revert",
   ];
   const nodes = new Map(selectors.map((selector) => [selector, new FakeNode()]));
   const root = new FakeNode();
@@ -61,6 +71,26 @@ function createHarness() {
             return { disabled: false, dataset: { railFilesPath: path } };
           }
           return null;
+        },
+      },
+    });
+  };
+  root.clickSelector = (selector) => {
+    const listener = root.listeners.get("click");
+    listener?.({
+      preventDefault() {},
+      target: {
+        closest(candidate) {
+          return candidate === selector ? nodes.get(selector) : null;
+        },
+      },
+    });
+  };
+  root.inputSelector = (selector) => {
+    root.listeners.get("input")?.({
+      target: {
+        closest(candidate) {
+          return candidate === selector ? nodes.get(selector) : null;
         },
       },
     });
@@ -144,6 +174,51 @@ test("late workspace responses cannot replace a newer directory", async () => {
   assert.match(markup, /b\.txt/);
   assert.match(markup, /仅返回前 240 个可见条目/);
   assert.doesNotMatch(markup, /a\.txt/);
+  panels.destroy();
+});
+
+test("a late file save cannot repaint a newer file preview", async () => {
+  const harness = createHarness();
+  const save = deferred();
+  const file = (path, content, revision) => ({
+    type: "file",
+    path,
+    file: {
+      name: path,
+      content,
+      language: "text",
+      binary: false,
+      redacted: false,
+      truncated: false,
+      editable: true,
+      revision,
+    },
+  });
+  const request = (url, options = {}) => {
+    const path = new URL(url, "http://control.local").searchParams.get("path") || "";
+    if (options.method === "PUT") return save.promise; // deliberately ignores AbortSignal
+    if (!path) return Promise.resolve({ type: "directory", path: "", entries: [], truncated: false });
+    if (path === "A.txt") return Promise.resolve(file("A.txt", "alpha", "a".repeat(64)));
+    return Promise.resolve(file("B.txt", "bravo", "b".repeat(64)));
+  };
+  const panels = createRailPanels(panelOptions(harness, request));
+  panels.activate("files");
+  await settle();
+  harness.root.clickPath("A.txt");
+  await settle();
+
+  const editor = harness.nodes.get("#rail-files-editor");
+  editor.value = "alpha changed";
+  harness.root.inputSelector("#rail-files-editor");
+  harness.root.clickSelector("#rail-files-save");
+  harness.root.clickPath("B.txt");
+  await settle();
+  assert.match(harness.nodes.get("#rail-files-preview").innerHTML, /B\.txt/);
+
+  save.resolve(file("A.txt", "alpha changed", "c".repeat(64)));
+  await settle();
+  assert.match(harness.nodes.get("#rail-files-preview").innerHTML, /B\.txt/);
+  assert.doesNotMatch(harness.nodes.get("#rail-files-preview").innerHTML, /A\.txt/);
   panels.destroy();
 });
 

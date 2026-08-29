@@ -205,6 +205,139 @@ function mcpToml(id, config) {
   return lines.join("\n");
 }
 
+function parseTomlScalar(raw) {
+  let text = String(raw ?? "").trim();
+  if (text.startsWith("[")) {
+    const end = text.lastIndexOf("]");
+    if (end >= 0) text = text.slice(0, end + 1);
+    try { return JSON.parse(text.replace(/'/g, "\"")); } catch { return []; }
+  }
+  if (text.startsWith("\"")) {
+    const match = text.match(/^"((?:\\.|[^"\\])*)"/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch { return match[1]; }
+    }
+  }
+  text = text.replace(/\s+#.*$/, "");
+  if (text === "true") return true;
+  if (text === "false") return false;
+  if (/^-?\d+(?:\.\d+)?$/.test(text)) return Number(text);
+  return text;
+}
+
+function parseTomlAssignments(body) {
+  const output = {};
+  for (const line of String(body ?? "").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const eq = trimmed.indexOf("=");
+    if (eq < 1) continue;
+    const key = trimmed.slice(0, eq).trim().replace(/^["']|["']$/g, "");
+    if (!key) continue;
+    output[key] = parseTomlScalar(trimmed.slice(eq + 1));
+  }
+  return output;
+}
+
+function parseTomlMcpServers(text) {
+  const normalized = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const servers = {};
+  const header = /^\[mcp_servers\.(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9][A-Za-z0-9._-]*))(\.env)?\][ \t]*$/gm;
+  const matches = [...normalized.matchAll(header)];
+  for (let index = 0; index < matches.length; index += 1) {
+    const match = matches[index];
+    const name = match[1] || match[2] || match[3];
+    if (!name) continue;
+    const bodyStart = match.index + match[0].length;
+    const nextHeader = normalized.slice(bodyStart).search(/\n\[/);
+    const body = nextHeader >= 0 ? normalized.slice(bodyStart, bodyStart + nextHeader) : normalized.slice(bodyStart);
+    if (!servers[name]) servers[name] = { env: {} };
+    const fields = parseTomlAssignments(body);
+    if (match[4]) Object.assign(servers[name].env, fields);
+    else Object.assign(servers[name], fields);
+  }
+  return Object.entries(servers).map(([id, config]) => {
+    if (config.env && typeof config.env === "object" && !Object.keys(config.env).length) delete config.env;
+    return { id, config };
+  });
+}
+
+function stripTomlMcpTables(original, id) {
+  const escaped = String(id).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const normalized = String(original ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const pattern = new RegExp(`(?:^|\\n)\\[mcp_servers\\.(?:${escaped}|"${escaped}"|'${escaped}')(?:\\.env)?\\][ \\t]*(?:\\n(?!\\[).*)*`, "g");
+  return normalized.replace(pattern, "\n").replace(/\n{3,}/g, "\n\n").trimEnd();
+}
+
+function isMaskedSecret(value, original) {
+  if (typeof value !== "string" || !value.startsWith("••••")) return false;
+  if (original == null || original === "") return value === "••••" || /^••••.{0,4}$/.test(value);
+  return value === mask(original);
+}
+
+function restoreMaskedSecrets(incoming, existing) {
+  if (!incoming || typeof incoming !== "object" || Array.isArray(incoming) || !existing) return incoming;
+  const next = { ...incoming };
+  for (const field of ["env", "headers"]) {
+    const current = incoming[field];
+    const previous = existing[field];
+    if (!current || typeof current !== "object" || Array.isArray(current) || !previous || typeof previous !== "object") continue;
+    const merged = { ...current };
+    for (const [key, value] of Object.entries(merged)) {
+      if (isMaskedSecret(value, previous[key]) && previous[key] != null) merged[key] = previous[key];
+    }
+    next[field] = merged;
+  }
+  return next;
+}
+
+function mcpFingerprint(config) {
+  const type = String(config?.type || (config?.url ? "http" : config?.command ? "stdio" : ""));
+  return JSON.stringify({
+    type,
+    command: String(config?.command || ""),
+    url: String(config?.url || ""),
+    args: Array.isArray(config?.args) ? config.args.map(String) : [],
+    cwd: String(config?.cwd || ""),
+  });
+}
+
+function comparableMcp(config) {
+  try { return validateMcpConfig(config); } catch { return config && typeof config === "object" ? config : {}; }
+}
+
+function publicLiveMcp(item) {
+  const command = item.config?.command ? basename(String(item.config.command)) : "";
+  let urlHost = "";
+  if (item.config?.url) {
+    try { urlHost = new URL(String(item.config.url)).host; } catch { urlHost = "（URL 无法解析）"; }
+  }
+  return {
+    id: item.id,
+    name: item.name,
+    transport: item.config?.url ? "http" : item.config?.command ? "stdio" : "unknown",
+    ...(command ? { command } : {}),
+    ...(urlHost ? { urlHost } : {}),
+    apps: clone(item.apps),
+    sources: (item.sources ?? []).map((source) => ({ app: source.app, scope: source.scope, path: source.path })),
+    managed: Boolean(item.managed),
+    importable: item.importable !== false,
+    ...(item.skipReason ? { skipReason: item.skipReason } : {}),
+  };
+}
+
+function publicLiveSkill(item) {
+  return {
+    id: item.id,
+    name: item.name,
+    apps: clone(item.apps),
+    sources: (item.sources ?? []).map((source) => ({ app: source.app, path: source.path })),
+    managed: Boolean(item.managed),
+    importable: item.importable !== false,
+    ...(item.skipReason ? { skipReason: item.skipReason } : {}),
+  };
+}
+
 function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -532,16 +665,157 @@ export class CcSwitchDomainService {
     return Object.values(this.state.mcps).sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  async #readLiveMcpEntries(app) {
+    try {
+      const target = this.#mcpPath(app);
+      if (["codex", "grokbuild"].includes(app)) {
+        let text = "";
+        try { text = await readFile(target, "utf8"); } catch (error) {
+          if (error?.code === "ENOENT") return [];
+          throw error;
+        }
+        return parseTomlMcpServers(text).map((item) => ({ ...item, app, path: target, scope: "global" }));
+      }
+      const document = await readObject(target, { yaml: app === "hermes", json5: app === "opencode" });
+      const key = app === "opencode" ? "mcp" : app === "hermes" ? "mcp_servers" : "mcpServers";
+      const servers = document[key];
+      if (!servers || typeof servers !== "object" || Array.isArray(servers)) return [];
+      const entries = Object.entries(servers).map(([id, config]) => ({ id, config, app, path: target, scope: "global" }));
+      if (app === "claude" && document.projects && typeof document.projects === "object") {
+        for (const [project, projectEntry] of Object.entries(document.projects)) {
+          const projectServers = projectEntry?.mcpServers;
+          if (!projectServers || typeof projectServers !== "object") continue;
+          for (const [id, config] of Object.entries(projectServers)) {
+            entries.push({ id, config, app, path: target, scope: "project", project });
+          }
+        }
+      }
+      if (app === "claude") {
+        const settingsPath = join(this.#configDir("claude"), "settings.json");
+        const settings = await readObject(settingsPath);
+        for (const [id, config] of Object.entries(settings.mcpServers ?? {})) {
+          entries.push({ id, config, app, path: settingsPath, scope: "settings" });
+        }
+      }
+      return entries;
+    } catch {
+      return [];
+    }
+  }
+
+  async observeLiveMcps() {
+    const byId = new Map();
+    for (const app of PROVIDER_APPS) {
+      const entries = await this.#readLiveMcpEntries(app);
+      for (const entry of entries) {
+        const id = String(entry.id ?? "").trim();
+        if (!id) continue;
+        const existing = byId.get(id) ?? {
+          id,
+          name: id,
+          config: null,
+          apps: appMap(() => false),
+          sources: [],
+          managed: Boolean(this.state.mcps[id]),
+          importable: true,
+          skipReason: "",
+        };
+        existing.sources.push({ app: entry.app, path: entry.path, scope: entry.scope, project: entry.project || "" });
+        const liveConfig = entry.config && typeof entry.config === "object" ? clone(entry.config) : {};
+        if (entry.scope !== "project") {
+          if (!existing.config) {
+            existing.config = liveConfig;
+            existing.apps[app] = true;
+            if (existing.skipReason.startsWith("项目级")) {
+              existing.importable = ID_PATTERN.test(id);
+              existing.skipReason = existing.importable ? "" : "id 含不支持的字符";
+            }
+          } else if (mcpFingerprint(comparableMcp(liveConfig)) === mcpFingerprint(comparableMcp(existing.config))) {
+            existing.apps[app] = true;
+          }
+        }
+        if (!ID_PATTERN.test(id)) {
+          existing.importable = false;
+          existing.skipReason = existing.skipReason || "id 含不支持的字符";
+        } else if (entry.scope === "project" && !existing.config) {
+          existing.importable = false;
+          existing.skipReason = existing.skipReason || "项目级 MCP 不自动导入全局账本";
+        } else if (existing.importable && existing.config && !existing.validated) {
+          try {
+            existing.config = validateMcpConfig(existing.config);
+            existing.validated = true;
+          } catch (error) {
+            existing.importable = false;
+            existing.skipReason = error?.message || "MCP 配置无法校验";
+          }
+        }
+        byId.set(id, existing);
+      }
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  adoptLiveMcps(input = {}) {
+    const requested = Array.isArray(input.ids) ? input.ids.map((id) => String(id).trim()).filter(Boolean) : null;
+    return this.#serialize(async () => {
+      const observed = await this.observeLiveMcps();
+      const imported = [];
+      const skipped = [];
+      for (const item of observed) {
+        if (requested && !requested.includes(item.id)) continue;
+        if (this.state.mcps[item.id]) {
+          skipped.push({ id: item.id, reason: "already-managed" });
+          continue;
+        }
+        if (!item.importable || !item.config) {
+          skipped.push({ id: item.id, reason: item.skipReason || "not-importable" });
+          continue;
+        }
+        try {
+          const config = validateMcpConfig(item.config);
+          this.state.mcps[item.id] = {
+            id: item.id,
+            name: item.name,
+            description: "从本机 live 配置导入",
+            config,
+            apps: item.apps,
+            source: "live-import",
+            createdAt: now(),
+            updatedAt: now(),
+          };
+          imported.push(item.id);
+        } catch (error) {
+          skipped.push({ id: item.id, reason: error?.message || "invalid" });
+        }
+      }
+      if (imported.length) await this.#commit();
+      await this.#audit("ccswitch.mcp_adopted", { imported, skipped: skipped.length });
+      return { imported, skipped, observed: observed.length };
+    });
+  }
+
+  async observeLiveResources() {
+    const [mcps, skills] = await Promise.all([this.observeLiveMcps(), this.observeLiveSkills()]);
+    return {
+      mcps: mcps.map((item) => publicLiveMcp(item)),
+      skills: skills.map((item) => publicLiveSkill(item)),
+    };
+  }
+
   upsertMcp(input = {}) {
     const id = input.id ? cleanId(input.id, "MCP id") : `mcp-${randomUUID()}`;
     const existing = this.state.mcps[id] ?? null;
     const name = cleanText(input.name ?? existing?.name, "MCP name", 120, { required: true });
-    const config = validateMcpConfig(input.config ?? existing?.config);
+    const config = validateMcpConfig(restoreMaskedSecrets(input.config ?? existing?.config, existing?.config));
     const apps = appMap((app) => Boolean(input.apps?.[app] ?? existing?.apps?.[app]));
     return this.#serialize(async () => {
       this.state.mcps[id] = { id, name, description: cleanText(input.description ?? existing?.description, "MCP description", 1000), config, apps, createdAt: existing?.createdAt || now(), updatedAt: now() };
       for (const app of PROVIDER_APPS) {
-        if (input.apps && Object.prototype.hasOwnProperty.call(input.apps, app)) await this.#materializeMcp(app, id, apps[app]);
+        if (!(input.apps && Object.prototype.hasOwnProperty.call(input.apps, app))) continue;
+        const enabled = apps[app];
+        const wasEnabled = Boolean(existing?.apps?.[app]);
+        if (!enabled && !wasEnabled) continue;
+        await this.#materializeMcp(app, id, enabled);
       }
       await this.#commit();
       await this.#audit("ccswitch.mcp_upserted", { id, apps: Object.entries(apps).filter(([, enabled]) => enabled).map(([app]) => app) });
@@ -572,6 +846,8 @@ export class CcSwitchDomainService {
     if (["codex", "grokbuild"].includes(app)) {
       let original = "";
       try { original = await readFile(target, "utf8"); } catch (error) { if (error?.code !== "ENOENT") throw error; }
+      original = spliceManagedBlock(original, "mcp", id, "");
+      original = stripTomlMcpTables(original, id);
       await atomicWrite(target, spliceManagedBlock(original, "mcp", id, enabled ? mcpToml(id, item.config) : ""));
       return;
     }
@@ -621,6 +897,113 @@ export class CcSwitchDomainService {
     return Object.values(this.state.skills).sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  async observeLiveSkills() {
+    const byId = new Map();
+    for (const app of SKILL_APPS) {
+      const root = join(this.#configDir(app), "skills");
+      let entries = [];
+      try { entries = await readdir(root, { withFileTypes: true }); } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const id = entry.name;
+        const skillDir = join(root, id);
+        if (!(await stat(join(skillDir, "SKILL.md")).catch(() => null))) continue;
+        const existing = byId.get(id) ?? {
+          id,
+          name: id,
+          apps: appMap(() => false),
+          sources: [],
+          managed: Boolean(this.state.skills[id]),
+          importable: ID_PATTERN.test(id),
+          skipReason: ID_PATTERN.test(id) ? "" : "id 含不支持的字符",
+        };
+        existing.apps[app] = true;
+        existing.sources.push({ app, path: skillDir });
+        byId.set(id, existing);
+      }
+    }
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  adoptLiveSkills(input = {}) {
+    const requested = Array.isArray(input.ids) ? input.ids.map((id) => String(id).trim()).filter(Boolean) : null;
+    return this.#serialize(async () => {
+      const observed = await this.observeLiveSkills();
+      const imported = [];
+      const skipped = [];
+      for (const item of observed) {
+        if (requested && !requested.includes(item.id)) continue;
+        if (this.state.skills[item.id]) {
+          skipped.push({ id: item.id, reason: "already-managed" });
+          continue;
+        }
+        if (!item.importable || !item.sources?.length) {
+          skipped.push({ id: item.id, reason: item.skipReason || "not-importable" });
+          continue;
+        }
+        try {
+        const sourceDir = item.sources[0].path;
+        const files = {};
+        let total = 0;
+        const walk = async (dir, rel) => {
+          const entries = await readdir(dir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.name.startsWith(".")) continue;
+            const nextRel = rel ? `${rel}/${entry.name}` : entry.name;
+            const full = join(dir, entry.name);
+            if (entry.isDirectory()) {
+              await walk(full, nextRel);
+              continue;
+            }
+            const content = await readFile(full, "utf8");
+            total += Buffer.byteLength(content);
+            if (total > 8 * 1024 * 1024) fail("skill files exceed 8 MiB", "VALIDATION_FAILED", 413);
+            files[nextRel] = content;
+          }
+        };
+        await walk(sourceDir, "");
+        if (!Object.keys(files).some((path) => path.replace(/\\/g, "/") === "SKILL.md")) {
+          skipped.push({ id: item.id, reason: "missing SKILL.md" });
+          continue;
+        }
+        const root = join(this.skillRoot, item.id);
+        const swap = join(this.skillRoot, `.${item.id}.${randomUUID()}.swap`);
+        await rm(swap, { recursive: true, force: true });
+        await mkdir(swap, { recursive: true });
+        for (const [pathValue, content] of Object.entries(files)) {
+          const path = safeRelative(pathValue, "skill file path");
+          const target = assertInside(swap, join(swap, path), "skill file path");
+          await mkdir(dirname(target), { recursive: true });
+          await writeFile(target, content, { encoding: "utf8", mode: 0o600 });
+        }
+        await mkdir(this.skillRoot, { recursive: true });
+        await rm(root, { recursive: true, force: true });
+        await rename(swap, root);
+        const apps = appMap(() => false);
+        if (item.sources[0]?.app) apps[item.sources[0].app] = true;
+        this.state.skills[item.id] = {
+          id: item.id,
+          name: item.name,
+          description: "从本机 live Skill 目录导入",
+          source: "live-import",
+          path: root,
+          apps,
+          createdAt: now(),
+          updatedAt: now(),
+        };
+        imported.push(item.id);
+        } catch (error) {
+          skipped.push({ id: item.id, reason: error?.message || "import-failed" });
+        }
+      }
+      if (imported.length) await this.#commit();
+      await this.#audit("ccswitch.skill_adopted", { imported, skipped: skipped.length });
+      return { imported, skipped, observed: observed.length };
+    });
+  }
+
   #skillTarget(app, name) {
     cleanApp(app, SKILL_APPS);
     return join(this.#configDir(app), "skills", name);
@@ -633,6 +1016,7 @@ export class CcSwitchDomainService {
     if (!files || typeof files !== "object" || Array.isArray(files) || !Object.keys(files).length) fail("skill files are required", "VALIDATION_FAILED");
     if (!Object.keys(files).some((path) => path.replace(/\\/g, "/") === "SKILL.md")) fail("skill requires SKILL.md", "VALIDATION_FAILED");
     const root = join(this.skillRoot, id);
+    // 临时目录只落到唯一的随机命名空间，无跨实例碰撞，可在串行区外安全预构建。
     const swap = join(this.skillRoot, `.${id}.${randomUUID()}.swap`);
     await rm(swap, { recursive: true, force: true });
     await mkdir(swap, { recursive: true });
@@ -646,19 +1030,22 @@ export class CcSwitchDomainService {
       await mkdir(dirname(target), { recursive: true });
       await writeFile(target, content, { encoding: "utf8", mode: 0o600 });
     }
-    const existing = this.state.skills[id];
-    const backup = `${root}.old`;
-    await rm(backup, { recursive: true, force: true });
-    if (await stat(root).catch(() => null)) await rename(root, backup);
-    await mkdir(this.skillRoot, { recursive: true });
-    try {
-      await rename(swap, root);
-    } catch (error) {
-      if (await stat(backup).catch(() => null)) await rename(backup, root).catch(() => {});
-      throw error;
-    }
-    await rm(backup, { recursive: true, force: true });
+    // 文件交换（root -> .old -> swap 换入 -> 清 .old）必须与 state commit 同处一个全局
+    // 串行区：此前在 #serialize 之外做，同 id 并发安装会互相覆盖 .old、混写 swap 或误删
+    // 备份。整体搬入串行区后，任何两个安装/其他写操作的 swap/backup/state 恒对应单一完整版本。
     return this.#serialize(async () => {
+      const existing = this.state.skills[id];
+      const backup = `${root}.old`;
+      await rm(backup, { recursive: true, force: true });
+      if (await stat(root).catch(() => null)) await rename(root, backup);
+      await mkdir(this.skillRoot, { recursive: true });
+      try {
+        await rename(swap, root);
+      } catch (error) {
+        if (await stat(backup).catch(() => null)) await rename(backup, root).catch(() => {});
+        throw error;
+      }
+      await rm(backup, { recursive: true, force: true });
       const apps = appMap((app) => Boolean(input.apps?.[app] ?? existing?.apps?.[app]));
       this.state.skills[id] = { id, name, description: cleanText(input.description ?? existing?.description, "skill description", 1000), source: input.source ?? existing?.source ?? "local", path: root, apps, createdAt: existing?.createdAt || now(), updatedAt: now() };
       for (const app of SKILL_APPS) if (apps[app]) await this.#materializeSkill(app, id, true);
@@ -1438,6 +1825,9 @@ export const ccswitchDomainInternals = Object.freeze({
   normalizeState,
   spliceManagedBlock,
   mcpToml,
+  parseTomlMcpServers,
+  stripTomlMcpTables,
+  restoreMaskedSecrets,
   validateMcpConfig,
   encodeAwsPath,
 });

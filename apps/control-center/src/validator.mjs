@@ -15,7 +15,7 @@ const CONTROL_SCHEMA_DEFINITIONS = new Map([
   ["control.permissions", "permissionPolicy"],
   ["control.sources", "sourceRegistry"],
 ]);
-const NON_ADAPTER_MODULES = new Set(["index", "manifest", "stream-utils"]);
+const NON_ADAPTER_MODULES = new Set(["index", "manifest", "stream-utils", "native-commands"]);
 const REQUIRED_HANDOFF_PREFIXES = ["codex-to-", "grok-to-", "gemini-to-", "kimi-to-", "synthesis__"];
 const EXPECTED_HANDOFF_REGISTRY = ".claude/hooks/handoff-sources.json";
 const EXPECTED_DELTA_HOOKS = {

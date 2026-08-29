@@ -55,6 +55,33 @@ test("create/update/remove round-trips through disk persistence", async () => {
   }
 });
 
+test("ephemeral teams reuse validation and brief rendering without entering the store", async () => {
+  const { root, store } = await fixture();
+  try {
+    const path = join(root, "teams.json");
+    await assert.rejects(readFile(path, "utf8"), { code: "ENOENT" });
+    const team = store.materializeEphemeral({
+      name: "一次性群聊",
+      coordinator: "codex-technical",
+      members: ["codex-technical", "grok-search"],
+      skills: [],
+      mcp: [],
+    });
+    assert.match(team.id, /^team-ephemeral-[0-9a-f-]{36}$/);
+    assert.equal(team.ephemeral, true);
+    assert.deepEqual(team.members, ["codex-technical", "grok-search"]);
+    assert.match(store.briefFor(team), /当前团队：一次性群聊/);
+    assert.throws(() => store.get(team.id), { code: "SOURCE_NOT_FOUND" });
+    await assert.rejects(readFile(path, "utf8"), { code: "ENOENT" });
+    assert.throws(
+      () => store.materializeEphemeral({ name: "失效群聊", coordinator: "codex-technical", members: ["codex-technical", "ghost"] }),
+      { code: "VALIDATION_FAILED" },
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("validation: custom teams need one known member but do not require Claude", async () => {
   const { root, store } = await fixture();
   try {
@@ -430,6 +457,139 @@ test("catalog transition serializes concurrent team writes against the pending d
       () => store.create({ name: "失败事务不得清空旧 pending", members: [legacyOnly], coordinator: legacyOnly }),
       { code: "VALIDATION_FAILED" },
     );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("appearance background preset round-trips and rejects unknown presets", async () => {
+  const { root, store } = await fixture();
+  try {
+    const team = await store.create({
+      name: "氛围小队",
+      members: ["claude-fable", "grok-search"],
+      appearance: { background: { preset: "aurora", image: "" } },
+    });
+    assert.equal(team.appearance.background.preset, "aurora");
+    assert.equal(team.appearance.background.image, "");
+    const updated = await store.update(team.id, { appearance: { background: { preset: "tide", image: "custom" } } });
+    assert.deepEqual(updated.appearance.background, { preset: "tide", image: "custom" });
+    // 缺省 appearance 落到 none；image 仅接受 ""/"custom"
+    const bare = await store.create({ name: "无氛围", members: ["claude-fable"] });
+    assert.deepEqual(bare.appearance.background, { preset: "none", image: "" });
+    await assert.rejects(
+      () => store.update(team.id, { appearance: { background: { preset: "hacker-green" } } }),
+      { code: "VALIDATION_FAILED" },
+    );
+    await assert.rejects(
+      () => store.update(team.id, { appearance: { background: { preset: "none", image: "../../etc/passwd" } } }),
+      { code: "VALIDATION_FAILED" },
+    );
+    // 内置团队冻结同样适用于背景标记
+    await assert.rejects(() => store.markBackgroundImage(BUILTIN_TEAM.id), { code: "FROZEN_BLOCK" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("markBackgroundImage persists the custom marker through restart", async () => {
+  const { root, store } = await fixture();
+  try {
+    const team = await store.create({
+      name: "标记小队",
+      members: ["claude-fable"],
+      appearance: { background: { preset: "ember" } },
+    });
+    const marked = await store.markBackgroundImage(team.id);
+    assert.equal(marked.appearance.background.image, "custom");
+    const reloaded = await new TeamStore({ dataRoot: root, knownProviders: () => KNOWN }).init();
+    assert.deepEqual(reloaded.get(team.id).appearance.background, { preset: "ember", image: "custom" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("team worldview persists and reaches the planner brief as narrative context", async () => {
+  const { root, store } = await fixture();
+  try {
+    const team = await store.create({
+      name: "魔法议会",
+      worldview: "成员都是浮空城魔法学院的巫师，任务是讨伐委托，产出即卷轴与符文。",
+      members: ["claude-fable", "grok-search"],
+    });
+    assert.match(store.briefFor(team), /团队世界观（叙事语境）：.*魔法学院/);
+    const updated = await store.update(team.id, { worldview: "赛博都市中的夜班侦探社。" });
+    assert.match(store.brief(updated.id), /夜班侦探社/);
+    // 缺省为空，brief 不注入该段
+    const bare = await store.create({ name: "无世界观", members: ["claude-fable"] });
+    assert.equal(bare.worldview, "");
+    assert.doesNotMatch(store.briefFor(bare), /团队世界观/);
+    const reloaded = await new TeamStore({ dataRoot: root, knownProviders: () => KNOWN }).init();
+    assert.equal(reloaded.get(team.id).worldview, "赛博都市中的夜班侦探社。");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("appearance motion and filter normalize: unknown motion falls back off, filter clamps into bounds", async () => {
+  const { root, store } = await fixture();
+  try {
+    const team = await store.create({
+      name: "动效小队",
+      members: ["claude-fable"],
+      appearance: {
+        background: { preset: "tide" },
+        motion: "subtle",
+        filter: { blur: 8, brightness: 1.1, contrast: 0.8, saturation: 1.2, dim: 0.3 },
+      },
+    });
+    assert.equal(team.appearance.motion, "subtle");
+    assert.deepEqual(team.appearance.filter, { blur: 8, brightness: 1.1, contrast: 0.8, saturation: 1.2, dim: 0.3 });
+    // 越界值夹紧而不是打红整条团队配置（滑杆语义）
+    const pushed = await store.update(team.id, {
+      appearance: { background: { preset: "tide" }, motion: "rich", filter: { blur: 999, brightness: -3, contrast: 9, saturation: 5, dim: 2 } },
+    });
+    assert.equal(pushed.appearance.motion, "rich");
+    assert.deepEqual(pushed.appearance.filter, { blur: 24, brightness: 0.5, contrast: 1.5, saturation: 2, dim: 0.85 });
+    // 未知 motion 回 off；缺省 filter 回默认（对比度缺省补 1 = 视觉零变化）
+    const fallback = await store.update(team.id, { appearance: { background: { preset: "none" }, motion: "hologram" } });
+    assert.equal(fallback.appearance.motion, "off");
+    assert.deepEqual(fallback.appearance.filter, { blur: 0, brightness: 1, contrast: 1, saturation: 1, dim: 0 });
+    // 浮点尾巴被定精度收敛
+    const tail = await store.update(team.id, { appearance: { background: {}, motion: "off", filter: { dim: 0.30000000000000004 } } });
+    assert.equal(tail.appearance.filter.dim, 0.3);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("appearance playback normalizes through the real entry: whitelist fallback, boolean coercion, defaults", async () => {
+  const { root, store } = await fixture();
+  try {
+    // 非法 rate/非布尔 flipped 回落默认而不是拒绝；合法 paused 原样保留。
+    const team = await store.create({
+      name: "播放小队",
+      members: ["claude-fable"],
+      appearance: {
+        background: { preset: "tide" },
+        playback: { rate: 3, flipped: "yes", paused: true },
+      },
+    });
+    assert.deepEqual(team.appearance.playback, { rate: 1, flipped: false, paused: true });
+    // 白名单内的 rate 原样保留（0.5 / 2）。
+    const half = await store.update(team.id, {
+      appearance: { background: { preset: "tide" }, playback: { rate: 0.5 } },
+    });
+    assert.deepEqual(half.appearance.playback, { rate: 0.5, flipped: false, paused: false });
+    const double = await store.update(team.id, {
+      appearance: { background: { preset: "tide" }, playback: { rate: 2, flipped: true, paused: false } },
+    });
+    assert.deepEqual(double.appearance.playback, { rate: 2, flipped: true, paused: false });
+    // 缺省 appearance → playback 全默认，且空分支与非空分支同为四键形状。
+    const bare = await store.create({ name: "无播放", members: ["claude-fable"] });
+    assert.deepEqual(bare.appearance.playback, { rate: 1, flipped: false, paused: false });
+    assert.deepEqual(Object.keys(bare.appearance).sort(), ["background", "filter", "motion", "playback"]);
+    assert.deepEqual(Object.keys(team.appearance).sort(), ["background", "filter", "motion", "playback"]);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

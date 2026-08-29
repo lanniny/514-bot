@@ -250,16 +250,13 @@ body.atelier .sidebar .nav-item.nav-primary.is-active {
   position: relative;
   display: grid !important;
   min-height: 0;
-  grid-template-columns: var(--codex-task-rail) minmax(0, 1fr) !important;
+  /* splitter.js writes the live left rail width inline; keep this as a two-column fallback. */
+  grid-template-columns: var(--codex-task-rail) minmax(0, 1fr);
   overflow: hidden !important;
   border: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
-}
-
-.workbench-shell > .forge-splitter-handle {
-  display: none;
 }
 
 .atelier .run-rail {
@@ -385,6 +382,12 @@ body.atelier .sidebar .nav-item.nav-primary.is-active {
   padding: 24px max(24px, calc((100% - var(--codex-reading-width)) / 2)) 28px;
   background: var(--surface);
   scrollbar-gutter: stable;
+  /* 滚动顶部渐隐（2026-08-29 缺陷波）：滚离顶部后内容从标题栏下缘淡入，
+     替代「文字被视口边线切成半截」的生硬裁切。渐变长度 = 顶部 padding 24px——
+     滚到顶时第一条消息起点恰在 alpha=1 处，完整显示不受影响。
+     mask 只作用于元素自身绘制的像素（文字/底色），透出的壁纸在元素之后、不受裁。 */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 24px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 24px);
 }
 
 .conversation-stream > * {

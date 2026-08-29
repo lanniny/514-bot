@@ -122,7 +122,16 @@ async function selectComposerCliTab(page, tab) {
   assert.equal(await button.getAttribute("aria-selected"), "true");
 }
 
-async function composerConsoleSnapshot(page) {
+async function selectHiddenComposerSelect(page, selector, value) {
+  await page.evaluate(([sel, val]) => {
+    const select = document.querySelector(sel);
+    if (!select) throw new Error(`missing select ${sel}`);
+    select.value = val;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  }, [selector, value]);
+}
+
+function composerConsoleSnapshot(page) {
   return page.evaluate(() => ({
     title: document.querySelector("#composer-cli-console-title")?.textContent?.trim(),
     adapter: document.querySelector("#composer-cli-console")?.dataset.adapter,
@@ -166,21 +175,25 @@ async function verifyComposer(page, outputDir, isolatedRepoRoot) {
   assert.equal(teamConsole.title, "Claude Code 操作台");
   assert.equal(teamConsole.adapter, "claude-stream-json");
   assert.equal(teamConsole.target, "claude-fable");
-  assert.deepEqual(teamConsole.permissionOptions, ["plan", "review", "build"]);
+  // 2026-08-27 native 泛化：claude 追加原生 acceptEdits/bypassPermissions 档（只读轮透传）
+  assert.deepEqual(teamConsole.permissionOptions, ["plan", "review", "build", "native:acceptEdits", "native:bypassPermissions", "native-note"]);
 
   const claudeCatalog = await selectAgent(page, "claude-fable");
   assert.equal(claudeCatalog.context.adapterId, "claude-stream-json");
   const claudeConsole = await composerConsoleSnapshot(page);
   assert.equal(claudeConsole.title, "Claude Code 操作台");
   assert.equal(claudeConsole.target, "claude-fable");
-  assert.deepEqual(claudeConsole.permissionOptions, ["plan", "review", "build"]);
+  // 2026-08-27 native 泛化：claude 追加原生 acceptEdits/bypassPermissions 档（只读轮透传）
+  assert.deepEqual(teamConsole.permissionOptions, ["plan", "review", "build", "native:acceptEdits", "native:bypassPermissions", "native-note"]);
 
   const kimiCatalog = await selectAgent(page, "kimi-frontend");
   assert.equal(kimiCatalog.context.memberId, "kimi-frontend");
   assert.equal(kimiCatalog.context.runtimeProfileId, "kimi-frontend");
   assert.equal(kimiCatalog.context.adapterId, "kimi-headless-resume");
   assert.deepEqual(kimiCatalog.models.map((model) => model.id), KIMI_MODELS);
-  assert.equal(kimiCatalog.controls.effort.supported, false);
+  // kimi effort 已生效（env 注入通道，LO 2026-08-09 决策）：静态目录即声明 low/high/max
+  assert.equal(kimiCatalog.controls.effort.supported, true);
+  assert.deepEqual(kimiCatalog.effortLevels, ["low", "high", "max"]);
 
   const kimiControls = await page.evaluate(() => ({
     models: [...document.querySelector("#task-model").options].map((option) => option.value),
@@ -190,15 +203,16 @@ async function verifyComposer(page, outputDir, isolatedRepoRoot) {
     targetRoute: document.querySelector("#composer-target-route")?.textContent?.trim(),
   }));
   assert.deepEqual(kimiControls.models, ["", ...KIMI_MODELS]);
-  assert.equal(kimiControls.effortHidden, true);
-  assert.equal(kimiControls.effortDisabled, true);
+  assert.equal(kimiControls.effortHidden, false);
+  assert.equal(kimiControls.effortDisabled, false);
   assert.match(kimiControls.targetName || "", /^Kimi 前端/);
   assert.equal(kimiControls.targetRoute, "直接收件人");
   const kimiConsole = await composerConsoleSnapshot(page);
   assert.equal(kimiConsole.title, "Kimi Code 操作台");
   assert.equal(kimiConsole.adapter, "kimi-headless-resume");
-  assert.deepEqual(kimiConsole.permissionOptions, ["plan", "review"]);
-  assert.equal(kimiConsole.effortHidden, true);
+  // kimi 原生档（yolo/auto）进下拉；说明项只读轮边界也入 option 值清单
+  assert.deepEqual(kimiConsole.permissionOptions, ["plan", "review", "native:auto", "native:yolo", "native-note"]);
+  assert.equal(kimiConsole.effortHidden, false);
 
   const kimiSlash = await slashLabels(page, "/");
   assert.deepEqual(kimiSlash.filter((label) => label.startsWith("/model ")), [
@@ -207,7 +221,10 @@ async function verifyComposer(page, outputDir, isolatedRepoRoot) {
   ]);
   assert.ok(kimiSlash.includes("/plan"));
   assert.ok(kimiSlash.includes("/review"));
-  assert.equal(kimiSlash.some((label) => label.startsWith("/effort")), false);
+  assert.deepEqual(
+    kimiSlash.filter((label) => label.startsWith("/effort")).sort(),
+    ["/effort high", "/effort low", "/effort max"],
+  );
   assert.equal(kimiSlash.includes("/build"), false);
   assert.equal(await page.locator("#task-input").getAttribute("aria-expanded"), "true");
   const slashBeforeKey = await page.evaluate(() => ({
@@ -249,7 +266,8 @@ async function verifyComposer(page, outputDir, isolatedRepoRoot) {
   const codexConsole = await composerConsoleSnapshot(page);
   assert.equal(codexConsole.title, "Codex 操作台");
   assert.equal(codexConsole.adapter, "codex-app-server");
-  assert.deepEqual(codexConsole.permissionOptions, ["plan", "review", "build"]);
+  // Codex 官方四档（LO 2026-08-09 决策）：danger-full-access 声明即替换 514cc 三档组
+  assert.deepEqual(codexConsole.permissionOptions, ["ask", "auto", "full-access", "config"]);
   assert.ok(codexConsole.actionIds.includes("version"));
   assert.ok(codexConsole.actionIds.includes("doctor"));
   assert.ok(codexConsole.actionIds.includes("features"));
@@ -299,7 +317,10 @@ async function verifyComposer(page, outputDir, isolatedRepoRoot) {
 
   await page.locator("#composer-cli-open-connection").click();
   await page.waitForSelector("#provider-dialog[open]");
-  assert.equal(await page.locator("#provider-app-codex").isChecked(), true);
+  // 上轮 UI 重构：app 选择从 checkbox 迁移到对话框上下文（targetApp 状态 + 标题文案）
+  // 目标 app 的唯一 DOM 投影是对话框标题（新增供应商 · <app>）；编辑已绑定档案时是档案名
+  const dialogTitle = await page.locator("#provider-dialog-title").textContent();
+  assert.match((dialogTitle || "").trim(), /Codex/, "composer 连接对话框必须面向 codex 应用");
   await page.locator("#provider-close-button").click();
 
   await page.locator("#composer-cli-open-capabilities").click();
@@ -326,7 +347,7 @@ async function verifyComposer(page, outputDir, isolatedRepoRoot) {
   assert.equal(piConsole.effortHidden, false);
 
   await selectAgent(page, "kimi-frontend");
-  await page.locator("#task-model").selectOption("kimi-code/k3");
+  await selectHiddenComposerSelect(page, "#task-model", "kimi-code/k3");
   await page.locator("#task-input").fill("@Co");
   await page.waitForSelector('#mention-menu:not([hidden]) [data-mention-id="codex-technical"]');
   await page.locator("#task-input").press("Enter");
@@ -441,7 +462,7 @@ async function verifyComposer(page, outputDir, isolatedRepoRoot) {
   assert.equal(previewBody.startAgentId, "kimi-frontend");
   assert.deepEqual(previewBody.requestedAgentIds, ["codex-technical"]);
   await selectAgent(page, "codex-technical");
-  await page.locator("#task-effort").selectOption("ultra");
+  await selectHiddenComposerSelect(page, "#task-effort", "ultra");
   assert.equal(await page.locator("#composer-collaborators").isHidden(), true, "switching the direct target removes its redundant collaborator chip");
   releaseRoutePreview();
   await submitted;
@@ -546,7 +567,14 @@ async function verifyComposer(page, outputDir, isolatedRepoRoot) {
 }
 
 async function verifyProviderDeck(page, outputDir) {
-  await page.evaluate(() => { location.hash = "config/providers"; });
+  await page.evaluate(() => { location.hash = "config/sources"; });
+  await page.waitForSelector("#view-config:not([hidden]) #runtime-seat-list [data-runtime-seat-id]", { timeout: 30_000 });
+  await page.evaluate(() => {
+    const nodes = [...document.querySelectorAll("#runtime-seat-list [data-runtime-seat-id]")];
+    const codex = nodes.find((node) => /codex/i.test(`${node.getAttribute("data-runtime-seat-id") || ""} ${node.textContent || ""}`));
+    (codex || nodes[0])?.click();
+  });
+  await page.waitForSelector("#view-config:not([hidden]) #provider-columns .provider-global-empty, #view-config:not([hidden]) #provider-columns .provider-row-list", { timeout: 20_000 });
   await page.waitForSelector("#view-config:not([hidden]) #provider-columns .provider-global-empty", { timeout: 20_000 });
   const empty = await page.evaluate(() => ({
     globalEmptyCount: document.querySelectorAll("#provider-columns .provider-global-empty").length,
@@ -568,22 +596,18 @@ async function verifyProviderDeck(page, outputDir) {
   const providerRefresh = page.waitForResponse((response) => response.request().method() === "GET" && new URL(response.url()).pathname === "/api/providers");
   await page.locator("#refresh-button").click();
   await providerRefresh;
-  await page.waitForSelector("#provider-columns .provider-empty-apps", { timeout: 20_000 });
+  await page.waitForSelector("#provider-columns [data-provider-row], #provider-columns .provider-official-row", { timeout: 20_000 });
   const partial = await page.evaluate(() => ({
     appColumns: document.querySelectorAll("#provider-columns .provider-app-strip").length,
-    emptySummary: document.querySelector("#provider-columns .provider-empty-apps summary")?.textContent?.trim(),
-    emptyAppCount: document.querySelectorAll("#provider-columns .provider-empty-app-list > div").length,
+    emptyApps: document.querySelectorAll("#provider-columns .provider-empty-apps").length,
     headerCtaVisible: !document.querySelector("#provider-add-button")?.hidden,
   }));
   assert.equal(partial.appColumns, 1);
-  assert.ok(partial.emptyAppCount > 0, "partial Provider state must expose unassociated applications");
-  assert.equal(partial.emptySummary, `还有 ${partial.emptyAppCount} 个应用未关联供应商`);
+  assert.equal(partial.emptyApps, 0, "seat-locked connection deck must not advertise other apps");
   assert.equal(partial.headerCtaVisible, true);
-  await page.locator("#provider-columns .provider-empty-apps summary").click();
-  await page.locator('[data-provider-add-app="gemini"]').click();
+  await page.locator("#provider-add-button").click();
   await page.waitForSelector("#provider-dialog[open]");
-  assert.equal(await page.locator("#provider-app-gemini").isChecked(), true);
-  assert.equal(await page.locator("#provider-app-claude").isChecked(), false);
+  assert.equal(await page.locator("#provider-app-codex").isChecked(), true);
   await page.locator("#provider-close-button").click();
   await page.screenshot({ path: resolve(outputDir, "providers-partial-desktop.png") });
   return { providerId: provider.id, empty, partial };
@@ -617,6 +641,7 @@ async function verifyRuntimeSeatEditor(page, providerId, outputDir) {
     modelScope: document.querySelector("#runtime-seat-model-scope")?.textContent?.trim(),
     effort: document.querySelector("#runtime-seat-effort-input")?.value,
     effortDisabled: document.querySelector("#runtime-seat-effort-input")?.disabled,
+    effortOptions: [...document.querySelectorAll("#runtime-seat-effort-options option")].map((option) => option.value),
     effortScope: document.querySelector("#runtime-seat-effort-scope")?.textContent?.trim(),
     permission: document.querySelector("#runtime-seat-permission-select")?.value,
     permissionOptions: [...document.querySelector("#runtime-seat-permission-select").options].map((option) => option.value),
@@ -631,9 +656,18 @@ async function verifyRuntimeSeatEditor(page, providerId, outputDir) {
   assert.deepEqual(kimiEditor.modelOptions, KIMI_MODELS);
   assert.match(kimiEditor.modelScope || "", /4 个已知模型/);
   assert.equal(kimiEditor.effort, "");
-  assert.equal(kimiEditor.effortDisabled, true);
-  assert.match(kimiEditor.effortScope || "", /没有接入可执行的通用 effort/);
+  assert.equal(kimiEditor.effortDisabled, false);
+  assert.deepEqual(
+    kimiEditor.effortOptions.filter(Boolean),
+    ["low", "high", "max"],
+    "kimi effort 编辑器必须暴露 env 注入的三档",
+  );
   assert.equal(kimiEditor.permissionOptions.includes("workspace-write"), false);
+  assert.deepEqual(
+    kimiEditor.permissionOptions,
+    ["plan", "read-only", "native:yolo", "native:auto"],
+    "kimi 席位编辑器权限选项=治理两档+原生 yolo/auto",
+  );
   assert.ok(["plan", "read-only"].includes(kimiEditor.permission));
   assert.match(kimiEditor.details || "", /写权限保持 fail-closed/);
   await page.screenshot({ path: resolve(outputDir, "runtime-seat-kimi-desktop.png"), fullPage: true });

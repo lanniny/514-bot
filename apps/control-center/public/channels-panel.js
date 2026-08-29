@@ -113,15 +113,20 @@ function readForm(root) {
   return { name, config };
 }
 
+// latest-wins 门闩：启动引导与视图进入两条路径都会触发 refresh，旧响应不得覆盖新响应
+let refreshSeq = 0;
 async function refresh(root) {
+  const seq = ++refreshSeq;
   try {
     const [channels, events] = await Promise.all([
       request("/api/channels"),
       request("/api/channels/events?limit=40"),
     ]);
+    if (seq !== refreshSeq) return;
     state.channels = channels?.channels ?? [];
     state.events = events?.events ?? [];
   } catch (error) {
+    if (seq !== refreshSeq) return;
     if (/REMOTE_GATE/.test(error.message || "")) {
       root.innerHTML = `
         <div class="channel-empty">
@@ -299,7 +304,14 @@ function bind(root) {
     void createChannel(root);
   });
   // 输入即快照：任何全量重渲（渠道卡操作/事件过滤）都能回填用户已填内容
-  root.querySelector("#channel-form")?.addEventListener("input", () => readForm(root));
+  root.querySelector("#channel-form")?.addEventListener("input", (event) => {
+    readForm(root);
+    // 密钥/token 改动即失效旧验通：就地摘除「已认出 @bot」指示，不整树重渲（保输入焦点）
+    if (/token|secret/i.test(event.target?.id ?? "") && state.probe) {
+      state.probe = null;
+      root.querySelector(".channel-probe-ok")?.remove();
+    }
+  });
   root.querySelector("#channel-probe")?.addEventListener("click", () => void probeChannel(root));
   root.querySelectorAll("[data-channel-toggle]").forEach((button) => {
     button.addEventListener("click", () => void toggleChannel(root, button.dataset.channelToggle, button.dataset.enabled !== "true"));
@@ -385,6 +397,11 @@ async function probeChannel(root) {
 
 async function createChannel(root) {
   const { name, config } = readForm(root);
+  // 与服务端同口径的预检：跳过验通直接创建也尽早给出可读错误
+  if (state.formType === "webhook_in" && String(config.secret ?? "").trim().length < 8) {
+    setFormMessage(root, "验签 Secret 至少 8 位", "error");
+    return;
+  }
   setBusy(root, true);
   try {
     await request("/api/channels", { method: "POST", body: JSON.stringify({ type: state.formType, name, config, enabled: true }) });
@@ -392,11 +409,14 @@ async function createChannel(root) {
     state.probe = null;
     state.formMsg = "渠道已创建";
     state.formTone = "ok";
-    await refresh(root);
   } catch (error) {
     setFormMessage(root, `创建失败：${error.message}`, "error");
+    return;
+  } finally {
+    // 成功路径此前不落 false：render() 按 state.pending 发 disabled，向导会永久锁死
     setBusy(root, false);
   }
+  await refresh(root);
 }
 
 async function toggleChannel(root, id, enabled) {
@@ -421,7 +441,7 @@ async function testChannel(root, id) {
     }
     const result = await request(`/api/channels/${id}/test`, {
       method: "POST",
-      body: JSON.stringify({ text: "514 Forge 渠道连通性测试", chatId }),
+      body: JSON.stringify({ text: "514 Bot 渠道连通性测试", chatId }),
     });
     setFormMessage(root, result?.ok ? "测试已发出" : `测试未成功：HTTP ${result?.status ?? "?"}`, result?.ok ? "ok" : "error");
   } catch (error) {
@@ -441,8 +461,8 @@ async function deleteChannel(root, id) {
 }
 
 /** 供 app.js 在切入视图时按需刷新（门闸授权后切回不再是死屏）。 */
-export function refreshChannelsPanel() {
-  const root = document.getElementById("channels-container");
+export function refreshChannelsPanel(rootOverride = null) {
+  const root = rootOverride || document.getElementById("channels-container");
   if (root) void refresh(root);
 }
 

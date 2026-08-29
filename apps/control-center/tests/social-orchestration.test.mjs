@@ -3005,6 +3005,39 @@ test("clearFinished removes the bus file and roster entries of cleared runs", as
   assert.equal(stale.length, 0, "roster 残留已清除 run 的条目");
 });
 
+test("runtime roster keeps concurrent seats for the same logical member", async (t) => {
+  const { root, orchestrator } = await fixture({
+    "claude-fable": ["unused"],
+  });
+  t.after(async () => { await orchestrator.close(); await rm(root, { recursive: true, force: true }); });
+  const first = {
+    id: "run-seat-first",
+    sessions: { "codex-technical": "session-first" },
+    teamId: "team-514cc",
+    cwd: null,
+    status: "running",
+  };
+  const second = {
+    id: "run-seat-second",
+    sessions: { "codex-technical": "session-second" },
+    teamId: "team-514cc",
+    cwd: null,
+    status: "waiting_agent",
+  };
+  await orchestrator.registerRoster(first, "codex-technical");
+  await orchestrator.registerRoster(second, "codex-technical");
+  let roster = JSON.parse(await readFile(resolve(root, "roster.json"), "utf8"));
+  assert.equal(roster.seats["run-seat-first:codex-technical"].sessionId, "session-first");
+  assert.equal(roster.seats["run-seat-second:codex-technical"].sessionId, "session-second");
+  assert.equal(roster.agents["codex-technical"].runId, "run-seat-second");
+
+  await orchestrator.removeRosterEntries("run-seat-second");
+  roster = JSON.parse(await readFile(resolve(root, "roster.json"), "utf8"));
+  assert.equal(roster.seats["run-seat-second:codex-technical"], undefined);
+  assert.equal(roster.seats["run-seat-first:codex-technical"].runId, "run-seat-first");
+  assert.equal(roster.agents["codex-technical"].runId, "run-seat-first");
+});
+
 test("effort validation honors dynamically discovered levels (codex max/ultra)", async (t) => {
   const dynamicDiscovery = {
     forAgent: async () => ({

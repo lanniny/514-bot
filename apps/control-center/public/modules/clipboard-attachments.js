@@ -93,6 +93,12 @@ export function ensureAttachmentContext(contexts, key) {
   return contexts.get(key);
 }
 
+function preserveAttachmentPreview(context, item, result) {
+  if (!result?.previewUrl || !(context?.previews instanceof Map)) return;
+  context.previews.set(String(result.path), result.previewUrl);
+  if (context.previewUploads instanceof Map) context.previewUploads.delete(String(item.id));
+}
+
 /**
  * 只消费本次请求已经快照并提交的附件；请求在途期间新加入的附件/上传不得被迟到响应抹掉。
  * 返回 true 表示上下文已经没有任何待提交内容，调用方可以安全删除 Map 项。
@@ -161,6 +167,7 @@ export async function queueClipboardImageUploads({
         const uploadIndex = context.uploads.indexOf(item);
         if (uploadIndex >= 0) context.uploads.splice(uploadIndex, 1);
         if (!context.attachments.includes(result.path)) context.attachments.push(result.path);
+        preserveAttachmentPreview(context, item, result);
         onChange(context);
         if (claim) {
           try {
@@ -232,6 +239,7 @@ export async function retryQuotaClipboardImageUploads({
         const uploadIndex = context.uploads.indexOf(item);
         if (uploadIndex >= 0) context.uploads.splice(uploadIndex, 1);
         if (!context.attachments.includes(result.path)) context.attachments.push(result.path);
+        preserveAttachmentPreview(context, item, result);
         onChange(context);
         if (claim) {
           try {

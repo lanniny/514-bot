@@ -13,10 +13,14 @@ import { Orchestrator } from "./orchestrator.mjs";
 import { AutomationStore, seedBuiltinAutomations } from "./automations.mjs";
 import { createCapabilities } from "./capabilities.mjs";
 import { ModelDiscovery } from "./model-discovery.mjs";
+import { CapabilityWatcher, capabilityWatchTargets } from "./capability-watcher.mjs";
 import { ObservabilityService } from "./observability.mjs";
 import { SessionAggregator } from "./sessions.mjs";
 import { TeamStore } from "./teams.mjs";
 import { TeamMemberStore } from "./team-members.mjs";
+import { ConversationStore } from "./conversations.mjs";
+import { ConversationContextStore } from "./conversation-contexts.mjs";
+import { ProjectRegistry } from "./projects.mjs";
 import { ProviderStore } from "./providers.mjs";
 import { CcSwitchProxyService } from "./ccswitch/proxy.mjs";
 import { CcSwitchDomainService } from "./ccswitch/domain.mjs";
@@ -112,6 +116,19 @@ export function validateRuntimeGraph({ models, routing, permissions }) {
   }
   if (Number(permissions.limits?.maxRounds) < 3) {
     throw Object.assign(new Error("permission maxRounds must allow planner, executor and verifier"), { code: "RUNTIME_GRAPH_INVALID" });
+  }
+  const maxBudgetUsdPerTurn = Number(permissions.limits?.maxBudgetUsdPerTurn);
+  const defaultBudgetUsdPerTurn = permissions.limits?.defaultBudgetUsdPerTurn == null
+    ? null
+    : Number(permissions.limits.defaultBudgetUsdPerTurn);
+  if (!Number.isFinite(maxBudgetUsdPerTurn) || maxBudgetUsdPerTurn < 0.05 || maxBudgetUsdPerTurn > 50) {
+    throw Object.assign(new Error("permission maxBudgetUsdPerTurn must be between 0.05 and 50"), { code: "RUNTIME_GRAPH_INVALID" });
+  }
+  if (defaultBudgetUsdPerTurn != null
+    && (!Number.isFinite(defaultBudgetUsdPerTurn)
+      || defaultBudgetUsdPerTurn < 0.05
+      || defaultBudgetUsdPerTurn > maxBudgetUsdPerTurn)) {
+    throw Object.assign(new Error("permission defaultBudgetUsdPerTurn must be between 0.05 and maxBudgetUsdPerTurn"), { code: "RUNTIME_GRAPH_INVALID" });
   }
 }
 
@@ -245,13 +262,22 @@ export async function createControlCenter(options = {}) {
   // 运行席位与逻辑成员分层：adapter manifest 仍是执行真源；成员库只绑定真实席位并承载人物元数据。
   const runtimeCatalogRef = { current: runtime.runtimeCatalog };
   let teams = null;
+  let projects = null;
+  let conversations = null;
+  let conversationContexts = null;
   const teamMembers = await new TeamMemberStore({
     dataRoot,
     runtimeCatalog: () => runtimeCatalogRef.current,
-    referencesForMember: async (memberId) => teams?.referencesForMember(memberId) ?? [],
+    referencesForMember: async (memberId) => [
+      ...(teams?.referencesForMember(memberId) ?? []),
+      ...(conversations?.referencesForMember(memberId) ?? []),
+    ],
     guardMemberMutation: async (memberId, mutation) => {
       if (!teams) throw Object.assign(new Error("team store is not ready"), { code: "TEAM_STORE_UNAVAILABLE" });
-      return teams.withMemberReferenceGuard(memberId, mutation);
+      const guardTeams = () => teams.withMemberReferenceGuard(memberId, mutation);
+      return conversations
+        ? conversations.withMemberReferenceGuard(memberId, guardTeams)
+        : guardTeams();
     },
     beginCatalogTransition: async (catalog, transitionOptions = {}) => {
       if (!teams) throw Object.assign(new Error("team store is not ready"), { code: "TEAM_STORE_UNAVAILABLE" });
@@ -264,12 +290,37 @@ export async function createControlCenter(options = {}) {
     teamCatalog: () => teamMembers.list(),
   }).init();
   teams.assertCatalogCompatible(teamMembers.list());
+  projects = await new ProjectRegistry({ dataRoot }).init();
+  conversations = await new ConversationStore({ dataRoot, projects }).init();
+  conversationContexts = await new ConversationContextStore({ dataRoot }).init();
   // cc-switch 迁移：统一供应商档案（baseUrl+apiKey 一处录入，按 app 投影 live 配置）；
   // runtimeHome 默认 homedir()，测试/隔离环境走 CONTROL_CENTER_RUNTIME_HOME
   const ccswitchProxy = await new CcSwitchProxyService({ dataRoot, providerStore, eventStore }).init();
   const ccswitchAuth = await new CcSwitchAuthService({ dataRoot }).init();
   const ccswitchDomain = await new CcSwitchDomainService({ dataRoot, providerStore, eventStore, authService: ccswitchAuth }).init();
   const modelDiscovery = new ModelDiscovery({ profiles: models.profiles });
+  // T4：外部 CLI 配置变更感知（~/.grok/config.toml 等）。watch 事件驱动，经既有
+  // eventStore → /api/events SSE 管道推送 capability.changed；payload 只带键名与哈希，
+  // 配置文件内容/密钥永不进事件流。清单路径复用 ProviderStore.liveConfigTargets()。
+  const capabilityWatcher = new CapabilityWatcher({
+    targets: capabilityWatchTargets(providerStore.runtimeHome)
+      .filter((entry) => providerStore.liveConfigTargets().some((target) => target.path === entry.path && !target.credential)),
+    onChanged: async (change) => {
+      if (closed) return;
+      modelDiscovery.invalidate(change.runtimeProfileId);
+      try {
+        await eventStore.emit("capability.changed", {
+          runtimeProfileId: change.runtimeProfileId,
+          changedKeys: change.changedKeys,
+          degraded: change.degraded === true,
+          changedAt: change.at,
+        }, { sensitivity: "internal", agentId: "control-plane" });
+      } catch {
+        // 事件库关闭竞态：监听本身继续收尾，不阻止应用关闭
+      }
+    },
+  });
+  capabilityWatcher.start();
   let configManager = null;
   const capabilities = createCapabilities({
     repoRoot,
@@ -289,6 +340,9 @@ export async function createControlCenter(options = {}) {
     approvalBroker,
     teams,
     teamMembers,
+    projects,
+    conversations,
+    conversationContexts,
     models: runtime.models, // modelOptions 目录：/model 覆盖按起始 agent 校验（v3.6 P2）
     modelDiscovery, // 动态模型/档位发现（codex debug models / grok models，5min 缓存）
     capabilities, // agent skill 启停负名单：成员轮提示词 skill 声明按此过滤（LO 拍板可配置面）
@@ -389,6 +443,9 @@ export async function createControlCenter(options = {}) {
     ccswitchAuth,
     teams,
     teamMembers,
+    projects,
+    conversations,
+    conversationContexts,
     get teamCatalog() { return teamMembers.list(); },
     get runtimeCatalog() { return runtimeCatalogRef.current; },
     models: runtime.models,
@@ -403,6 +460,7 @@ export async function createControlCenter(options = {}) {
     orchestrator,
     configManager,
     modelDiscovery,
+    capabilityWatcher,
     get generation() { return generation; },
     get pid() { return process.pid; },
     get startedAt() { return instanceLock.owner.startedAt; },
@@ -615,11 +673,16 @@ export async function createControlCenter(options = {}) {
         const finalizationReserveMs = Math.min(250, Math.max(0, deadline - Date.now()));
         const resourceDeadline = Math.max(Date.now() + 1, deadline - finalizationReserveMs);
         const cleanupSteps = [
+          // 先摘配置监听：关闭窗口内不再产生 capability.changed，避免与 eventStore.close 竞态
+          ["capabilityWatcher.stop", () => capabilityWatcher.stop()],
           ...(app.lazy.releaseCommandRunner
             ? [["releaseCommandRunner.close", () => app.lazy.releaseCommandRunner.close()]]
             : []),
           ["approvalBroker.denyAll", () => approvalBroker.denyAll()],
           ["orchestrator.close", () => orchestrator.close({ deadlineMs: resourceDeadline })],
+          ["conversationContexts.close", () => conversationContexts.close()],
+          ["conversations.close", () => conversations.close()],
+          ["projects.close", () => projects.close()],
           ["eventStore.close", () => eventStore.close({ deadlineMs: resourceDeadline })],
           ["childRegistry.flush", () => childReg.flush()],
           ["channels.close", () => closeChannelService()],

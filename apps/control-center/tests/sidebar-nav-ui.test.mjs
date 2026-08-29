@@ -43,7 +43,7 @@ test("settings rail owns every entry and a return to workbench", async () => {
   assert.match(rail[0], />Agent 能力</);
   assert.match(rail[0], />数据与统计</);
   assert.match(rail[0], />进阶</);
-  assert.match(rail[0], /data-config-surface-jump="providers"/);
+  assert.match(rail[0], /data-config-surface-jump="sources"/);
   assert.match(rail[0], /data-config-surface-jump="capabilities"[^>]+data-cap-workspace="skills"/);
   assert.match(rail[0], /data-config-surface-jump="capabilities"[^>]+data-cap-workspace="mcp"/);
   assert.match(rail[0], /data-config-surface-jump="hooks"/);
@@ -67,9 +67,18 @@ test("appearance and browser settings pages stay honest", async () => {
   const accentGrid = html.slice(html.indexOf('id="appearance-accent-grid"'), html.indexOf("</div>", html.indexOf('id="appearance-accent-grid"')));
   assert.doesNotMatch(accentGrid, /style=/);
   assert.match(css, /data-appearance-accent="copper"/);
-  assert.match(html, /id="appearance-ui-face"/);
+  assert.match(html, /id="appearance-ui-face"[^>]+role="radiogroup"/);
   assert.match(html, /id="appearance-density"/);
-  assert.match(html, /id="appearance-code-face"/);
+  assert.match(html, /id="appearance-code-face"[^>]+role="radiogroup"/);
+  // 字体 WYSIWYG：CSP style-src 'self' 禁内联 style，预览字体由 experience-polish.css 的
+  // data-appearance-*-face 属性规则承担（两个栅格都禁 style 属性）
+  const uiFaceGrid = html.slice(html.indexOf('id="appearance-ui-face"'), html.indexOf("</div>", html.indexOf('id="appearance-ui-face"')));
+  const codeFaceGrid = html.slice(html.indexOf('id="appearance-code-face"'), html.indexOf("</div>", html.indexOf('id="appearance-code-face"')));
+  assert.doesNotMatch(uiFaceGrid, /style=/, "字体预览栅格不得内联 style（CSP 拦截）");
+  assert.doesNotMatch(codeFaceGrid, /style=/, "字体预览栅格不得内联 style（CSP 拦截）");
+  assert.match(css, /\[data-appearance-ui-face="yahei"\][\s\S]*?font-family:/, "yahei 预览字体必须有 CSS 属性规则");
+  assert.match(css, /\[data-appearance-code-face="jetbrains"\][\s\S]*?font-family:/, "jetbrains 预览字体必须有 CSS 属性规则");
+  assert.doesNotMatch(html, /<select[^>]*appearance-(ui|code)-face/);
   assert.match(html, /id="appearance-code-wrap"/);
   assert.match(html, /id="appearance-code-lines"/);
   assert.match(html, /id="appearance-preview-light"/);

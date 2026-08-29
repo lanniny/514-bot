@@ -22,7 +22,7 @@ function assertIncludes(source, snippet, message) {
 // .conversation-stream .turn-divider { margin:14px 0 10px } 特异性更高，一直钉死左右 margin 为 0（存量）。
 test("governance notes and inline approvals stay centered in the reading column", async () => {
   const css = await source("public/forge/console-form.css");
-  assertIncludes(css, ".gov-note,\n.approval-inline {\n  margin-inline: auto;\n}");
+  assertIncludes(css, ".gov-note,\n.approval-inline,\n.process-note,\n.process-card {\n  margin-inline: auto;\n}");
   // 不许再出现把 auto 左半盖掉的写法
   const block = css.slice(css.indexOf(".gov-note,"), css.indexOf(".gov-note,") + 400);
   assert.ok(!block.includes("margin-left: 0"), "gov-note/approval-inline 不允许 margin-left:0（会盖掉 margin-inline:auto）");

@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { runProcess } from "../process-runner.mjs";
 import { preparePromptTransport } from "../prompt-transport.mjs";
-import { createLfCollector, publicClaudeEvent } from "./stream-utils.mjs";
+import { createLfCollector, claudeResultUsage, publicClaudeEvent } from "./stream-utils.mjs";
+
+// Claude 原生审批档透传白名单（LO 2026-08-27）：值原样作为 --permission-mode 下发。
+// native:default 有意不入表：headless -p 下 default=逐项询问，无人应答必然挂起（与
+// grok 同款决策，agent-control-catalog 测试锁此边界）。写盘轮红线在调用方维持。
+const CLAUDE_NATIVE_PERMISSION_ARGS = Object.freeze({
+  "native:acceptEdits": Object.freeze(["--permission-mode", "acceptEdits"]),
+  "native:bypassPermissions": Object.freeze(["--permission-mode", "bypassPermissions"]),
+});
 
 export function buildClaudeArgs({
   sessionId = null,
@@ -13,8 +21,11 @@ export function buildClaudeArgs({
   settingsFile = null,
   systemPromptFile = null,
   nativeCommand = false,
+  nativeApprovalMode = null,
 }) {
-  const nativePermissionMode = permissionMode === "workspace-write" ? "acceptEdits" : "plan";
+  // 治理三档维持既有映射；native:* 覆盖仅在只读轮生效——写盘轮（workspace-write，
+  // 经审批的 build）完全忽略 native 覆盖，固定 acceptEdits，保住审批不变量。
+  const nativeArgs = permissionMode === "workspace-write" ? null : CLAUDE_NATIVE_PERMISSION_ARGS[nativeApprovalMode];
   const args = [
     "-p",
     "--strict-mcp-config",
@@ -22,8 +33,10 @@ export function buildClaudeArgs({
     "--output-format",
     "stream-json",
     "--verbose",
-    "--permission-mode",
-    nativePermissionMode,
+    ...(nativeArgs ?? [
+      "--permission-mode",
+      permissionMode === "workspace-write" ? "acceptEdits" : "plan",
+    ]),
     "--max-budget-usd",
     String(maxBudgetUsd),
   ];
@@ -63,7 +76,7 @@ export class ClaudeCliAdapter {
     return sessionId ? `claude -r ${sessionId}` : null;
   }
 
-  async send({ sessionId, prompt, runId, agentId = "claude-fable", signal, permissionMode = "plan", maxBudgetUsd = 2, timeoutMs = 15 * 60_000, model = null, effort = null, cwd = null, nativeCommand = false, onSessionStarted, onTurnSubmitting }) {
+  async send({ sessionId, prompt, runId, agentId = "claude-fable", signal, permissionMode = "plan", maxBudgetUsd = 2, timeoutMs = 15 * 60_000, model = null, effort = null, cwd = null, nativeCommand = false, nativeApprovalMode = null, onSessionStarted, onTurnSubmitting }) {
     const nativeSessionId = sessionId || randomUUID();
     const clientUserMessageId = randomUUID();
     const effectiveRequestedModel = model || this.model; // /model 会话级覆盖（orchestrator 已白名单校验）
@@ -85,6 +98,7 @@ export class ClaudeCliAdapter {
       settingsFile: this.settingsFile,
       systemPromptFile: this.systemPromptFile,
       nativeCommand,
+      nativeApprovalMode,
     });
 
     let finalText = "";
@@ -93,11 +107,13 @@ export class ClaudeCliAdapter {
     let costUsd = null;
     let tokens = null;
     let terminalError = null;
+    let terminalResult = null;
     const pendingEvents = [];
     const collector = createLfCollector(
       (event) => {
         if (event?.type === "system" && event?.subtype === "init" && event.model) effectiveModel = event.model;
         if (event?.type === "result") {
+          terminalResult = event;
           costUsd = event.total_cost_usd ?? costUsd;
           // 真实错误常在 result 字段（如 "Not logged in · Please run /login"）；subtype 可能误报 "success"。
           // 优先 errors → result 文本 → subtype，绝不用误导性 subtype 掩盖真因（诚实错误报告）。
@@ -150,7 +166,40 @@ export class ClaudeCliAdapter {
     });
     collector.end();
     await Promise.all(pendingEvents);
-    if (result.code !== 0 || terminalError) {
+    if (terminalResult?.is_error) {
+      const usage = claudeResultUsage(terminalResult);
+      const errorText = terminalError || "Claude returned an error result";
+      const failureKind = terminalResult.subtype === "error_max_budget_usd"
+        || /reached maximum budget/i.test(errorText)
+        ? "budget_exhausted"
+        : /content block not found/i.test(errorText)
+          ? "content_block_error"
+          : /(?:API Error|HTTP)\s*[: ]\s*5\d{2}\b/i.test(errorText)
+            ? "upstream_5xx"
+            : "provider_error";
+      const error = new Error(errorText);
+      error.code = failureKind === "budget_exhausted"
+        ? "CLAUDE_BUDGET_EXHAUSTED"
+        : failureKind === "content_block_error"
+          ? "CLAUDE_CONTENT_BLOCK_ERROR"
+          : failureKind === "upstream_5xx" ? "CLAUDE_UPSTREAM_5XX" : "CLAUDE_FAILED";
+      Object.assign(error, {
+        failureKind,
+        retryable: failureKind === "upstream_5xx",
+        nativeTurnSettled: true,
+        providerResultReceived: true,
+        sessionId: terminalResult.session_id || resolvedSessionId,
+        sessionResumable: true,
+        protocol: "stream-json-resume",
+        clientUserMessageId,
+        costUsd: usage.costUsd,
+        tokens: usage.tokens,
+        resultSubtype: terminalResult.subtype || null,
+        stopReason: terminalResult.stop_reason || null,
+      });
+      throw error;
+    }
+    if (!terminalResult && (result.code !== 0 || terminalError)) {
       let message = terminalError || result.stderr.trim() || `Claude exited ${result.code}`;
       // 已弃 --bare，headless 子进程与交互 CLI 同源读 OAuth 登录态——报未登录即真的未登录
       if (/not logged in|please run \/login|authentication_failed/i.test(message)) {

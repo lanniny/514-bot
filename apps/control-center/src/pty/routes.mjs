@@ -8,12 +8,15 @@ import { resolve } from "node:path";
 import { createPtyService } from "../pty.mjs";
 import { getSshService } from "../ssh/routes.mjs";
 import { expandIdentityPath } from "../ssh/discover.mjs";
+import { assertSshIdentityShape } from "../ssh.mjs";
 
 /**
  * ssh 远程终端 spawn 参数（纯函数，单测直接打）：
  * 起本机 OpenSSH 客户端，认证/指纹由它吃系统 known_hosts 自己管，未知主机在终端里就地询问——真实语义。
  */
 export function buildSshPtyArgs(host, path = "") {
+  // spawn 边界的最后一道闸（防存量台账脏值）：`${user}@${host}` 不能伪装成 ssh 选项
+  assertSshIdentityShape(host.host, host.user);
   const args = ["-tt", "-p", String(host.port || 22)];
   const identityFile = expandIdentityPath(host.identityFile, host);
   if (identityFile) args.push("-i", identityFile);
@@ -154,27 +157,32 @@ export function registerPtyRoutes(router, ctx) {
           response.write(`data: ${data}\n\n`);
         } catch { closed = true; }
       };
-      const unsubscribe = pty.subscribe(id, (chunk, meta) => {
-        if (chunk == null) {
-          send(null, { exited: true, exitCode: meta?.exitCode ?? null });
-          response.end();
-          closed = true;
-          return;
-        }
-        send(chunk);
-      }, { replay: url.searchParams.get("replay") !== "0" });
+      // 心跳与清理入口必须先于订阅就绪：subscribe 对已退出的会话会在调用内同步回调 exited 帧，
+      // 若等 close 事件再清理，退出帧先置位 closed 会让心跳定时器与会话监听永远摘不掉。
       const heartbeat = setInterval(() => {
         if (closed) return;
         try {
           response.write(": heartbeat\n\n");
         } catch { /* 断开 */ }
       }, 20_000);
+      let unsubscribe = null;
+      let tornDown = false;
       const cleanup = () => {
-        if (closed) return;
+        if (tornDown) return;
+        tornDown = true;
         closed = true;
         clearInterval(heartbeat);
         unsubscribe?.();
       };
+      unsubscribe = pty.subscribe(id, (chunk, meta) => {
+        if (chunk == null) {
+          send(null, { exited: true, exitCode: meta?.exitCode ?? null });
+          response.end();
+          cleanup();
+          return;
+        }
+        send(chunk);
+      }, { replay: url.searchParams.get("replay") !== "0" });
       response.once("close", cleanup);
       response.once("error", cleanup);
       return true;

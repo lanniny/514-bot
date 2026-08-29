@@ -58,7 +58,11 @@ test("high-risk routing fails closed when no independent provider is healthy", a
     policy,
     healthService: health(allOthersOffline),
   });
-  await assert.rejects(() => router.preview({ taskType: "coding", prompt: "实现配置事务", risk: "high" }), { code: "NO_INDEPENDENT_ROUTE" });
+  // 排除原因必须直接出现在错误文案里——事后看日志/toast 就能定位谁把路卡死
+  await assert.rejects(
+    () => router.preview({ taskType: "coding", prompt: "实现配置事务", risk: "high" }),
+    (error) => error.code === "NO_INDEPENDENT_ROUTE" && /independent provider \([^\)]*: offline\)/.test(error.message),
+  );
 });
 
 test("current-source requirement overrides generic task classification", async () => {
@@ -84,7 +88,12 @@ test("fails closed when no search-capable provider is available", async () => {
     policy,
     healthService: health({ "grok-search": { status: "external-unverified", available: false, reason: "grok_timeout" } }),
   });
-  await assert.rejects(() => router.preview({ taskType: "current-research", prompt: "查当前资料" }), { code: "NO_ROUTE" });
+  await assert.rejects(
+    () => router.preview({ taskType: "current-research", prompt: "查当前资料" }),
+    (error) => error.code === "NO_ROUTE"
+      && error.message.startsWith("no healthy provider can satisfy current-research")
+      && error.message.includes("grok-search: grok_timeout"),
+  );
 });
 
 test("special routes reject other explicit providers and expose the configured reason", async () => {

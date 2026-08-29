@@ -11,11 +11,17 @@ const eventStore = { emit: async () => {} };
 
 test("permission denial matches the generated app-server response shape", async () => {
   const broker = new ApprovalBroker({ eventStore, ttlMs: 5_000 });
+  assert.equal(broker.snapshot().revision, 0);
+  assert.match(broker.snapshot().epoch, /^[0-9a-f-]{36}$/);
   const responsePromise = broker.request({ method: "item/permissions/requestApproval", params: { permissions: {} } });
   await new Promise((resolveImmediate) => setImmediate(resolveImmediate));
   const [pending] = broker.list();
   assert.ok(pending);
+  assert.equal(broker.snapshot().revision, 1);
+  assert.equal(broker.snapshot().approvals.length, 1);
   await broker.resolve(pending.id, { decision: "deny", actionSha256: pending.actionSha256 });
+  assert.equal(broker.snapshot().revision, 2);
+  assert.equal(broker.snapshot().approvals.length, 0);
   const response = await responsePromise;
   assert.deepEqual(response, { permissions: {}, scope: "turn" });
   const schemaPath = resolve(appRoot, "..", "..", ".workflow/ultracode/agent-control-plane-v1/references/codex-app-server-0.144.2/PermissionsRequestApprovalResponse.json");

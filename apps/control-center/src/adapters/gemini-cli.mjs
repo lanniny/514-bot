@@ -3,8 +3,16 @@ import { runProcess } from "../process-runner.mjs";
 import { preparePromptTransport } from "../prompt-transport.mjs";
 import { createLfCollector } from "./stream-utils.mjs";
 
-export function buildGeminiArgs({ sessionId = null, nativeSessionId, model = null }) {
-  const args = ["--approval-mode", "plan", "--output-format", "stream-json"];
+// Gemini 原生审批档（LO 2026-08-27 本机 gemini 0.54.4 --help 实证）：
+// --approval-mode 取值 default/auto_edit/yolo/plan。default=逐项询问，headless 无人应答
+// 必然挂起，有意不入白名单（与 claude native:default、grok 同款决策）。
+const GEMINI_NATIVE_APPROVAL_ARGS = Object.freeze({
+  "native:autoEdit": Object.freeze(["--approval-mode", "auto_edit"]),
+  "native:yolo": Object.freeze(["--approval-mode", "yolo"]),
+});
+
+export function buildGeminiArgs({ sessionId = null, nativeSessionId, model = null, nativeApprovalMode = null }) {
+  const args = [...(GEMINI_NATIVE_APPROVAL_ARGS[nativeApprovalMode] ?? ["--approval-mode", "plan"]), "--output-format", "stream-json"];
   if (model) args.push("--model", model);
   if (sessionId) args.push("--resume", sessionId);
   else args.push("--session-id", nativeSessionId);
@@ -22,10 +30,10 @@ export class GeminiCliAdapter {
     this.runProcessImpl = runProcessImpl; // v41：远程 run 注入 SSH 桥（默认本机 runProcess）
   }
 
-  async send({ sessionId, prompt, runId, agentId = "gemini-research", signal, model = null, timeoutMs = 20 * 60_000, onSessionStarted, onTurnSubmitting }) {
+  async send({ sessionId, prompt, runId, agentId = "gemini-research", signal, model = null, timeoutMs = 20 * 60_000, nativeApprovalMode = null, onSessionStarted, onTurnSubmitting }) {
     const nativeSessionId = sessionId || randomUUID();
     const clientUserMessageId = randomUUID();
-    const args = buildGeminiArgs({ sessionId, nativeSessionId, model: model || this.model });
+    const args = buildGeminiArgs({ sessionId, nativeSessionId, model: model || this.model, nativeApprovalMode });
 
     let finalText = "";
     const pendingEvents = [];

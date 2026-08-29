@@ -407,8 +407,13 @@ body.atelier {
 }
 
 /* ── 状态栏：恢复深玫红人文条 ── */
-.atelier .global-statusbar {
+/* 实色底声明单独拆到 :not(.team-bg-active)：壁纸激活态下底栏要走整壳玻璃
+   （forge/team.css 的 body.team-bg-active.atelier .global-statusbar），而本条原带
+   !important、会无条件压掉玻璃底。无壁纸态行为完全不变。 */
+.atelier:not(.team-bg-active) .global-statusbar {
   background: var(--statusbar) !important;
+}
+.atelier .global-statusbar {
   font-family: var(--sans);
   letter-spacing: 0;
   font-size: 11px;

@@ -31,6 +31,7 @@ function runAt(phase, overrides = {}) {
     interactionStep: 5,
     interactionStepsRefunded: 0,
     interactionAutoRecoveries: 0,
+    interactionContextCompactions: 0,
     interactionCostUsd: 0,
     roundsRefunded: 0,
     refundedAttemptIds: [],

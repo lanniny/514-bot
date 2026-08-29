@@ -36,6 +36,7 @@
     {"id": "runtime.claude-local-settings", "path": "${USERPROFILE}/.claude/settings.local.json", "label": "Claude 本地覆盖", "kind": "json", "scope": "runtime", "writePolicy": "deploy-only", "exposeContent": false, "sensitive": true},
     {"id": "runtime.codex-config", "path": "${USERPROFILE}/.codex/config.toml", "label": "Codex 用户配置", "kind": "toml", "scope": "runtime", "writePolicy": "deploy-only", "exposeContent": false, "sensitive": true},
     {"id": "runtime.codex-agents", "path": "${USERPROFILE}/.codex/AGENTS.md", "label": "Codex 用户指令", "kind": "markdown", "scope": "runtime", "writePolicy": "deploy-only", "exposeContent": false, "sensitive": false},
+    {"id": "runtime.grok-config", "path": "${USERPROFILE}/.grok/config.toml", "label": "Grok 用户配置", "kind": "toml", "scope": "runtime", "writePolicy": "deploy-only", "exposeContent": false, "sensitive": true},
     {"id": "runtime.gemini-settings", "path": "${USERPROFILE}/.gemini/settings.json", "label": "Gemini 用户设置", "kind": "json", "scope": "runtime", "writePolicy": "deploy-only", "exposeContent": false, "sensitive": true},
     {"id": "runtime.pi-settings", "path": "${USERPROFILE}/.pi/agent/settings.json", "label": "Pi 用户设置", "kind": "json", "scope": "runtime", "writePolicy": "deploy-only", "exposeContent": false, "sensitive": true}
   ]

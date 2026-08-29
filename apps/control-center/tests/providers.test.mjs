@@ -1938,6 +1938,41 @@ test("provider-presets.json：cc-switch 3.18 八应用目录、来源哈希与�
   }
 });
 
+test("update meta.appConfig 按应用合并，null 只删该应用", async (t) => {
+  const { store } = await fixture(t);
+  const created = await store.create({
+    name: "Multi App Config",
+    apps: { grokbuild: true, opencode: true },
+    baseUrl: "https://example.test/v1",
+    apiKey: "sk-multi-config-1234567890",
+    models: { grokbuild: { model: "grok-4.5" }, opencode: { model: "qwen3-8-27b" } },
+    meta: {
+      extraEnv: { claude: { CLAUDE_CODE_MAX_CONTEXT_TOKENS: "200000" }, gemini: { GEMINI_API_VERSION: "v1beta" } },
+      appConfig: {
+        grokbuild: { profile: "grok-4.5", apiBackend: "responses", contextWindow: 500000 },
+        opencode: { providerKey: "acme", settingsConfig: { npm: "@ai-sdk/openai-compatible" } },
+      },
+    },
+  });
+  const updated = await store.update(created.id, {
+    meta: { appConfig: { grokbuild: { profile: "grok-4.6", apiBackend: "chat_completions", contextWindow: 200000 } } },
+  });
+  assert.equal(updated.meta.appConfig.grokbuild.profile, "grok-4.6");
+  assert.equal(updated.meta.appConfig.grokbuild.apiBackend, "chat_completions");
+  assert.equal(updated.meta.appConfig.opencode.providerKey, "acme");
+  const extraEnvKept = await store.update(created.id, {
+    meta: { extraEnv: { gemini: { GEMINI_API_VERSION: "v1" } } },
+  });
+  assert.deepEqual(Object.keys(extraEnvKept.meta.extraEnv.claude), ["CLAUDE_CODE_MAX_CONTEXT_TOKENS"]);
+  assert.deepEqual(Object.keys(extraEnvKept.meta.extraEnv.gemini), ["GEMINI_API_VERSION"]);
+  const revealedEnv = store.view(created.id, { includeSecrets: true }).meta.extraEnv;
+  assert.equal(revealedEnv.claude.CLAUDE_CODE_MAX_CONTEXT_TOKENS, "200000");
+  assert.equal(revealedEnv.gemini.GEMINI_API_VERSION, "v1");
+  const deleted = await store.update(created.id, { meta: { appConfig: { grokbuild: null } } });
+  assert.equal(deleted.meta.appConfig.grokbuild, undefined);
+  assert.equal(deleted.meta.appConfig.opencode.providerKey, "acme");
+});
+
 test("limit 显式 null = 清除而非 NaN 422（前端空字段提交 null 的回归闸）", async (t) => {
   const { store } = await fixture(t);
   const created = await store.create({ ...PACKY, meta: { limitDailyUsd: null, limitMonthlyUsd: null } });

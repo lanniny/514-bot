@@ -40,9 +40,19 @@ export function formatOpencodeExitError({ code, stderr = "", sessionId = null, e
     : `opencode exited ${code} without a session id`;
 }
 
-export function buildOpencodeArgs({ prompt, sessionId = null, model = null, effort = null, permissionMode = "read-only" }) {
+// OpenCode 原生 agent 档（LO 2026-08-27 本机 opencode 1.18.23 `agent list` 实证）：
+// 内置 primary 只有 build（权限全开）与 plan（只读）两档，没有中间审批档。
+// native:build 仅作用于只读治理轮（--agent build）；写盘轮维持 workspace-write → --auto
+// 既有路径，红线不受影响。
+const OPENCODE_NATIVE_AGENT_ARGS = Object.freeze({
+  "native:build": Object.freeze(["--agent", "build"]),
+});
+
+export function buildOpencodeArgs({ prompt, sessionId = null, model = null, effort = null, permissionMode = "read-only", nativeApprovalMode = null }) {
   const args = ["run", "--format", "json"];
+  const nativeArgs = nativeApprovalMode ? OPENCODE_NATIVE_AGENT_ARGS[nativeApprovalMode] : null;
   if (permissionMode === "workspace-write") args.push("--auto");
+  else if (nativeArgs) args.push(...nativeArgs);
   else if (permissionMode === "plan") args.push("--agent", "plan");
   if (sessionId) args.push("-s", sessionId);
   if (model) args.push("-m", model);
@@ -63,14 +73,14 @@ export class OpencodeCliAdapter {
     this.runProcessImpl = runProcessImpl;
   }
 
-  async send({ sessionId, prompt, runId, agentId = "opencode", signal, permissionMode = "read-only", model = null, effort = null, timeoutMs = 15 * 60_000, cwd = null, onSessionStarted, onTurnSubmitting }) {
+  async send({ sessionId, prompt, runId, agentId = "opencode", signal, permissionMode = "read-only", model = null, effort = null, timeoutMs = 15 * 60_000, cwd = null, nativeApprovalMode = null, onSessionStarted, onTurnSubmitting }) {
     // Windows 命令行长度上限约 32K；位置参数传 prompt 超限时如实拒绝而非静默截断（与 kimi/grok 适配器同约束）
     if (prompt.length > 24_000) {
       const error = new Error("prompt exceeds the opencode run argument budget (24k chars); split the task instead");
       error.code = "INVALID_PROMPT";
       throw error;
     }
-    const args = buildOpencodeArgs({ prompt, sessionId, model: model || this.model, effort, permissionMode });
+    const args = buildOpencodeArgs({ prompt, sessionId, model: model || this.model, effort, permissionMode, nativeApprovalMode });
     let resolvedSessionId = sessionId || null;
     const textParts = [];
     const eventErrors = [];

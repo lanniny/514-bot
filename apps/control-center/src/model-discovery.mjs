@@ -3,6 +3,10 @@
 // 实证来源：codex → `codex debug models`（JSON：slug/display_name/supported_reasoning_levels）；
 // grok → `grok models`（文本清单 + default 标记）；claude → `claude models`（格式不稳定）；
 // kimi → `kimi provider list --json`（Provider 模型目录）。解析失败统一回退静态目录。
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { runProcess } from "./process-runner.mjs";
 import { runtimeControlCatalog } from "./adapters/manifest.mjs";
 
@@ -37,6 +41,42 @@ export function parseGrokCatalog(raw) {
     models.push({ id, label: isDefault ? `${id}（默认）` : id });
   }
   return { models, effortLevels: [], defaultModel };
+}
+
+/**
+ * grok 主配置路径：与 ProviderStore.runtimeHome 同规约（默认 homedir()，
+ * 测试/隔离环境走 CONTROL_CENTER_RUNTIME_HOME 覆盖）。
+ */
+export function grokConfigPath(home = process.env.CONTROL_CENTER_RUNTIME_HOME || homedir()) {
+  return join(home, ".grok", "config.toml");
+}
+
+/**
+ * 只解析 ~/.grok/config.toml 的 [models] 表体内 default / default_reasoning_effort 两个键。
+ * 该文件 [model."x"] 段含明文 api_key——切片严格限定在 [models] 表头到下一个表头之间，
+ * 绝不读取其他表的任何键；键不存在时为 null。
+ */
+export function parseGrokDefaults(configToml) {
+  const text = String(configToml ?? "");
+  const empty = { default: null, defaultEffort: null };
+  // 表头行尾允许注释（TOML 规范：`[models] # comment`）——与 cli-config-panel tomlTableBody 同纪律。
+  const head = text.match(/^\s*\[models\][^\S\r\n]*(#.*)?$/m);
+  if (!head) return empty;
+  const rest = text.slice(head.index + head[0].length);
+  const end = rest.search(/^\[/m);
+  const body = end === -1 ? rest : rest.slice(0, end);
+  const quoted = (key) => body.match(new RegExp(`^\\s*${key}\\s*=\\s*"([^"]*)"`, "m"))?.[1] ?? null;
+  return { default: quoted("default"), defaultEffort: quoted("default_reasoning_effort") };
+}
+
+/** config.toml 内容指纹（纳入缓存签名）；读取失败返回稳定哨兵，不新增失败模式。 */
+function grokConfigFingerprint() {
+  try {
+    const text = readFileSync(grokConfigPath(), "utf8");
+    return createHash("sha256").update(text).digest("hex").slice(0, 24);
+  } catch {
+    return "unreadable";
+  }
 }
 
 /** claude models 输出（格式随版本漂移）：先试 JSON，再按行抓 claude-* id；全失败返回 null 走回退。 */
@@ -152,9 +192,11 @@ export class ModelDiscovery {
 
   signatureOf(agentId) {
     const profile = this.profileOf(agentId);
-    return profile
-      ? JSON.stringify([profile.adapter, profile.command, profile.model, profile.modelOptions, profile.effortLevels])
-      : "missing";
+    if (!profile) return "missing";
+    const parts = [profile.adapter, profile.command, profile.model, profile.modelOptions, profile.effortLevels];
+    // grok 默认档位真源在 ~/.grok/config.toml：内容哈希入签名，外改配置后 5 分钟缓存不挡真值
+    if (profile.adapter === "grok-build-headless") parts.push(grokConfigFingerprint());
+    return JSON.stringify(parts);
   }
 
   async withDiscoverySlot(operation) {
@@ -241,7 +283,16 @@ export class ModelDiscovery {
     if (profile.adapter === "grok-build-headless") {
       const proc = await this.runProcess(profile.command || "grok", ["models"], { timeoutMs: 30_000, maxOutputBytes: 256 * 1024 });
       if (proc.code !== 0) return null;
-      return parseGrokCatalog(proc.stdout);
+      const catalog = parseGrokCatalog(proc.stdout);
+      // 默认推理档位透出：来自 ~/.grok/config.toml [models].default_reasoning_effort；
+      // 文件缺失/无该键 → null，只影响 defaultEffort，不构成新的发现失败模式。
+      let defaultEffort = null;
+      try {
+        defaultEffort = parseGrokDefaults(readFileSync(grokConfigPath(), "utf8")).defaultEffort;
+      } catch {
+        defaultEffort = null;
+      }
+      return { ...catalog, defaultEffort };
     }
     if (profile.adapter === "claude-stream-json") {
       const proc = await this.runProcess(profile.command || "claude", ["models"], { timeoutMs: 30_000, maxOutputBytes: 512 * 1024 });

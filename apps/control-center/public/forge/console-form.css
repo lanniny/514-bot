@@ -252,12 +252,13 @@
   border-radius: 8px;
 }
 
-/* 旁白/推理摘要：同形拍平（label 与首段同行） */
+/* 旁白/推理摘要：同形拍平（label 与首段同行），阅读栏居中 */
 .process-note {
-  margin: 0 0 1px;
-  padding: 3px 8px;
+  margin: 10px auto;
+  padding: 3px 16px;
   border-radius: 8px;
   font-size: 12px;
+  text-align: center;
 }
 
 .process-note-body > p:first-of-type,
@@ -270,11 +271,13 @@
   margin-top: 4px;
 }
 
-/* 治理注记 / 内联审批：随阅读栏居中（LO 2026-08-16 实拍纠偏——第一轮写的 margin-left:0
+/* 治理注记 / 内联审批 / 过程卡：随阅读栏居中（LO 2026-08-16 实拍纠偏——第一轮写的 margin-left:0
  * 盖掉了 .conversation-stream > * 的 margin-inline:auto 左半，元素被挤成贴左；头像槽 40px
- * 缩进在居中列里同样无意义，统一 auto 居中） */
+ * 缩进在居中列里同样无意义，统一 auto 居中。过程卡的 margin:0 0 1px shorthand 同病，一并纠回） */
 .gov-note,
-.approval-inline {
+.approval-inline,
+.process-note,
+.process-card {
   margin-inline: auto;
 }
 
@@ -1204,30 +1207,6 @@ button.conv-chip:hover {
   transform: translateX(1.5px);
 }
 
-#chrome-rail-toggle .chrome-rail-glyph-bar,
-#chrome-rail-toggle .chrome-rail-glyph-hint {
-  transform-box: view-box;
-  transform-origin: 12px 12px;
-  transition:
-    transform 280ms cubic-bezier(0.32, 0.72, 0, 1),
-    opacity 200ms ease;
-}
-
-#chrome-rail-toggle .chrome-rail-glyph-hint {
-  opacity: 0;
-  transform: translateX(-3px);
-}
-
-#chrome-rail-toggle[aria-pressed="true"] .chrome-rail-glyph-bar {
-  opacity: 0;
-  transform: translateX(-6px);
-}
-
-#chrome-rail-toggle[aria-pressed="true"] .chrome-rail-glyph-hint {
-  opacity: 1;
-  transform: translateX(0);
-}
-
 #chrome-nav-back.is-fired .icon {
   animation: chrome-nav-nudge-left 280ms var(--ease-out, ease);
 }
@@ -1267,11 +1246,6 @@ button.conv-chip:hover {
   #chrome-nav-back:hover:not(:disabled) .icon,
   #chrome-nav-forward:hover:not(:disabled) .icon {
     transform: none;
-  }
-
-  #chrome-rail-toggle .chrome-rail-glyph-bar,
-  #chrome-rail-toggle .chrome-rail-glyph-hint {
-    transition: none;
   }
 
   #chrome-nav-back.is-fired .icon,
@@ -1359,3 +1333,5 @@ body.atelier .topbar {
 .workbench-shell.rail-collapsed > .forge-splitter-handle.is-left {
   display: none;
 }
+
+/* Bot 工作面的最终视觉所有权在 bot-shell.css；这里不再撤下 514cc chrome。 */

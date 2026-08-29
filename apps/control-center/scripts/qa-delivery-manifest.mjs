@@ -21,6 +21,26 @@ export const DEFAULT_FOCUS_PATHS = Object.freeze([
   "apps/control-center/package-lock.json",
 ]);
 
+/**
+ * P0-11：桌面壳（Tauri）的独立交付闭包焦点面。Web 侧 gate 不能证明桌面壳完整，
+ * 也不该把 `apps/desktop/src-tauri/target/` 的构建产物与 `.cargo-test-*` 拉进 Web manifest。
+ * 这里用显式源码路径（Cargo、src、capability、icons、permissions、schemas、conf、README）
+ * 组成桌面闭包，并机械排除 target 与 cargo test 产物，使 Web/desktop 两份 manifest 各自闭合。
+ */
+export const DESKTOP_FOCUS_PATHS = Object.freeze([
+  "apps/desktop/README.md",
+  "apps/desktop/src-tauri/Cargo.toml",
+  "apps/desktop/src-tauri/Cargo.lock",
+  "apps/desktop/src-tauri/build.rs",
+  "apps/desktop/src-tauri/src",
+  "apps/desktop/src-tauri/capabilities",
+  "apps/desktop/src-tauri/icons",
+  "apps/desktop/src-tauri/permissions",
+  "apps/desktop/src-tauri/gen",
+  "apps/desktop/src-tauri/tauri.conf.json",
+]);
+
+export const DESKTOP_EXCLUDE_SCOPE_PATHS = Object.freeze(["apps/desktop/src-tauri/target"]);
 export const OWNERSHIP_CLASSES = Object.freeze(["must_ship", "generated", "scratch", "deferred"]);
 const INTENTIONAL_UNTRACKED = new Set(["generated", "scratch", "deferred"]);
 
@@ -173,27 +193,37 @@ export async function collectDeliveryManifest({
   repoRoot = defaultRepoRoot,
   focusPaths = DEFAULT_FOCUS_PATHS,
   ownershipPath = null,
+  excludePaths = [],
 } = {}) {
   const resolvedRepoRoot = resolve(repoRoot);
   const normalizedFocusPaths = normalizeFocusPaths(resolvedRepoRoot, focusPaths);
   const uniqueFocusPaths = [...new Map(normalizedFocusPaths.map((path) => [pathKey(path), path])).values()];
   const repoRealRoot = await realpath(resolvedRepoRoot);
+  const excludedPrefixes = excludePaths.map((path) => pathKey(toRepoPath(resolve(resolvedRepoRoot, path))));
+  const isExcluded = (repoPath) => {
+    const key = pathKey(toRepoPath(repoPath));
+    return excludedPrefixes.some((prefix) => key === prefix || key.startsWith(`${prefix}/`));
+  };
   const [trackedFiles, untrackedFiles, physicalByRoot] = await Promise.all([
     gitLsFiles(resolvedRepoRoot, uniqueFocusPaths),
     gitLsUntrackedFiles(resolvedRepoRoot, uniqueFocusPaths),
-    Promise.all(uniqueFocusPaths.map((path) => listPhysicalFiles(repoRealRoot, resolve(resolvedRepoRoot, path)))),
+    Promise.all(uniqueFocusPaths.map((path) => {
+      const absolute = resolve(resolvedRepoRoot, path);
+      return isExcluded(absolute) ? [] : listPhysicalFiles(repoRealRoot, absolute);
+    })),
   ]);
   const physicalFilesOnDisk = [...new Map(physicalByRoot
     .flat()
     .map((path) => toRepoPath(relative(resolvedRepoRoot, path)))
+    .filter((path) => !isExcluded(path))
     .map((path) => [pathKey(path), path])).values()].sort();
   const physicalSet = new Set(physicalFilesOnDisk.map(pathKey));
   const physicalFiles = [...new Map([
-    ...trackedFiles.filter((path) => physicalSet.has(pathKey(path))),
-    ...untrackedFiles,
+    ...trackedFiles.filter((path) => physicalSet.has(pathKey(path)) && !isExcluded(path)),
+    ...untrackedFiles.filter((path) => !isExcluded(path)),
   ].map((path) => [pathKey(path), path])).values()].sort();
-  const deletedTrackedFiles = trackedFiles.filter((path) => !physicalSet.has(pathKey(path))).sort();
-  const sortedUntrackedFiles = [...untrackedFiles].sort();
+  const deletedTrackedFiles = trackedFiles.filter((path) => !physicalSet.has(pathKey(path)) && !isExcluded(path)).sort();
+  const sortedUntrackedFiles = [...untrackedFiles].filter((path) => !isExcluded(path)).sort();
   const untrackedSourceOrTests = sortedUntrackedFiles.filter(isCodeOrTestPath);
   const missingSourceOrTests = deletedTrackedFiles.filter(isCodeOrTestPath);
   const ownership = await loadOwnership(resolvedRepoRoot, ownershipPath);
@@ -241,21 +271,40 @@ export async function collectDeliveryManifest({
   };
 }
 
+export async function collectDesktopManifest({
+  repoRoot = defaultRepoRoot,
+} = {}) {
+  const manifest = await collectDeliveryManifest({
+    repoRoot,
+    focusPaths: DESKTOP_FOCUS_PATHS,
+    ownershipPath: null,
+    excludePaths: DESKTOP_EXCLUDE_SCOPE_PATHS,
+  });
+  // Desktop focus paths are an explicit must-ship allowlist. Unlike the Web manifest,
+  // there is no ownership table that can classify a focused asset as intentional drift,
+  // so any non-ignored untracked or deleted file must fail strict delivery.
+  return {
+    ...manifest,
+    strictFailure: manifest.untrackedFiles.length > 0 || manifest.deletedTrackedFiles.length > 0,
+  };
+}
+
 function formatList(title, entries) {
   if (!entries.length) return `${title}: 0`;
   return [`${title}: ${entries.length}`, ...entries.map((entry) => `  - ${entry}`)].join("\n");
 }
 
-export function renderDeliveryReport(manifest, { json = false } = {}) {
+export function renderDeliveryReport(manifest, { json = false, desktop = false } = {}) {
   if (json) return `${JSON.stringify(manifest, null, 2)}\n`;
   const lines = [
-    "514cc delivery manifest (read-only)",
+    `${desktop ? "514cc desktop delivery manifest (read-only)" : "514cc delivery manifest (read-only)"}`,
     `repo: ${manifest.repoRoot}`,
     `focus: ${manifest.focusPaths.join(", ")}`,
     `tracked: ${manifest.trackedFiles.length}; physical: ${manifest.physicalFiles.length}`,
     `cut: ${manifest.ownership?.cut?.id || "unspecified"}; formalRelease: ${manifest.ownership?.cut?.formalRelease === true ? "yes" : "no"}`,
     `associations: source=${manifest.associations?.source ?? 0} test=${manifest.associations?.test ?? 0} config=${manifest.associations?.config ?? 0} doc=${manifest.associations?.doc ?? 0}`,
     `status: ${manifest.clean ? "clean" : "drift"}; strict: ${manifest.strictFailure ? "fail" : "pass"}`,
+    `excluded targets: ${desktop ? DESKTOP_EXCLUDE_SCOPE_PATHS.join(", ") : "none"}`,
     formatList("undeclared source/test", manifest.ownership?.undeclaredSourceOrTests || manifest.untrackedSourceOrTests),
     formatList("intentional untracked", manifest.ownership?.intentionalUntracked || []),
     formatList("untracked source/test", manifest.untrackedSourceOrTests),
@@ -273,19 +322,22 @@ export async function main(argv = process.argv.slice(2), {
 } = {}) {
   const strict = argv.includes("--strict");
   const json = argv.includes("--json");
-  const unknown = argv.filter((argument) => !["--strict", "--json"].includes(argument));
+  const desktop = argv.includes("--desktop");
+  const unknown = argv.filter((argument) => !["--strict", "--json", "--desktop"].includes(argument));
   if (unknown.length) {
-    stderr.write(`Unknown option: ${unknown.join(", ")}\nUsage: node scripts/qa-delivery-manifest.mjs [--strict] [--json]\n`);
+    stderr.write(`Unknown option: ${unknown.join(", ")}\nUsage: node scripts/qa-delivery-manifest.mjs [--strict] [--json] [--desktop]\n`);
     return 2;
   }
   try {
-    if (strict) {
+    if (strict && !desktop) {
       const pkg = JSON.parse(await readFile(resolve(appRoot, "package.json"), "utf8"));
       const lock = JSON.parse(await readFile(resolve(appRoot, "package-lock.json"), "utf8"));
       assertPackageLockConsistent(pkg, lock);
     }
-    const manifest = await collectDeliveryManifest({ repoRoot });
-    stdout.write(renderDeliveryReport(manifest, { json }));
+    const manifest = desktop
+      ? await collectDesktopManifest({ repoRoot })
+      : await collectDeliveryManifest({ repoRoot });
+    stdout.write(renderDeliveryReport(manifest, { json, desktop }));
     return strict && manifest.strictFailure ? 1 : 0;
   } catch (error) {
     stderr.write(`delivery manifest failed: ${error?.message || error}\n`);

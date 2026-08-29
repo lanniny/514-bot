@@ -634,6 +634,13 @@ try {
   if (offlineChip.status !== "离线" || !offlineChip.errorDot) throw new Error(`offline target chip was not explicit: ${JSON.stringify(offlineChip)}`);
 
   await page.locator(`[data-config-host="${host.id}"]`).click();
+  await page.waitForFunction(() => {
+    const tab = document.querySelector('[data-config-surface="providers"]');
+    return Boolean(tab && !tab.hidden);
+  });
+  await page.locator('[data-config-surface="providers"]').click();
+  const providersTabLabel = await page.locator('[data-config-surface="providers"] strong').textContent();
+  if (providersTabLabel?.trim() !== "连接") throw new Error(`remote providers tab label drifted: ${providersTabLabel}`);
   await page.waitForSelector(".config-remote-provider-deck", { timeout: 30_000 });
   await page.waitForFunction(() => document.querySelector("#config-surface-remote")?.textContent?.includes("claude-initial"));
   await page.waitForFunction((projectId) => document.querySelector(`[data-config-project="${projectId}"] .config-host-chip-status`)?.textContent === "在线", project.id);

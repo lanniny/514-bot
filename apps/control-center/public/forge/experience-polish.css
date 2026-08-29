@@ -563,6 +563,32 @@ body.atelier .sidebar,
     background: var(--surface);
     box-shadow: 0 1px 2px rgba(59, 48, 38, 0.06), 0 10px 28px rgba(59, 48, 38, 0.10);
   }
+
+  /* 壁纸态下，设置视图主内容区 + 侧栏全部玻璃化，透出壁纸 */
+  body.team-bg-active .app-shell.is-settings .main-content,
+  body.team-bg-active .app-shell.is-settings .main-content:not(:has(#view-workbench.is-active)) {
+    background: color-mix(in oklab, var(--glass-tint, var(--surface, #ffffff)) var(--forge-glass-alpha, 86%), transparent);
+    -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+    backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  }
+
+  body.team-bg-active .app-shell.is-settings .settings-rail {
+    background: color-mix(in oklab, var(--glass-tint, var(--sidebar, #181a1f)) var(--forge-glass-alpha, 90%), transparent);
+    -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+    backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  }
+
+  body.team-bg-active .app-shell.is-settings .settings-rail-item {
+    background: transparent;
+  }
+
+  body.team-bg-active .app-shell.is-settings .settings-rail-item.is-active {
+    background: color-mix(in oklab, var(--primary) 18%, transparent);
+  }
+
+  body.team-bg-active .app-shell.is-settings .settings-rail-item:hover {
+    background: color-mix(in oklab, var(--foreground) 8%, transparent);
+  }
 }
 
 [data-theme="dark"] .app-shell.is-settings .main-content {
@@ -760,6 +786,83 @@ body.atelier .sidebar,
   margin: 0 auto 14px;
   background: transparent;
   border-radius: 10px;
+}
+
+/* 壁纸态下，设置视图玻璃化（对标 workbench 玻璃透出壁纸）：所有 settings view 面板
+   撤掉不透明实底、改用 glass 族配套；设置卡片本身已有 transparent + 独立玻璃装饰，
+   但视图容器（.view）和页头仍为实色，必须一并透化。门控同 team.css 的 .team-bg-active，
+   无壁纸时规则不匹配、零回归。 */
+body.team-bg-active .app-shell.is-settings .view:not([hidden]) {
+  background: color-mix(in oklab, var(--glass-tint, var(--bg, #f5f6f8)) var(--forge-glass-alpha, 86%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+}
+
+body.team-bg-active .app-shell.is-settings .view .page-heading.compact-heading h1 {
+  color: var(--text-strong);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.08);
+}
+
+body.team-bg-active .app-shell.is-settings .view .page-heading.compact-heading .eyebrow {
+  color: var(--text-muted);
+}
+
+body.team-bg-active .app-shell.is-settings .view .settings-card-head p {
+  color: var(--text-muted);
+}
+
+body.team-bg-active .app-shell.is-settings .settings-card {
+  background: color-mix(in oklab, var(--glass-tint, var(--card, #ffffff)) var(--forge-glass-alpha, 86%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
+}
+
+body.team-bg-active .app-shell.is-settings .settings-stack {
+  background: transparent;
+}
+
+body.team-bg-active .app-shell.is-settings .settings-row {
+  background: transparent;
+}
+
+body.team-bg-active .app-shell.is-settings .settings-block {
+  background: transparent;
+}
+
+body.team-bg-active .app-shell.is-settings .settings-card-head {
+  background: transparent;
+}
+
+/* 设置面板内控件在壁纸态下保持可读性：按钮/开关/滑杆不变 */
+body.team-bg-active .app-shell.is-settings .settings-switch {
+  background: var(--surface-muted);
+}
+
+body.team-bg-active .app-shell.is-settings .settings-switch-thumb {
+  background: var(--text);
+}
+
+/* 设置页内的 area-style 维护原生不透明，壁纸透过的玻璃效应由父级承担 */
+body.team-bg-active .app-shell.is-settings .appearance-theme-card,
+body.team-bg-active .app-shell.is-settings .appearance-accent-card {
+  background: color-mix(in oklab, var(--glass-tint, var(--surface)) 88%, transparent);
+}
+
+/* 设置预览卡片在壁纸态下保持亮色预览效果 */
+body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="light"] {
+  background: #faf9f5;
+}
+
+body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="dark"] {
+  background: #1e1c17;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  body.team-bg-active .app-shell.is-settings .view:not([hidden]),
+  body.team-bg-active .app-shell.is-settings .settings-card {
+    background: var(--surface);
+  }
 }
 
 #view-appearance,
@@ -1331,6 +1434,35 @@ body.atelier .sidebar,
   gap: 8px;
 }
 
+/* 字体 WYSIWYG 按钮组：卡片样式完全复用强调色卡（含 hover/选中态），仅换 3 列栅格 */
+.appearance-face-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+/* 字体 WYSIWYG 预览：CSP style-src 'self' 禁内联 style，预览字体改由 data 属性命中
+   本规则实现（按钮文字即以目标字体渲染）。字体栈与下方 html[data-ui-face=...] /
+   html[data-code-face=...] 消费链逐字同源；system 档复用 styles.css 的 --sans/--mono。 */
+#appearance-ui-face [data-appearance-ui-face="system"] {
+  font-family: var(--sans);
+}
+#appearance-ui-face [data-appearance-ui-face="yahei"] {
+  font-family: "Microsoft YaHei", "Microsoft YaHei UI", "PingFang SC", "Noto Sans SC", sans-serif;
+}
+#appearance-ui-face [data-appearance-ui-face="song"] {
+  font-family: "Songti SC", SimSun, "Noto Serif SC", serif;
+}
+#appearance-code-face [data-appearance-code-face="system"] {
+  font-family: var(--mono);
+}
+#appearance-code-face [data-appearance-code-face="cascadia"] {
+  font-family: "Cascadia Code", "Cascadia Mono", ui-monospace, monospace;
+}
+#appearance-code-face [data-appearance-code-face="jetbrains"] {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+}
+
 .appearance-accent-card {
   display: flex;
   min-width: 0;
@@ -1356,6 +1488,24 @@ body.atelier .sidebar,
 .appearance-accent-card[data-appearance-accent="rose"] i { background: #c45c6a; }
 .appearance-accent-card[data-appearance-accent="teal"] i { background: #2f8f7a; }
 .appearance-accent-card[data-appearance-accent="indigo"] i { background: #5b6fd6; }
+
+/* —— 玻璃底色色板：卡片样式完全复用强调色卡（含 hover/选中态），仅换 3 列栅格与色板 ——
+   「跟随主题」档用亮面纸色斜分示意，随主题 token 走 */
+.appearance-tint-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.appearance-tint-grid [data-glass-tint="auto"] i {
+  background: linear-gradient(135deg, var(--card) 50%, var(--muted) 50%);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.appearance-tint-grid [data-glass-tint="gold"] i { background: #e8c98d; }
+.appearance-tint-grid [data-glass-tint="rose"] i { background: #dcaab2; }
+.appearance-tint-grid [data-glass-tint="teal"] i { background: #a8cdc6; }
+.appearance-tint-grid [data-glass-tint="indigo"] i { background: #9fb2d6; }
+.appearance-tint-grid [data-glass-tint="ink"] i { background: #b9b4ac; }
 
 .appearance-accent-card:hover,
 .appearance-accent-card[aria-checked="true"],
@@ -1894,6 +2044,18 @@ html[data-density="comfortable"] .conversation-stream .message-row {
 
 .forge-splitting .workbench-shell .context-rail {
   transition: none;
+}
+
+/* 壁纸态下，工作台视图容器本体透化（壁纸此刻经 .view 透出，不再依赖 stage 直接底色）。
+   工作台内部各 pane 的玻璃透出已由 team.css 门控，这里只处理最外层 .view 的实底。 */
+body.team-bg-active #view-workbench {
+  background: transparent;
+}
+
+/* 设置视图外的页面级容器（bot shell 之外的所有 .view）在壁纸态下玻璃化：
+   让壁纸真正铺满整个界面，而不是只在工作台可见。 */
+body.team-bg-active .app-shell.is-settings .view:not([hidden]) {
+  background: transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {

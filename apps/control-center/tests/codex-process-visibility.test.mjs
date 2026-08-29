@@ -82,6 +82,57 @@ test("file change lists are bounded but report the real total", () => {
 
 // 旁白（phase=commentary）是 Codex 边干边说的那半边，只会被后一条正文覆盖掉。
 // final_answer 走 assistant.message 正常通道，不能在过程流里重复一遍。
+// 字段形状对齐 codex app-server v2 JSON Schema：mcpToolCall = {server, tool, arguments, result:{content:[{type,text}]}}。
+test("mcp and generic tool items become process tool cards", () => {
+  const mcp = codexItemProgress("item/completed", {
+    item: {
+      type: "mcpToolCall",
+      id: "mcp-1",
+      server: "fastctx",
+      tool: "inspect_local_file",
+      arguments: { files: [{ path: "I:\\\\514claude\\\\514cc\\\\rules.md" }] },
+      result: { content: [{ type: "text", text: "1   # 514cc 体系宪法" }] },
+      status: "completed",
+    },
+  });
+  assert.equal(mcp.kind, "tool");
+  assert.equal(mcp.name, "fastctx.inspect_local_file");
+  assert.match(mcp.input, /rules\.md/);
+  // MCP result.content 要展开成纯文本，不能把 {content:[...]} 整个 JSON 泼进会话流
+  assert.equal(mcp.output, "1   # 514cc 体系宪法");
+
+  const dynamic = codexItemProgress("item/completed", {
+    item: { type: "dynamicToolCall", id: "dyn-1", tool: "read_file", arguments: { path: "x.txt" }, contentItems: [{ type: "inputText", text: "hello" }], status: "completed" },
+  });
+  assert.equal(dynamic.kind, "tool");
+  assert.equal(dynamic.name, "read_file");
+  assert.equal(dynamic.output, "hello");
+
+  const web = codexItemProgress("item/completed", {
+    item: { type: "webSearch", id: "web-1", query: "lucide icons", results: [{ title: "x" }] },
+  });
+  assert.equal(web.kind, "tool");
+  assert.equal(web.name, "web_search");
+  assert.equal(web.input, "lucide icons");
+
+  const started = codexItemProgress("item/started", {
+    item: { type: "collabAgentToolCall", id: "agent-1", tool: "spawnAgent", arguments: { task: "audit UI" }, status: "inProgress" },
+  });
+  assert.equal(started.kind, "tool");
+  assert.equal(started.name, "spawnAgent");
+  assert.match(started.input, /audit UI/);
+  assert.equal(started.output, "");
+});
+
+test("subagent activity renders as a tool row with the activity verb", () => {
+  const started = codexItemProgress("item/completed", {
+    item: { type: "subAgentActivity", id: "sub-1", agentPath: "/root/current_ui_audit", agentThreadId: "t", kind: "started" },
+  });
+  assert.equal(started.kind, "tool");
+  assert.equal(started.name, "/root/current_ui_audit");
+  assert.equal(started.verb, "已启动");
+});
+
 test("agent commentary becomes a note while the final answer does not", () => {
   const note = codexItemProgress("item/completed", {
     item: { type: "agentMessage", id: "msg-1", text: "我现在写入并核对文件。", phase: "commentary" },
@@ -115,21 +166,32 @@ function assertIncludes(source, snippet, message) {
 test("the adapter attaches progress to the persisted notification event", async () => {
   const adapter = await source("src/adapters/codex-app-server.mjs");
   assertIncludes(adapter, "progress: codexItemProgress(method, params) ?? undefined,");
+  // progress 为 null 时仍落 hint 短快照，前端可凭 itemType/agentPath 画降级工具卡，不重演历史丢件
+  assertIncludes(adapter, "hint: compactCodexItemHint(item),");
   // 旁白不得覆盖已收到的正文，否则本轮结论会被一句"我这就去改"顶掉
   assertIncludes(adapter, "if (commentary && active.sawFinalAnswer)");
   assertIncludes(adapter, "if (!commentary) active.sawFinalAnswer = true;");
+  assertIncludes(adapter, 'queueActiveEvent(active, "assistant.message"');
 });
 
 test("the conversation stream renders completed items and tracks the running one", async () => {
   const [app, css] = await Promise.all([source("public/app.js"), source("public/styles.css")]);
   // 白名单不含 codex.* 时，带载荷的事件照样被整片过滤掉——两层都得通
-  assertIncludes(app, 'return Boolean(progress) && !(progress.kind === "reasoning" && !progress.text);');
+  assertIncludes(app, 'if (progress) return !(progress.kind === "reasoning" && !progress.text);');
+  // progress 为空的工具 item 也进会话流：靠 hint/itemType 降级成工具卡
+  assertIncludes(app, "function toolProgressFromFallback(hint, itemType)");
+  assertIncludes(app, "return Boolean(toolProgressFromFallback(event.data?.hint, event.data?.itemType));");
   // 思考状态接入活跃行：reasoning started 入账、文案「正在思考」
-  assertIncludes(app, '["command", "file", "reasoning"].includes(progress.kind)');
+  assertIncludes(app, '["command", "file", "reasoning", "tool"].includes(progress.kind)');
   assertIncludes(app, 'if (entry.progress.kind === "reasoning") return "正在思考";');
-  assertIncludes(app, 'kind: "process", author: event.agentId || "Agent", progress: data.progress');
+  assertIncludes(app, 'kind: "process", author: event.agentId || "Agent", progress');
   assertIncludes(app, "function processCardMarkup(message, keyAttribute)");
   assertIncludes(app, 'if (kind === "process") {');
+  assertIncludes(app, 'if (progress.kind === "tool")');
+  assertIncludes(app, "function ensureTurnTexts(messages, run, agentId)");
+  const noteCss = css.slice(css.indexOf(".process-note {"), css.indexOf(".process-note-body"));
+  assertIncludes(noteCss, "text-align: center;");
+  assert.equal(/40px/.test(noteCss), false, "过程旁白不得再用 40px 左边距挤出居中栏");
   // 历史只认完成态（每条命令一行）；"此刻在跑什么"走活跃行
   assertIncludes(app, "function trackCodexActivity(event)");
   // 键分隔符用 \u0000（与 conversationWindowStarts 同约定）：runId/itemId 都可能含空格
@@ -139,7 +201,7 @@ test("the conversation stream renders completed items and tracks the running one
   // run 收尾必须清残留，否则进程被杀后会一直显示假的"正在执行"
   assertIncludes(app, "if (/^run\\.(completed|failed|cancelled)$/.test(event.type))");
   // 活跃行变化也要触发重绘，否则 item/started 到达时界面不动
-  assertIncludes(app, "matchesSelectedRun && (conversationEvent || activityChanged);");
+  assertIncludes(app, "matchesSelectedRun && (conversationEvent || activityChanged || delta)");
   // 命令文本与输出都是外部内容，进 DOM 前必须脱敏 + 转义
   const card = app.slice(app.indexOf("function processCardMarkup"), app.indexOf("function messageMarkup"));
   assertIncludes(card, 'escapeHtml(redact(String(progress.command || "")))');

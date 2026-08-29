@@ -7,6 +7,8 @@ import {
   mkdtemp,
   open as fsOpen,
   opendir as fsOpendir,
+  readFile,
+  readdir,
   realpath,
   rename,
   rm,
@@ -18,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import {
   createWorkspaceExplorer,
   inspectRunWorkspace,
+  updateRunWorkspaceFile,
   WORKSPACE_EXPLORER_LIMITS,
   WORKSPACE_EXPLORER_SCHEMA,
 } from "../src/workspace-explorer.mjs";
@@ -100,6 +103,66 @@ test("workspace explorer lists, previews, redacts and bounds one run root", asyn
   const large = await inspectRunWorkspace(run, { path: "large.txt" });
   assert.equal(Buffer.byteLength(large.file.content), WORKSPACE_EXPLORER_LIMITS.previewBytes);
   assert.equal(large.file.truncated, true);
+});
+
+test("workspace editor atomically saves a full text preview and returns its new revision", async (t) => {
+  const root = await mkdtemp(resolve(appRoot, ".test-workspace-editor-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const target = join(root, "notes.md");
+  await writeFile(target, "before\n", "utf8");
+  const run = { id: "run-editor", cwd: root };
+  const opened = await inspectRunWorkspace(run, { path: "notes.md" });
+
+  assert.equal(opened.file.editable, true);
+  assert.match(opened.file.revision, /^[a-f0-9]{64}$/);
+  const saved = await updateRunWorkspaceFile(run, {
+    path: "notes.md",
+    content: "after\n",
+    expectedRevision: opened.file.revision,
+  });
+
+  assert.equal(await readFile(target, "utf8"), "after\n");
+  assert.equal(saved.file.content, "after\n");
+  assert.equal(saved.file.editable, true);
+  assert.notEqual(saved.file.revision, opened.file.revision);
+  assert.deepEqual(await readdir(root), ["notes.md"], "atomic temp file must not remain beside the saved file");
+});
+
+test("workspace editor rejects stale, redacted and oversized write bases without changing disk", async (t) => {
+  const root = await mkdtemp(resolve(appRoot, ".test-workspace-editor-guard-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const target = join(root, "notes.txt");
+  await writeFile(target, "base\n", "utf8");
+  const run = { id: "run-editor-guard", cwd: root };
+  const opened = await inspectRunWorkspace(run, { path: "notes.txt" });
+  await writeFile(target, "external\n", "utf8");
+
+  await assert.rejects(
+    () => updateRunWorkspaceFile(run, {
+      path: "notes.txt",
+      content: "stale overwrite\n",
+      expectedRevision: opened.file.revision,
+    }),
+    { code: "WORKSPACE_VERSION_CONFLICT" },
+  );
+  assert.equal(await readFile(target, "utf8"), "external\n");
+
+  const current = await inspectRunWorkspace(run, { path: "notes.txt" });
+  await assert.rejects(
+    () => updateRunWorkspaceFile(run, {
+      path: "notes.txt",
+      content: "const token = 'workspace-secret-value';\n",
+      expectedRevision: current.file.revision,
+    }),
+    { code: "PATH_BOUNDARY" },
+  );
+  assert.equal(await readFile(target, "utf8"), "external\n");
+
+  const large = join(root, "large.txt");
+  await writeFile(large, "x".repeat(WORKSPACE_EXPLORER_LIMITS.previewBytes + 1), "utf8");
+  const largePreview = await inspectRunWorkspace(run, { path: "large.txt" });
+  assert.equal(largePreview.file.editable, false);
+  assert.equal(largePreview.file.revision, null);
 });
 
 test("workspace explorer rejects absolute paths, traversal and missing roots", async (t) => {

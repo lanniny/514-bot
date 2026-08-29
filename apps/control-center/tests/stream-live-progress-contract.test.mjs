@@ -87,3 +87,14 @@ test("wave-5 icon references exist in the lucide manifest", async () => {
     assert.ok(names.has(name), `lucide manifest 缺少 ${name}`);
   }
 });
+
+test("context compaction is visible in the session stream and live turn", async () => {
+  const app = await source("public/app.js");
+  assertIncludes(app, '"run.context_compaction_started"');
+  assertIncludes(app, '"run.context_compaction_completed"');
+  assertIncludes(app, '"run.context_compaction_failed"');
+  assertIncludes(app, "正在压缩上下文，请勿中断");
+  assertIncludes(app, "function trackContextCompaction(event)");
+  assertIncludes(app, '"assistant.partial_message"');
+  assertIncludes(app, "本轮异常中止");
+});

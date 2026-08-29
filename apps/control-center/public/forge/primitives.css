@@ -360,23 +360,30 @@ kbd {
    SHORTCUT_BADGE 几何），token 全部走 tokens.css 语义变量，明暗自动跟随。
    ========================================================================== */
 
-/* —— 磨砂表面族（chrome 面板级，对齐 topbar 既有 86%/blur14/saturate150 触感）—— */
+/* —— 磨砂表面族（chrome 面板级，对齐 topbar 既有 86%/blur14/saturate150 触感）——
+   --glass-tint：玻璃底色。initial = 未设色（guaranteed-invalid），各表面 var() 回退链
+   自动落回自身底色（--card / --muted）随主题走；外观面板选预设色时由 app.js 内联覆盖。
+   --forge-glass-alpha：initial（未调节 = 无全局覆盖），各玻璃面用自身基线做 var() 回退，
+   保证默认零回归；用户拖滑杆后 app.js 内联写入→全面同步响应。
+   --forge-glass-filter：整串滤镜令牌（模糊+饱和）。默认档 = 未设→各面回退自身设计基线；
+   拖离默认档时 app.js 写入完整滤镜串→全部磨砂面同一串连续响应，顶栏/侧栏默认态严格无滤镜。 */
 :root {
-  --forge-glass-alpha: 86%;
-  --forge-glass-blur: 14px;
+  --forge-glass-alpha: initial;
+  --forge-glass-filter: initial;
   --forge-glass-msg-alpha: 50%;
+  --glass-tint: initial;
 }
 
 .forge-glass {
-  background: color-mix(in oklab, var(--card, #fff) var(--forge-glass-alpha), transparent);
-  -webkit-backdrop-filter: blur(var(--forge-glass-blur)) saturate(150%);
-  backdrop-filter: blur(var(--forge-glass-blur)) saturate(150%);
+  background: color-mix(in oklab, var(--glass-tint, var(--card, #ffffff)) var(--forge-glass-alpha, 86%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
 }
 
 .forge-glass-muted {
-  background: color-mix(in oklab, var(--muted, #f5f4f2) var(--forge-glass-alpha), transparent);
-  -webkit-backdrop-filter: blur(var(--forge-glass-blur)) saturate(150%);
-  backdrop-filter: blur(var(--forge-glass-blur)) saturate(150%);
+  background: color-mix(in oklab, var(--glass-tint, var(--muted, #f5f4f2)) var(--forge-glass-alpha, 86%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
 }
 
 /* 消息内小面（卡片/胶囊/气泡）：固定 50% 染色 + 1px ring 描边，不磨砂（codeg ws-msg 契约） */
@@ -388,9 +395,20 @@ kbd {
 /* 侧栏玻璃化：选择器对齐 shell.css 的 .atelier .sidebar（同特 0,2,0），但 shell.css 后加载会赢，
    故此处只留工具族，真正生效的规则在 shell.css 内联修正。 */
 .forge-glass-sidebar {
-  background: color-mix(in oklab, var(--card, #fff) var(--forge-glass-alpha), transparent);
-  -webkit-backdrop-filter: blur(var(--forge-glass-blur)) saturate(150%);
-  backdrop-filter: blur(var(--forge-glass-blur)) saturate(150%);
+  background: color-mix(in oklab, var(--glass-tint, var(--card, #ffffff)) var(--forge-glass-alpha, 86%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+}
+
+/* —— 不支持 backdrop-filter 的老引擎兜底：磨砂失去意义，玻璃族直接实色保底可读性 —— */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .forge-glass,
+  .forge-glass-sidebar {
+    background: var(--glass-tint, var(--card, #ffffff));
+  }
+  .forge-glass-muted {
+    background: var(--glass-tint, var(--muted, #f5f4f2));
+  }
 }
 
 /* 行内代码 pill（codeg inline-code 契约：全圆角 + box-decoration-break:clone 跨行不断豁口）；

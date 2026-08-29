@@ -37,6 +37,13 @@ function marketError(code, message, httpStatus = 400) {
   return Object.assign(new Error(message), { code, httpStatus });
 }
 
+/** stageId 只接受服务端签发的 UUID 片段字符；路径插值前消毒，防 `../` 逃出 staging 目录。 */
+function safeStageId(value) {
+  const id = String(value ?? "").replace(/[^A-Za-z0-9-]/g, "");
+  if (!id) throw marketError("MARKET_STAGE_NOT_FOUND", "staging entry not found", 404);
+  return id;
+}
+
 function sha256(buffer) {
   return createHash("sha256").update(buffer).digest("hex");
 }
@@ -306,9 +313,11 @@ export function createMarketService({
     return { ok: true, stageId, review };
   }
 
-  async function mcpInstall({ stageId, confirmed, apps } = {}) {
+  async function mcpInstall({ stageId: rawStageId, confirmed, apps } = {}) {
     if (confirmed !== true) throw marketError("MARKET_NOT_CONFIRMED", "install requires confirmed: true", 409);
-    const stagePath = join(stagingDir, `mcp-${String(stageId)}.json`);
+    // stageId 由服务端签发（UUID 片段字符）；插值进路径前消毒，防 `../` 逃出 staging 目录
+    const stageId = safeStageId(rawStageId);
+    const stagePath = join(stagingDir, `mcp-${stageId}.json`);
     let staged = null;
     try {
       staged = JSON.parse(await readFile(stagePath, "utf8"));
@@ -414,9 +423,10 @@ export function createMarketService({
     return { ok: true, stageId, review };
   }
 
-  async function skillsInstall({ stageId, confirmed, apps } = {}) {
+  async function skillsInstall({ stageId: rawStageId, confirmed, apps } = {}) {
     if (confirmed !== true) throw marketError("MARKET_NOT_CONFIRMED", "install requires confirmed: true", 409);
-    const stageRoot = join(stagingDir, `skill-${String(stageId)}`);
+    const stageId = safeStageId(rawStageId);
+    const stageRoot = join(stagingDir, `skill-${stageId}`);
     let staged = null;
     try {
       staged = JSON.parse(await readFile(join(stageRoot, ".stage.json"), "utf8"));

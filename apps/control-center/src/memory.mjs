@@ -35,7 +35,8 @@ export class MemoryService {
     return path.slice(this.repoRoot.length + 1).split(sep).join("/");
   }
 
-  async roots() {
+  /** 三类根的统一枚举（含绝对路径，仅供服务端内部读文件用；roots()/read() 共享同一清单）。 */
+  async #enumerate() {
     const roots = [];
     // 根 1：handoff 交接目录
     const handoffDir = join(this.aiSharedRoot, "handoff");
@@ -48,6 +49,7 @@ export class MemoryService {
           name: file.name,
           size: file.size,
           mtime: new Date(file.mtimeMs).toISOString(),
+          abs: file.path,
         })),
       });
     }
@@ -62,6 +64,7 @@ export class MemoryService {
           name: file.name,
           size: file.size,
           mtime: new Date(file.mtimeMs).toISOString(),
+          abs: file.path,
         })),
       });
     }
@@ -73,13 +76,61 @@ export class MemoryService {
         roots.push({
           name: `memory:${basename(path)} (${this.#rel(join(path, ".."))})`,
           path: this.#rel(join(path, "..")),
-          files: [{ name: basename(path), size: info.size, mtime: new Date(info.mtimeMs).toISOString() }],
+          files: [{ name: basename(path), size: info.size, mtime: new Date(info.mtimeMs).toISOString(), abs: path }],
         });
       } catch {
         // 扫描期间消失的文件直接跳过
       }
     }
-    return { roots };
+    return roots;
+  }
+
+  async roots() {
+    const roots = await this.#enumerate();
+    // 绝对路径不出服务端：对外清单只保留 rel 元数据
+    return { roots: roots.map(({ files, ...rest }) => ({ ...rest, files: files.map(({ abs, ...file }) => file) })) };
+  }
+
+  /**
+   * 只读文件内容：root+name 或 rel path 必须命中 #enumerate() 清单（前端只能点服务端
+   * 列出的文件，不接受任意路径——免路径穿越面）。超过 MAX_FILE_BYTES 拒读并如实回报。
+   */
+  async read({ root: rootName = "", name: fileName = "", path: relPath = "" } = {}) {
+    const roots = await this.#enumerate();
+    let file = null;
+    let foundRoot = null;
+    if (relPath) {
+      const wanted = String(relPath).replaceAll("\\", "/").replace(/^\.\//, "");
+      for (const root of roots) {
+        // 根目录（rel "."）拼出来会是 "./x.md"，归一到 "x.md" 再比
+        const hit = root.files.find((entry) => [root.path, entry.name].filter((part) => part && part !== ".").join("/") === wanted);
+        if (hit) {
+          file = hit;
+          foundRoot = root;
+          break;
+        }
+      }
+    } else {
+      const root = roots.find((entry) => entry.name === String(rootName));
+      file = root?.files.find((entry) => entry.name === String(fileName)) ?? null;
+      foundRoot = root ?? null;
+    }
+    if (!file || !foundRoot) {
+      throw Object.assign(new Error(`memory file not found: ${relPath || `${rootName}/${fileName}`}`), { code: "MEMORY_FILE_NOT_FOUND", httpStatus: 404 });
+    }
+    if (file.size > MAX_FILE_BYTES) {
+      throw Object.assign(new Error(`file exceeds ${Math.round(MAX_FILE_BYTES / 1024)} KB read cap`), { code: "MEMORY_FILE_TOO_LARGE", httpStatus: 413 });
+    }
+    const content = await readFile(file.abs, "utf8");
+    return {
+      root: foundRoot.name,
+      name: file.name,
+      path: [foundRoot.path, file.name].filter((part) => part && part !== ".").join("/"),
+      size: file.size,
+      mtime: file.mtime,
+      truncated: false,
+      content,
+    };
   }
 
   async search({ query = "" } = {}) {

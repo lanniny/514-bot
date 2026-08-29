@@ -22,6 +22,23 @@ const NATIVE_PERMISSION_LABELS = Object.freeze({
   "workspace-write:on-failure": "workspace-write:on-failure · 帮我批准",
   "danger-full-access": "danger-full-access · 完全访问（never）",
   "config-default": "config-default · 自定义 config.toml",
+  // CLI 原生透传档（2026-08-27 泛化，各 CLI --help/agent list 实证）
+  "native:auto": "native:auto · CLI 原生安全检查放行",
+  "native:acceptEdits": "native:acceptEdits · CLI 原生自动接受编辑",
+  "native:always-approve": "native:always-approve · CLI 原生全自动",
+  "native:bypassPermissions": "native:bypassPermissions · Claude 原生跳过权限提示",
+  "native:autoEdit": "native:autoEdit · Gemini 原生自动批准编辑工具",
+  "native:yolo": "native:yolo · CLI 原生 yolo 自动批准",
+  "native:build": "native:build · OpenCode 原生 build agent 全权限",
+});
+
+const nativeCommand = (token, execution, extra = {}) => Object.freeze({
+  token,
+  execution,
+  scope: extra.scope || "turn",
+  risk: extra.risk || "read-only",
+  detail: extra.detail || token,
+  hook: extra.hook || null,
 });
 
 const template = (definition) => Object.freeze({
@@ -30,6 +47,7 @@ const template = (definition) => Object.freeze({
   permissionModes: Object.freeze([...definition.permissionModes]),
   effortLevels: Object.freeze([...(definition.effortLevels || [])]),
   controlNotes: Object.freeze([...(definition.controlNotes || [])]),
+  nativeCommands: Object.freeze((definition.nativeCommands || []).map((item) => Object.freeze({ ...item }))),
   diagnosticActions: Object.freeze([...(definition.diagnosticActions || [versionDiagnostic()])]),
   // 路由权重缺省：新建席位未显式填写时的校准起点（对齐同 CLI 内置席位实测档位）；未声明的通道保守落 0.5/0.5/3
   routingDefaults: Object.freeze({ quality: 0.5, speed: 0.5, costTier: 3, ...(definition.routingDefaults || {}) }),
@@ -43,10 +61,23 @@ export const ADAPTER_TEMPLATES = Object.freeze([
     requiresCommand: true, teamMemberEligible: true, coordinatorCapable: true,
     defaultCommand: "claude", defaultProvider: "anthropic",
     commandMode: "executable-only", promptMode: "stdin", modelMode: "argv", effortMode: "argv",
-    permissionModes: ["plan", "read-only", "workspace-write"], defaultPermissionMode: "plan",
+    // native:* 本机 claude 2.1.232 --help 实证（acceptEdits/bypassPermissions）；
+    // manual/dontAsk/default 不透传：headless 下会交互挂起或与治理档语义重叠
+    permissionModes: ["plan", "read-only", "workspace-write", "native:acceptEdits", "native:bypassPermissions"], defaultPermissionMode: "plan",
     effortLevels: ["low", "medium", "high", "xhigh", "max"], cwdMode: "per-turn",
     routingDefaults: { quality: 0.96, speed: 0.68, costTier: 4 },
+    controlNotes: [
+      "原生审批档仅作用于只读轮（LO 2026-08-27 实证）：native:acceptEdits 自动接受编辑；native:bypassPermissions 全自动（需审批）。Build 写盘轮固定 acceptEdits + 审批，不走原生档。",
+    ],
     commandHelp: "本机 claude 可执行文件名或完整路径；不要在此附加参数。",
+    nativeCommands: [
+      nativeCommand("/compact", "passthrough", { detail: "压缩当前 Claude 会话上下文", risk: "write" }),
+      nativeCommand("/cost", "passthrough", { detail: "读取本会话成本" }),
+      nativeCommand("/usage", "passthrough", { detail: "读取本会话用量" }),
+      nativeCommand("/context", "passthrough", { detail: "查看上下文窗口占用" }),
+      nativeCommand("/memory", "passthrough", { detail: "打开 Claude 记忆" }),
+      nativeCommand("/rewind", "passthrough", { detail: "回退最近一轮", risk: "write" }),
+    ],
     diagnosticActions: [
       versionDiagnostic(),
       diagnostic({ id: "doctor", label: "运行 Claude Doctor", detail: "只读检查当前目录可见的 Claude Code 设置与安装健康。", args: ["doctor"], risk: "process-probe" }),
@@ -68,6 +99,13 @@ export const ADAPTER_TEMPLATES = Object.freeze([
     effortLevels: ["low", "medium", "high", "xhigh", "max", "ultra"], cwdMode: "process-fixed",
     routingDefaults: { quality: 0.97, speed: 0.74, costTier: 4 },
     commandHelp: "本机 codex 可执行文件名或完整路径；Adapter 会自行追加 app-server 参数。",
+    nativeCommands: [
+      nativeCommand("/compact", "adapter-hook", {
+        hook: "compactThread",
+        detail: "调用 Codex app-server 压缩当前线程，不把 /compact 当普通 prompt",
+        risk: "write",
+      }),
+    ],
     diagnosticActions: [
       versionDiagnostic(),
       diagnostic({ id: "doctor", label: "运行 Codex Doctor", detail: "读取已脱敏的安装、配置、认证与运行健康摘要。", args: ["doctor", "--json"], timeoutMs: 45_000, risk: "process-probe" }),
@@ -87,6 +125,9 @@ export const ADAPTER_TEMPLATES = Object.freeze([
     permissionModes: ["read-only"], defaultPermissionMode: "read-only",
     effortLevels: ["low", "medium", "high", "xhigh", "max", "ultra"], cwdMode: "per-turn",
     commandHelp: "由 Codex app-server 自动托管的只读回退，不可单独创建席位。",
+    nativeCommands: [
+      nativeCommand("/compact", "cli-attach", { detail: "exec 回退通道没有 app-server compact；请用 /cli 附着 Codex TUI。" }),
+    ],
   }),
   template({
     id: "gemini-stream-json", label: "Gemini CLI", factoryKey: "gemini-cli",
@@ -95,11 +136,19 @@ export const ADAPTER_TEMPLATES = Object.freeze([
     requiresCommand: true, teamMemberEligible: true, coordinatorCapable: true,
     defaultCommand: "gemini", defaultProvider: "google",
     commandMode: "executable-only", promptMode: "stdin", modelMode: "argv", effortMode: "none",
-    permissionModes: ["plan", "read-only"], defaultPermissionMode: "plan",
+    // native:* 本机 gemini 0.54.4 --help 实证（--approval-mode auto_edit/yolo）；
+    // default=逐项询问 headless 挂起，不透传
+    permissionModes: ["plan", "read-only", "native:autoEdit", "native:yolo"], defaultPermissionMode: "plan",
     effortLevels: [], cwdMode: "process-fixed",
     routingDefaults: { quality: 0.88, speed: 0.72, costTier: 3 },
     commandHelp: "本机 gemini 可执行文件名或完整路径；当前 Adapter 固定使用 plan 审批模式。",
-    controlNotes: ["Gemini CLI 当前没有接入通用 effort 参数。"],
+    controlNotes: [
+      "Gemini CLI 当前没有接入通用 effort 参数。",
+      "原生审批档仅作用于只读轮（LO 2026-08-27 实证）：native:autoEdit 自动批准编辑工具；native:yolo 自动批准全部工具（需审批）。Gemini 无独立写盘治理轮。",
+    ],
+    nativeCommands: [
+      nativeCommand("/tui", "cli-attach", { detail: "Gemini 原生命令请用 /cli 附着交互 TUI。" }),
+    ],
     diagnosticActions: [
       versionDiagnostic(),
       diagnostic({ id: "mcp-list", label: "列出 Gemini MCP", detail: "读取 Gemini CLI 当前配置的 MCP 服务器。", args: ["mcp", "list"], risk: "network-probe" }),
@@ -118,6 +167,7 @@ export const ADAPTER_TEMPLATES = Object.freeze([
     effortLevels: [], cwdMode: "process-fixed",
     commandHelp: "由隔离的 Codex MCP 主机管理，不接受席位级执行命令。",
     controlNotes: ["MCP 工具通道而非 CLI 执行后端——仅供内置 grok-search 席位固定绑定，新建席位不可选。"],
+    nativeCommands: [],
   }),
   template({
     id: "grok-build-headless", label: "Grok Build", factoryKey: "grok-build",
@@ -126,10 +176,18 @@ export const ADAPTER_TEMPLATES = Object.freeze([
     requiresCommand: true, teamMemberEligible: true, coordinatorCapable: true,
     defaultCommand: "grok", defaultProvider: "xai",
     commandMode: "executable-only", promptMode: "argv", modelMode: "argv", effortMode: "argv",
-    permissionModes: ["plan", "read-only", "workspace-write"], defaultPermissionMode: "read-only",
-    effortLevels: ["low", "high"], cwdMode: "per-turn",
+    permissionModes: ["plan", "read-only", "workspace-write", "native:auto", "native:acceptEdits", "native:always-approve"], defaultPermissionMode: "read-only",
+    effortLevels: ["low", "medium", "high", "xhigh"], cwdMode: "per-turn",
     routingDefaults: { quality: 0.82, speed: 0.94, costTier: 3 },
     commandHelp: "本机 grok 可执行文件名或完整路径；Adapter 会追加 headless 参数。",
+    controlNotes: [
+      "档位对齐 grok /effort 菜单（xhigh=Extra High）；模型仅接受其菜单公布的档位。",
+      "2026-08-27 本机实证（grok 1.0.5，headless -p + streaming-json，60s 内）：native:auto（--permission-mode auto）、native:acceptEdits（--permission-mode acceptEdits）、native:always-approve（--always-approve）三档均正常收尾 {\"type\":\"end\"}、exit 0、无权限提示挂起，全部进入透传白名单。",
+      "原生审批档只对只读语义轮（非写盘轮）透传；写盘轮安全不变量不受影响，仍固定 --permission-mode dontAsk + GROK_BUILD_TOOLS 白名单 + --deny MCPTool。",
+    ],
+    nativeCommands: [
+      nativeCommand("/tui", "cli-attach", { detail: "Grok Build headless 不执行交互 slash；完整 TUI 请用 /cli 附着。" }),
+    ],
     diagnosticActions: [
       versionDiagnostic(),
       diagnostic({ id: "doctor", label: "运行 Grok Doctor", detail: "检查终端、剪贴板、颜色和输入支持，结果不会写配置。", args: ["doctor", "--json"], risk: "process-probe" }),
@@ -147,7 +205,8 @@ export const ADAPTER_TEMPLATES = Object.freeze([
     requiresCommand: true, teamMemberEligible: true, coordinatorCapable: true,
     defaultCommand: "kimi", defaultProvider: "moonshot",
     commandMode: "executable-only", promptMode: "argv", modelMode: "argv", effortMode: "env",
-    permissionModes: ["plan", "read-only"], defaultPermissionMode: "read-only",
+    // native:* 本机 kimi 0.36.0 --help 实证（--yolo / --auto）；写盘轮本就 fail-closed
+    permissionModes: ["plan", "read-only", "native:yolo", "native:auto"], defaultPermissionMode: "read-only",
     effortLevels: ["low", "high", "max"], cwdMode: "per-turn",
     routingDefaults: { quality: 0.82, speed: 0.88, costTier: 2 },
     commandHelp: "本机 kimi 可执行文件名或完整路径；不要在此附加参数。未绑定统一供应商时，登录和 token 由 Kimi CLI 自身管理。",
@@ -155,6 +214,10 @@ export const ADAPTER_TEMPLATES = Object.freeze([
       "Kimi CLI 支持模型选择；effort 经 KIMI_MODEL_THINKING_EFFORT 逐轮 env 注入（仅 kimi provider，绕过 support_efforts）。",
       "档位对齐 managed k3/k3-256k 实测 low/high/max；kimi-for-coding 等未声明档位的模型可能被服务端拒绝或回退默认档。写权限保持 fail-closed。",
       "绑定统一供应商后投影 ~/.kimi-code/config.toml（default_model + providers/models 标记块）；effort env 仅对 type=kimi 的供应商生效。",
+      "原生审批档仅作用于只读轮（LO 2026-08-27 实证）：native:yolo 自动批准常规工具调用；native:auto 完全自治（需审批）。写盘轮 fail-closed 不变。",
+    ],
+    nativeCommands: [
+      nativeCommand("/tui", "cli-attach", { detail: "Kimi 写盘 fail-closed；交互 slash 请用 /cli 附着原生 TUI。" }),
     ],
     diagnosticActions: [
       versionDiagnostic(),
@@ -170,14 +233,20 @@ export const ADAPTER_TEMPLATES = Object.freeze([
     requiresCommand: true, teamMemberEligible: true, coordinatorCapable: true,
     defaultCommand: "opencode", defaultProvider: "multi-provider",
     commandMode: "executable-only", promptMode: "argv", modelMode: "argv", effortMode: "argv",
-    permissionModes: ["plan", "read-only", "workspace-write"], defaultPermissionMode: "read-only",
+    // native:* 本机 opencode 1.18.23 agent list 实证：内置 primary 仅 build（全权）与
+    // plan（只读），无中间审批档；写盘轮维持 --auto 治理路径
+    permissionModes: ["plan", "read-only", "workspace-write", "native:build"], defaultPermissionMode: "read-only",
     effortLevels: [], cwdMode: "per-turn",
     routingDefaults: { quality: 0.8, speed: 0.85, costTier: 2 },
     commandHelp: "本机 opencode 可执行文件名或完整路径；不要在此附加参数。模型与密钥由供应商投影到 opencode.json。",
     controlNotes: [
       "effort 透传 opencode --variant；仅当运行席位或 Provider 明确声明 variant 目录时才展示，不生成通用档位。",
       "权限映射：plan → --agent plan；read-only → headless 默认拒绝写；workspace-write → --auto。",
+      "native:build 透传 --agent build（LO 2026-08-27 实证，全权限 primary agent）；仅作用于只读治理轮。",
       "质量/速度实测随绑定供应商浮动——当前缺省为开源 harness 中性档，绑定强模型后建议手动上调质量。",
+    ],
+    nativeCommands: [
+      nativeCommand("/tui", "cli-attach", { detail: "OpenCode 交互 slash 请用 /cli 附着原生 TUI。" }),
     ],
     diagnosticActions: [
       versionDiagnostic(),
@@ -200,6 +269,9 @@ export const ADAPTER_TEMPLATES = Object.freeze([
     routingDefaults: { quality: 0.8, speed: 0.86, costTier: 2 },
     commandHelp: "本机 pi 可执行文件名或完整路径；Provider 由 Pi 内部路由。",
     controlNotes: ["Pi thinking 在 RPC 会话启动时接入；续聊沿用创建会话时固化的档位。"],
+    nativeCommands: [
+      nativeCommand("/tui", "cli-attach", { detail: "Pi RPC 不执行交互 slash；完整 TUI 请用 /cli 附着。" }),
+    ],
     diagnosticActions: [
       versionDiagnostic(),
       diagnostic({ id: "extensions", label: "列出 Pi 扩展", detail: "读取 Pi settings 中已安装的扩展资源，不修改配置。", args: ["list"] }),
@@ -221,6 +293,13 @@ export const ADAPTER_BINDINGS = Object.freeze([
 
 const TEMPLATE_BY_ID = new Map(ADAPTER_TEMPLATES.map((item) => [item.id, item]));
 const BINDING_BY_PROFILE = new Map(ADAPTER_BINDINGS.filter((item) => !item.fallbackFor).map((item) => [item.profileId, item]));
+const BINDING_BY_PROFILE_ALL = new Map(ADAPTER_BINDINGS.map((item) => [item.profileId, item]));
+
+export function adapterTemplateForRuntimeProfileId(profileId) {
+  const binding = BINDING_BY_PROFILE_ALL.get(String(profileId || "").trim());
+  if (!binding) return null;
+  return TEMPLATE_BY_ID.get(binding.adapterId) || null;
+}
 
 function manifestError(message, details = {}) {
   return Object.assign(new Error(message), { code: "ADAPTER_MANIFEST_INVALID", ...details });
@@ -235,6 +314,7 @@ export function adapterTemplateCatalog() {
       ...view,
       permissionModes: [...item.permissionModes],
       effortLevels: [...item.effortLevels],
+      nativeCommands: item.nativeCommands.map((command) => ({ ...command })),
       controlNotes: [...item.controlNotes],
       diagnosticActions: item.diagnosticActions.map(({ args: _args, timeoutMs: _timeoutMs, maxOutputBytes: _maxOutputBytes, ...action }) => ({ ...action })),
       routingDefaults: { ...item.routingDefaults },
@@ -343,6 +423,55 @@ export function runtimeControlCatalog(profile = {}, discovered = {}) {
       execution: "composer-control", risk: value === "build" ? "approval-required" : value === "plan" || value === "review" ? "read-only" : "write",
     });
   }
+  // CLI 原生权限档（native: 前缀）：仅在 Adapter 模板显式声明时追加独立命令组，
+  // 与 514cc-policy 三档组并列，供 composer 直接透传 CLI 原生值。描述按 adapter 分派。
+  const nativePermissionCatalog = {
+    "grok-build-headless": [
+      ["native:auto", "native:auto", "Grok 原生 auto · 安全检查放行，其余拦截或升级", "write"],
+      ["native:acceptEdits", "native:acceptEdits", "Grok 原生 acceptEdits · 自动接受文件编辑", "approval-required"],
+      ["native:always-approve", "native:always-approve", "Grok 原生 always-approve · 全自动（需审批）", "approval-required"],
+    ],
+    "claude-stream-json": [
+      ["native:acceptEdits", "native:acceptEdits", "Claude 原生 acceptEdits · 自动接受文件编辑", "write"],
+      ["native:bypassPermissions", "native:bypassPermissions", "Claude 原生 bypassPermissions · 跳过全部权限提示（需审批）", "approval-required"],
+    ],
+    "gemini-stream-json": [
+      ["native:autoEdit", "native:autoEdit", "Gemini 原生 auto_edit · 自动批准编辑工具", "write"],
+      ["native:yolo", "native:yolo", "Gemini 原生 yolo · 自动批准全部工具（需审批）", "approval-required"],
+    ],
+    "kimi-headless-resume": [
+      ["native:yolo", "native:yolo", "Kimi 原生 yolo · 自动批准常规工具调用", "write"],
+      ["native:auto", "native:auto", "Kimi 原生 auto · 完全自治不提问（需审批）", "approval-required"],
+    ],
+    "opencode-run-json": [
+      ["native:build", "native:build", "OpenCode 原生 build agent · 全权限执行", "write"],
+    ],
+  };
+  const nativePermissionCommands = nativePermissionCatalog[adapterTemplate.id] ?? [];
+  for (const [nativeMode, value, detail, risk] of nativePermissionCommands) {
+    if (!adapterTemplate.permissionModes.includes(nativeMode)) continue;
+    commands.push({
+      id: `permission:${value}`, token: `/${value}`, label: `/${value}`, detail,
+      control: "permission", value, scope: "create-run", provenance: "cli-native",
+      execution: "composer-control", risk,
+    });
+  }
+
+  for (const item of adapterTemplate.nativeCommands) {
+    commands.push({
+      id: `native:${item.token}`,
+      token: item.token,
+      label: item.token,
+      detail: item.detail,
+      control: "native",
+      value: item.token,
+      scope: item.scope || "turn",
+      provenance: "adapter-native",
+      execution: item.execution,
+      hook: item.hook || null,
+      risk: item.risk || "read-only",
+    });
+  }
 
   const actions = [
     {
@@ -422,7 +551,9 @@ export function runtimeControlCatalog(profile = {}, discovered = {}) {
         supported: effortSupported,
         mode: adapterTemplate.effortMode,
         options: effortLevels.map((value) => ({ value, label: value })),
-        defaultValue: profile.defaultEffort ?? null,
+        // 镜像 defaultModel 的回退模式：席位级配置优先，发现值（~/.grok/config.toml
+        // [models].default_reasoning_effort）兜底，两者都缺才是 null。
+        defaultValue: profile.defaultEffort ?? discovered.defaultEffort ?? null,
         source: effortSource,
       },
       permission: {
@@ -434,7 +565,7 @@ export function runtimeControlCatalog(profile = {}, discovered = {}) {
     },
     defaults: {
       model: profile.model ?? null,
-      effort: profile.defaultEffort ?? null,
+      effort: profile.defaultEffort ?? discovered.defaultEffort ?? null,
       permission: profile.defaultPermissionMode || adapterTemplate.defaultPermissionMode,
       quickEditable: adapterTemplate.selectable,
       patchFields: adapterTemplate.selectable ? ["model", "defaultEffort", "defaultPermissionMode"] : [],

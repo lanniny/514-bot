@@ -193,7 +193,7 @@ test("the send button becomes a stop key while the run is active and the input i
   assert.match(app, /request\(`\/api\/runs\/\$\{encodeURIComponent\(run\.id\)\}\/interrupt`/);
   assert.match(app, /停止当前回复（保留会话、授权与工作树）/);
   assert.doesNotMatch(app, /停止当前任务（级联中止本 run 全部 CLI 子进程）/);
-  assert.match(app, /run\\\.\(created\|updated\|completed\|failed\|cancelled\|interrupted\|interrupt_timeout\|/);
+  assert.match(app, /run\\\.\(created\|updated\|completed\|failed\|cancelled\|interrupted\|interrupt_timeout\|context_compaction_started\|context_compaction_completed\|context_compaction_failed\|/);
   // 审批挂起 / 提交在途：输入禁用，但停止键必须可用——它是此时唯一有意义的动作。
   // 在途锁（composerSubmitInFlight）必须参与裁决：本行由 SSE 驱动的 setComposerMode 反复执行，
   // 少了它就会把提交锁冲掉，同一句话被送出两遍（LO 2026-08-14 报障）。
@@ -332,4 +332,27 @@ test("new-task picker uses catalog faces instead of ?? placeholders", async () =
   assert.match(constellation, /agentFaceMarkup\(id\)/);
   assert.doesNotMatch(constellation, /"\?\?"/);
   assert.match(app, /function refreshAvatarSurfaces\(\)[\s\S]{0,400}renderSelectedRun\(/);
+});
+
+// LO 2026-08-20：@ 带自定义头像的协作者时，chip 里的 img 没有尺寸约束，
+// 浏览器按原始像素渲染，把 overflow-x 的额外协作者行撑成整屏巨图。
+test("custom collaborator avatars stay chip-sized and never render at intrinsic pixel size", async () => {
+  const [baseCss, workbenchCss] = await Promise.all([
+    readFile(resolve(publicRoot, "styles.css"), "utf8"),
+    readFile(resolve(publicRoot, "forge/workbench.css"), "utf8"),
+  ]);
+
+  // 全局兜底：任何宿主漏写尺寸都退化成字号量级的小图，而不是原始像素
+  assert.match(baseCss, /^\.avatar-photo \{[^}]*\n\}/ms);
+  const fallbackRule = baseCss.slice(baseCss.search(/^\.avatar-photo \{/m));
+  assert.match(fallbackRule.slice(0, fallbackRule.indexOf("}")), /width:[^;]+;[\s\S]*?height:[^;]+;/);
+
+  // 报障宿主：额外协作者 chip 必须与官方 CLI 字形同尺寸收口
+  const chipRule = workbenchCss.slice(workbenchCss.indexOf(".composer-collaborator-chip .avatar-photo"));
+  assert.ok(chipRule.startsWith(".composer-collaborator-chip .avatar-photo"), "缺少额外协作者 chip 的头像尺寸约束");
+  const chipBody = chipRule.slice(chipRule.indexOf("{"), chipRule.indexOf("}"));
+  assert.match(chipBody, /width:\s*13px/);
+  assert.match(chipBody, /height:\s*13px/);
+  assert.match(chipBody, /object-fit:\s*cover/);
+  assert.match(chipBody, /flex:\s*0 0 auto/);
 });

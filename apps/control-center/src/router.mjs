@@ -32,6 +32,22 @@ function constrainedProviders(rule) {
   return Array.isArray(ids) ? new Set(ids) : null;
 }
 
+// 结构性排除（特殊路由/白名单/显式指定/同供应商复核）是设计使然，不算故障；
+// NO_ROUTE 文案只需要让 LO 一眼看见真正卡路的健康/禁用原因。
+const STRUCTURAL_EXCLUSIONS = new Set(["not a team member", "not explicitly requested", "same provider as primary"]);
+
+function routeBlockers(candidates, limit = 3) {
+  return candidates
+    .filter((candidate) => candidate.excluded)
+    .map((candidate) => ({
+      id: candidate.id,
+      reasons: candidate.excludedReasons.filter((reason) => !STRUCTURAL_EXCLUSIONS.has(reason) && !reason.startsWith("special route:")),
+    }))
+    .filter((candidate) => candidate.reasons.length > 0)
+    .slice(0, limit)
+    .map((candidate) => `${candidate.id}: ${candidate.reasons.join("; ")}`);
+}
+
 function previewCost(profile) {
   const usd = Number(profile?.costUsd);
   if (Number.isFinite(usd)) return { usd, status: "known", tier: profile?.costTier ?? null };
@@ -124,7 +140,8 @@ export class ModelRouter {
 
     const eligible = candidates.filter((candidate) => !candidate.excluded).sort((a, b) => b.score - a.score);
     if (!eligible.length) {
-      const error = new Error(`no healthy provider can satisfy ${resolvedTaskType}`);
+      const blockers = routeBlockers(candidates);
+      const error = new Error(`no healthy provider can satisfy ${resolvedTaskType}${blockers.length ? ` (${blockers.join("; ")})` : ""}`);
       error.code = "NO_ROUTE";
       error.candidates = candidates;
       throw error;
@@ -160,7 +177,8 @@ export class ModelRouter {
       : [];
     const independent = independentCandidates.find((candidate) => !candidate.excluded) || null;
     if (independentRequired && !independent) {
-      const error = new Error(`risk ${risk} requires a healthy independent provider`);
+      const blockers = routeBlockers(independentCandidates);
+      const error = new Error(`risk ${risk} requires a healthy independent provider${blockers.length ? ` (${blockers.join("; ")})` : ""}`);
       error.code = "NO_INDEPENDENT_ROUTE";
       error.candidates = independentCandidates;
       throw error;

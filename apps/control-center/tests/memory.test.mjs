@@ -83,3 +83,20 @@ test("delta ledger keeps existing fields and adds normalized deltas[]", async (t
   assert.equal(fromDecisions.length, 2);
   for (const delta of fromDecisions) assert.equal(delta.ts, null);
 });
+
+test("memory read serves enumerated files only (root+name and rel path), never raw traversal", async (t) => {
+  const { root, aiShared } = await seedRepo(t);
+  const service = new MemoryService({ repoRoot: root, aiSharedRoot: aiShared });
+  // root+name 定位（文件树行）
+  const byRoot = await service.read({ root: "handoff", name: "claude-to-codex__forge-wave__20260725-1011.md" });
+  assert.ok(byRoot.content.includes("__DELTA__"));
+  assert.equal(byRoot.root, "handoff");
+  assert.ok(byRoot.path.endsWith(".md"));
+  // rel path 定位（搜索结果行）
+  const byPath = await service.read({ path: "MEMORY.md" });
+  assert.ok(byPath.content.includes("长期记忆"));
+  // 清单外路径与未命中 root/name 一律 404，不接受任意路径
+  await assert.rejects(() => service.read({ path: "config/control-center/models.json" }), { code: "MEMORY_FILE_NOT_FOUND" });
+  await assert.rejects(() => service.read({ path: "../../package.json" }), { code: "MEMORY_FILE_NOT_FOUND" });
+  await assert.rejects(() => service.read({ root: "nope", name: "x.md" }), { code: "MEMORY_FILE_NOT_FOUND" });
+});

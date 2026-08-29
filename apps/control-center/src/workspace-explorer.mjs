@@ -1,5 +1,6 @@
 import { constants as fsConstants } from "node:fs";
 import * as fsPromises from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
 import { basename, extname, isAbsolute, join, parse, relative, resolve, sep } from "node:path";
 import { assertWithin, isWithin, toPortablePath } from "./paths.mjs";
 import { scrub } from "./redaction.mjs";
@@ -48,12 +49,15 @@ const DEFAULT_FS = Object.freeze({
   open: fsPromises.open,
   opendir: fsPromises.opendir,
   realpath: fsPromises.realpath,
+  rename: fsPromises.rename,
+  unlink: fsPromises.unlink,
 });
 
 const OPEN_NOFOLLOW = fsConstants.O_NOFOLLOW ?? 0;
 const OPEN_DIRECTORY = fsConstants.O_DIRECTORY ?? 0;
 const READ_FLAGS = fsConstants.O_RDONLY | OPEN_NOFOLLOW;
 const DIRECTORY_FLAGS = READ_FLAGS | OPEN_DIRECTORY;
+const CREATE_FLAGS = fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | OPEN_NOFOLLOW;
 
 const SENSITIVE_DIRECTORIES = new Set([
   ".aws",
@@ -184,6 +188,16 @@ function hasOpaqueHighEntropyToken(value) {
     if (new Set(token).size >= 16 && shannonEntropy(token) >= 4.3) return true;
   }
   return false;
+}
+
+function contentRevision(buffer) {
+  return createHash("sha256").update(buffer).digest("hex");
+}
+
+function editableText(content) {
+  const scrubbed = scrub(content);
+  if (scrubbed !== content) throw boundary("workspace content contains sensitive material and is not editable");
+  if (hasOpaqueHighEntropyToken(content)) throw boundary("workspace content contains opaque high-entropy material");
 }
 
 function parentPath(portablePath) {
@@ -538,9 +552,59 @@ async function previewFile(fs, context, handle, initialMetadata) {
       truncated: initialMetadata.size > BigInt(bytesRead),
       redacted,
       content,
+      editable: !binary && !redacted && initialMetadata.size <= BigInt(bytesRead),
+      revision: !binary && !redacted && initialMetadata.size <= BigInt(bytesRead)
+        ? contentRevision(payload)
+        : null,
     },
     bounds: { ...WORKSPACE_EXPLORER_LIMITS },
   };
+}
+
+async function replaceFile(fs, context, handle, initialMetadata, { content, expectedRevision, closeTarget }) {
+  if (typeof content !== "string") throw invalid("workspace content must be a string");
+  const bytes = Buffer.from(content, "utf8");
+  if (bytes.length > WORKSPACE_EXPLORER_LIMITS.previewBytes) {
+    throw invalid(`workspace content exceeds ${WORKSPACE_EXPLORER_LIMITS.previewBytes} bytes`, "BODY_TOO_LARGE");
+  }
+  if (!/^[a-f0-9]{64}$/i.test(String(expectedRevision ?? ""))) {
+    throw invalid("workspace expectedRevision is required");
+  }
+  editableText(content);
+
+  const current = await previewFile(fs, context, handle, initialMetadata);
+  if (!current.file.editable) throw invalid("workspace file is not editable", "READ_ONLY_SOURCE");
+  if (current.file.revision !== expectedRevision) {
+    throw invalid("workspace file changed after it was opened; reload before saving", "WORKSPACE_VERSION_CONFLICT");
+  }
+
+  const tempPath = join(
+    context.target.slice(0, context.target.length - basename(context.target).length),
+    `.${basename(context.target)}.514cc-save-${randomUUID()}.tmp`,
+  );
+  let tempHandle = null;
+  try {
+    tempHandle = await fs.open(tempPath, CREATE_FLAGS, Number(initialMetadata.mode & 0o777n));
+    await tempHandle.writeFile(bytes);
+    await tempHandle.sync();
+    await tempHandle.close();
+    tempHandle = null;
+
+    const finalMetadata = await verifyTarget(fs, context, handle);
+    if (!sameFileVersion(initialMetadata, finalMetadata)) {
+      throw changed("workspace file changed while the replacement was prepared");
+    }
+    await verifyRoot(fs, context);
+    // Windows does not permit replacing a destination while our read handle is
+    // still open. Keep it held through every identity/version check, then close
+    // it exactly once immediately before the atomic rename.
+    await closeTarget();
+    await fs.rename(tempPath, context.target);
+  } catch (error) {
+    await tempHandle?.close().catch(() => {});
+    await fs.unlink(tempPath).catch(() => {});
+    throw error;
+  }
 }
 
 export function createWorkspaceExplorer({ fs = DEFAULT_FS } = {}) {
@@ -567,3 +631,34 @@ export function createWorkspaceExplorer({ fs = DEFAULT_FS } = {}) {
 }
 
 export const inspectRunWorkspace = createWorkspaceExplorer();
+
+export function createWorkspaceEditor({ fs = DEFAULT_FS, inspect = createWorkspaceExplorer({ fs }) } = {}) {
+  for (const method of ["lstat", "open", "opendir", "realpath", "rename", "unlink"]) {
+    if (typeof fs?.[method] !== "function") throw new TypeError(`workspace editor fs.${method} must be a function`);
+  }
+  return async function update(run, { path = "", content, expectedRevision } = {}) {
+    if (!run?.id) throw invalid("run is required");
+    const rootContext = await openRoot(fs, run);
+    try {
+      const context = await resolveTarget(fs, rootContext, path);
+      const { handle, metadata } = await openTarget(fs, context);
+      let targetClosed = false;
+      const closeTarget = async () => {
+        if (targetClosed) return;
+        await handle.close();
+        targetClosed = true;
+      };
+      try {
+        if (!metadata.isFile()) throw invalid("workspace path is not an editable file");
+        await replaceFile(fs, context, handle, metadata, { content, expectedRevision, closeTarget });
+      } finally {
+        await closeTarget();
+      }
+    } finally {
+      await rootContext.handle.close();
+    }
+    return inspect(run, { path });
+  };
+}
+
+export const updateRunWorkspaceFile = createWorkspaceEditor();

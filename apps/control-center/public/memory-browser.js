@@ -30,6 +30,13 @@ let _searchSeq = 0;
 let _searchAbort = null;
 let _openResult = -1;      // 展开详情的搜索结果索引
 
+// 文件阅读器：{ root, name, path } | null；path 优先（搜索结果只有 rel path）
+let _openFile = null;
+let _fileState = "idle";   // idle | loading | done | error
+let _fileContent = "";
+let _fileError = "";
+let _fileSeq = 0;
+
 /** 挂载并初始化（幂等）。容器不存在时返回 false。 */
 export function initMemoryBrowser(container) {
   if (_root || !container) return Boolean(_root);
@@ -61,6 +68,14 @@ export function initMemoryBrowser(container) {
   _inputEl.addEventListener("input", onSearchInput);
   _refreshEl.addEventListener("click", () => void loadRoots(true));
   _bodyEl.addEventListener("click", onBodyClick);
+  // 「打开」是按钮内的 span（button 不能嵌套 button）：手动补键盘激活
+  _bodyEl.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const openBtn = event.target.closest?.("[data-mb-open]");
+    if (!openBtn) return;
+    event.preventDefault();
+    void openMemoryFile({ root: "", name: "", path: openBtn.dataset.mbOpen ?? "" });
+  });
 
   renderBody(); // 先出骨架屏
   void loadRoots();
@@ -139,6 +154,26 @@ function onBodyClick(event) {
     renderBody();
     return;
   }
+  const fileRow = event.target.closest("[data-mb-file]");
+  if (fileRow) {
+    const root = fileRow.dataset.mbFileRoot ?? "";
+    void openMemoryFile({ root, name: fileRow.dataset.mbFileName ?? "", path: "" });
+    return;
+  }
+  const openBtn = event.target.closest("[data-mb-open]");
+  if (openBtn) {
+    event.stopPropagation();
+    void openMemoryFile({ root: "", name: "", path: openBtn.dataset.mbOpen ?? "" });
+    return;
+  }
+  const closeBtn = event.target.closest("[data-mb-close-file]");
+  if (closeBtn) {
+    _openFile = null;
+    _fileState = "idle";
+    _fileContent = "";
+    renderBody();
+    return;
+  }
   const resultRow = event.target.closest("[data-mb-result]");
   if (resultRow) {
     const idx = Number(resultRow.dataset.mbResult);
@@ -150,13 +185,44 @@ function onBodyClick(event) {
   if (retry) void loadRoots(true);
 }
 
+/** 打开文件阅读器：树行走 root+name，搜索结果走 rel path；同文件再点即收起。 */
+async function openMemoryFile({ root, name, path }) {
+  const target = path ? { root: "", name: "", path } : { root, name, path: "" };
+  if (_openFile && _openFile.path === target.path && _openFile.name === target.name
+    && (path || !_openFile.root || _openFile.root === root)) {
+    _openFile = null;
+    _fileState = "idle";
+    _fileContent = "";
+    renderBody();
+    return;
+  }
+  const seq = ++_fileSeq;
+  _openFile = path ? { root: "", name: "", path } : { root, name, path: "" };
+  _fileState = "loading";
+  _fileContent = "";
+  _fileError = "";
+  renderBody();
+  try {
+    const params = path ? `path=${encodeURIComponent(path)}` : `root=${encodeURIComponent(root)}&name=${encodeURIComponent(name)}`;
+    const data = await apiRequest(`/api/memory/file?${params}`);
+    if (seq !== _fileSeq) return;
+    _fileContent = String(data?.content ?? "");
+    _fileState = "done";
+  } catch (error) {
+    if (seq !== _fileSeq) return;
+    _fileError = error?.message || String(error);
+    _fileState = "error";
+  }
+  renderBody();
+}
+
 /* ---------------- 渲染 ---------------- */
 
 function renderBody() {
   if (!_bodyEl) return;
   const q = _inputEl ? _inputEl.value.trim() : "";
   if (q) {
-    _bodyEl.innerHTML = renderSearch(q);
+    _bodyEl.innerHTML = renderSearch(q) + renderFileViewer();
     return;
   }
   if (_roots === null && !_rootsError) {
@@ -197,14 +263,16 @@ function renderBody() {
           <span class="mb-root-name">${escapeHtml(name)}</span>
           <span class="mb-root-meta num">${files.length} 个文件 · ${formatSize(totalSize)}</span>
         </button>
-        ${open ? renderFiles(files) : ""}
+        ${open ? renderFiles(files, name) : ""}
       </li>`;
   }
   html += `</ul>`;
+  html += renderFileViewer();
   _bodyEl.innerHTML = html;
 }
 
-function renderFiles(files) {
+/** 文件行：可点击打开阅读器（此前是死列表——能看文件名却永远读不到内容）。 */
+function renderFiles(files, rootName) {
   if (!files.length) {
     return `<div class="mb-files"><div class="mb-file-empty">目录为空</div></div>`;
   }
@@ -212,15 +280,40 @@ function renderFiles(files) {
   for (const file of files) {
     const name = String(file?.name ?? "未命名");
     const mtime = file?.mtime ? formatRelative(file.mtime) : "";
+    const isOpen = _openFile && !_openFile.path && _openFile.root === rootName && _openFile.name === name;
     html += `
-      <li class="mb-file" title="${escapeHtml(name)}">
-        ${lucideIcon("file-text", "icon lucide")}
-        <span class="mb-file-name">${escapeHtml(name)}</span>
-        <span class="mb-file-meta num">${formatSize(file?.size)}${mtime ? ` · ${escapeHtml(mtime)}` : ""}</span>
+      <li class="mb-file ${isOpen ? "is-open" : ""}">
+        <button type="button" class="mb-file-row" data-mb-file data-mb-file-root="${escapeHtml(rootName)}"
+          data-mb-file-name="${escapeHtml(name)}" title="打开 ${escapeHtml(name)}" aria-pressed="${isOpen ? "true" : "false"}">
+          ${lucideIcon("file-text", "icon lucide")}
+          <span class="mb-file-name">${escapeHtml(name)}</span>
+          <span class="mb-file-meta num">${formatSize(file?.size)}${mtime ? ` · ${escapeHtml(mtime)}` : ""}</span>
+        </button>
       </li>`;
   }
   html += `</ul>`;
   return html;
+}
+
+/** 阅读器面板：纯文本 <pre>（markdown 不假装渲染，诚实原文），随树/搜索视图共用。 */
+function renderFileViewer() {
+  if (!_openFile) return "";
+  const title = _openFile.path || _openFile.name || "文件";
+  let inner = "";
+  if (_fileState === "loading") inner = `<div class="mb-file-viewer-state">读取中…</div>`;
+  else if (_fileState === "error") inner = `<div class="mb-file-viewer-state is-error">读取失败：${escapeHtml(_fileError)}</div>`;
+  else if (_fileState === "done") inner = `<pre class="mb-file-viewer-pre">${escapeHtml(_fileContent)}</pre>`;
+  return `
+    <section class="mb-file-viewer" aria-label="文件内容">
+      <header class="mb-file-viewer-head">
+        ${lucideIcon("file-text", "icon lucide")}
+        <span class="mb-file-viewer-title">${escapeHtml(title)}</span>
+        <button type="button" class="mb-file-viewer-close" data-mb-close-file title="关闭" aria-label="关闭文件内容">
+          ${lucideIcon("x", "icon lucide")}
+        </button>
+      </header>
+      ${inner}
+    </section>`;
 }
 
 function renderSearch(query) {
@@ -248,8 +341,9 @@ function renderSearch(query) {
     const path = String(item?.path ?? "");
     const snippet = String(item?.snippet ?? "");
     const open = _openResult === idx;
+    const isOpenFile = Boolean(path) && _openFile?.path === path;
     html += `
-      <li class="mb-result ${open ? "is-open" : ""}">
+      <li class="mb-result ${open ? "is-open" : ""} ${isOpenFile ? "has-open-file" : ""}">
         <button type="button" class="mb-result-row" data-mb-result="${idx}"
           aria-expanded="${open ? "true" : "false"}">
           ${lucideIcon("file-text", "icon lucide")}
@@ -258,7 +352,10 @@ function renderSearch(query) {
             ${snippet ? `<span class="mb-result-snippet">${highlight(snippet, query, open)}</span>` : ""}
             ${path ? `<span class="mb-result-path">${escapeHtml(path)}</span>` : ""}
           </span>
-          ${lucideIcon("chevron-down", "icon lucide mb-chevron")}
+          <span class="mb-result-actions">
+            ${path ? `<span role="button" tabindex="0" class="mb-result-open" data-mb-open="${escapeHtml(path)}" title="打开文件内容">${lucideIcon("book-open", "icon lucide")} 打开</span>` : ""}
+            ${lucideIcon("chevron-down", "icon lucide mb-chevron")}
+          </span>
         </button>
       </li>`;
   });
@@ -280,18 +377,18 @@ function renderSkeleton() {
 /** 转义后把命中的 query 词包成 <mark>；折叠态最多取 160 字符 */
 function highlight(text, query, full = false) {
   const clipped = full ? text : text.slice(0, 160);
-  let safe = escapeHtml(clipped);
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
-  for (const word of words) {
-    const needle = escapeHtml(word);
-    if (!needle) continue;
-    safe = safe.replace(
-      new RegExp(`(${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"),
-      "<mark>$1</mark>",
-    );
-  }
-  if (!full && text.length > 160) safe += "…";
-  return safe;
+  const safe = escapeHtml(clipped);
+  // 单遍替换：所有词合成一个交替正则。逐词多轮会在前一轮注入的 <mark>/实体上再命中
+  // （查询词恰为 mark/amp/lt 等），产出嵌套损坏标签。
+  const words = [...new Set(query.toLowerCase().split(/\s+/).filter(Boolean))]
+    .sort((a, b) => b.length - a.length);
+  if (!words.length) return safe;
+  const pattern = words
+    .map((word) => escapeHtml(word).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  const marked = safe.replace(new RegExp(`(${pattern})`, "gi"), "<mark>$1</mark>");
+  if (!full && text.length > 160) marked += "…";
+  return marked;
 }
 
 function formatSize(bytes) {

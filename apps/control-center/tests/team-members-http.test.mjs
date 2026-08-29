@@ -86,6 +86,19 @@ test("team member CRUD, team assignment and restart persistence share one execut
   assert.equal(created.payload.coordinatorEligible, true);
   const memberId = created.payload.id;
 
+  const ephemeralOnlyMember = await jsonRequest(firstOrigin, "/api/team-members", token, {
+    method: "POST",
+    body: {
+      label: "仅群聊成员",
+      shortLabel: "群聊",
+      role: "ephemeral-collaborator",
+      runtimeProfileId: "codex-technical",
+      capabilities: ["coding", "testing"],
+    },
+  });
+  assert.equal(ephemeralOnlyMember.response.status, 201);
+  const ephemeralOnlyMemberId = ephemeralOnlyMember.payload.id;
+
   const teamCreated = await jsonRequest(firstOrigin, "/api/teams", token, {
     method: "POST",
     body: {
@@ -183,6 +196,96 @@ test("team member CRUD, team assignment and restart persistence share one execut
   );
   assert.equal(previewTeamRemoved.response.status, 200);
 
+  const teamsBeforeEphemeralRun = await jsonRequest(firstOrigin, "/api/teams", token);
+  const ephemeralRun = await jsonRequest(firstOrigin, "/api/runs", token, {
+    method: "POST",
+    body: {
+      prompt: "验证完整通讯录群聊只固化运行快照",
+      execute: false,
+      permissionMode: "plan",
+      orchestrationMode: "social",
+      startAgentId: "codex-technical",
+      requestedProvider: "codex-technical",
+      requestedAgentIds: [ephemeralOnlyMemberId],
+      ephemeralTeam: {
+        name: "通讯录临时群聊",
+        description: "不进入 TeamStore",
+        coordinator: "codex-technical",
+        members: ["codex-technical", ephemeralOnlyMemberId],
+        skills: [],
+        mcp: [],
+        providers: {},
+      },
+    },
+  });
+  assert.equal(ephemeralRun.response.status, 202);
+  assert.match(ephemeralRun.payload.teamId, /^team-ephemeral-/);
+  assert.equal(ephemeralRun.payload.teamEphemeral, true);
+  assert.deepEqual(ephemeralRun.payload.teamMembers, ["codex-technical", ephemeralOnlyMemberId]);
+  assert.equal(ephemeralRun.payload.teamRoster.length, 2);
+  const teamsAfterEphemeralRun = await jsonRequest(firstOrigin, "/api/teams", token);
+  assert.deepEqual(
+    teamsAfterEphemeralRun.payload.teams.map((team) => team.id),
+    teamsBeforeEphemeralRun.payload.teams.map((team) => team.id),
+    "ephemeral run teams must never enter TeamStore",
+  );
+  const unauthorizedEphemeralRun = await fetch(`${firstOrigin}/api/runs`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ prompt: "unauthorized", ephemeralTeam: { name: "unauthorized", members: ["codex-technical"] } }),
+  });
+  assert.equal(unauthorizedEphemeralRun.status, 401);
+  const conflictingTeamInput = await jsonRequest(firstOrigin, "/api/runs", token, {
+    method: "POST",
+    body: {
+      prompt: "拒绝两种团队来源",
+      execute: false,
+      permissionMode: "plan",
+      teamId: "team-514cc",
+      ephemeralTeam: { name: "冲突群聊", coordinator: "codex-technical", members: ["codex-technical"] },
+    },
+  });
+  assert.equal(conflictingTeamInput.response.status, 422);
+  assert.equal(conflictingTeamInput.payload.error.code, "VALIDATION_FAILED");
+  const unknownEphemeralMember = await jsonRequest(firstOrigin, "/api/runs", token, {
+    method: "POST",
+    body: {
+      prompt: "拒绝未知群聊成员",
+      execute: false,
+      permissionMode: "plan",
+      ephemeralTeam: { name: "未知成员群聊", coordinator: "codex-technical", members: ["codex-technical", "ghost-member"] },
+    },
+  });
+  assert.equal(unknownEphemeralMember.response.status, 422);
+  assert.equal(unknownEphemeralMember.payload.error.code, "VALIDATION_FAILED");
+  const secretEphemeralTeam = await jsonRequest(firstOrigin, "/api/runs", token, {
+    method: "POST",
+    body: {
+      prompt: "拒绝团队提示词中的凭据",
+      execute: false,
+      permissionMode: "plan",
+      ephemeralTeam: {
+        name: "敏感群聊",
+        systemPrompt: "api_key=sk-proj-ABCDEFGH12345678",
+        coordinator: "codex-technical",
+        members: ["codex-technical"],
+      },
+    },
+  });
+  assert.equal(secretEphemeralTeam.response.status, 422);
+  assert.equal(secretEphemeralTeam.payload.error.code, "VALIDATION_FAILED");
+  const removedEphemeralMember = await jsonRequest(
+    firstOrigin,
+    `/api/team-members/${encodeURIComponent(ephemeralOnlyMemberId)}`,
+    token,
+    { method: "DELETE" },
+  );
+  assert.equal(removedEphemeralMember.response.status, 200);
+  const reloadedEphemeralRun = await jsonRequest(firstOrigin, `/api/runs/${encodeURIComponent(ephemeralRun.payload.id)}`, token);
+  assert.equal(reloadedEphemeralRun.response.status, 200);
+  assert.deepEqual(reloadedEphemeralRun.payload.teamMembers, ["codex-technical", ephemeralOnlyMemberId]);
+  assert.equal(reloadedEphemeralRun.payload.teamRoster[1].id, ephemeralOnlyMemberId);
+
   const blockedRebind = await jsonRequest(firstOrigin, `/api/team-members/${encodeURIComponent(memberId)}`, token, {
     method: "PUT",
     body: { runtimeProfileId: "kimi-frontend", capabilities: ["coding"] },
@@ -216,6 +319,10 @@ test("team member CRUD, team assignment and restart persistence share one execut
     && team.members.length === 1
     && team.members[0] === memberId
   )));
+  const restartedEphemeralRun = await jsonRequest(secondOrigin, `/api/runs/${encodeURIComponent(ephemeralRun.payload.id)}`, token);
+  assert.equal(restartedEphemeralRun.response.status, 200);
+  assert.deepEqual(restartedEphemeralRun.payload.teamMembers, ["codex-technical", ephemeralOnlyMemberId]);
+  assert.equal(restartedEphemeralRun.payload.teamRoster[1].id, ephemeralOnlyMemberId);
 
   const removedTeam = await jsonRequest(secondOrigin, `/api/teams/${encodeURIComponent(teamId)}`, token, {
     method: "DELETE",

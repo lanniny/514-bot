@@ -167,7 +167,7 @@ export function registerCcSwitchRoutes(router, ctx) {
   router.get("/api/ccswitch/domain", handled(async (request, response, url) => {
     const path = url.pathname;
     if (path === "/api/ccswitch/domain" || path === "/api/ccswitch/domain/status") {
-      ctx.json(response, 200, { ok: true, state: domain.summary(), configPaths: domain.configPaths() });
+      ctx.json(response, 200, { ok: true, state: domain.summary(), configPaths: domain.configPaths(), live: await domain.observeLiveResources() });
       return;
     }
     if (path === "/api/ccswitch/domain/prompts") {
@@ -179,7 +179,7 @@ export function registerCcSwitchRoutes(router, ctx) {
       return;
     }
     if (path === "/api/ccswitch/domain/mcps") {
-      ctx.json(response, 200, { ok: true, items: domain.mcps() });
+      ctx.json(response, 200, { ok: true, items: Object.values(domain.summary().mcps ?? {}).sort((a, b) => a.name.localeCompare(b.name)) });
       return;
     }
     if (path === "/api/ccswitch/domain/skills") {
@@ -256,8 +256,16 @@ export function registerCcSwitchRoutes(router, ctx) {
       ctx.json(response, 200, { ok: true, item });
       return;
     }
+    if (path === "/api/ccswitch/domain/mcps/import") {
+      ctx.json(response, 200, { ok: true, result: await domain.adoptLiveMcps(input) });
+      return;
+    }
     if (path === "/api/ccswitch/domain/mcps") {
       ctx.json(response, 200, { ok: true, item: await domain.upsertMcp(input) });
+      return;
+    }
+    if (path === "/api/ccswitch/domain/skills/import") {
+      ctx.json(response, 200, { ok: true, result: await domain.adoptLiveSkills(input) });
       return;
     }
     if (path === "/api/ccswitch/domain/skills") {

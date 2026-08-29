@@ -20,7 +20,7 @@ const BREAKER_LABELS = Object.freeze({
 const WORKBENCH_TABS = Object.freeze([
   ["env", "环境", "wrench"],
   ["proxy", "代理", "waypoints"],
-  ["resources", "资源", "library"],
+  ["resources", "资源投影", "library"],
   ["sync", "同步", "cloud"],
   ["accounts", "账户", "key-round"],
 ]);
@@ -210,7 +210,7 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
     return verdict === true || verdict?.confirmed === true;
   };
   const state = {
-    tab: "proxy", resourceTab: "prompts", promptApp: "claude", domain: null, configPaths: {}, proxy: null,
+    tab: "proxy", resourceTab: "prompts", promptApp: "claude", domain: null, live: { mcps: [], skills: [] }, configPaths: {}, proxy: null,
     providers: null, proxySummary: null, proxyLogs: [], proxyHealth: [], pricing: {}, auth: null, authFlows: {},
     authResource: {}, deeplink: null, deeplinkLoading: false, streamResults: [], env: null, native: null, upstreamScan: [], busy: false,
     workspace: null, workspaceFile: "AGENTS.md", workspaceContent: "", dailyFilename: new Date().toISOString().slice(0, 10) + ".md",
@@ -225,9 +225,10 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
   }
 
   let loadPromise = null;
-  function load() {
-    if (loadPromise) return loadPromise;
-    loadPromise = (async () => {
+  let loadGeneration = 0;
+  function load({ force = false } = {}) {
+    if (loadPromise && !force) return loadPromise;
+    const run = async () => {
       const paths = [
         "/api/ccswitch/domain", "/api/ccswitch/proxy/status", "/api/providers",
         "/api/ccswitch/proxy/usage/summary?days=30", "/api/ccswitch/proxy/logs?limit=50",
@@ -235,7 +236,11 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
       ];
       const results = await Promise.allSettled(paths.map((path) => request(path)));
       const [domain, proxy, providers, summary, logs, health, pricing, auth] = results;
-      if (domain.status === "fulfilled") { state.domain = domain.value.state; state.configPaths = domain.value.configPaths ?? {}; }
+      if (domain.status === "fulfilled") {
+        state.domain = domain.value.state;
+        state.configPaths = domain.value.configPaths ?? {};
+        state.live = domain.value.live ?? { mcps: [], skills: [] };
+      }
       if (proxy.status === "fulfilled") state.proxy = proxy.value.status;
       if (providers.status === "fulfilled") state.providers = providers.value;
       if (summary.status === "fulfilled") state.proxySummary = summary.value.summary;
@@ -249,8 +254,16 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
       if (nativeError) errors.push(nativeError);
       if (errors.length && !state.domain && !state.proxy) message(`运行与配置工作台加载失败：${errors[0].error?.message ?? errors[0].error}`, "error");
       return { __forgeLoadResult: true, ok: errors.length === 0, errors };
-    })().finally(() => { loadPromise = null; });
-    return loadPromise;
+    };
+    const myGen = ++loadGeneration;
+    const previous = loadPromise;
+    const pending = (async () => {
+      if (force && previous) await previous.catch(() => {});
+      return run();
+    })();
+    loadPromise = pending;
+    pending.finally(() => { if (loadGeneration === myGen) loadPromise = null; });
+    return pending;
   }
 
   async function loadNative() {
@@ -334,12 +347,22 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
   function resourceTabs() {
     const pulse = resourcePulse(state.domain ?? {});
     const counts = { prompts: pulse.prompts, mcps: pulse.mcps, skills: pulse.skills, profiles: pulse.profiles };
-    return `<div class="ccs-subtabs" role="tablist">${[["prompts", "Prompt"], ["mcps", "MCP"], ["skills", "Skill"], ["profiles", "Profile"], ["workspace", "Workspace"], ["backups", "备份"], ["deeplink", "深链"]].map(([id, label]) => `<button type="button" class="${state.resourceTab === id ? "is-active" : ""}" data-ccs-resource-tab="${id}" role="tab" aria-selected="${state.resourceTab === id}">${label}${counts[id] ? `<em>${counts[id]}</em>` : ""}</button>`).join("")}</div>`;
+    return `<div class="ccs-subtabs" role="tablist">${[["prompts", "Prompt"], ["mcps", "MCP 投影"], ["skills", "Skill 安装"], ["profiles", "Profile"], ["workspace", "Workspace"], ["backups", "备份"], ["deeplink", "深链"]].map(([id, label]) => `<button type="button" class="${state.resourceTab === id ? "is-active" : ""}" data-ccs-resource-tab="${id}" role="tab" aria-selected="${state.resourceTab === id}">${label}${counts[id] ? `<em>${counts[id]}</em>` : ""}</button>`).join("")}</div>`;
   }
 
   function resourcesMarkup() {
     const content = state.resourceTab === "prompts" ? promptsMarkup() : state.resourceTab === "mcps" ? mcpsMarkup() : state.resourceTab === "skills" ? skillsMarkup() : state.resourceTab === "profiles" ? profilesMarkup() : state.resourceTab === "workspace" ? workspaceMarkup() : state.resourceTab === "backups" ? backupsMarkup() : deeplinkMarkup();
-    return `${resourceTabs()}${content}`;
+    return `<section class="ccs-capability-bridge" aria-label="能力中心入口">
+      <div>
+        <span class="eyebrow">能力生效链 · 第 1 层</span>
+        <h3>这里负责本机安装与 CLI live 投影</h3>
+        <p>此处改变资源是否真实落到各 CLI；团队菜单与成员声明范围在能力中心配置，不在这里重复。</p>
+      </div>
+      <div class="ccs-actions">
+        <button class="button secondary" type="button" data-ccs-capability-workspace="skills">${icon("puzzle")}管理 Skill</button>
+        <button class="button secondary" type="button" data-ccs-capability-workspace="mcp">${icon("server")}管理 MCP</button>
+      </div>
+    </section>${resourceTabs()}${content}`;
   }
 
   function promptsMarkup() {
@@ -350,13 +373,25 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
 
   function mcpsMarkup() {
     const items = Object.values(state.domain?.mcps ?? {});
-    return `<div class="ccs-resource-layout"><section class="ccs-tool"><div class="ccs-tool-heading"><h3>MCP Server</h3><span>${items.length}</span></div><div class="ccs-list">${items.map((item) => `<div><span><strong>${escapeHtml(item.name)}</strong><small class="mono">${escapeHtml(item.config?.command || item.config?.url || item.id)}</small></span><span class="ccs-row-actions"><button class="icon-button" type="button" data-ccs-mcp-edit="${attr(item.id)}" title="编辑" aria-label="编辑 ${attr(item.name)}">${icon("pencil")}</button><button class="icon-button" type="button" data-ccs-mcp-delete="${attr(item.id)}" title="删除" aria-label="删除 ${attr(item.name)}">${icon("trash-2")}</button></span><div class="ccs-mini-apps">${PROVIDER_SCHEME_APPS.map((app) => `<label title="${APP_LABELS[app]}"><input type="checkbox" data-ccs-mcp-toggle="${attr(item.id)}|${app}"${checked(item.apps?.[app])}><span>${appFaceMarkup(app, "ccs-mini-logo")}<em>${escapeHtml(appShortLabel(app))}</em></span></label>`).join("")}</div></div>`).join("") || emptyState("暂无 MCP", "右侧用 command/url JSON 登记一个 server。")}</div></section>
+    const unmanaged = (state.live?.mcps ?? []).filter((item) => !item.managed && item.importable);
+    const blocked = (state.live?.mcps ?? []).filter((item) => !item.managed && item.importable === false);
+    const empty = items.length
+      ? items.map((item) => `<div><span><strong>${escapeHtml(item.name)}</strong><small class="mono">${escapeHtml(item.config?.command || item.config?.url || item.id)}</small></span><span class="ccs-row-actions"><button class="icon-button" type="button" data-ccs-mcp-edit="${attr(item.id)}" title="编辑" aria-label="编辑 ${attr(item.name)}">${icon("pencil")}</button><button class="icon-button" type="button" data-ccs-mcp-delete="${attr(item.id)}" title="删除" aria-label="删除 ${attr(item.name)}">${icon("trash-2")}</button></span><div class="ccs-mini-apps">${PROVIDER_SCHEME_APPS.map((app) => `<label title="${APP_LABELS[app]}"><input type="checkbox" data-ccs-mcp-toggle="${attr(item.id)}|${app}"${checked(item.apps?.[app])}><span>${appFaceMarkup(app, "ccs-mini-logo")}<em>${escapeHtml(appShortLabel(app))}</em></span></label>`).join("")}</div></div>`).join("")
+      : emptyState("暂无托管 MCP", unmanaged.length ? `能力中心扫到的是 live 接入，这里只列出投影账本。本机已有 ${unmanaged.length} 个未导入，导入后即可用右侧表单编辑。` : "右侧用 command/url JSON 新建，或先确认本机 live 配置里确有 MCP。");
+    const liveList = unmanaged.length ? `${sectionLabel("已接入未托管", `${unmanaged.length} 个`)}<div class="ccs-list">${unmanaged.map((item) => `<div><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.transport || "—")} · ${escapeHtml((item.sources ?? []).map((source) => APP_SHORT[source.app] || source.app).join("、") || "live")}</small></span><button class="button compact secondary" type="button" data-ccs-mcp-adopt="${attr(item.id)}">${icon("file-input")}导入并编辑</button></div>`).join("")}</div>` : "";
+    const blockedNote = blocked.length ? `<p class="ccs-hint">${blocked.length} 个 live MCP 无法自动导入（项目级或 id 不合法）。</p>` : "";
+    return `<div class="ccs-resource-layout"><section class="ccs-tool"><div class="ccs-tool-heading"><h3>MCP Server</h3><span>${items.length} 托管${unmanaged.length ? ` · ${unmanaged.length} 未导入` : ""}</span></div><div class="ccs-list">${empty}</div>${liveList}${blockedNote}<button class="button secondary" type="button" data-ccs-action="mcp-import"${unmanaged.length ? "" : " disabled"}>${icon("file-input")}导入已接入</button></section>
       <section class="ccs-tool"><div class="ccs-tool-heading"><h3>编辑 MCP</h3><button class="icon-button" type="button" data-ccs-action="mcp-clear" title="新建" aria-label="新建 MCP">${icon("plus")}</button></div><form data-ccs-form="mcp"><label class="field"><span class="field-label">ID</span><input name="id" maxlength="96" required></label><label class="field"><span class="field-label">名称</span><input name="name" maxlength="120" required></label><label class="field"><span class="field-label">配置 JSON</span><textarea name="config" rows="9" spellcheck="false">{\n  "command": "npx",\n  "args": []\n}</textarea></label>${appChecks("mcp")}<div class="ccs-actions"><button class="button primary" type="submit">${icon("save")}保存</button></div></form></section></div>`;
   }
 
   function skillsMarkup() {
     const items = Object.values(state.domain?.skills ?? {});
-    return `<div class="ccs-resource-layout"><section class="ccs-tool"><div class="ccs-tool-heading"><h3>Skill</h3><span>${items.length}</span></div><div class="ccs-list">${items.map((item) => `<div><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description || item.source?.repo || item.source || "local")}</small></span><button class="icon-button" type="button" data-ccs-skill-delete="${attr(item.id)}" title="卸载" aria-label="卸载 ${attr(item.name)}">${icon("trash-2")}</button><div class="ccs-mini-apps">${PROMPT_APPS.map((app) => `<label title="${APP_LABELS[app]}"><input type="checkbox" data-ccs-skill-toggle="${attr(item.id)}|${app}"${checked(item.apps?.[app])}><span>${appFaceMarkup(app, "ccs-mini-logo")}<em>${escapeHtml(appShortLabel(app))}</em></span></label>`).join("")}</div></div>`).join("") || emptyState("暂无 Skill", "右侧粘贴 SKILL.md，或从深链接导入。")}</div></section>
+    const unmanaged = (state.live?.skills ?? []).filter((item) => !item.managed && item.importable);
+    const empty = items.length
+      ? items.map((item) => `<div><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description || item.source?.repo || item.source || "local")}</small></span><button class="icon-button" type="button" data-ccs-skill-delete="${attr(item.id)}" title="卸载" aria-label="卸载 ${attr(item.name)}">${icon("trash-2")}</button><div class="ccs-mini-apps">${PROMPT_APPS.map((app) => `<label title="${APP_LABELS[app]}"><input type="checkbox" data-ccs-skill-toggle="${attr(item.id)}|${app}"${checked(item.apps?.[app])}><span>${appFaceMarkup(app, "ccs-mini-logo")}<em>${escapeHtml(appShortLabel(app))}</em></span></label>`).join("")}</div></div>`).join("")
+      : emptyState("暂无本机安装副本", unmanaged.length ? `能力中心的 Skill 是仓库声明（成员范围），不会自动出现在这里。CLI live 目录里已有 ${unmanaged.length} 个，可导入后投影。` : "能力中心列出的是仓库声明，不是本机安装。右侧粘贴 SKILL.md，或从 CLI live 目录导入。");
+    const liveList = unmanaged.length ? `${sectionLabel("CLI live 未托管", `${unmanaged.length} 个`)}<div class="ccs-list">${unmanaged.map((item) => `<div><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml((item.sources ?? []).map((source) => APP_SHORT[source.app] || source.app).join("、") || "live")}</small></span><button class="button compact secondary" type="button" data-ccs-skill-adopt="${attr(item.id)}">${icon("file-input")}导入</button></div>`).join("")}</div>` : "";
+    return `<div class="ccs-resource-layout"><section class="ccs-tool"><div class="ccs-tool-heading"><h3>Skill</h3><span>${items.length} 托管${unmanaged.length ? ` · ${unmanaged.length} 未导入` : ""}</span></div><div class="ccs-list">${empty}</div>${liveList}<button class="button secondary" type="button" data-ccs-action="skill-import"${unmanaged.length ? "" : " disabled"}>${icon("file-input")}导入 live Skill</button></section>
       <section class="ccs-tool"><div class="ccs-tool-heading"><h3>安装本地 Skill</h3></div><form data-ccs-form="skill"><label class="field"><span class="field-label">名称</span><input name="name" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9._-]*" required></label><label class="field"><span class="field-label">说明</span><input name="description" maxlength="1000"></label><label class="field"><span class="field-label">SKILL.md</span><textarea name="skillMd" rows="12" spellcheck="false">---\nname: skill-name\ndescription: description\n---\n</textarea></label>${appChecks("skill", { claude: true, codex: true }, PROMPT_APPS)}<div class="ccs-actions"><button class="button primary" type="submit">${icon("package-plus")}安装</button></div></form></section></div>`;
   }
 
@@ -485,7 +520,7 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
 
   async function act(task, success) {
     if (state.busy) return null; state.busy = true;
-    try { const result = await task(); if (success) message(success); await load(); return result; }
+    try { const result = await task(); if (success) message(success); await load({ force: true }); return result; }
     catch (error) { message(error.message || String(error), "error"); throw error; }
     finally { state.busy = false; }
   }
@@ -662,6 +697,12 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
 
   async function handleClick(event) {
     const button = event.target.closest("button, a"); if (!button || !root.contains(button)) return;
+    if (button.dataset.ccsCapabilityWorkspace) {
+      window.dispatchEvent(new CustomEvent("forge:open-capabilities", {
+        detail: { workspace: button.dataset.ccsCapabilityWorkspace },
+      }));
+      return;
+    }
     if (button.dataset.ccsTab) { state.tab = button.dataset.ccsTab; render(); if (state.tab === "env" && !state.cliEnv && !state.cliEnvLoading && !state.cliEnvError) void loadCliEnv(); return; }
     if (button.dataset.ccsResourceTab) { state.resourceTab = button.dataset.ccsResourceTab; render(); if (state.resourceTab === "backups") void refreshBackups(); if (state.resourceTab === "workspace") void refreshWorkspace().catch((error) => message(error.message, "error")); return; }
     const action = button.dataset.ccsAction;
@@ -693,6 +734,27 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
     if (button.dataset.ccsPromptEnable || button.dataset.ccsPromptDisable) { const id = button.dataset.ccsPromptEnable || button.dataset.ccsPromptDisable; const verb = button.dataset.ccsPromptEnable ? "enable" : "disable"; await act(() => request(`/api/ccswitch/domain/prompts/${state.promptApp}/${encodeURIComponent(id)}/${verb}`, { method: "POST", body: {} }), `Prompt 已${verb === "enable" ? "启用" : "停用"}`).catch(() => {}); return; }
     if (button.dataset.ccsPromptDelete) { if (await askConfirm({ eyebrow: "Prompt", title: "删除这条 Prompt？", rows: [["范围", APP_LABELS[state.promptApp] ?? state.promptApp]], warning: "删除后无法恢复。", confirmLabel: "删除", danger: true })) await act(() => request(`/api/ccswitch/domain/prompts/${state.promptApp}/${encodeURIComponent(button.dataset.ccsPromptDelete)}`, { method: "DELETE" }), "Prompt 已删除").catch(() => {}); return; }
     if (action === "prompt-import") { await act(() => request("/api/ccswitch/domain/prompts/import", { method: "POST", body: { app: state.promptApp } }), "live Prompt 已导入").catch(() => {}); return; }
+    if (action === "mcp-import") {
+      const count = (state.live?.mcps ?? []).filter((item) => !item.managed && item.importable).length;
+      if (!count) { message("没有可导入的 live MCP", "warning"); return; }
+      if (!(await askConfirm({ eyebrow: "MCP 投影", title: `把 ${count} 个已接入的 live MCP 导入投影账本？`, rows: [["写入", "只写入控制面账本，不改写各 CLI live 文件"], ["随后", "导入后可在右侧表单编辑；保存才会投影到勾选的 CLI"]], confirmLabel: "导入" }))) return;
+      await act(() => request("/api/ccswitch/domain/mcps/import", { method: "POST", body: {} }), "已接入的 live MCP 已导入投影账本").catch(() => {});
+      return;
+    }
+    if (action === "skill-import") {
+      const count = (state.live?.skills ?? []).filter((item) => !item.managed && item.importable).length;
+      if (!count) { message("没有可导入的 live Skill", "warning"); return; }
+      if (!(await askConfirm({ eyebrow: "Skill 安装", title: `把 ${count} 个 CLI live Skill 导入投影账本？`, rows: [["写入", "复制到控制面 Skill 库，不覆盖各 CLI 目录"], ["范围", "只托管每个 Skill 的第一个来源 CLI，避免用一份覆盖另一份"]], confirmLabel: "导入" }))) return;
+      await act(() => request("/api/ccswitch/domain/skills/import", { method: "POST", body: {} }), "live Skill 已导入投影账本").catch(() => {});
+      return;
+    }
+    if (button.dataset.ccsMcpAdopt) {
+      const id = button.dataset.ccsMcpAdopt;
+      const result = await act(() => request("/api/ccswitch/domain/mcps/import", { method: "POST", body: { ids: [id] } }), `已导入 ${id}`).catch(() => null);
+      if (result) fillMcp(id);
+      return;
+    }
+    if (button.dataset.ccsSkillAdopt) { await act(() => request("/api/ccswitch/domain/skills/import", { method: "POST", body: { ids: [button.dataset.ccsSkillAdopt] } }), "live Skill 已导入").catch(() => {}); return; }
     if (button.dataset.ccsMcpEdit) { fillMcp(button.dataset.ccsMcpEdit); return; }
     if (action === "mcp-clear") { root.querySelector('[data-ccs-form="mcp"]').reset(); return; }
     if (button.dataset.ccsMcpDelete) { if (await askConfirm({ eyebrow: "MCP", title: "删除这个 MCP 声明？", rows: [["影响", "各应用的 live 配置将同步移除该 server"]], warning: "删除后无法恢复。", confirmLabel: "删除", danger: true })) await act(() => request(`/api/ccswitch/domain/mcps/${encodeURIComponent(button.dataset.ccsMcpDelete)}`, { method: "DELETE" }), "MCP 已删除").catch(() => {}); return; }
@@ -721,10 +783,11 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
   const api = {
     async openDeeplink(url) { state.tab = "resources"; state.resourceTab = "deeplink"; render(); root.scrollIntoView({ behavior: "smooth", block: "start" }); return previewDeeplink(url); },
     /** 外部深链接到某个页签（供页头动作复用同一份实现，避免第二套弱化副本）。 */
-    async openTab(tab, { resourceTab = null, run = null } = {}) {
+    async openTab(tab, { resourceTab = null, run = null, selectMcp = null, adoptIfMissing = false } = {}) {
       if (!["env", "proxy", "resources", "sync", "accounts"].includes(tab)) return false;
       state.tab = tab;
       if (resourceTab) state.resourceTab = resourceTab;
+      if (!state.domain) await load();
       render();
       root.scrollIntoView({ behavior: "smooth", block: "start" });
       if (tab === "env" && !state.cliEnv && !state.cliEnvLoading) void loadCliEnv();
@@ -733,6 +796,18 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
         catch (error) { message(error.message, "error"); }
       }
       if (run === "backups") await refreshBackups().catch((error) => message(error.message, "error"));
+      if (selectMcp) {
+        if (!state.domain?.mcps?.[selectMcp] && adoptIfMissing) {
+          try {
+            await request("/api/ccswitch/domain/mcps/import", { method: "POST", body: { ids: [selectMcp] } });
+            await load({ force: true });
+          } catch (error) {
+            message(error.message || String(error), "error");
+          }
+        }
+        fillMcp(selectMcp);
+        if (!state.domain?.mcps?.[selectMcp]) message(`未找到可编辑的 MCP ${selectMcp}。若它只出现在能力中心，先点「导入已接入」。`, "warning");
+      }
       return true;
     },
     refresh: load,

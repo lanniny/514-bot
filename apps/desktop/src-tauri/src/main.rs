@@ -22,9 +22,13 @@ use tauri::{
 use tauri_plugin_deep_link::DeepLinkExt;
 
 const KERNEL_PORT: u16 = 51400;
-const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
-const WINDOW_READY_TIMEOUT: Duration = Duration::from_secs(15);
+// 启动看门狗放宽：冷盘 + 杀软扫描下 node 首启可能远超 15~30s（LO 反馈"有几率闪退"
+// 的一条诱因就是健康机器假设）。宁可多等，不可误杀。
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(60);
+const WINDOW_READY_TIMEOUT: Duration = Duration::from_secs(25);
 const WINDOW_READY_DELIVERY_GRACE: Duration = Duration::from_secs(2);
+/// 内核在打印握手行之前死亡的自动重启次数上限（端口竞态/瞬时资源锁场景自愈）。
+const KERNEL_START_RETRIES: u8 = 2;
 // 内核 stdout 握手行的固定前缀（apps/control-center/server.mjs 的启动横幅）。
 const URL_PREFIX: &str = "514cc Control Center: ";
 #[cfg(windows)]
@@ -335,6 +339,45 @@ fn repo_root() -> PathBuf {
         .unwrap_or_else(|_| PathBuf::from(r"I:\514claude\514cc"))
 }
 
+/// 挑一个当前空闲的 127.0.0.1 端口。写死 KERNEL_PORT 的历史问题：僵尸内核 / dev
+/// server / taskkill 放弃追踪后的残留都会占住端口，让本次内核 EADDRINUSE 秒死，
+/// 用户看到的就是闪退。动态端口从构造上消掉这一类冲突（TOCTOU 窗口在本地回环
+/// 上可忽略）。拿不到临时端口时回退固定端口。
+fn pick_free_kernel_port() -> u16 {
+    match std::net::TcpListener::bind("127.0.0.1:0") {
+        Ok(listener) => match listener.local_addr() {
+            Ok(addr) => addr.port(),
+            Err(_) => KERNEL_PORT,
+        },
+        Err(_) => KERNEL_PORT,
+    }
+}
+
+fn kernel_stderr_log_path() -> PathBuf {
+    boot_dir().join("kernel-stderr.log")
+}
+
+fn show_fatal_error(title: &str, message: &str) {
+    eprintln!("{title}: {message}");
+    #[cfg(windows)]
+    {
+        // GUI 子系统进程的 stderr 没人看；致命启动失败必须可见，否则就是"无声闪退"。
+        use std::os::windows::ffi::OsStrExt;
+        let wide = |s: &str| -> Vec<u16> {
+            std::ffi::OsStr::new(s).encode_wide().chain(Some(0)).collect()
+        };
+        let text = wide(message);
+        let caption = wide(title);
+        #[link(name = "user32")]
+        extern "system" {
+            fn MessageBoxW(hwnd: usize, text: *const u16, caption: *const u16, utype: u32) -> i32;
+        }
+        const MB_ICONERROR: u32 = 0x10;
+        unsafe { MessageBoxW(0, text.as_ptr(), caption.as_ptr(), MB_ICONERROR) };
+    }
+    let _ = title;
+}
+
 /// 解析 node 可执行路径。桌面壳从快捷方式/资源管理器启动时，PATH 常不含 fnm/node，
 /// 仅写 `node` 会 spawn 失败并秒退——这是 LO 反馈「没看到启动」的主因之一。
 fn resolve_node_binary() -> PathBuf {
@@ -371,10 +414,14 @@ fn resolve_node_binary() -> PathBuf {
     PathBuf::from("node")
 }
 
-fn boot_log_path() -> PathBuf {
+fn boot_dir() -> PathBuf {
     let dir = repo_root().join(".scratch").join("desktop-launch");
     let _ = std::fs::create_dir_all(&dir);
-    dir.join("desktop-boot.log")
+    dir
+}
+
+fn boot_log_path() -> PathBuf {
+    boot_dir().join("desktop-boot.log")
 }
 
 fn boot_log(message: &str) {
@@ -394,11 +441,11 @@ fn boot_log(message: &str) {
     eprintln!("{message}");
 }
 
-fn spawn_kernel() -> std::io::Result<Child> {
+fn spawn_kernel(port: u16) -> std::io::Result<Child> {
     let cc_dir = repo_root().join("apps").join("control-center");
     let node = resolve_node_binary();
     boot_log(&format!(
-        "spawn_kernel node={} cwd={}",
+        "spawn_kernel port={port} node={} cwd={}",
         node.display(),
         cc_dir.display()
     ));
@@ -407,11 +454,28 @@ fn spawn_kernel() -> std::io::Result<Child> {
     cmd.arg("--experimental-sqlite")
         .arg(cc_dir.join("server.mjs"))
         .current_dir(&cc_dir)
-        .env("CONTROL_CENTER_PORT", KERNEL_PORT.to_string())
+        .env("CONTROL_CENTER_PORT", port.to_string())
         .env("CC_ROOT", repo_root())
-        .stdout(Stdio::piped())
-        // stderr 仍 null：piped 却不读会在缓冲满后卡死子进程；启动失败靠 spawn Err + stdout 握手超时诊断
-        .stderr(Stdio::null());
+        .stdout(Stdio::piped());
+    // stderr 直接落文件：内核启动期崩溃/端口占用必须留痕可诊断。历史做法 Stdio::null()
+    // 把死因吞掉；piped-不读会在缓冲满后卡死子进程，也不可用。
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(kernel_stderr_log_path())
+    {
+        Ok(file) => {
+            cmd.stderr(Stdio::from(file));
+            boot_log(&format!(
+                "kernel stderr -> {}",
+                kernel_stderr_log_path().display()
+            ));
+        }
+        Err(_) => {
+            cmd.stderr(Stdio::null());
+        }
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -420,16 +484,16 @@ fn spawn_kernel() -> std::io::Result<Child> {
     cmd.spawn()
 }
 
-/// 严格解析握手行：固定前缀 + http + 127.0.0.1 + 内核端口 + 非空认证片段。
+/// 严格解析握手行：固定前缀 + http + 127.0.0.1 + 本次启动传入的期望端口 + 非空认证片段。
 /// 当前内核使用单次 bootstrap nonce；保留 token 兼容，避免旧内核无法被新版壳启动。
 /// 尾随文本按空白截断，不把整行交给 URL 解析器。
-fn parse_kernel_url(line: &str) -> Option<Url> {
+fn parse_kernel_url(line: &str, expected_port: u16) -> Option<Url> {
     let rest = line.strip_prefix(URL_PREFIX)?;
     let raw = rest.split_whitespace().next()?;
     let url: Url = raw.parse().ok()?;
     let valid = url.scheme() == "http"
         && url.host_str() == Some("127.0.0.1")
-        && url.port() == Some(KERNEL_PORT)
+        && url.port() == Some(expected_port)
         && url.fragment().is_some_and(|fragment| {
             ["bootstrap=", "token="].iter().any(|prefix| {
                 fragment
@@ -447,20 +511,30 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        activate_window, cancel_window_launch, parse_kernel_url, window_phase, WindowLaunchPhase,
-        WindowLaunchState,
+        activate_window, cancel_window_launch, parse_kernel_url, window_phase, KERNEL_PORT,
+        WindowLaunchPhase, WindowLaunchState,
     };
 
     #[test]
     fn accepts_current_bootstrap_and_legacy_token_urls() {
         assert!(parse_kernel_url(
-            "514cc Control Center: http://127.0.0.1:51400/#bootstrap=single-use-nonce"
+            "514cc Control Center: http://127.0.0.1:51400/#bootstrap=single-use-nonce",
+            KERNEL_PORT,
         )
         .is_some());
         assert!(parse_kernel_url(
-            "514cc Control Center: http://127.0.0.1:51400/#token=legacy-bearer"
+            "514cc Control Center: http://127.0.0.1:51400/#token=legacy-bearer",
+            KERNEL_PORT,
         )
         .is_some());
+    }
+
+    #[test]
+    fn validates_against_the_expected_dynamic_port() {
+        let line = "514cc Control Center: http://127.0.0.1:59122/#bootstrap=nonce";
+        assert!(parse_kernel_url(line, 59122).is_some());
+        assert!(parse_kernel_url(line, 51401).is_none());
+        assert!(parse_kernel_url(line, KERNEL_PORT).is_none());
     }
 
     #[test]
@@ -477,7 +551,7 @@ mod tests {
             "prefix 514cc Control Center: http://127.0.0.1:51400/#bootstrap=nonce",
         ] {
             assert!(
-                parse_kernel_url(line).is_none(),
+                parse_kernel_url(line, KERNEL_PORT).is_none(),
                 "unexpectedly accepted {line}"
             );
         }
@@ -948,6 +1022,54 @@ fn kill_kernel_tree(child: &mut Child) {
     }
 }
 
+/// 启动内核 stdout 读线程；返回 false 表示线程无法创建（调用方负责清理与退出）。
+/// 抓到握手行后继续读到 EOF——EOF 即内核死亡信号（运行期监督，不再轮询 try_wait）。
+/// 每次内核启动（含握手前死亡后的重试）都要以当次端口重建读线程。
+fn start_stdout_reader(
+    app: &AppHandle,
+    tx: &Sender<Event>,
+    window_launch_state: Arc<WindowLaunchState>,
+    stdout: Option<std::process::ChildStdout>,
+    expected_port: u16,
+) -> bool {
+    let Some(stdout) = stdout else {
+        eprintln!("kernel stdout unavailable");
+        return false;
+    };
+    let tx_reader = tx.clone();
+    let app_for_reader = app.clone();
+    let spawned = std::thread::Builder::new()
+        .name("514cc-kernel-stdout".into())
+        .spawn(move || {
+            let mut url_sent = false;
+            for line in BufReader::new(stdout).lines() {
+                let Ok(line) = line else { break };
+                if !url_sent {
+                    if let Some(url) = parse_kernel_url(&line, expected_port) {
+                        url_sent = true;
+                        boot_log(&format!("kernel URL ready: {url}"));
+                        if tx_reader.send(Event::UrlFound(url)).is_err() {
+                            return;
+                        }
+                    } else if line.contains("514cc Control Center:") {
+                        boot_log(&format!("kernel banner rejected by URL parser: {line}"));
+                    }
+                }
+            }
+            cancel_main_window(
+                &app_for_reader,
+                &window_launch_state,
+                "failed to hide main window after kernel stdout EOF",
+            );
+            let _ = tx_reader.send(Event::StdoutEof);
+        })
+        .is_ok();
+    if !spawned {
+        eprintln!("failed to spawn kernel stdout reader thread");
+    }
+    spawned
+}
+
 /// supervisor：独占 Child，事件驱动。返回前保证内核树已清理（有界）。
 /// exit_requested：主线程在 RunEvent::ExitRequested 时提早置位的共享退出意图——
 /// 早于 Exit 阶段的 Shutdown 消息，堵"内核死亡与关窗竞速导致误记异常退出码"（烛 R3）。
@@ -958,80 +1080,56 @@ fn supervisor(
     exit_requested: Arc<AtomicBool>,
     window_launch_state: Arc<WindowLaunchState>,
 ) {
-    let mut child = match spawn_kernel() {
+    // 每次内核启动都挑当次空闲端口（重试时再换新端口），从构造上避开僵尸/残留进程的端口占用。
+    let mut kernel_port = pick_free_kernel_port();
+    let mut retries_left = KERNEL_START_RETRIES;
+    let mut child = match spawn_kernel(kernel_port) {
         Ok(c) => {
             boot_log("kernel process spawned");
             c
         }
         Err(e) => {
-            boot_log(&format!(
-                "kernel spawn failed: {e}. Check node on PATH / CC_NODE / CC_ROOT."
-            ));
+            boot_log(&format!("kernel spawn failed: {e}. Check node on PATH / CC_NODE / CC_ROOT."));
+            show_fatal_error(
+                "514cc Console 启动失败",
+                &format!(
+                    "无法启动 514cc 内核 node={node} cwd={cwd}\n错误：{e}\n请检查 CC_NODE 环境变量或 desktop-boot.log。",
+                    node = resolve_node_binary().display(),
+                    cwd = repo_root().join("apps").join("control-center").display(),
+                ),
+            );
             app.exit(1);
             return;
         }
     };
 
-    // stdout 读线程：抓到 URL 后继续读到 EOF——EOF 即内核死亡信号（运行期监督，
-    // 不再需要轮询 try_wait）。读错误与 EOF 同路径，立即进入清理而非空等超时。
-    match child.stdout.take() {
-        Some(stdout) => {
-            let tx_reader = tx.clone();
-            let state_for_reader = window_launch_state.clone();
-            let app_for_reader = app.clone();
-            let reader = std::thread::Builder::new()
-                .name("514cc-kernel-stdout".into())
-                .spawn(move || {
-                    let mut url_sent = false;
-                    for line in BufReader::new(stdout).lines() {
-                        let Ok(line) = line else { break };
-                        if !url_sent {
-                            if let Some(url) = parse_kernel_url(&line) {
-                                url_sent = true;
-                                boot_log(&format!("kernel URL ready: {url}"));
-                                if tx_reader.send(Event::UrlFound(url)).is_err() {
-                                    return;
-                                }
-                            } else if line.contains("514cc Control Center:") {
-                                boot_log(&format!("kernel banner rejected by URL parser: {line}"));
-                            }
-                        }
-                    }
-                    cancel_main_window(
-                        &app_for_reader,
-                        &state_for_reader,
-                        "failed to hide main window after kernel stdout EOF",
-                    );
-                    let _ = tx_reader.send(Event::StdoutEof);
-                });
-            if let Err(error) = reader {
-                cancel_main_window(
-                    &app,
-                    &window_launch_state,
-                    "failed to hide main window after stdout reader spawn failure",
-                );
-                eprintln!("failed to spawn kernel stdout reader thread: {error}");
-                kill_kernel_tree(&mut child);
-                app.exit(1);
-                return;
-            }
-        }
-        None => {
-            cancel_main_window(
-                &app,
-                &window_launch_state,
-                "failed to hide main window after missing kernel stdout",
-            );
-            kill_kernel_tree(&mut child);
-            app.exit(1);
-            return;
-        }
+    if !start_stdout_reader(
+        &app,
+        &tx,
+        window_launch_state.clone(),
+        child.stdout.take(),
+        kernel_port,
+    ) {
+        cancel_main_window(
+            &app,
+            &window_launch_state,
+            "failed to hide main window after stdout reader unavailability",
+        );
+        show_fatal_error(
+            "514cc Console 启动失败",
+            "内核输出监控线程无法创建，已终止启动。详情见 desktop-boot.log。",
+        );
+        kill_kernel_tree(&mut child);
+        app.exit(1);
+        return;
     }
 
     let mut deadline = Instant::now() + STARTUP_TIMEOUT;
     let mut window_up = false;
     let mut clean_shutdown = false;
     let mut ready_delivery_grace_used = false;
+    // 本轮内核是否已交付握手 URL：只在握手前 EOF 时才值得换端口重试。
+    let mut handshake_seen = false;
 
     loop {
         let timeout = if window_up {
@@ -1041,6 +1139,7 @@ fn supervisor(
         };
         match rx.recv_timeout(timeout) {
             Ok(Event::UrlFound(url)) => {
+                handshake_seen = true;
                 // 给窗口构建留出独立预算，消除"URL 已到却被启动超时误杀"的边界
                 deadline = Instant::now() + WINDOW_READY_TIMEOUT;
                 ready_delivery_grace_used = false;
@@ -1196,7 +1295,55 @@ fn supervisor(
                         clean_shutdown = true;
                     }
                 }
-                if !clean_shutdown {
+                // 内核在握手前死亡：多半是瞬时端口/资源竞态。换新端口自动重试，
+                // 而不是让用户看到"任务栏闪一下就没了"。握手之后的死亡是运行期崩溃，不重试。
+                if !clean_shutdown && !handshake_seen && retries_left > 0 {
+                    retries_left -= 1;
+                    kill_kernel_tree(&mut child); // 已死则立即返回；负责回收避免僵尸
+                    kernel_port = pick_free_kernel_port();
+                    boot_log(&format!(
+                        "kernel died before handshake; restarting with fresh port {kernel_port} ({retries_left} retries left)"
+                    ));
+                    match spawn_kernel(kernel_port) {
+                        Ok(new_child) => {
+                            child = new_child;
+                            handshake_seen = false;
+                            deadline = Instant::now() + STARTUP_TIMEOUT;
+                            window_up = false;
+                            if start_stdout_reader(
+                                &app,
+                                &tx,
+                                window_launch_state.clone(),
+                                child.stdout.take(),
+                                kernel_port,
+                            ) {
+                                continue;
+                            }
+                            show_fatal_error(
+                                "514cc Console 启动失败",
+                                "内核输出监控线程无法创建，已终止启动。详情见 desktop-boot.log。",
+                            );
+                            break;
+                        }
+                        Err(e) => {
+                            show_fatal_error(
+                                "514cc Console 启动失败",
+                                &format!("内核重启失败：{e}\n诊断信息见 .scratch/desktop-launch/desktop-boot.log 与 kernel-stderr.log"),
+                            );
+                            break;
+                        }
+                    }
+                }
+                if !clean_shutdown && !handshake_seen {
+                    boot_log("kernel died before handshake after exhausting retries");
+                    show_fatal_error(
+                        "514cc Console 启动失败",
+                        &format!(
+                            "内核多次在握手前退出，无法自动恢复。\n最近一次内核 stderr 见：{}",
+                            kernel_stderr_log_path().display()
+                        ),
+                    );
+                } else if !clean_shutdown {
                     eprintln!("514cc kernel exited unexpectedly (stdout EOF)");
                 }
                 break;

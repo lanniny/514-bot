@@ -27,7 +27,7 @@ test("team tree is strict about ownership with an unassigned fallback group", as
   // 创建任务选了目录：未归属项目自动归属创建团队（已归属他团队的不抢）
   assert.match(app, /function assignCwdProjectToTeam\(cwd, teamId\)/);
   assert.match(app, /if \(!project \|\| explicitProjectTeamId\(project\) !== null\) return;/);
-  assert.match(app, /if \(submission\.cwd\) assignCwdProjectToTeam\(submission\.cwd, composerTarget\.teamId \|\| state\.selectedTeamId\);/);
+  assert.match(app, /if \(submission\.cwd && !botSubmission\?\.ephemeralTeam\) assignCwdProjectToTeam\(submission\.cwd, composerTarget\.teamId \|\| state\.selectedTeamId\);/);
   // 分组视觉压暗；旧的行级"未归属"徽标已随混显语义一起退役
   assert.match(css, /\.is-unassigned-team > \.project-row \.team-toggle \{/);
   assert.ok(!app.includes("unassigned-badge"), "行级未归属徽标还在渲染路径上");
@@ -177,6 +177,8 @@ test("the rail is a closable tool tab strip with a picker empty state", async ()
   assert.match(railTools, /panel\.setAttribute\("aria-labelledby", `rail-tab-\$\{id\}`\)/);
   assert.match(railTools, /event\.key === "ArrowRight" \|\| event\.key === "ArrowDown"/);
   assert.match(railTools, /event\.key === "Home"/);
+  assert.match(railTools, /onActivate\?\.\(activeId\);/, "关闭最后一个标签也必须通知面板取消其在途工作");
+  assert.match(app, /railPanels\?\.activate\(id\)/);
 });
 
 test("terminal drawer reveal cannot reopen after a close wins the race", async () => {
@@ -258,6 +260,21 @@ test("terminal resize is debounced and skipped when the size did not change", as
   assert.match(terminal, /body: \{ cols: term\.cols, rows: term\.rows \}/);
 });
 
+test("workbench splitters remain reachable in the desktop two-column layout", async () => {
+  const [splitter, desktop, workbench] = await Promise.all([
+    source("public/splitter.js"),
+    source("public/forge/codex-desktop.css"),
+    source("public/forge/workbench.css"),
+  ]);
+  assert.match(splitter, /columns = 3/);
+  assert.match(splitter, /columns: 2/);
+  assert.match(splitter, /attachSplitter\(shell, \{ side: "left"/);
+  assert.doesNotMatch(splitter, /attachSplitter\(shell, \{ side: "right"/);
+  assert.doesNotMatch(desktop, /grid-template-columns: var\(--codex-task-rail\) minmax\(0, 1fr\) !important;/);
+  assert.doesNotMatch(desktop, /\.workbench-shell > \.forge-splitter-handle\s*\{\s*display: none;/);
+  assert.match(workbench, /\.forge-splitter-handle \{[\s\S]*touch-action: none;/);
+});
+
 // 流一断就永久失联 = 输入发得出去但收不到回显（"终端打不出字"）；
 // 重连时若仍重放缓冲 = 每断一次多一整份首屏（"打开终端有很多条"）。
 test("terminal stream reconnects without replaying the buffer again", async () => {
@@ -306,6 +323,38 @@ test("rail tool panels stay honest about worktree-less runs and keep escape scop
   // 浏览器页不内嵌网页视图，打开一律交给宿主的系统浏览器出口
   assert.match(panels, /openSystemBrowser\?\.\(url\)/);
   assert.ok(!panels.includes("<iframe"), "浏览器页不得内嵌 iframe 网页视图");
+});
+
+test("both right-rail file entry points edit through the guarded workspace PUT", async () => {
+  const [panels, mission, app, styles, sprite] = await Promise.all([
+    source("public/modules/rail-panels.js"),
+    source("public/mission-control.js"),
+    source("public/app.js"),
+    source("public/styles.css"),
+    source("public/lucide-sprite.svg"),
+  ]);
+
+  // 独立「文件」工具页与任务上下文的内嵌文件浏览器都必须读取 editable/revision，
+  // 保存复用同一 PUT + expectedRevision 乐观锁，不能出现一处能改、一处仍只读。
+  assert.match(panels, /file\.editable === true/);
+  assert.match(panels, /method: "PUT"/);
+  assert.match(panels, /expectedRevision: snapshot\.revision/);
+  assert.match(panels, /#rail-files-editor/);
+  assert.match(mission, /file\.editable === true/);
+  assert.match(mission, /expectedRevision: snapshot\.revision/);
+  assert.match(mission, /#mission-workspace-editor/);
+  assert.match(app, /saveWorkspace: \(runId, path, payload, signal\) => request\(/);
+  assert.match(app, /\{ method: "PUT", body: payload, signal \}/);
+
+  // Ctrl/Cmd+S、保存中反馈和版本冲突反馈属于可感知闭环；动态按钮仍只引用 Lucide。
+  assert.match(mission, /event\.key\.toLowerCase\(\) === "s"/);
+  assert.match(mission, /正在保存/);
+  assert.match(mission, /WORKSPACE_VERSION_CONFLICT/);
+  assert.match(mission, /#lucide-\$\{lucideName\}/);
+  assert.match(sprite, /id="lucide-save"/);
+  assert.match(sprite, /id="lucide-rotate-ccw"/);
+  assert.match(styles, /\.workspace-file-editor \{/);
+  assert.match(styles, /\.workspace-file-save \{/);
 });
 
 test("rail tool shortcut labels are wired and do not hijack browser-reserved keys", async () => {
@@ -374,8 +423,12 @@ test("removed docks leave no orphan selectors behind", async () => {
 // 根因：直接续聊的 HTTP 要等整轮 turn 跑完才返回（orchestrator continue 返回 tracked），期间
 // state.runs 停在 recovery_required 旧快照，SSE 每次重渲染 renderSelectedRun 都把恢复条画回去。
 // 修复：run 列表重载闸覆盖状态敏感事件，让真实状态尽快翻页，恢复条只跟随 live 状态。
-test("recovery bar follows live run status, not the stale post-ack snapshot", async () => {
-  const app = await source("public/app.js");
+test("recovery bar follows live status and keeps provider failures readable", async () => {
+  const [app, styles, html] = await Promise.all([
+    source("public/app.js"),
+    source("public/styles.css"),
+    source("public/index.html"),
+  ]);
   // 重载闸必须包含：状态翻页（recovery 进出）、轮次退还、用户消息落盘、轮开始
   const reloadGate = app.match(/if \(\/(.*?)\/i\.test\(event\.type\)\) scheduleRunsReload\(\);/s);
   assert.ok(reloadGate, "找不到 scheduleRunsReload 的事件闸");
@@ -387,10 +440,23 @@ test("recovery bar follows live run status, not the stale post-ack snapshot", as
   assert.match(app, /if \(!run \|\| run\.status !== "recovery_required"\) \{/);
   assert.match(app, /state\.recoveryAckRunId = null; \/\/ 状态已翻页，确认标记失效/);
   assert.match(app, /const acked = state\.recoveryAckRunId === run\.id;/);
-  assert.ok(app.includes("已确认——下次发送将自动继续"), "acked 文案缺失");
+  assert.ok(app.includes("下次发送将自动继续"), "acked 文案缺失");
   const recoveryFn = app.slice(app.indexOf("function renderRecoveryBar"), app.indexOf("function acknowledgeRecovery"));
   assert.match(recoveryFn, /run\.error/, "恢复条必须露出 adapter 真因，不能只画 recoveryNote 套话");
   assert.match(recoveryFn, /run\.recoveryNote/);
+  assert.match(recoveryFn, /class="recovery-bar-content"/);
+  assert.match(recoveryFn, /class="recovery-bar-actions"/);
+  assert.match(recoveryFn, /bar\.classList\.toggle\("is-acked", acked\)/);
+  assert.match(recoveryFn, /acked \? "" : `<div class="recovery-reasons">/);
+  assert.match(app, /providerFailurePresentation\(content\)/, "assistant 里的 API 5xx 必须走有界错误卡，不能渲染为正文墙");
+  assert.match(app, /function providerFailureMessageMarkup\(/);
+  assert.match(styles, /\.recovery-bar \{[^}]*display: grid;[^}]*grid-template-columns: minmax\(0, 1fr\) auto;[^}]*min-width: 0;/s);
+  assert.match(styles, /\.recovery-bar-content,[^}]*\.recovery-bar-actions \{[^}]*min-width: 0;/s);
+  assert.match(styles, /@media \(max-width: 640px\) \{[\s\S]*?\.recovery-bar \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(styles, /\.resume-hint-row \{[^}]*display: grid;[^}]*minmax\(0, 1fr\)/s);
+  assert.match(styles, /\.conversation-pane\.has-recovery:not\(\.has-recovery-acked\) \.conversation-stream/);
+  assert.match(styles, /\.conversation-pane\.has-recovery-acked \.composer-target-tabs,[^}]*\.composer-cli-console \{[^}]*display: none;/s);
+  assert.match(html, /id="recovery-bar" role="alert" aria-live="assertive" aria-atomic="true" hidden/);
 });
 
 
@@ -411,7 +477,7 @@ test("permission pill mirrors the task-permission select as single source of tru
   assert.match(pick[1], /class="permission-menu" id="permission-menu" role="menu"/);
   // 状态源契约：pill 只读 select，点选回写 select 并走既有 change 链路
   assert.match(app, /const PERMISSION_MODE_META = \{/);
-  for (const mode of ["plan", "review", "build", "ask", "auto", '"full-access"', "config"]) {
+  for (const mode of ["plan", "review", "build", "ask", "auto", '"full-access"', "config", '"native:auto"', '"native:acceptEdits"', '"native:always-approve"']) {
     assert.ok(PERMISSION_MODE_META_BLOCK(app).includes(`${mode}:`), `PERMISSION_MODE_META 缺少 ${mode}`);
   }
   // Codex 官方档文案与桌面批准菜单逐字对齐
@@ -438,6 +504,94 @@ test("permission pill mirrors the task-permission select as single source of tru
   assert.match(css, /\.permission-menu-row\.is-active \{/);
 });
 
+// T6（2026-08-27）：权限下拉追加 Grok 原生模式组——传统三档钉在最上方，原生组仅在目录声明
+// native:*（provenance: cli-native）时出现，值原样透传不改名；提交时 native:* 经 create-run 的
+// permission 字段透传（治理位钉 Build），普通档维持原路径。#task-permission select 仍是唯一状态源。
+test("grok native permission group renders from catalog and submits via the permission channel", async () => {
+  const [app, css] = await Promise.all([source("public/app.js"), source("public/styles.css")]);
+  // 分组常量：标签 / 语义说明 / 原生值顺序钉死（说明项明示只读轮边界）；顺序含全部 CLI 的原生档
+  assert.match(app, /const NATIVE_PERMISSION_GROUP_LABEL = "CLI 原生模式";/);
+  assert.match(app, /const NATIVE_PERMISSION_GROUP_NOTE = "原生模式仅作用于只读轮；Build 写盘轮仍走审批白名单。写盘轮的 default\/ask 模式请 \/cli 附着交互 TUI。";/);
+  assert.match(
+    app,
+    new RegExp(
+      'const NATIVE_PERMISSION_GROUP_ORDER = Object\\.freeze\\(\\[\\s*' +
+        '"native:auto", "native:acceptEdits", "native:always-approve",\\s*' +
+        '"native:bypassPermissions", "native:autoEdit", "native:yolo", "native:build",\\s*' +
+      '\\]\\);',
+    ),
+  );
+  // 运行时行为：抽出 runPermissionOptions 实测——grok 席位三档+三个原生档，普通席位无原生组
+  const scope = {
+    permissionModeMeta: (id) => ({ title: `t-${id}`, desc: id, risk: id === "native:auto" ? "write" : "approval-required" }),
+    NATIVE_PERMISSION_GROUP_LABEL: "CLI 原生模式",
+    NATIVE_PERMISSION_GROUP_NOTE: "原生模式仅作用于只读轮；Build 写盘轮仍走审批白名单。写盘轮的 default/ask 模式请 /cli 附着交互 TUI。",
+    NATIVE_PERMISSION_GROUP_ORDER: Object.freeze([
+      "native:auto", "native:acceptEdits", "native:always-approve",
+      "native:bypassPermissions", "native:autoEdit", "native:yolo", "native:build",
+    ]),
+  };
+  const runPermissionOptions = extractFunctionForTest(app, "runPermissionOptions", scope);
+  const grokOptions = runPermissionOptions(["plan", "read-only", "workspace-write", "native:auto", "native:acceptEdits", "native:always-approve"]);
+  assert.deepEqual(
+    grokOptions.map((option) => option.id),
+    ["plan", "review", "build", "native:auto", "native:acceptEdits", "native:always-approve", "native-note"],
+    "grok 席位 = 传统三档在最上方 + 三个原生档 + 不可选说明项",
+  );
+  for (const mode of ["native:auto", "native:acceptEdits", "native:always-approve"]) {
+    const row = grokOptions.find((option) => option.id === mode);
+    assert.equal(row.group, "CLI 原生模式", `${mode} 必须进原生分组`);
+    assert.equal(row.id, mode, "原生值必须原样透传不改名");
+  }
+  const note = grokOptions.find((option) => option.id === "native-note");
+  assert.equal(note.disabled, true, "说明项必须不可选");
+  assert.ok(note.label.includes("只读轮"), "说明项必须明示只读轮边界");
+  // 泛化（LO 2026-08-27）：claude/gemini/kimi/opencode 也按各自 CLI 声明原生档进组
+  const claudeNativeOptions = runPermissionOptions(["plan", "read-only", "workspace-write", "native:acceptEdits", "native:bypassPermissions"]);
+  assert.deepEqual(
+    claudeNativeOptions.filter((option) => option.group && !option.note).map((option) => option.id),
+    ["native:acceptEdits", "native:bypassPermissions"],
+    "claude 席位的原生档必须原样透传进组",
+  );
+  const plainClaudeOptions = runPermissionOptions(["plan", "read-only", "workspace-write"]);
+  assert.deepEqual(plainClaudeOptions.map((option) => option.id), ["plan", "review", "build"], "未声明原生档的席位不得出现原生组");
+  assert.ok(plainClaudeOptions.every((option) => !option.group), "普通席位选项不得带分组标记");
+  // 下拉渲染通道：optgroup 分组 + disabled 说明项；pill 镜像仍只读 select 并过滤说明项（唯一状态源不变）
+  assert.match(app, /<optgroup label="\$\{escapeHtml\(group\)\}">/);
+  assert.match(app, /\[\.\.\.select\.options\]\.filter\(\(option\) => !option\.disabled\)/);
+  // 选中态回显：run 带原生 override 时下拉回显原生档本身（静态/动态目录两条路径同源）
+  assert.match(app, /function continuingPermissionValueFor\(run\)/);
+  const echoCalls = app.match(/continuingPermissionValueFor\(continuingRun\)/g) || [];
+  assert.ok(echoCalls.length >= 2, `静态/动态目录路径都必须用同一续聊权限回显（当前 ${echoCalls.length}）`);
+  // 热改：原生值走 PATCH 的 permission 通道（与创建同源校验），不碰 permissionMode 治理位
+  assert.match(app, /\? \{ permission: value \} \/\/ 原生透传档走 override 通道/);
+  // 提交链路：native:* 拆为治理位 build + permission 透传字段；普通档不带 permission 字段
+  assert.match(app, /function composerPermissionSubmission\(permissionValue\)/);
+  assert.match(app, /if \(value\.startsWith\("native:"\)\) return \{ permissionMode: "build", permission: value \};/);
+  assert.match(app, /\.\.\.composerPermissionSubmission\(submission\.permissionMode\)/);
+  // risk=approval-required 的原生档在菜单标「需审批」徽标；分组标题与徽标样式落 CSS
+  assert.match(app, /permission-menu-risk">需审批<\/span>/);
+  assert.match(css, /\.permission-menu-group \{/);
+  assert.match(css, /\.permission-menu-risk \{[^}]*border-radius: 999px;/s);
+});
+
+// 契约测试辅助：按花括号配平抽出顶层函数源码，注入 stub 作用域后实跑（不引入新依赖）
+function extractFunctionForTest(source, name, scope = {}) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.ok(start !== -1, `找不到函数：${name}`);
+  let depth = 0;
+  let end = source.indexOf("{", start);
+  for (; end < source.length; end += 1) {
+    if (source[end] === "{") depth += 1;
+    else if (source[end] === "}") {
+      depth -= 1;
+      if (depth === 0) break;
+    }
+  }
+  const keys = Object.keys(scope);
+  return new Function(...keys, `return (${source.slice(start, end + 1)});`)(...keys.map((key) => scope[key]));
+}
+
 // LO 2026-08-10：会话配置不应一刀切固化。模型（per-turn 覆盖）、Effort（codex turn/start 与
 // spawn argv 都是每轮参数）与权限白名单迁移（降档 / Codex ask↔auto 同 sandbox）可会话中热改、
 // 下一轮生效；Codex 沙箱轴绑原生 thread 真固化，不开口子。热改必须过服务端校验并落审计事件。
@@ -453,6 +607,15 @@ test("hot control updates are wired end-to-end with a strict transition whitelis
   for (const pair of ['review: ["plan"]', 'build: ["review", "plan"]', 'ask: ["auto"]', 'auto: ["ask"]']) {
     assert.ok(orchestrator.includes(pair), `PERMISSION_HOT_TRANSITIONS 缺少 ${pair}`);
   }
+  // 原生审批档降档链：服务端与前端同源把守（只放开收缩方向，升档必须新建任务）；
+  // patch.permission 分支不得只过白名单不校验转换方向（治理缺口：可经 API 直接升档）
+  for (const source of [orchestrator, app]) {
+    for (const pair of ['"native:auto": []', '"native:acceptEdits": ["native:auto"]', '"native:always-approve": ["native:acceptEdits", "native:auto"]']) {
+      assert.ok(source.includes(pair), `前后端 PERMISSION_HOT_TRANSITIONS 同源表缺少 ${pair}`);
+    }
+  }
+  assert.match(orchestrator, /PERMISSION_HOT_TRANSITIONS\[current\] \|\| \[\]\)\.includes\(next\)/);
+  assert.match(orchestrator, /permission override \$\{current\} → \$\{next\} is not hot-switchable/);
   assert.match(orchestrator, /async updateRunControls\(id, patch = \{\}, \{ actor = "operator", acknowledgeRecovery = false \} = \{\}\)/);
   assert.match(orchestrator, /run\.control_changed/);
   // 恢复确认通道：原子放弃 claim + 改档，审计事件不静默
@@ -511,8 +674,9 @@ test("a failed conversation mount cannot deadlock the live stream", async () => 
 // 审计语义保留（次数 + 最近时间），拒绝单独成行（fail-closed 信号不折叠进批准里）。
 test("resolved inline approvals aggregate into one line per decision", async () => {
   const app = await source("public/app.js");
-  // 决议记录带时间戳（聚合一行的「最近时间」来源）
-  assert.match(app, /inlineApprovalOutcomes\.set\(id, \{\s*\n\s*runId: item\.runId,\s*\n\s*decision,\s*\n\s*resolvedAt: new Date\(\)\.toISOString\(\),/);
+  // 决议记录带时间戳（聚合一行的「最近时间」来源），并统一通过有界 helper 写入
+  // 本地投影，避免按钮路径绕过 ownership/容量门。
+  assert.match(app, /rememberInlineApprovalOutcome\(\{\s*\n\s*runId: item\.runId,\s*\n\s*decision,\s*\n\s*resolvedAt: new Date\(\)\.toISOString\(\),/);
   // 按 approve/deny 分组各出一行；次数 >1 带 ×N；同一 run 的 data-stream-key 稳定（重渲染幂等）
   assert.match(app, /\["approve", "deny"\]\.map\(\(decision\) => \{/);
   assert.match(app, /group\.length > 1 \? ` ×\$\{group\.length\}` : ""/);

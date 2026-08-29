@@ -10,11 +10,12 @@
 
 import { createRequire } from "node:module";
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, realpathSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { isWithin } from "./paths.mjs";
 import { childRegistry } from "./child-registry.mjs";
 import { scrub } from "./redaction.mjs";
+import { envLookup, withRuntimeExecutablePath } from "./runtime-executable-dirs.mjs";
 
 const require = createRequire(import.meta.url);
 const pty = require("node-pty");
@@ -81,6 +82,7 @@ export function resolveSpawnCommand(command, { platform = process.platform, env 
   if (platform !== "win32" || !name || /[\\/]/.test(name) || /\.(exe|com)$/i.test(name)) {
     return { command: name, prefixArgs: [] };
   }
+  env = withRuntimeExecutablePath(env, { exists });
   const dirs = String(env.PATH || env.Path || "").split(";").map((dir) => dir.trim()).filter(Boolean);
   const exts = String(env.PATHEXT || ".COM;.EXE;.BAT;.CMD").split(";").map((ext) => ext.trim().toLowerCase()).filter(Boolean);
   for (const dir of dirs) {
@@ -92,7 +94,7 @@ export function resolveSpawnCommand(command, { platform = process.platform, env 
       } catch { /* 不可读目录不算命中 */ }
       if (!hit) continue;
       if (ext === ".exe" || ext === ".com") return { command: full, prefixArgs: [] };
-      return { command: env.COMSPEC || "cmd.exe", prefixArgs: ["/d", "/c", name] };
+      return { command: envLookup(env, "COMSPEC") || "cmd.exe", prefixArgs: ["/d", "/c", name] };
     }
   }
   return { command: name, prefixArgs: [] };
@@ -123,11 +125,41 @@ export function createPtyService({
     const allowed = extraRoots.length
       ? [...currentAllowedRoots(), ...extraRoots.map((entry) => resolve(String(entry)))]
       : currentAllowedRoots();
-    if (allowed.some((rootEntry) => isWithin(rootEntry, resolved))) return resolved;
-    throw Object.assign(new Error("pty cwd escapes its allowed roots"), {
-      code: "PTY_CWD_BOUNDARY",
-      httpStatus: 403,
-    });
+    // 词法关闸先跑，快路径（已存在、无符号链接）与历史行为一致
+    const lexicalRoot = allowed.find((rootEntry) => isWithin(rootEntry, resolved));
+    if (!lexicalRoot) {
+      throw Object.assign(new Error("pty cwd escapes its allowed roots"), {
+        code: "PTY_CWD_BOUNDARY",
+        httpStatus: 403,
+      });
+    }
+    // 语义关闸：词法 isWithin 挡不住根内 symlink/junction 指向根外。取 candidate
+    // 最深已存在祖先的 realpath 与每个 allowed root 的 realpath 再比对；realpathSync
+    // 会把 Windows junction/reparse point 一并解析到目标真实路径。
+    const realAllowed = allowed.map((entry) => safeRealpath(entry));
+    const realCandidate = safeRealpath(resolved);
+    if (!realAllowed.some((rootEntry) => isWithin(rootEntry, realCandidate))) {
+      throw Object.assign(new Error("pty cwd resolves outside its allowed roots"), {
+        code: "PTY_CWD_BOUNDARY",
+        httpStatus: 403,
+      });
+    }
+    return resolved;
+  }
+
+  function safeRealpath(targetPath) {
+    let current = resolve(targetPath);
+    while (true) {
+      try {
+        return realpathSync(current);
+      } catch {
+        const parent = dirname(current);
+        if (parent === current) {
+          return resolve(targetPath);
+        }
+        current = parent;
+      }
+    }
   }
 
   function pushOutput(session, chunk) {
@@ -170,13 +202,14 @@ export function createPtyService({
     const safeTitle = sanitizeTitle(title);
     const command = typeof shell === "string" && shell.trim() ? shell.trim() : defaultShell();
     // Windows npm shim（.cmd）不能直接 CreateProcess——按需包 cmd /d /c，语义同终端手敲
-    const resolved = resolveSpawnCommand(command);
+    const spawnEnv = withRuntimeExecutablePath(process.env);
+    const resolved = resolveSpawnCommand(command, { env: spawnEnv });
     const proc = spawnImpl(resolved.command, [...resolved.prefixArgs, ...safeArgs], {
       name: "xterm-color",
       cwd: safeCwd,
       cols: safeCols,
       rows: safeRows,
-      env: process.env,
+      env: spawnEnv,
     });
     const id = randomUUID().slice(0, 8);
     const session = {
@@ -262,7 +295,8 @@ export function createPtyService({
       throw Object.assign(new Error("pty session already exited"), { code: "PTY_EXITED", httpStatus: 409 });
     }
     const payload = String(data ?? "");
-    session.writeChain = session.writeChain.then(() => {
+    // 单次写失败不得毒化整条队列：先吞掉链上已有拒绝再挂本次写入，否则此后每个输入都拿到陈旧错误（对照 event-store 同款做法）
+    session.writeChain = session.writeChain.catch(() => {}).then(() => {
       if (!session.exited) session.proc.write(payload);
     });
     return session.writeChain;

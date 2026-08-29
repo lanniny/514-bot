@@ -151,7 +151,7 @@
 
 .cmd-palette-item.is-selected,
 .cmd-palette-item:hover {
-  background: var(--primary-soft, var(--rose-soft, color-mix(in oklab, var(--primary, #b4234d) 10%, transparent)));
+  background: var(--primary-soft, var(--rose-soft, color-mix(in oklab, var(--primary, #d97757) 10%, transparent)));
 }
 
 .cmd-palette-item:active {
@@ -587,6 +587,129 @@
   padding: 6px 8px;
   font-size: var(--text-xs, 11px);
   color: var(--muted-foreground, oklch(0.6 0 0));
+}
+
+/* 文件行可点态（阅读器） */
+button.mb-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--radius-sm, 6px);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.mb-file.is-open > .mb-file-row,
+.mb-file-row:hover {
+  background: var(--muted, oklch(0.96 0 0));
+}
+
+.mb-file.is-open .mb-file-name {
+  color: var(--accent, oklch(0.55 0.12 45));
+  font-weight: 600;
+}
+
+/* 搜索结果行内「打开」 */
+.mb-result-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.mb-result-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm, 6px);
+  border: 1px solid var(--border, oklch(0.9 0 0));
+  font-size: var(--text-xs, 11px);
+  color: var(--muted-foreground, oklch(0.5 0 0));
+  cursor: pointer;
+}
+
+.mb-result-open:hover {
+  background: var(--muted, oklch(0.96 0 0));
+  color: var(--foreground, oklch(0.25 0 0));
+}
+
+.mb-result-open .icon {
+  width: 12px;
+  height: 12px;
+}
+
+/* 文件阅读器 */
+.mb-file-viewer {
+  margin-top: 10px;
+  border: 1px solid var(--border, oklch(0.9 0 0));
+  border-radius: var(--radius-md, 10px);
+  overflow: hidden;
+  background: var(--card, oklch(1 0 0));
+}
+
+.mb-file-viewer-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border, oklch(0.9 0 0));
+  background: var(--muted, oklch(0.97 0 0));
+  font-size: var(--text-xs, 11px);
+  color: var(--muted-foreground, oklch(0.5 0 0));
+}
+
+.mb-file-viewer-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--foreground, oklch(0.25 0 0));
+}
+
+.mb-file-viewer-close {
+  display: inline-flex;
+  border: 0;
+  background: transparent;
+  padding: 4px;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  color: inherit;
+}
+
+.mb-file-viewer-close:hover {
+  background: var(--muted, oklch(0.93 0 0));
+}
+
+.mb-file-viewer-pre {
+  margin: 0;
+  padding: 12px;
+  max-height: 420px;
+  overflow: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs, 11px);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--foreground, oklch(0.25 0 0));
+}
+
+.mb-file-viewer-state {
+  padding: 14px 12px;
+  font-size: var(--text-xs, 11px);
+  color: var(--muted-foreground, oklch(0.6 0 0));
+}
+
+.mb-file-viewer-state.is-error {
+  color: var(--destructive, oklch(0.55 0.2 25));
 }
 
 /* 搜索结果 */

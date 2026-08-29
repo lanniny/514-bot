@@ -102,6 +102,21 @@ test("deltaLedger double-scans decisions.md and handoff with score buckets", asy
   }
 });
 
+test("strict settlement observability reads fail closed when governance sources are missing", async () => {
+  const { root, aiShared } = await fixture();
+  try {
+    const svc = new ObservabilityService({ aiSharedRoot: aiShared, repoRoot: root });
+    await assert.rejects(() => svc.deltaLedger({ strict: true }), { code: "OBSERVABILITY_DECISIONS_UNAVAILABLE" });
+    await rm(join(aiShared, "handoff"), { recursive: true, force: true });
+    await assert.rejects(() => svc.handoffs({ strict: true }), { code: "OBSERVABILITY_HANDOFF_ROOT_UNAVAILABLE" });
+    // 普通观测面板仍保留历史宽松语义，不把缺失源变成全局崩溃。
+    assert.deepEqual((await svc.deltaLedger()).deltas, []);
+    assert.deepEqual(await svc.handoffs(), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("handoffContent rejects traversal and non-md names", async () => {
   const { root, aiShared } = await fixture();
   try {

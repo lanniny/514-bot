@@ -115,11 +115,19 @@ function formatBytes(value) {
 }
 
 function icon(name) {
+  const lucideName = {
+    chevron: "chevron-right",
+    close: "x",
+    file: "file-text",
+    folder: "folder",
+    "rotate-ccw": "rotate-ccw",
+    save: "save",
+  }[name] ?? name;
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("class", "icon");
+  svg.setAttribute("class", "icon lucide");
   svg.setAttribute("aria-hidden", "true");
   const use = document.createElementNS("http://www.w3.org/2000/svg", "use");
-  use.setAttribute("href", `#icon-${name}`);
+  use.setAttribute("href", `#lucide-${lucideName}`);
   svg.append(use);
   return svg;
 }
@@ -128,10 +136,12 @@ export function createMissionControlDock({
   root,
   loadSnapshot,
   loadWorkspace,
+  saveWorkspace,
   onArtifactAction,
   environmentPanel = null,
   loadIdleRoster = null, // 无选中 run 时注入异构 CLI 团队健康（514 特色空态）
   panelRegistry = MISSION_PANEL_REGISTRY,
+  notify = () => {},
 } = {}) {
   if (!root || typeof loadSnapshot !== "function") {
     return { selectRun() {}, refresh() {}, observeEvent() {}, destroy() {} };
@@ -161,11 +171,28 @@ export function createMissionControlDock({
   let controller = null;
   let workspaceController = null;
   let workspaceGeneration = 0;
+  let workspaceSaveController = null;
+  let workspaceSaveGeneration = 0;
   let workspacePath = null;
+  let workspaceFileView = null;
   let workspaceInvokerArtifactId = null;
   let reloadTimer = 0;
   let snapshotRefreshTimer = 0;
   let snapshotFetchedAt = 0;
+
+  function invalidateWorkspaceSave() {
+    workspaceSaveGeneration += 1;
+    workspaceSaveController?.abort();
+    workspaceSaveController = null;
+  }
+
+  function ownsWorkspaceSave(snapshot, generation, controller) {
+    return !controller.signal.aborted
+      && generation === workspaceSaveGeneration
+      && selectedRunId === snapshot.runId
+      && workspaceFileView === snapshot
+      && workspacePath === snapshot.path;
+  }
 
   function clearSnapshotRefresh() {
     window.clearTimeout(snapshotRefreshTimer);
@@ -408,8 +435,10 @@ export function createMissionControlDock({
 
   function hideWorkspace({ restoreFocus = false } = {}) {
     workspaceController?.abort();
+    invalidateWorkspaceSave();
     workspaceGeneration += 1;
     workspacePath = null;
+    workspaceFileView = null;
     clear(workspaceBrowser);
     if (workspaceBrowser) workspaceBrowser.hidden = true;
     announceWorkspace("文件浏览已关闭");
@@ -464,6 +493,7 @@ export function createMissionControlDock({
   function renderWorkspace(value) {
     clear(workspaceBrowser);
     if (!workspaceBrowser) return;
+    workspaceFileView = null;
     workspaceBrowser.hidden = false;
     workspaceBrowser.setAttribute("aria-busy", "false");
     announceWorkspace(value.type === "directory"
@@ -500,10 +530,104 @@ export function createMissionControlDock({
       workspaceBrowser.append(emptyState("二进制文件仅显示元数据，不在控制面内解码。"));
       return;
     }
+    const editable = file.editable === true
+      && !file.redacted
+      && !file.truncated
+      && Boolean(file.revision)
+      && typeof saveWorkspace === "function";
+    if (editable) {
+      workspaceFileView = {
+        runId: selectedRunId,
+        path: String(value.path ?? ""),
+        baseline: String(file.content ?? ""),
+        revision: file.revision,
+      };
+      const editorHead = node("div", "workspace-file-editor-head");
+      const status = node("span", "workspace-file-editor-status", "已同步");
+      status.id = "mission-workspace-editor-status";
+      const actions = node("div", "workspace-browser-actions");
+      const revert = node("button", "icon-button");
+      revert.id = "mission-workspace-revert";
+      revert.type = "button";
+      revert.disabled = true;
+      revert.title = "还原未保存修改";
+      revert.setAttribute("aria-label", "还原未保存修改");
+      revert.append(icon("rotate-ccw"));
+      const save = node("button", "workspace-file-save");
+      save.id = "mission-workspace-save";
+      save.type = "button";
+      save.disabled = true;
+      save.append(icon("save"), node("span", "", "保存"));
+      actions.append(revert, save);
+      editorHead.append(status, actions);
+      const editor = node("textarea", "workspace-file-editor");
+      editor.id = "mission-workspace-editor";
+      editor.value = workspaceFileView.baseline;
+      editor.spellcheck = false;
+      editor.setAttribute("aria-label", `编辑 ${value.path || "文件"}`);
+      workspaceBrowser.append(editorHead, editor);
+      return;
+    }
     const preview = node("pre", "workspace-file-preview");
     preview.tabIndex = 0;
     preview.append(node("code", `language-${text(file.language, "text")}`, file.content ?? ""));
     workspaceBrowser.append(preview);
+  }
+
+  function updateWorkspaceEditorState() {
+    const editor = root.querySelector("#mission-workspace-editor");
+    if (!workspaceFileView || !editor) return;
+    const dirty = editor.value !== workspaceFileView.baseline;
+    const status = root.querySelector("#mission-workspace-editor-status");
+    const save = root.querySelector("#mission-workspace-save");
+    const revert = root.querySelector("#mission-workspace-revert");
+    if (status) {
+      status.textContent = dirty ? "未保存" : "已同步";
+      status.classList.toggle("is-dirty", dirty);
+    }
+    if (save) save.disabled = !dirty;
+    if (revert) revert.disabled = !dirty;
+  }
+
+  async function saveWorkspaceFile() {
+    const editor = root.querySelector("#mission-workspace-editor");
+    const snapshot = workspaceFileView;
+    if (!snapshot || !editor || snapshot.runId !== selectedRunId || typeof saveWorkspace !== "function") return;
+    const content = editor.value;
+    if (content === snapshot.baseline) return;
+
+    const generation = ++workspaceSaveGeneration;
+    workspaceSaveController?.abort();
+    const ownedController = new AbortController();
+    workspaceSaveController = ownedController;
+    const status = root.querySelector("#mission-workspace-editor-status");
+    const save = root.querySelector("#mission-workspace-save");
+    const revert = root.querySelector("#mission-workspace-revert");
+    if (status) status.textContent = "正在保存";
+    if (save) save.disabled = true;
+    if (revert) revert.disabled = true;
+    try {
+      const value = await saveWorkspace(
+        snapshot.runId,
+        snapshot.path,
+        { content, expectedRevision: snapshot.revision },
+        ownedController.signal,
+      );
+      if (!ownsWorkspaceSave(snapshot, generation, ownedController)) return;
+      renderWorkspace(value);
+      notify(`已保存 ${snapshot.path}`, "success");
+    } catch (error) {
+      if (!ownsWorkspaceSave(snapshot, generation, ownedController)) return;
+      if (status) {
+        status.textContent = error?.code === "WORKSPACE_VERSION_CONFLICT" ? "磁盘已变化 · 请重新载入" : "保存失败";
+        status.classList.add("is-dirty");
+      }
+      if (save) save.disabled = false;
+      if (revert) revert.disabled = false;
+      notify(error?.message || "文件保存失败", "error");
+    } finally {
+      if (workspaceSaveController === ownedController) workspaceSaveController = null;
+    }
   }
 
   function renderWorkspaceError(error) {
@@ -526,10 +650,15 @@ export function createMissionControlDock({
 
   async function fetchWorkspace(path = "") {
     if (!selectedRunId || typeof loadWorkspace !== "function") return;
+    const requestedPath = String(path ?? "");
+    if (workspaceFileView?.path !== requestedPath) {
+      invalidateWorkspaceSave();
+      workspaceFileView = null;
+    }
     workspaceController?.abort();
     const ownedGeneration = ++workspaceGeneration;
     const ownedRunId = selectedRunId;
-    workspacePath = String(path ?? "");
+    workspacePath = requestedPath;
     workspaceController = new AbortController();
     renderWorkspaceLoading(workspacePath);
     try {
@@ -749,7 +878,7 @@ export function createMissionControlDock({
     }
   }
 
-  function selectRun(runId, version = null) {
+  function selectRun(runId, version = null, environmentRunId = runId) {
     const nextRunId = runId ? String(runId) : null;
     const nextVersion = version == null ? null : String(version);
     const runChanged = selectedRunId !== nextRunId;
@@ -761,7 +890,7 @@ export function createMissionControlDock({
     }
     selectedRunId = nextRunId;
     selectedVersion = nextVersion;
-    environmentPanel?.selectRun?.(selectedRunId);
+    environmentPanel?.selectRun?.(environmentRunId ? String(environmentRunId) : null);
     if (!selectedRunId) {
       controller?.abort();
       generation += 1;
@@ -788,6 +917,21 @@ export function createMissionControlDock({
   root.addEventListener("click", (event) => {
     const tab = event.target.closest("[data-registry-tab]");
     if (tab) activateTab(tab.dataset.registryTab, { focus: false });
+    if (event.target.closest("#mission-workspace-save")) {
+      event.preventDefault();
+      void saveWorkspaceFile();
+      return;
+    }
+    if (event.target.closest("#mission-workspace-revert")) {
+      event.preventDefault();
+      const editor = root.querySelector("#mission-workspace-editor");
+      if (workspaceFileView && editor) {
+        editor.value = workspaceFileView.baseline;
+        updateWorkspaceEditorState();
+        editor.focus();
+      }
+      return;
+    }
     const workspaceEntry = event.target.closest("[data-workspace-path]");
     if (workspaceEntry && !workspaceEntry.disabled) {
       void fetchWorkspace(workspaceEntry.dataset.workspacePath ?? "");
@@ -813,7 +957,21 @@ export function createMissionControlDock({
     const artifact = snapshot.artifacts?.find((item) => item.id === action.dataset.artifactId);
     if (artifact) onArtifactAction?.(artifact, snapshot);
   });
+  root.addEventListener("input", (event) => {
+    if (event.target.closest("#mission-workspace-editor")) updateWorkspaceEditorState();
+  });
   root.addEventListener("keydown", (event) => {
+    if (
+      event.target.closest("#mission-workspace-editor")
+      && (event.ctrlKey || event.metaKey)
+      && !event.altKey
+      && !event.shiftKey
+      && event.key.toLowerCase() === "s"
+    ) {
+      event.preventDefault();
+      void saveWorkspaceFile();
+      return;
+    }
     const tab = event.target.closest("[data-registry-tab]");
     if (!tab) return;
     const current = tabOrder.indexOf(tab.dataset.registryTab);
@@ -849,6 +1007,7 @@ export function createMissionControlDock({
     destroy() {
       controller?.abort();
       workspaceController?.abort();
+      invalidateWorkspaceSave();
       window.clearTimeout(reloadTimer);
       clearSnapshotRefresh();
       environmentPanel?.destroy?.();

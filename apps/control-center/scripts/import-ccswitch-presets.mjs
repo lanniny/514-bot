@@ -76,6 +76,108 @@ function parseGrokCarrier(config) {
   };
 }
 
+const CLAUDE_KNOWN_ENV = new Set([
+  "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL",
+  "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
+]);
+const GEMINI_KNOWN_ENV = new Set(["GOOGLE_GEMINI_BASE_URL", "GEMINI_API_KEY", "GEMINI_MODEL"]);
+const trimSlash = (url) => String(url ?? "").trim().replace(/\/+$/, "");
+const unquote = (raw) => String(raw ?? "").replace(/^"(.*)"$/, "$1");
+
+function parsePresetToml(config) {
+  const top = new Map();
+  const sections = new Map();
+  let current = null;
+  for (const raw of String(config ?? "").split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const sec = line.match(/^\[([^\]]+)\]$/);
+    if (sec) {
+      current = sec[1].trim();
+      if (!sections.has(current)) sections.set(current, new Map());
+      continue;
+    }
+    const kv = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/);
+    if (!kv) continue;
+    (current ? sections.get(current) : top).set(kv[1], kv[2].trim());
+  }
+  return { top, sections };
+}
+
+function mapClaude(preset) {
+  const settings = preset.settingsConfig ?? {};
+  const env = settings.env ?? {};
+  const extraEnv = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (!CLAUDE_KNOWN_ENV.has(key) && value !== "") extraEnv[key] = String(value);
+  }
+  const extraSettings = {};
+  for (const [key, value] of Object.entries(settings)) {
+    if (key !== "env") extraSettings[key] = value;
+  }
+  return compact({
+    ...common(preset),
+    baseUrl: trimSlash(env.ANTHROPIC_BASE_URL ?? ""),
+    models: compact({
+      model: env.ANTHROPIC_MODEL,
+      haikuModel: env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+      sonnetModel: env.ANTHROPIC_DEFAULT_SONNET_MODEL,
+      opusModel: env.ANTHROPIC_DEFAULT_OPUS_MODEL,
+    }),
+    apiKeyField: preset.apiKeyField === "ANTHROPIC_API_KEY" ? "ANTHROPIC_API_KEY" : undefined,
+    apiFormat: preset.apiFormat,
+    extraEnv: Object.keys(extraEnv).length ? extraEnv : undefined,
+    extraSettings: Object.keys(extraSettings).length ? extraSettings : undefined,
+  });
+}
+
+function mapCodex(preset) {
+  const { top, sections } = parsePresetToml(preset.config);
+  const model = unquote(top.get("model") ?? "");
+  const reasoningEffort = unquote(top.get("model_reasoning_effort") ?? "");
+  top.delete("model_provider");
+  top.delete("model");
+  top.delete("model_reasoning_effort");
+  const codexTop = Object.fromEntries(top);
+  let baseUrl = "";
+  const codexProviderExtra = {};
+  for (const [name, body] of sections) {
+    if (!name.startsWith("model_providers.")) throw new Error(`unexpected section [${name}] in ${preset.name}`);
+    baseUrl = unquote(body.get("base_url") ?? "");
+    body.delete("base_url");
+    body.delete("name");
+    body.delete("wire_api");
+    body.delete("requires_openai_auth");
+    Object.assign(codexProviderExtra, Object.fromEntries(body));
+  }
+  return compact({
+    ...common(preset),
+    baseUrl: trimSlash(baseUrl),
+    models: compact({ model, reasoningEffort }),
+    apiFormat: preset.apiFormat,
+    codexTop: Object.keys(codexTop).length ? codexTop : undefined,
+    codexProviderExtra: Object.keys(codexProviderExtra).length ? codexProviderExtra : undefined,
+    modelCatalog: Array.isArray(preset.modelCatalog)
+      ? modelCatalog(preset.modelCatalog)
+      : undefined,
+  });
+}
+
+function mapGemini(preset) {
+  const env = preset.settingsConfig?.env ?? {};
+  const extraEnv = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (!GEMINI_KNOWN_ENV.has(key) && value !== "") extraEnv[key] = String(value);
+  }
+  return compact({
+    ...common(preset),
+    baseUrl: trimSlash(env.GOOGLE_GEMINI_BASE_URL ?? preset.baseURL ?? ""),
+    models: compact({ model: env.GEMINI_MODEL ?? preset.model }),
+    extraEnv: Object.keys(extraEnv).length ? extraEnv : undefined,
+    description: preset.description,
+  });
+}
+
 const generated = {
   ...existing,
   version: 2,
@@ -83,6 +185,10 @@ const generated = {
   convertedAt: new Date().toISOString(),
   sourceFiles,
 };
+
+generated.claude = imported.claude.filter((preset) => !preset.hidden).map(mapClaude);
+generated.codex = imported.codex.filter((preset) => !preset.hidden).map(mapCodex);
+generated.gemini = imported.gemini.filter((preset) => !preset.hidden).map(mapGemini);
 
 generated["claude-desktop"] = imported["claude-desktop"].map((preset) => {
   const routes = preset.modelRoutes ?? [];

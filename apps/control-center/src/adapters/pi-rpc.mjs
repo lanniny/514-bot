@@ -186,6 +186,13 @@ export class PiRpcAdapter {
           active.text += delta;
           active.outputBytes = measurement.bytes;
           active.endsWithHighSurrogate = measurement.endsWithHighSurrogate;
+          const now = Date.now();
+          if (!active.lastDeltaAt || now - active.lastDeltaAt >= 80 || delta.length >= 80) {
+            active.lastDeltaAt = now;
+            this.trackEvent(state, "pi.item/agentMessage/delta", { delta }, {
+              runId: state.runId, sessionId: state.sessionId, agentId: active.agentId,
+            });
+          }
         }
       }
     }

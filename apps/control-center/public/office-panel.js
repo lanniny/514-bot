@@ -147,16 +147,21 @@ function formatWhen(value) {
   return date.toLocaleString("zh-CN", { hour12: false });
 }
 
+// latest-wins 门闩：启动引导与视图进入两条路径都会触发 refresh，旧响应不得覆盖新状态（同 market-panel 的 generation 惯例）
+let refreshGeneration = 0;
 async function refresh(root) {
+  const generation = ++refreshGeneration;
   try {
     const [templates, history] = await Promise.all([
       request("/api/office/templates"),
       request("/api/office/history"),
     ]);
+    if (generation !== refreshGeneration) return;
     state.templates = templates?.templates ?? [];
     state.history = history?.items ?? [];
     state.gateError = null;
   } catch (error) {
+    if (generation !== refreshGeneration) return;
     if (/REMOTE_GATE/.test(error.message || "")) {
       state.gateError = error;
     } else {

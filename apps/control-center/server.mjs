@@ -3,7 +3,8 @@
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { appendFileSync } from "node:fs";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
@@ -26,13 +27,18 @@ import { PROVIDER_APPS } from "./src/providers.mjs";
 import { adapterTemplateCatalog } from "./src/adapters/manifest.mjs";
 import { childProcessEnv, runProcess } from "./src/process-runner.mjs";
 import { createAgentControlActionRunner } from "./src/agent-actions.mjs";
+import { buildNativeSettings, hasNativeSettingsAgent } from "./src/cli-config-panel.mjs";
 import { ResponseLeaseLimiter } from "./src/response-limiter.mjs";
 import { collectPulseSnapshot } from "./src/pulse.mjs";
 import { eventForUi } from "./src/event-view.mjs";
 import { auditBusDiagnostics, MISSION_CONTROL_LIMITS, projectMissionControl } from "./src/mission-control.mjs";
 import { collectTeamInbox, INBOX_LIMITS } from "./src/collaboration-inbox.mjs";
 import { collectTeamAttention } from "./src/team-attention.mjs";
-import { inspectRunWorkspace } from "./src/workspace-explorer.mjs";
+import {
+  inspectRunWorkspace,
+  updateRunWorkspaceFile,
+  WORKSPACE_EXPLORER_LIMITS,
+} from "./src/workspace-explorer.mjs";
 import { collectWorkbenchEnvironment, GitActionBroker } from "./src/workbench-environment.mjs";
 import { collectReleaseTruth } from "./src/release-truth.mjs";
 import { collectReleaseRecord, summarizeServerObservedValidation } from "./src/release-record.mjs";
@@ -53,7 +59,7 @@ import { claimPendingClipboardUpload } from "./src/clipboard-lifecycle.mjs";
 import { SearchService } from "./src/search.mjs";
 import { MemoryService } from "./src/memory.mjs";
 import { scaffoldProject, scaffoldRemoteProject } from "./src/bootstrap.mjs";
-import { createAvatarStore, MAX_AVATAR_REQUEST_BYTES } from "./src/avatars.mjs";
+import { createAvatarStore, MAX_AVATAR_REQUEST_BYTES, MAX_TEAM_BACKGROUND_REQUEST_BYTES } from "./src/avatars.mjs";
 import { registerChannelsRoutes } from "./src/channels/routes.mjs";
 import { getSshService, registerSshRoutes } from "./src/ssh/routes.mjs";
 import { registerRemoteProjectRoutes } from "./src/remote-projects/routes.mjs";
@@ -67,6 +73,28 @@ import { homedir } from "node:os";
 
 const appRoot = fileURLToPath(new URL(".", import.meta.url));
 const publicRoot = join(appRoot, "public");
+
+// 内核致命错误兜底（桌面端把内核 stderr 设成 Stdio::null，且 Node 15+ 默认把 unhandledRejection
+// 当致命错误直接退出进程——桌面端 supervisor 检测到 stdout EOF 就 app.exit(1)，整窗闪退且零痕迹）。
+// 这里把致命错误落到文件，并把 unhandledRejection 从"默认崩溃"降级为"记录不退出"——
+// 未处理的 rejection 大多不是同步状态损坏，不值得为此整窗闪退。
+function logKernelFatal(kind, error) {
+  try {
+    const root = process.env.CC_ROOT || appRoot;
+    const file = join(root, ".scratch", "control-center-fatal.log");
+    const detail = error instanceof Error ? (error.stack || error.message) : String(error);
+    appendFileSync(file, `${new Date().toISOString()} [${kind}] ${detail}\n`, "utf8");
+  } catch {
+    // 日志路径不可写时静默，不能再抛一次
+  }
+}
+process.on("uncaughtException", (error) => {
+  logKernelFatal("uncaughtException", error);
+  process.exit(1);
+});
+process.on("unhandledRejection", (reason) => {
+  logKernelFatal("unhandledRejection", reason);
+});
 // cc-switch 3.18 预设供应商目录（src/data/provider-presets.json，转换自官方 *ProviderPresets.ts）
 let providerPresetsCache = null;
 async function loadProviderPresets() {
@@ -129,12 +157,153 @@ state.avatars = await createAvatarStore({
   dataRoot: state.dataRoot,
   teamMembers: state.teamMembers,
 }).init();
+
+// ===== 外观偏好持久化：桌面壳按地址+端口隔离 localStorage，端口随机变化后本地偏好全部失联，
+// 所以外观键改存服务端数据目录（与 operator-profile.json 同级同约定），前端双写 + 启动补齐。 =====
+// 键白名单与 public/theme.js 首帧引导、app.js 外观域严格一一对应；白名单外的键一律丢弃。
+const PREFERENCE_KEYS = new Set([
+  "514cc-control-theme",
+  "514cc-ui-font-size",
+  "514cc-code-font-size",
+  "514cc-ui-font-face",
+  "514cc-code-font-face",
+  "514cc-accent",
+  "514cc-density",
+  "514cc-code-wrap",
+  "514cc-code-lines",
+  "514cc-motion",
+  // 背景与玻璃三件套（任务 #3）：透明度百分比字符串 / 模糊像素数字符串 / 底色预设 ID，
+  // 与 app.js 的 APPEARANCE_PREF_KEYS 严格一一对应；前端读取时各自收敛合法值域。
+  "514cc-glass-alpha",
+  "514cc-glass-blur",
+  "514cc-glass-tint",
+  // 壁纸态玻璃不透明度（2026-08-29 自定义程度波）："auto" 或 "20"–"95" 百分比字符串；
+  // 手动值直接接管壁纸激活态的 --forge-glass-alpha，auto 回到亮度分档。
+  "514cc-wallpaper-glass-alpha",
+  // 壁纸态磨砂强度（v6）："auto" 或 "0"–"30" 像素字符串；0 = 壁纸完全清晰。
+  "514cc-wallpaper-glass-blur",
+  // 内容卡玻璃度（v7）："auto" 或 "40"–"95" 百分比字符串；恢复条/气泡/输入台/成员卡
+  // 等浮层卡的实体感，auto 随透出档位。
+  "514cc-card-glass-alpha",
+  // 背景视频失焦暂停档（任务 #4）："on"/"off"，默认关（键缺失即关）；
+  // 控制窗口失焦时是否冻结团队背景视频解码与氛围动画。
+  "514cc-bg-pause-blur",
+  // 全局壁纸（对标 dsh-wallpaper-engine 的全局设置面）：JSON 快照
+  // {preset,fit,overrideTeam,rotate{enabled,intervalMin,shuffle}}，≤512 字符上限内；
+  // 自定义媒体字节不进偏好（走 /api/wallpapers/global 字节管线），这里只存配置。
+  "514cc-global-wallpaper",
+]);
+const MAX_PREFERENCES_BYTES = 64 * 1024;
+const MAX_PREFERENCE_VALUE_LENGTH = 512;
+const preferencesPath = join(state.dataRoot, "preferences.json");
+// 内存合并区：连续 PUT 先落这里，200ms 防抖后一次落盘，避免逐键连写。
+let preferencesPending = null;
+let preferencesFlushTimer = null;
+
+function preferencesFail(message, code = "VALIDATION_FAILED") {
+  throw Object.assign(new Error(message), { code, httpStatus: 400 });
+}
+
+function sanitizePreferenceInput(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    preferencesFail("preferences must be a plain object", "INVALID_PREFERENCES");
+  }
+  const clean = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!PREFERENCE_KEYS.has(key)) continue; // 白名单外的键直接丢弃，不进存储
+    if (typeof value !== "string") preferencesFail(`preference value for ${key} must be a string`, "INVALID_PREFERENCES");
+    if (value.length > MAX_PREFERENCE_VALUE_LENGTH) preferencesFail(`preference value for ${key} is too long`, "INVALID_PREFERENCES");
+    clean[key] = value;
+  }
+  return clean;
+}
+
+/** 读取偏好文件；文件不存在或 JSON 损坏都回退空对象——
+    损坏时只降级读取路径，绝不覆盖/删除用户文件（下一次成功写入自然修复）。 */
+async function readPreferencesFromDisk() {
+  try {
+    const parsed = JSON.parse(await readFile(preferencesPath, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const clean = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (PREFERENCE_KEYS.has(key) && typeof value === "string" && value.length <= MAX_PREFERENCE_VALUE_LENGTH) clean[key] = value;
+    }
+    return clean;
+  } catch (error) {
+    if (error?.code === "ENOENT") return {};
+    if (error instanceof SyntaxError) return {}; // 损坏：回退默认，不碰用户文件
+    throw error;
+  }
+}
+
+// 原子写：与 avatars.mjs writeAtomicBytes 同构（临时文件 + fsync + rename），中途崩溃不留半截 JSON。
+async function writePreferencesAtomic(value) {
+  await mkdir(dirname(preferencesPath), { recursive: true, mode: 0o700 });
+  const temp = join(dirname(preferencesPath), `.preferences.${process.pid}.${randomUUID()}.tmp`);
+  let renamed = false;
+  try {
+    const handle = await open(temp, "wx", 0o600);
+    try {
+      await handle.writeFile(Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8"));
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+    await chmod(temp, 0o600).catch(() => {});
+    await rename(temp, preferencesPath);
+    renamed = true;
+  } finally {
+    if (!renamed) await rm(temp, { force: true });
+  }
+}
+
+// 落盘失败的重试策略：合回暂存区 + 1s 退避，最多 PREFERENCES_RETRY_MAX 次；超限后暂存区保留，
+// 等下一次 PUT 重新触发（GET 合并视图全程可读，不产生「写已确认、读未见」的丢失感）。
+const PREFERENCES_RETRY_MAX = 5;
+let preferencesRetryCount = 0;
+
+async function flushPreferences() {
+  clearTimeout(preferencesFlushTimer);
+  preferencesFlushTimer = null;
+  const snapshot = preferencesPending;
+  preferencesPending = null;
+  if (!snapshot) return;
+  try {
+    await writePreferencesAtomic(snapshot);
+    preferencesRetryCount = 0;
+  } catch (error) {
+    // 落盘失败不再静默丢弃：快照合回暂存区（期间新到的更鲜 PUT 优先），退避重试。
+    preferencesPending = { ...snapshot, ...(preferencesPending ?? {}) };
+    preferencesRetryCount += 1;
+    if (preferencesRetryCount <= PREFERENCES_RETRY_MAX) {
+      schedulePreferencesFlush(1000);
+    }
+    process.stderr.write(
+      `preferences flush failed (attempt ${Math.min(preferencesRetryCount, PREFERENCES_RETRY_MAX)}/${PREFERENCES_RETRY_MAX}, kept in memory): ${error?.message ?? error}\n`,
+    );
+  }
+}
+
+function schedulePreferencesFlush(delayMs = 200) {
+  clearTimeout(preferencesFlushTimer);
+  preferencesFlushTimer = setTimeout(() => { void flushPreferences(); }, delayMs);
+  preferencesFlushTimer.unref?.();
+}
 if (testHealthProbeDelayMs > 0) {
   const baseProbe = state.healthService.probeProfile.bind(state.healthService);
   state.healthService.probeProfile = async (profile, options = {}) => {
     testHealthProbeStats.calls += 1;
     await delay(testHealthProbeDelayMs, undefined, { signal: options.signal });
     return baseProbe(profile, options);
+  };
+}
+
+// 审批快照的代际信息必须和 pending 列表一起发出；bootstrap 不能再成为
+// 绕过 `/api/approvals` revision 守卫的第二条裸列表通道。
+function approvalSnapshotForPublic() {
+  return {
+    ...state.approvalBroker.snapshot(),
+    runtimeGeneration: state.generation,
   };
 }
 // Wave G 面路由注册表：各面 src/<surface>/routes.mjs 导出 register<SX>Routes(router, ctx)。
@@ -636,7 +805,9 @@ const searchService = new SearchService({ repoRoot: state.repoRoot, aiSharedRoot
 const memoryService = new MemoryService({ repoRoot: state.repoRoot, aiSharedRoot });
 
 const securityHeaders = {
-  "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+  // media-src 需要 blob:：团队背景视频经 requestBlob → URL.createObjectURL 喂给 <video>，
+  // 缺省回落 default-src 'self' 会被 Chromium 的 URL safety check 拒载（视频壁纸硬阻塞）。
+  "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
   "cross-origin-opener-policy": "same-origin",
   "cross-origin-resource-policy": "same-origin",
   "referrer-policy": "no-referrer",
@@ -691,8 +862,16 @@ function runForPublic(run) {
   delete value.activeInteractionSources;
   delete value.pendingInteractionSources;
   delete value.interactionStates;
+  delete value.contextTopologyKey;
   if (Array.isArray(value.pendingSteer)) {
     value.pendingSteer = value.pendingSteer.map(({ sources: _privateSources, ...steer }) => steer);
+  }
+  try {
+    value.resumeHints = typeof state.orchestrator?.resumeHintsForRun === "function"
+      ? state.orchestrator.resumeHintsForRun(run)
+      : [];
+  } catch {
+    value.resumeHints = [];
   }
   return value;
 }
@@ -863,10 +1042,10 @@ function statusFor(error) {
   if (error.httpStatus) return error.httpStatus; // 渠道/office 等自带语义化状态码的错误，避免误报 500
   if (["CHANNEL_NOT_FOUND"].includes(error.code)) return 404;
   if (["CHANNELS_STORE_UNAVAILABLE"].includes(error.code)) return 503;
-  if (["SOURCE_NOT_FOUND", "RUN_NOT_FOUND", "VERSION_NOT_FOUND", "APPROVAL_NOT_FOUND", "LEASE_NOT_FOUND", "AUTOMATION_NOT_FOUND", "RUNTIME_SEAT_NOT_FOUND", "REMOTE_HOST_NOT_FOUND", "BACKUP_NOT_FOUND", "MODEL_FETCH_NOT_FOUND", "AVATAR_NOT_FOUND", "SSH_NOT_FOUND"].includes(error.code)) return 404;
-  if (["STALE_BASE", "RUN_ACTIVE", "RUN_TERMINAL", "RUN_INTERRUPTING", "TURN_ACTIVE", "CONTROL_TRANSITION_FORBIDDEN", "APPROVAL_HASH_MISMATCH", "APPROVAL_IN_PROGRESS", "PLAN_REQUIRED", "PLAN_MISMATCH", "PLAN_EXPIRED", "PLAN_STALE", "APPROVAL_REQUIRED", "RECOVERY_REQUIRED", "RUNTIME_BUSY", "AGENT_ACTION_BUSY", "AUTOMATION_BUSY", "AUTOMATION_RECOVERY_REQUIRED", "PREFS_REVISION_MISMATCH", "MCP_RESTORE_CONFLICT", "MCP_QUARANTINE_CONFLICT", "MCP_SOURCE_CONFLICT", "SKILL_EXISTS", "TEAM_CATALOG_CONFLICT", "MEMBER_IN_USE", "MEMBER_RUNTIME_CONFLICT", "RUNTIME_SEAT_EXISTS", "RUNTIME_SEAT_IN_USE", "PROVIDER_IN_USE", "PROVIDER_RESERVED_NAME", "ASK_NOT_PENDING", "ASK_MISMATCH", "ASK_OWNER_MISMATCH", "ANSWER_IN_PROGRESS", "DUPLICATE_MESSAGE", "GIT_ACTION_FAILED", "REMOTE_HOST_DISABLED", "BACKUP_TARGET_CHANGED", "CODEX_MODEL_CATALOG_CONFLICT", "SSH_HOST_DISABLED", "OFFICE_FILE_EXISTS"].includes(error.code)) return 409;
+  if (["SOURCE_NOT_FOUND", "RUN_NOT_FOUND", "PROJECT_NOT_FOUND", "CONVERSATION_NOT_FOUND", "VERSION_NOT_FOUND", "APPROVAL_NOT_FOUND", "LEASE_NOT_FOUND", "AUTOMATION_NOT_FOUND", "RUNTIME_SEAT_NOT_FOUND", "REMOTE_HOST_NOT_FOUND", "BACKUP_NOT_FOUND", "MODEL_FETCH_NOT_FOUND", "AVATAR_NOT_FOUND", "BACKGROUND_NOT_FOUND", "SSH_NOT_FOUND"].includes(error.code)) return 404;
+  if (["STALE_BASE", "RUN_ACTIVE", "RUN_TERMINAL", "RUN_INTERRUPTING", "TURN_ACTIVE", "CONTROL_TRANSITION_FORBIDDEN", "APPROVAL_HASH_MISMATCH", "APPROVAL_IN_PROGRESS", "PLAN_REQUIRED", "PLAN_MISMATCH", "PLAN_EXPIRED", "PLAN_STALE", "APPROVAL_REQUIRED", "RECOVERY_REQUIRED", "RUNTIME_BUSY", "AGENT_ACTION_BUSY", "AUTOMATION_BUSY", "AUTOMATION_RECOVERY_REQUIRED", "PREFS_REVISION_MISMATCH", "PROJECT_REVISION_MISMATCH", "PROJECT_ID_CONFLICT", "PROJECT_DEFAULT_CONVERSATION_CONFLICT", "PROJECT_ARCHIVED", "CONVERSATION_REVISION_MISMATCH", "CONVERSATION_STORE_REVISION_MISMATCH", "WORKSPACE_CONVERSATION_CONFLICT", "RUN_CONVERSATION_CONFLICT", "CONVERSATION_DELETED", "CONVERSATION_MEMBERS_CHANGED", "MCP_RESTORE_CONFLICT", "MCP_QUARANTINE_CONFLICT", "MCP_SOURCE_CONFLICT", "SKILL_EXISTS", "TEAM_CATALOG_CONFLICT", "MEMBER_IN_USE", "MEMBER_RUNTIME_CONFLICT", "RUNTIME_SEAT_EXISTS", "RUNTIME_SEAT_IN_USE", "PROVIDER_IN_USE", "PROVIDER_RESERVED_NAME", "ASK_NOT_PENDING", "ASK_MISMATCH", "ASK_OWNER_MISMATCH", "ANSWER_IN_PROGRESS", "DUPLICATE_MESSAGE", "GIT_ACTION_FAILED", "REMOTE_HOST_DISABLED", "BACKUP_TARGET_CHANGED", "CODEX_MODEL_CATALOG_CONFLICT", "SSH_HOST_DISABLED", "OFFICE_FILE_EXISTS", "WORKSPACE_VERSION_CONFLICT"].includes(error.code)) return 409;
   if (["CONFIRMATION_REQUIRED", "DEPLOYMENT_REQUIRED", "READ_ONLY_SOURCE", "FROZEN_BLOCK", "SFTP_PATH_BOUNDARY", "SFTP_BAD_PATH"].includes(error.code)) return 403;
-  if (["VALIDATION_FAILED", "CLI_HANDOFF_UNSUPPORTED", "PROVIDER_CREDENTIAL_SCOPE_MISMATCH", "CODEX_MODEL_CATALOG_REQUIRED", "MODEL_FETCH_URL_INVALID", "MODEL_FETCH_HTTPS_REQUIRED", "MODEL_FETCH_INVALID_RESPONSE", "RUNTIME_GRAPH_INVALID", "ADAPTER_MANIFEST_INVALID", "RUNTIME_CATALOG_INVALID", "RUNTIME_PROFILE_NOT_FOUND", "RUNTIME_PROFILE_INELIGIBLE", "AGENT_ACTION_UNSUPPORTED", "PATH_BOUNDARY", "INVALID_PROMPT", "INVALID_JSON", "INVALID_DECISION", "INVALID_CWD", "INVALID_MODEL", "INVALID_EFFORT", "INVALID_IMAGE_DATA", "IMAGE_TYPE_MISMATCH", "UNSUPPORTED_IMAGE_TYPE", "CLIPBOARD_CLAIM_INVALID", "NOT_TEAM_MEMBER", "PROVIDER_NOT_FOUND", "PROVIDER_UNAVAILABLE", "NO_ROUTE", "NO_INDEPENDENT_ROUTE", "ROUND_LIMIT", "INTERACTION_STEP_LIMIT", "INTERACTION_INVALID", "INSUFFICIENT_ROUNDS", "SENSITIVE_PROMPT", "UNSUPPORTED_APPROVAL", "UNSUPPORTED_PERMISSION", "POLICY_VIOLATION", "ADAPTER_UNAVAILABLE", "TRANSACTION_INCONSISTENT", "GIT_STATE_UNAVAILABLE", "NOTHING_STAGED", "NOTHING_TO_PUSH", "NO_UPSTREAM", "MULTIPLE_PUSH_TARGETS", "PUSH_URL_REWRITE", "DETACHED_HEAD", "WORKTREE_NOT_READY", "WORKTREE_INVALID", "INVALID_REMOTE", "INVALID_REMOTE_PATH", "REMOTE_ADAPTER_UNSUPPORTED", "BACKUP_NAME_INVALID", "BACKUP_TARGET_UNRESOLVED"].includes(error.code)) return 422;
+  if (["VALIDATION_FAILED", "CLI_HANDOFF_UNSUPPORTED", "PROVIDER_CREDENTIAL_SCOPE_MISMATCH", "CODEX_MODEL_CATALOG_REQUIRED", "MODEL_FETCH_URL_INVALID", "MODEL_FETCH_HTTPS_REQUIRED", "MODEL_FETCH_INVALID_RESPONSE", "RUNTIME_GRAPH_INVALID", "ADAPTER_MANIFEST_INVALID", "RUNTIME_CATALOG_INVALID", "RUNTIME_PROFILE_NOT_FOUND", "RUNTIME_PROFILE_INELIGIBLE", "AGENT_ACTION_UNSUPPORTED", "PATH_BOUNDARY", "INVALID_PROMPT", "INVALID_JSON", "INVALID_DECISION", "INVALID_CWD", "INVALID_MODEL", "INVALID_EFFORT", "INVALID_IMAGE_DATA", "IMAGE_TYPE_MISMATCH", "UNSUPPORTED_IMAGE_TYPE", "CLIPBOARD_CLAIM_INVALID", "NOT_TEAM_MEMBER", "PROVIDER_NOT_FOUND", "PROVIDER_UNAVAILABLE", "NO_ROUTE", "NO_INDEPENDENT_ROUTE", "ROUND_LIMIT", "INTERACTION_STEP_LIMIT", "INTERACTION_INVALID", "INSUFFICIENT_ROUNDS", "SENSITIVE_PROMPT", "UNSUPPORTED_APPROVAL", "UNSUPPORTED_PERMISSION", "POLICY_VIOLATION", "ADAPTER_UNAVAILABLE", "GIT_STATE_UNAVAILABLE", "NOTHING_STAGED", "NOTHING_TO_PUSH", "NO_UPSTREAM", "MULTIPLE_PUSH_TARGETS", "PUSH_URL_REWRITE", "DETACHED_HEAD", "WORKTREE_NOT_READY", "WORKTREE_INVALID", "INVALID_REMOTE", "INVALID_REMOTE_PATH", "REMOTE_ADAPTER_UNSUPPORTED", "BACKUP_NAME_INVALID", "BACKUP_TARGET_UNRESOLVED"].includes(error.code)) return 422;
   if (["BODY_TOO_LARGE", "IMAGE_TOO_LARGE", "MODEL_FETCH_RESPONSE_TOO_LARGE"].includes(error.code)) return 413;
   if (["EVENT_TOO_LARGE", "EVENT_HISTORY_TOO_LARGE"].includes(error.code)) return 413;
   if (error.code === "CLIPBOARD_STORAGE_QUOTA_EXCEEDED") return 507;
@@ -875,7 +1054,7 @@ function statusFor(error) {
   if (["PROVIDER_TURN_INCOMPLETE", "MODEL_FETCH_UNAUTHORIZED", "MODEL_FETCH_UPSTREAM_FAILED", "MODEL_FETCH_REDIRECT_BLOCKED", "MODEL_FETCH_REDIRECT_LIMIT", "SFTP_FAILED", "SSH_CONNECT_FAILED"].includes(error.code)) return 502;
   if (error.code === "OUTPUT_LIMIT") return 413;
   if (["AGENT_ACTION_CAPACITY", "MODEL_DISCOVERY_CAPACITY"].includes(error.code)) return 429;
-  if (["EVENT_INDEX_BUSY", "HEALTH_PROBE_BUSY", "TEAM_STORE_UNAVAILABLE", "MEMBER_REFERENCE_CHECK_FAILED", "PROVIDER_REFERENCE_CHECK_FAILED", "REMOTE_UNAVAILABLE", "SSH_UNAVAILABLE"].includes(error.code)) return 503;
+  if (["EVENT_INDEX_BUSY", "HEALTH_PROBE_BUSY", "TEAM_STORE_UNAVAILABLE", "PROJECT_STORE_UNAVAILABLE", "CONVERSATION_STORE_UNAVAILABLE", "CONVERSATION_CONTEXT_STORE_UNAVAILABLE", "TRANSACTION_INCONSISTENT", "MEMBER_REFERENCE_CHECK_FAILED", "PROVIDER_REFERENCE_CHECK_FAILED", "REMOTE_UNAVAILABLE", "SSH_UNAVAILABLE"].includes(error.code)) return 503;
   if ([
     "AUTOMATION_STORE_CORRUPT",
     "AUTOMATION_STORE_UNREADABLE",
@@ -1052,6 +1231,7 @@ async function api(request, response, url) {
         state.healthService.all({ signal }),
         state.configManager.listSources(),
       ]);
+      const approvalSnapshot = approvalSnapshotForPublic();
       return json(response, 200, {
         version: "0.1.0",
         runtime: { generation: state.generation, activation: "live" },
@@ -1066,7 +1246,9 @@ async function api(request, response, url) {
         health,
         sources,
         runs: runsForPublic(state.orchestrator.list()),
-        approvals: state.approvalBroker.list(),
+        // 保留 `approvals` 数组供旧消费者读取；新的客户端必须使用带版本的嵌套快照。
+        approvals: approvalSnapshot.approvals,
+        approvalSnapshot,
         routing: state.routing,
         permissions: state.permissions,
         security: { secrets: secretReferenceStatus(health) },
@@ -1353,6 +1535,14 @@ async function api(request, response, url) {
   if (request.method === "GET" && pathname === "/api/memory/search") {
     return json(response, 200, await memoryService.search({ query: url.searchParams.get("q") ?? "" }));
   }
+  // 文件内容只读：root+name 或 rel path 必须命中服务端枚举清单（不接受任意路径），512KB 上限
+  if (request.method === "GET" && pathname === "/api/memory/file") {
+    return json(response, 200, await memoryService.read({
+      root: url.searchParams.get("root") ?? "",
+      name: url.searchParams.get("name") ?? "",
+      path: url.searchParams.get("path") ?? "",
+    }));
+  }
   // v4.0 Forge 项目脚手架：静态模板生成（零网络零安装）；dryRun 只出计划，dir 限根 home/仓库父目录
   // hostId 在场 → 远程 SFTP 写入（先过 sftp 门闸，不假装落到本机）
   if (request.method === "POST" && pathname === "/api/bootstrap/scaffold") {
@@ -1519,6 +1709,34 @@ async function api(request, response, url) {
   if (request.method === "GET" && pathname === "/api/operator-profile") {
     return json(response, 200, await state.avatars.operatorProfile());
   }
+  if (request.method === "PUT" && pathname === "/api/operator-profile") {
+    return json(response, 200, await state.avatars.setOperatorProfile(await body(request)));
+  }
+  if (pathname === "/api/preferences") {
+    // GET：文件不存在/损坏都返回 200 {}，读路径永不报错打断前端首帧。
+    // 返回「磁盘 + 内存暂存区」合并视图：200ms 防抖窗口内写已确认的键立即可读。
+    if (request.method === "GET") {
+      const merged = { ...(await readPreferencesFromDisk()), ...(preferencesPending ?? {}) };
+      return json(response, 200, { preferences: merged });
+    }
+    // PUT：白名单键合并进内存区，200ms 防抖一次落盘；连续多次 PUT 只产生一次写。
+    if (request.method === "PUT") {
+      let input;
+      try {
+        input = await body(request, MAX_PREFERENCES_BYTES + 4096);
+      } catch (error) {
+        if (error?.code === "INVALID_JSON") preferencesFail("request body must be valid JSON", "INVALID_PREFERENCES");
+        throw error;
+      }
+      const clean = sanitizePreferenceInput(input);
+      const current = await readPreferencesFromDisk();
+      const merged = { ...current, ...(preferencesPending ?? {}), ...clean };
+      preferencesPending = merged;
+      schedulePreferencesFlush();
+      return json(response, 200, { preferences: merged });
+    }
+    return json(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "unsupported method" } });
+  }
   if (request.method === "POST" && pathname === "/api/avatars/operator") {
     const input = await body(request, MAX_AVATAR_REQUEST_BYTES);
     return json(response, 200, await state.avatars.setOperatorAvatar(input?.dataUrl));
@@ -1546,12 +1764,64 @@ async function api(request, response, url) {
     }
   }
   if (request.method === "POST" && pathname === "/api/teams") return json(response, 201, await state.teams.create(await body(request)));
+  // 全局壁纸（对标 dsh-wallpaper-engine：壁纸是全局设置而非实体属性）：复用
+  // team-backgrounds 字节管线（avatars store 按 safeFileStem 落盘，伪 id "__global__"
+  // 保留字符集内），不挂团队存在性校验——伪 id 不在团队表，get() 必 404，故独立路由。
+  if (pathname === "/api/wallpapers/global") {
+    const GLOBAL_WALLPAPER_ID = "__global__";
+    if (request.method === "POST") {
+      const input = await body(request, MAX_TEAM_BACKGROUND_REQUEST_BYTES);
+      return json(response, 200, await state.avatars.setTeamBackground(GLOBAL_WALLPAPER_ID, input?.dataUrl));
+    }
+    if (request.method === "DELETE") {
+      await state.avatars.clearTeamBackground(GLOBAL_WALLPAPER_ID);
+      return json(response, 200, { ok: true });
+    }
+    if (request.method === "GET" || request.method === "HEAD") {
+      const file = await state.avatars.readTeamBackgroundFile(GLOBAL_WALLPAPER_ID);
+      // HEAD 只探存在性（Node 对 HEAD 自动丢弃 body，头信息照发）：客户端启动对账
+      // hasCustom 用，避免为确认文件在不在而拉全量字节。
+      return sendBytes(response, 200, request.method === "HEAD" ? Buffer.alloc(0) : file.bytes, file.mimeType);
+    }
+    return json(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "unsupported method" } });
+  }
+  const teamBackgroundMatch = pathname.match(/^\/api\/team-backgrounds\/([^/]+)$/);
+  if (teamBackgroundMatch) {
+    const teamId = decodeURIComponent(teamBackgroundMatch[1]);
+    // 内置团队冻结：背景也属于其配置面，统一 FROZEN_BLOCK；预先 get() 保证 404 语义一致。
+    if (!["POST", "GET", "DELETE"].includes(request.method)) {
+      return json(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "unsupported method" } });
+    }
+    state.teams.get(teamId);
+    if (request.method === "POST") {
+      if (teamId === "team-514cc") {
+        return json(response, 403, { error: { code: "FROZEN_BLOCK", message: "the builtin 514cc team is frozen and cannot be modified" } });
+      }
+      const input = await body(request, MAX_TEAM_BACKGROUND_REQUEST_BYTES);
+      await state.avatars.setTeamBackground(teamId, input?.dataUrl);
+      const team = await state.teams.markBackgroundImage(teamId);
+      return json(response, 200, team);
+    }
+    if (request.method === "DELETE") {
+      if (teamId === "team-514cc") {
+        return json(response, 403, { error: { code: "FROZEN_BLOCK", message: "the builtin 514cc team is frozen and cannot be modified" } });
+      }
+      await state.avatars.clearTeamBackground(teamId);
+      return json(response, 200, state.teams.get(teamId));
+    }
+    const file = await state.avatars.readTeamBackgroundFile(teamId);
+    return sendBytes(response, 200, file.bytes, file.mimeType);
+  }
   const teamMatch = pathname.match(/^\/api\/teams\/([^/]+)$/);
   if (teamMatch) {
     const teamId = decodeURIComponent(teamMatch[1]);
     if (request.method === "GET") return json(response, 200, state.teams.get(teamId));
     if (request.method === "PUT") return json(response, 200, await state.teams.update(teamId, await body(request)));
-    if (request.method === "DELETE") return json(response, 200, await state.teams.remove(teamId));
+    if (request.method === "DELETE") {
+      const removed = await state.teams.remove(teamId);
+      await state.avatars.clearTeamBackground(teamId);
+      return json(response, 200, removed);
+    }
   }
 
   const teamInboxMatch = pathname.match(/^\/api\/teams\/([^/]+)\/inbox$/);
@@ -1866,22 +2136,151 @@ async function api(request, response, url) {
     return json(response, 200, result);
   }
 
+  if (request.method === "GET" && pathname === "/api/projects") {
+    const includeArchived = url.searchParams.get("includeArchived") === "1";
+    return json(response, 200, {
+      schema: "514cc.projects/v1",
+      revision: state.projects.status().revision,
+      projects: state.projects.list({ includeArchived }),
+    });
+  }
+  if (request.method === "POST" && pathname === "/api/projects") {
+    const project = await state.projects.ensure(await body(request));
+    return json(response, 201, { schema: "514cc.project/v1", project, revision: state.projects.status().revision });
+  }
+  // Project IDs are deterministic 16-char hex digests. Keeping this route
+  // shape strict prevents legacy endpoints such as /api/projects/prefs from
+  // being mistaken for a project record.
+  const projectMatch = pathname.match(/^\/api\/projects\/([0-9a-f]{16})$/i);
+  if (request.method === "GET" && projectMatch) {
+    return json(response, 200, {
+      schema: "514cc.project/v1",
+      project: state.projects.get(decodeURIComponent(projectMatch[1])),
+      revision: state.projects.status().revision,
+    });
+  }
+  if (request.method === "PATCH" && projectMatch) {
+    const project = await state.projects.update(decodeURIComponent(projectMatch[1]), await body(request));
+    return json(response, 200, { schema: "514cc.project/v1", project, revision: state.projects.status().revision });
+  }
+
+  if (request.method === "GET" && pathname === "/api/conversations") {
+    const includeHidden = url.searchParams.get("includeHidden") === "1";
+    const includeDeleted = url.searchParams.get("includeDeleted") === "1";
+    return json(response, 200, {
+      schema: "514cc.conversations/v2",
+      revision: state.conversations.status().revision,
+      conversations: state.conversations.list({ includeHidden, includeDeleted }),
+    });
+  }
+  if (request.method === "POST" && pathname === "/api/conversations") {
+    const input = await body(request);
+    const memberIds = input?.kind === "direct"
+      ? [input.directMemberId]
+      : Array.isArray(input?.memberIds) ? input.memberIds : [];
+    for (const memberId of [...new Set(memberIds.filter(Boolean))]) state.teamMembers.get(String(memberId));
+    const conversation = await state.conversations.create(input);
+    return json(response, 201, { schema: "514cc.conversation/v2", conversation, revision: state.conversations.status().revision });
+  }
+  const conversationMessagesMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/messages$/);
+  if (request.method === "POST" && conversationMessagesMatch) {
+    const conversationId = decodeURIComponent(conversationMessagesMatch[1]);
+    const input = await body(request) ?? {};
+    delete input.waitForTurn;
+    delete input.conversationId;
+    delete input.projectId;
+    const result = await state.orchestrator.conversationMessage(conversationId, {
+      ...input,
+      waitForTurn: false,
+    });
+    return json(response, result.created ? 202 : 200, runForPublic(result.run));
+  }
+  const conversationDuplicateMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/duplicate$/);
+  if (request.method === "POST" && conversationDuplicateMatch) {
+    const conversation = await state.conversations.duplicate(
+      decodeURIComponent(conversationDuplicateMatch[1]),
+      await body(request),
+    );
+    return json(response, 201, { schema: "514cc.conversation/v2", conversation, revision: state.conversations.status().revision });
+  }
+  if (request.method === "DELETE" && pathname === "/api/conversations/deleted") {
+    const result = await state.conversations.purgeDeleted(await body(request) || {});
+    return json(response, 200, { schema: "514cc.conversations-purge/v1", ...result });
+  }
+  const conversationMatch = pathname.match(/^\/api\/conversations\/([^/]+)$/);
+  if (request.method === "GET" && conversationMatch) {
+    return json(response, 200, {
+      schema: "514cc.conversation/v2",
+      conversation: state.conversations.get(decodeURIComponent(conversationMatch[1])),
+      revision: state.conversations.status().revision,
+    });
+  }
+  if (request.method === "PATCH" && conversationMatch) {
+    const input = await body(request);
+    for (const memberId of [...new Set((Array.isArray(input?.memberIds) ? input.memberIds : []).filter(Boolean))]) {
+      state.teamMembers.get(String(memberId));
+    }
+    const conversation = await state.conversations.update(decodeURIComponent(conversationMatch[1]), input);
+    return json(response, 200, { schema: "514cc.conversation/v2", conversation, revision: state.conversations.status().revision });
+  }
+if (request.method === "DELETE" && conversationMatch) {
+    const input = await body(request);
+    const conversation = await state.conversations.remove(decodeURIComponent(conversationMatch[1]), input || {});
+    return json(response, 200, { schema: "514cc.conversation/v2", conversation, revision: state.conversations.status().revision });
+  }
+
   if (request.method === "GET" && pathname === "/api/runs") return json(response, 200, { runs: runsForPublic(state.orchestrator.list()) });
   if (request.method === "POST" && pathname === "/api/runs") return json(response, 202, runForPublic(await state.orchestrator.create(await body(request))));
   if (request.method === "POST" && pathname === "/api/runs/clear-finished") return json(response, 200, await state.orchestrator.clearFinished());
+  const runMatch = pathname.match(/^\/api\/runs\/([0-9a-fA-F-]+)$/);
+  if (request.method === "GET" && runMatch) {
+    const run = state.orchestrator.get(runMatch[1]);
+    if (!run) throw Object.assign(new Error(`run not found: ${runMatch[1]}`), { code: "RUN_NOT_FOUND" });
+    return json(response, 200, runForPublic(run));
+  }
   // run 产物 diff（codeg 对标 P2）：逻辑在 src/run-diff.mjs（可注入 runner 单测）；超 2MB 如实 OUTPUT_LIMIT
   const runDiffMatch = pathname.match(/^\/api\/runs\/([0-9a-fA-F-]+)\/diff$/);
   if (request.method === "GET" && runDiffMatch) {
     const run = state.orchestrator.get(runDiffMatch[1]);
+    if (!run) throw Object.assign(new Error(`run not found: ${runDiffMatch[1]}`), { code: "RUN_NOT_FOUND" });
     return json(response, 200, await runDiffForRun(run));
   }
   const runSettlementMatch = pathname.match(/^\/api\/runs\/([0-9a-fA-F-]+)\/settlement$/);
   if (request.method === "GET" && runSettlementMatch) {
-    const run = structuredClone(state.orchestrator.get(runSettlementMatch[1]));
+    const runId = runSettlementMatch[1];
+    const rawRun = state.orchestrator.get(runId);
+    if (!rawRun) throw Object.assign(new Error(`run not found: ${runId}`), { code: "RUN_NOT_FOUND" });
+    const run = structuredClone(rawRun);
     const includeDiff = url.searchParams.get("diff") !== "0";
+    // Settlement 的 artifact 投影必须读取同一份治理证据源；只传 run 会让
+    // handoff/DELTA 永远退化为空列表。列表接口本身有界，读取失败仍由
+    // collectRunSettlement 的 fail-closed 结果承接，不把缺失证据伪装成已发布。
+    const [handoffsResult, deltaResult] = await Promise.all([
+      state.observability.handoffs({ limit: 80, strict: true })
+        .then((value) => ({ ok: true, value }))
+        .catch((error) => ({ ok: false, error })),
+      state.observability.deltaLedger({ recent: 80, strict: true })
+        .then((value) => ({ ok: true, value }))
+        .catch((error) => ({ ok: false, error })),
+    ]);
+    const handoffs = handoffsResult.ok && Array.isArray(handoffsResult.value) ? handoffsResult.value : [];
+    const deltaLedger = deltaResult.ok && deltaResult.value && typeof deltaResult.value === "object" ? deltaResult.value : {};
+    const evidenceIssues = [
+      ["handoffs", handoffsResult],
+      ["delta-ledger", deltaResult],
+    ].filter(([, result]) => !result.ok).map(([id, result]) => ({
+      id,
+      ok: false,
+      reason: result.error?.code
+        ? `证据源 ${id} 不可用（${String(result.error.code).slice(0, 80)}）`
+        : `证据源 ${id} 不可用`,
+    }));
     return json(response, 200, await collectRunSettlement({
       run,
       includeDiff,
+      handoffs: handoffs.map((file) => ({ ...file, exists: true })),
+      deltas: Array.isArray(deltaLedger?.deltas) ? deltaLedger.deltas : [],
+      evidenceSource: { status: evidenceIssues.length ? "unavailable" : "available", issues: evidenceIssues },
     }));
   }
   if (request.method === "POST" && pathname === "/api/system/clipboard-image") {
@@ -2001,7 +2400,8 @@ async function api(request, response, url) {
       throw Object.assign(new Error(`${target} 不在 git 仓库内，无法创建工作树：${probe.stderr.trim().slice(0, 160)}`), { code: "VALIDATION_FAILED" });
     }
     const repoTop = probe.stdout.trim().split(/\r?\n/).pop();
-    const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+    // 随机后缀防同秒并发撞路径（对照 orchestrator 同款修复：秒级时间戳不是唯一性保证）
+    const stamp = `${new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`;
     const worktreePath = join(dirname(repoTop), `${basename(repoTop)}-wt-${stamp}`);
     const created = await runProcess("git", ["-C", repoTop, "worktree", "add", "--detach", worktreePath], { timeoutMs: 60_000, maxOutputBytes: 64 * 1024 });
     if (created.code !== 0) {
@@ -2052,8 +2452,11 @@ async function api(request, response, url) {
     return json(response, 200, result);
   }
   if (request.method === "POST" && pathname === "/api/projects/archive-finished") {
-    const { cwd } = await body(request);
-    if (!String(cwd || "").trim()) throw Object.assign(new Error("cwd is required"), { code: "VALIDATION_FAILED" });
+    const { projectId, cwd } = await body(request);
+    if (String(projectId || "").trim()) {
+      return json(response, 200, await state.orchestrator.archiveFinishedByProjectId(projectId));
+    }
+    if (!String(cwd || "").trim()) throw Object.assign(new Error("projectId or cwd is required"), { code: "VALIDATION_FAILED" });
     return json(response, 200, await state.orchestrator.archiveFinishedByCwd(cwd));
   }
 
@@ -2174,7 +2577,19 @@ async function api(request, response, url) {
   if (request.method === "GET" && workspaceMatch) {
     const runId = decodeURIComponent(workspaceMatch[1]);
     const run = state.orchestrator.get(runId);
+    if (!run) throw Object.assign(new Error(`run not found: ${runId}`), { code: "RUN_NOT_FOUND" });
     return json(response, 200, await inspectRunWorkspace(run, { path: url.searchParams.get("path") ?? "" }));
+  }
+  if (request.method === "PUT" && workspaceMatch) {
+    const runId = decodeURIComponent(workspaceMatch[1]);
+    const run = state.orchestrator.get(runId);
+    if (!run) throw Object.assign(new Error(`run not found: ${runId}`), { code: "RUN_NOT_FOUND" });
+    const payload = await body(request, WORKSPACE_EXPLORER_LIMITS.previewBytes + 32 * 1024);
+    return json(response, 200, await updateRunWorkspaceFile(run, {
+      path: url.searchParams.get("path") ?? "",
+      content: payload.content,
+      expectedRevision: payload.expectedRevision,
+    }));
   }
   // v3.7 Automations：composer 快照的保存/管理/触发（调度产生的 run 与手动同一治理链）
   if (request.method === "GET" && pathname === "/api/automations") {
@@ -2212,6 +2627,23 @@ async function api(request, response, url) {
       ...catalog,
       context: { ...(catalog.context || {}), memberId: agentId, runtimeProfileId },
     });
+  }
+  if (request.method === "GET" && pathname === "/api/agents/native-settings") {
+    // T5：CLI 原生 /config 设置只读快照（第一期只有 grok）。只读、白名单制、全链路脱敏；
+    // agent 参数兼容成员 ID 与 runtimeProfileId（如 grok-build）。无任何写端点。
+    const agentId = url.searchParams.get("agent") ?? "";
+    if (!agentId) throw Object.assign(new Error("agent is required"), { code: "VALIDATION_FAILED" });
+    let runtimeProfileId = "";
+    try {
+      runtimeProfileId = runtimeProfileIdForMember(agentId);
+    } catch {
+      runtimeProfileId = "";
+    }
+    if (!runtimeProfileId) runtimeProfileId = agentId;
+    if (!hasNativeSettingsAgent(runtimeProfileId)) {
+      throw Object.assign(new Error(`native settings are not available for agent: ${agentId}`), { code: "SOURCE_NOT_FOUND" });
+    }
+    return json(response, 200, await buildNativeSettings(runtimeProfileId));
   }
   if (request.method === "POST" && pathname === "/api/agents/actions") {
     const input = await body(request);
@@ -2261,7 +2693,7 @@ async function api(request, response, url) {
     input.requestedProvider = requestedRuntimeProfileId || (explicitStartAgentId ? startRuntimeProfileId : undefined);
     return json(response, 200, projectRouteToTeamMembers(await state.router.preview(input), team, preferredMemberIds));
   }
-  if (request.method === "GET" && pathname === "/api/approvals") return json(response, 200, { approvals: state.approvalBroker.list() });
+  if (request.method === "GET" && pathname === "/api/approvals") return json(response, 200, approvalSnapshotForPublic());
   if (request.method === "GET" && pathname === "/api/leases") {
     return json(response, 200, { leases: state.orchestrator.listCapabilityLeases() });
   }
@@ -2293,7 +2725,7 @@ async function api(request, response, url) {
 
   match = pathname.match(/^\/api\/runs\/([^/]+)$/);
   if (request.method === "GET" && match) return json(response, 200, runForPublic(state.orchestrator.get(decodeURIComponent(match[1]))));
-  // 一键跳到当前会话的 CLI 界面：用原生 session ID 开交互式 CLI 终端（claude -r / codex exec resume…），
+  // 一键跳到当前会话的 CLI 界面：用原生 session ID 开交互式 CLI 终端（claude -r / codex resume…），
   // 与控制台共享同一原生会话，双向实时。门闸与终端面板同闸（pty）。
   match = pathname.match(/^\/api\/runs\/([^/]+)\/cli-terminal$/);
   if (request.method === "POST" && match) {
@@ -2616,7 +3048,20 @@ const server = createServer(async (request, response) => {
       error?.name === "AbortError" && Boolean(request.aborted || request.destroyed || response.destroyed)
     );
     if (disconnected || response.destroyed || response.writableEnded) return;
-    await state.eventStore.emit("server.error", { requestId, code: error.code || null, message: error.message }, { sensitivity: "internal" }).catch(() => {});
+    await state.eventStore.emit("server.error", {
+      requestId,
+      code: error.code || null,
+      message: error.message,
+      // NO_ROUTE/NO_INDEPENDENT_ROUTE 必须把每个席位的排除原因留进账本：
+      // 只有 message 的账本无法事后回答"当时谁被什么卡住"（2026-08-19 current-research 60 连发复盘）。
+      ...(Array.isArray(error.candidates) && {
+        candidates: error.candidates.map((candidate) => ({
+          id: candidate.id,
+          excluded: candidate.excluded === true,
+          reasons: Array.isArray(candidate.excludedReasons) ? candidate.excludedReasons : [],
+        })),
+      }),
+    }, { sensitivity: "internal" }).catch(() => {});
     if (response.headersSent) {
       response.destroy();
       return;
@@ -2632,6 +3077,9 @@ const server = createServer(async (request, response) => {
         validation: error.validation,
         currentSha256: error.currentSha256,
         currentRevision: error.currentRevision,
+        expectedRevision: error.expectedRevision,
+        actualRevision: error.actualRevision,
+        conversationId: error.conversationId,
         candidates: error.candidates,
         references: error.references,
         conflicts: error.conflicts,

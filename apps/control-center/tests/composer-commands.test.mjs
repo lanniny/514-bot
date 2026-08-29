@@ -177,18 +177,18 @@ test("kimi adapter: process timeout marks settled and keeps session resumable", 
   );
 });
 
-test("composer native passthrough: unmatched slash commands offer a raw CLI send", async () => {
+test("composer native passthrough: unmatched slash commands fail closed unless the member catalog allows them", async () => {
   const app = await readFile(resolve(publicRoot, "app.js"), "utf8").then((text) => text.replace(/\r\n/g, "\n"));
-  // 无命中 + 合法命令形态 → 透传菜单项（/compact /mcp 等 CLI 原生命令由此进对话通道）
   const renderSlash = extractFunction(app, "renderSlashMenu", "function applySlashCommand");
   assert.match(renderSlash, /native-passthrough/);
-  assert.match(renderSlash, /原样发送给 CLI 原生执行/);
-  // applySlashCommand 对透传项：文本留在输入框，只打显式标记（防提示注入伪造命令轮）
+  assert.match(renderSlash, /native-unsupported/);
+  assert.match(renderSlash, /当前成员不支持这条原生命令/);
   const applySlash = extractFunction(app, "applySlashCommand", "function projectPrefsFromPayload");
   assert.match(applySlash, /command\.native/);
   assert.match(applySlash, /state\.pendingNativeCommand = true/);
-  // 提交链路携带 nativeCommand；新任务模式拦截；输入变形即失效
   assert.match(app, /message\.nativeCommand = true/);
+  assert.match(app, /catalogMatchesMember/);
+  assert.match(app, /catalog\?\.context\?\.memberId === agentId/);
   assert.match(app, /原生命令需要在一个已有会话中执行/);
   assert.match(app, /state\.pendingNativeCommand = false/);
   const stateSource = await readFile(resolve(publicRoot, "state.js"), "utf8");

@@ -22,6 +22,7 @@ cleanEntryFragment.delete("bootstrap");
 cleanEntryFragment.delete("token");
 cleanEntryUrl.hash = cleanEntryFragment.toString();
 let sharedAccessToken = "";
+const QA_APPROVAL_EPOCH = "00000000-0000-4000-8000-000000000515";
 
 const browser = await chromium.launch({ headless: true });
 const findings = [];
@@ -39,13 +40,15 @@ async function openControlCenter(page) {
 }
 
 // 协作台只留头像进设置；其余视图走设置侧栏。隐藏抽屉不能再当可点入口。
+// .first()：v4 设置侧栏同一视图有多个跳转入口（连接/技能/MCP/钩子/本机运行时/运行席位
+// 都是 data-view="config"），严格模式单元素假设已过时——任一入口语义等价。
 async function clickView(page, view) {
   if (view === "workbench") {
-    const back = page.locator('#settings-rail [data-view="workbench"]');
+    const back = page.locator('#settings-rail [data-view="workbench"]').first();
     if (await back.isVisible()) await back.click();
     return;
   }
-  const railTarget = page.locator(`.settings-rail [data-view="${view}"]`);
+  const railTarget = page.locator(`.settings-rail [data-view="${view}"]`).first();
   if (!(await railTarget.isVisible())) {
     const dock = page.locator("#account-dock, #account-heading-chip").locator("visible=true").first();
     if (!(await dock.count())) throw new Error(`no account dock to open settings for view ${view}`);
@@ -350,7 +353,11 @@ async function inspectMissionControl(name, viewport) {
   });
   await page.route((candidate) => candidate.pathname.endsWith("/api/approvals"), (route) => {
     if (route.request().method() !== "GET") return route.continue();
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ approvals: [] }) });
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ approvals: [], epoch: QA_APPROVAL_EPOCH, revision: 0, runtimeGeneration: 1 }),
+    });
   });
   await page.route((candidate) => candidate.pathname.endsWith("/api/events"), (route) => route.abort("failed"));
   await page.route((candidate) => new RegExp(`/api/runs/(?:${staleRunId}|${currentRunId})/events$`).test(candidate.pathname), (route) =>

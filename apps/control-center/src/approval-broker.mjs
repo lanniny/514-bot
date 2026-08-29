@@ -27,10 +27,16 @@ export class ApprovalBroker {
     this.eventStore = eventStore;
     this.ttlMs = ttlMs;
     this.pending = new Map();
+    this.snapshotEpoch = randomUUID();
+    this.revision = 0;
   }
 
   list() {
     return [...this.pending.values()].map(({ resolve, reject, timer, raw, ...item }) => item);
+  }
+
+  snapshot() {
+    return { approvals: this.list(), epoch: this.snapshotEpoch, revision: this.revision };
   }
 
   scheduleExpiry(id, item) {
@@ -53,6 +59,7 @@ export class ApprovalBroker {
     }
     if (this.pending.get(id) !== item) return;
     this.pending.delete(id);
+    this.revision += 1;
     item.resolve(responseFor(item.method, false));
   }
 
@@ -83,6 +90,7 @@ export class ApprovalBroker {
     return new Promise((resolve, reject) => {
       const pending = { ...item, raw: message, resolve, reject, timer: null };
       this.pending.set(id, pending);
+      this.revision += 1;
       this.scheduleExpiry(id, pending);
     });
   }
@@ -115,6 +123,7 @@ export class ApprovalBroker {
       throw Object.assign(new Error("approval was cancelled while the decision was being persisted"), { code: "APPROVAL_NOT_FOUND" });
     }
     this.pending.delete(id);
+    this.revision += 1;
     item.resolve(responseFor(item.method, approved, id));
     return {
       id,
@@ -136,6 +145,7 @@ export class ApprovalBroker {
         item.reject(error);
       }
       this.pending.delete(id);
+      this.revision += 1;
     }
   }
 
@@ -151,6 +161,7 @@ export class ApprovalBroker {
         item.reject(error);
       }
       this.pending.delete(id);
+      this.revision += 1;
     }
   }
 }

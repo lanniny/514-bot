@@ -152,6 +152,26 @@ test("Skill 管理：规范存储、跨应用物化和禁用备份", async (t) =
   assert.throws(() => domain.uninstallSkill(skill.id), (error) => error.code === "CONFIRMATION_REQUIRED");
 });
 
+test("Skill 同 ID 并发安装：swap/backup/state 恒对应单一完整版本", async (t) => {
+  const { domain, runtimeHome, dataRoot } = await fixture(t);
+  const bodyA = "---\nname: race-skill\ndescription: vA\n---\n# AA\n".repeat(20);
+  const bodyB = "---\nname: race-skill\ndescription: vB\n---\n# BB\n".repeat(20);
+  const [a, b] = await Promise.all([
+    domain.installSkillFiles({ name: "race-skill", description: "A", files: { "SKILL.md": bodyA }, apps: { claude: true } }),
+    domain.installSkillFiles({ name: "race-skill", description: "B", files: { "SKILL.md": bodyB }, apps: { claude: true } }),
+  ]);
+  assert.equal(a.id, b.id, "同 id 安装收敛到同一 skill");
+  const fs = await import("node:fs/promises");
+  const { readdir } = fs;
+  const entries = await readdir(join(dataRoot, "ccswitch", "skills", "race-skill")).catch(() => []);
+  assert.deepEqual(entries.sort(), ["SKILL.md"], "不得残留 .old 或多余 swap 目录——文件交换被串行化");
+  const onDisk = await readFile(join(dataRoot, "ccswitch", "skills", "race-skill", "SKILL.md"), "utf8");
+  // 终局必须是 A 或 B 完整一份，绝不能被另一实例的 rename/rm 剪枝成混合或截断
+  assert.ok(onDisk === bodyA || onDisk === bodyB, "final file is exactly one complete install, never mixed");
+  const finalState = (await domain.skills()).find((item) => item.id === "race-skill");
+  assert.ok(finalState, "state records a single race-skill entry");
+});
+
 test("Profile 快照/应用：供应商、MCP、Skill、Prompt 同组恢复", async (t) => {
   const { domain, providers } = await fixture(t);
   const a = await providers.create({ name: "A", baseUrl: "https://a.example.com", apiKey: "a-key", apps: { claude: true } });
@@ -354,6 +374,84 @@ test("Hermes memory：双文件隔离、默认限额和 YAML 开关保留其他�
   assert.match(written, /memory_enabled: false/);
   assert.match(written, /provider: mem0/);
   assert.deepEqual(await domain.hermesMemoryLimits(), { memory: 4096, user: 2048, memoryEnabled: false, userEnabled: true });
+});
+
+test("live MCP/Skill 导入进投影账本，不改写 live；表单回写保留密钥", async (t) => {
+  const { domain, runtimeHome } = await fixture(t);
+  const claudeJson = join(runtimeHome, ".claude.json");
+  const originalClaude = JSON.stringify({
+    keep: true,
+    mcpServers: {
+      "ace-tool": { command: "npx", args: ["-y", "ace-tool"], env: { ACE_API_KEY: "real-secret-value" } },
+      github: { type: "http", url: "https://api.githubcopilot.com/mcp/", headers: { Authorization: "Bearer secret-token" } },
+    },
+    projects: {
+      "I:/demo": { mcpServers: { "project-only": { command: "node", args: ["proj.mjs"] } } },
+    },
+  }, null, 2);
+  await writeFile(claudeJson, originalClaude, "utf8");
+  await mkdir(join(runtimeHome, ".claude"), { recursive: true });
+  await writeFile(join(runtimeHome, ".claude", "settings.json"), JSON.stringify({
+    mcpServers: { "from-settings": { command: "node", args: ["settings-mcp.mjs"] } },
+  }), "utf8");
+  await mkdir(join(runtimeHome, ".codex"), { recursive: true });
+  await writeFile(join(runtimeHome, ".codex", "config.toml"), "model = \"gpt-test\"\r\n\r\n[mcp_servers.serena]\r\ncommand = \"uvx\"\r\nargs = [\"serena\"]\r\n\r\n[mcp_servers.ace-tool]\r\ncommand = \"uvx\"\r\nargs = [\"other-ace\"]\r\n", "utf8");
+  await mkdir(join(runtimeHome, ".claude", "skills", "live-skill"), { recursive: true });
+  await writeFile(join(runtimeHome, ".claude", "skills", "live-skill", "SKILL.md"), "---\nname: live-skill\ndescription: from live\n---\n# Live\n", "utf8");
+
+  const observed = await domain.observeLiveResources();
+  assert.equal(observed.mcps.find((item) => item.id === "ace-tool")?.managed, false);
+  assert.equal(observed.mcps.find((item) => item.id === "ace-tool")?.importable, true);
+  assert.equal(observed.mcps.find((item) => item.id === "ace-tool")?.apps.claude, true);
+  assert.equal(observed.mcps.find((item) => item.id === "ace-tool")?.apps.codex, false, "同名但 command 不同时不得把 Codex 标成可投影");
+  assert.equal(observed.mcps.find((item) => item.id === "from-settings")?.importable, true);
+  assert.equal(observed.mcps.find((item) => item.id === "project-only")?.importable, false);
+  assert.equal(observed.skills.find((item) => item.id === "live-skill")?.importable, true);
+
+  const adopted = await domain.adoptLiveMcps();
+  assert.ok(adopted.imported.includes("ace-tool"));
+  assert.ok(adopted.imported.includes("github"));
+  assert.ok(adopted.imported.includes("serena"));
+  assert.ok(adopted.imported.includes("from-settings"));
+  assert.ok(adopted.skipped.some((item) => item.id === "project-only"));
+  assert.equal(await readFile(claudeJson, "utf8"), originalClaude, "导入不得改写 live .claude.json");
+  assert.equal(domain.summary().mcps["ace-tool"].apps.codex, false);
+
+  const publicMcp = domain.summary().mcps["ace-tool"];
+  assert.match(publicMcp.config.env.ACE_API_KEY, /••••alue/);
+  await domain.upsertMcp({
+    id: "ace-tool",
+    name: "ace-tool",
+    config: publicMcp.config,
+    apps: { claude: true, codex: false },
+  });
+  const afterSave = JSON.parse(await readFile(claudeJson, "utf8"));
+  assert.equal(afterSave.keep, true);
+  assert.equal(afterSave.mcpServers["ace-tool"].env.ACE_API_KEY, "real-secret-value");
+  const codexAfterClaudeSave = await readFile(join(runtimeHome, ".codex", "config.toml"), "utf8");
+  assert.match(codexAfterClaudeSave, /other-ace/, "未托管的 Codex 同名 server 不得被 Claude 保存删掉");
+
+  const publicGithub = domain.summary().mcps.github;
+  assert.match(publicGithub.config.headers.Authorization, /••••oken/);
+  await domain.upsertMcp({
+    id: "github",
+    name: "github",
+    config: publicGithub.config,
+    apps: { claude: true },
+  });
+  const githubSaved = JSON.parse(await readFile(claudeJson, "utf8"));
+  assert.equal(githubSaved.mcpServers.github.headers.Authorization, "Bearer secret-token");
+
+  await domain.toggleMcp("serena", "codex", true);
+  const codex = await readFile(join(runtimeHome, ".codex", "config.toml"), "utf8");
+  assert.match(codex, /514-forge-mcp \(serena\)/);
+  assert.equal([...codex.matchAll(/\[mcp_servers(?:\."serena"|\.serena)\]/g)].length, 1, "不得留下未托管表与托管块双份");
+
+  const skillAdopt = await domain.adoptLiveSkills({ ids: ["live-skill"] });
+  assert.deepEqual(skillAdopt.imported, ["live-skill"]);
+  assert.equal(await readFile(join(runtimeHome, ".claude", "skills", "live-skill", "SKILL.md"), "utf8"), "---\nname: live-skill\ndescription: from live\n---\n# Live\n");
+  assert.equal(domain.skills().find((item) => item.id === "live-skill")?.apps.claude, true);
+  assert.equal(domain.skills().find((item) => item.id === "live-skill")?.apps.codex, false);
 });
 
 test("损坏领域存储冻结写入，不覆盖原字节", async (t) => {

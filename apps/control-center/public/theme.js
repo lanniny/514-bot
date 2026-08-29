@@ -23,6 +23,7 @@
     if (codeSize >= 11 && codeSize <= 16) {
       document.documentElement.style.setProperty("--code-font-size", codeSize + "px");
     }
+    // 下方字体白名单是防白闪的最小副本；权威定义在 app.js 的 UI_FACE_SET / CODE_FACE_SET，改那里须同步这里。
     var face = localStorage.getItem("514cc-ui-font-face");
     document.documentElement.dataset.uiFace = face === "yahei" || face === "song" ? face : "system";
     var codeFace = localStorage.getItem("514cc-code-font-face");

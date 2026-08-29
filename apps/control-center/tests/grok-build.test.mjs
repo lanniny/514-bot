@@ -26,6 +26,46 @@ test("buildGrokArgs places prompt, resume, model and streaming format in order",
   assert.equal(buildGrokArgs({ prompt: "w", permissionMode: "workspace-write" }).some((arg) => arg.startsWith("Bash(")), false);
 });
 
+test("buildGrokArgs passes through empirically-validated native approval modes on read-semantic turns", () => {
+  // 2026-08-27 本机实证通过的三档：auto / acceptEdits 走 --permission-mode，always-approve 是独立旗标形态。
+  assert.deepEqual(buildGrokArgs({ prompt: "p", nativeApprovalMode: "native:auto" }), [
+    "-p", "p", "--permission-mode", "auto", "--output-format", "streaming-json",
+  ]);
+  assert.deepEqual(buildGrokArgs({ prompt: "p", nativeApprovalMode: "native:acceptEdits" }), [
+    "-p", "p", "--permission-mode", "acceptEdits", "--output-format", "streaming-json",
+  ]);
+  assert.deepEqual(buildGrokArgs({ prompt: "p", nativeApprovalMode: "native:always-approve" }), [
+    "-p", "p", "--always-approve", "--output-format", "streaming-json",
+  ]);
+});
+
+test("write turns ignore any nativeApprovalMode and keep the dontAsk whitelist invariant", () => {
+  const expected = [
+    "-p", "w",
+    "--permission-mode", "dontAsk",
+    "--tools", "read_file,grep,list_dir,search_replace,run_terminal_cmd,todo_write",
+    "--no-subagents",
+    "--disable-web-search",
+    "--allow", "Edit(./**)",
+    "--allow", "Write(./**)",
+    "--deny", "MCPTool",
+    "--output-format", "streaming-json",
+  ];
+  for (const mode of ["native:auto", "native:acceptEdits", "native:always-approve", "native:yolo", null]) {
+    const args = buildGrokArgs({ prompt: "w", permissionMode: "workspace-write", nativeApprovalMode: mode });
+    assert.deepEqual(args, expected, `写盘轮必须忽略 ${mode}，钉死 dontAsk + 白名单不变量`);
+    assert.equal(args.includes("--always-approve"), false, `${mode} 不得把 --always-approve 带进写盘轮`);
+  }
+});
+
+test("unknown or malformed nativeApprovalMode falls back to plan without throwing", () => {
+  for (const mode of ["native:yolo", "auto", "acceptEdits", "always-approve", "bypassPermissions", 42, ""]) {
+    assert.deepEqual(buildGrokArgs({ prompt: "p", nativeApprovalMode: mode }), [
+      "-p", "p", "--permission-mode", "plan", "--output-format", "streaming-json",
+    ], `非法值 ${JSON.stringify(mode)} 必须回落 plan`);
+  }
+});
+
 test("GrokBuildAdapter rejects prompts over the arg budget without spawning", async () => {
   const events = [];
   const adapter = new GrokBuildAdapter({ eventStore: { emit: (t, d) => events.push([t, d]) }, cwd: "." });

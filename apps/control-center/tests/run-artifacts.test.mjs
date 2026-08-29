@@ -39,3 +39,38 @@ test("only handoffs and DELTA rows that mention the run become cards", () => {
   assert.equal(cards.some((item) => item.kind === "delta"), true);
   assert.equal(cards.every((item) => item.published === false), true);
 });
+
+test("explicit cross-run evidence is excluded even when its prose mentions the target", () => {
+  const cards = collectRunEvidenceArtifacts({
+    run,
+    handoffs: [
+      {
+        name: `codex-to-claude__${run.id}__20260818-0200.md`,
+        runId: "run-other",
+        content: `references ${run.id} but belongs elsewhere`,
+      },
+      {
+        name: `codex-to-claude__${run.id}__20260818-0201.md`,
+        content: `references ${run.id} and has no explicit owner`,
+      },
+    ],
+    deltas: [
+      { id: "delta-other", runId: "run-other", topic: run.id, evidence: run.id },
+      { id: "delta-owned", topic: run.id, evidence: "verified" },
+    ],
+  });
+  assert.equal(cards.length, 2);
+  assert.ok(cards.every((item) => item.availability !== "stale-run"));
+});
+
+test("run id matching accepts handoff separators but rejects a longer id prefix", () => {
+  const cards = collectRunEvidenceArtifacts({
+    run: { id: "run-1", title: "short" },
+    handoffs: [
+      { name: "codex-to-claude__run-1__20260818-0300.md" },
+      { name: "codex-to-claude__run-10__20260818-0301.md" },
+    ],
+  });
+  assert.equal(cards.length, 1);
+  assert.match(cards[0].label, /run-1/);
+});

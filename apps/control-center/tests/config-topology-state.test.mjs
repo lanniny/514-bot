@@ -235,13 +235,16 @@ test("config hash routes preserve member targets with deterministic provider def
 
   // parseForgeRoute 现统一带 settingsFocus（observability/memory 路由用），期望对象补齐该键
   const emptyTarget = { memberId: null, runtimeProfileId: null, settingsFocus: null };
-  assert.deepEqual(parseForgeRoute("#config"), { view: "config", configSurface: "providers", ...emptyTarget });
-  assert.deepEqual(parseForgeRoute("#config/unknown"), { view: "config", configSurface: "providers", ...emptyTarget });
+  assert.deepEqual(parseForgeRoute("#config"), { view: "config", configSurface: "sources", ...emptyTarget });
+  assert.deepEqual(parseForgeRoute("#config/unknown"), { view: "config", configSurface: "sources", ...emptyTarget });
+  assert.deepEqual(parseForgeRoute("#config/providers"), { view: "config", configSurface: "providers", ...emptyTarget });
   assert.deepEqual(parseForgeRoute("#config/local-runtime"), { view: "config", configSurface: "local-runtime", ...emptyTarget });
   assert.deepEqual(parseForgeRoute("#config/hooks"), { view: "config", configSurface: "hooks", ...emptyTarget });
   assert.deepEqual(parseForgeRoute("#config/sources"), { view: "config", configSurface: "sources", ...emptyTarget });
   assert.deepEqual(parseForgeRoute("#capabilities"), { view: "config", configSurface: "capabilities", ...emptyTarget });
   assert.deepEqual(parseForgeRoute("#workbench"), { view: "workbench", configSurface: null, ...emptyTarget });
+  assert.deepEqual(parseForgeRoute(""), { view: "workbench", configSurface: null, ...emptyTarget });
+  assert.deepEqual(parseForgeRoute("#"), { view: "workbench", configSurface: null, ...emptyTarget });
   const hash = configRouteHash("capabilities", {
     memberId: "member-custom-1",
     runtimeProfileId: "codex-technical",
@@ -401,6 +404,7 @@ test("capability, team and provider loaders share their in-flight promise", asyn
       renderTeams: noop,
       refreshTeamData: noop,
       renderTeamActivation: noop,
+      applyActiveTeamBackground: noop,
       missionControlDock: null,
       successfulLoadResult,
       failedLoadResult,
@@ -510,6 +514,7 @@ test("team and provider fresh loaders invalidate stale snapshots and drain repea
       renderTeams: noop,
       refreshTeamData: noop,
       renderTeamActivation: noop,
+      applyActiveTeamBackground: noop,
       missionControlDock: null,
       successfulLoadResult,
       failedLoadResult,
@@ -1654,13 +1659,13 @@ test("provider-dialog fallback keeps native deeplinks in FIFO order", async () =
   const first = enqueueCcSwitchDeeplink("ccswitch://a");
   const second = enqueueCcSwitchDeeplink("ccswitch://b");
   await Promise.resolve();
-  assert.deepEqual(events, ["view:config/providers", "fallback:ccswitch://a"]);
+  assert.deepEqual(events, ["view:config/sources", "fallback:ccswitch://a"]);
   firstOpen.resolve();
   await Promise.all([first, second]);
   assert.deepEqual(events, [
-    "view:config/providers",
+    "view:config/sources",
     "fallback:ccswitch://a",
-    "view:config/providers",
+    "view:config/sources",
     "fallback:ccswitch://b",
   ]);
   assert.match(appSource, /async function openProviderDeeplink[\s\S]+if \(url\) await previewProviderDeeplink\(\)/);

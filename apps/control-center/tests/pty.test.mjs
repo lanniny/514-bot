@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createPtyService, defaultShell, resolveSpawnCommand } from "../src/pty.mjs";
@@ -94,6 +94,25 @@ test("pty: extraCwdRoots allow a sibling project directory", async (t) => {
   const service = createPtyService({ repoRoot: repo, extraCwdRoots: [parent] });
   assert.equal(service.assertCwd(sibling), resolve(sibling));
   assert.throws(() => service.assertCwd("C:/Windows/System32"), { code: "PTY_CWD_BOUNDARY" });
+});
+
+test("pty: cwd that lexical-implies a root is rejected when a symlink/junction escapes it", async (t) => {
+  const parent = await mkdtemp(join(tmpdir(), "514cc-pty-symlink-"));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const repo = join(parent, "repo");
+  const outside = join(parent, "outside");
+  const escapeDir = join(repo, "escape");
+  await mkdir(repo);
+  await mkdir(outside);
+  let linkWorks = true;
+  try {
+    await symlink(outside, escapeDir, isWin ? "junction" : "dir");
+  } catch {
+    linkWorks = false;
+  }
+  if (!linkWorks) return t.skip("symlink 无权限（Windows 非 Developer Mode）——显式跳过而非假通过");
+  const service = createPtyService({ repoRoot: repo });
+  assert.throws(() => service.assertCwd(escapeDir), { code: "PTY_CWD_BOUNDARY" });
 });
 
 test("pty: resolveSpawnCommand matches terminal semantics for npm .cmd shims", async (t) => {

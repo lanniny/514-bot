@@ -31,6 +31,10 @@ test("logical member model and effort overrides reach every CLI argument boundar
     ],
   );
   assert.ok(buildGrokArgs({ prompt: "x", model: "grok-member", effort: "high" }).includes("grok-member"));
+  // effort 链路断言：xhigh 必须落到 --reasoning-effort 参数边界（T1 扩档后的最高档）
+  const grokXhighArgs = buildGrokArgs({ prompt: "x", model: "grok-member", effort: "xhigh" });
+  assert.ok(grokXhighArgs.includes("--reasoning-effort"));
+  assert.equal(grokXhighArgs[grokXhighArgs.indexOf("--reasoning-effort") + 1], "xhigh");
   assert.ok(buildKimiArgs({ prompt: "x", model: "kimi-member" }).includes("kimi-member"));
 });
 

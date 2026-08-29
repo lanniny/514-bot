@@ -15,9 +15,18 @@ import { runProcess } from "../process-runner.mjs";
 import { preparePromptTransport } from "../prompt-transport.mjs";
 import { createBoundedTaskTracker, createLfCollector } from "./stream-utils.mjs";
 
-export function buildKimiArgs({ prompt, sessionId = null, model = null, permissionMode = "plan" }) {
+// 原生审批档透传（LO 2026-08-27 本机 kimi 0.36.0 --help 实证）：--yolo 自动批准常规
+// 工具调用（agent 仍可提问）；--auto 完全自治。二者仅作用于只读治理轮；写盘轮本来就被
+// UNSUPPORTED_PERMISSION 拦截，红线不受影响。
+const KIMI_NATIVE_APPROVAL_ARGS = Object.freeze({
+  "native:yolo": Object.freeze(["--yolo"]),
+  "native:auto": Object.freeze(["--auto"]),
+});
+
+export function buildKimiArgs({ prompt, sessionId = null, model = null, permissionMode = "plan", nativeApprovalMode = null }) {
   const args = ["-p", prompt, "--output-format", "stream-json"];
-  if (permissionMode !== "workspace-write") args.push("--plan");
+  if (nativeApprovalMode && KIMI_NATIVE_APPROVAL_ARGS[nativeApprovalMode]) args.push(...KIMI_NATIVE_APPROVAL_ARGS[nativeApprovalMode]);
+  else if (permissionMode !== "workspace-write") args.push("--plan");
   if (sessionId) args.push("-S", sessionId);
   if (model) args.push("-m", model);
   return args;
@@ -40,7 +49,7 @@ export class KimiCliAdapter {
     this.runProcessImpl = runProcessImpl;
   }
 
-  async send({ sessionId, prompt, runId, agentId = "kimi-frontend", signal, permissionMode = "plan", model = null, effort = null, timeoutMs = 15 * 60_000, cwd = null, onSessionStarted, onTurnSubmitting }) {
+  async send({ sessionId, prompt, runId, agentId = "kimi-frontend", signal, permissionMode = "plan", model = null, effort = null, timeoutMs = 15 * 60_000, cwd = null, nativeApprovalMode = null, onSessionStarted, onTurnSubmitting }) {
     // 受控写权限 fail-closed：--auto 是全自动批准，不等价于 514cc 的限工作区写权限。
     if (permissionMode === "workspace-write") {
       const error = new Error("kimi --auto removes per-tool confirmation and cannot express scoped workspace-write; dispatch write turns to codex or claude instead");
@@ -53,7 +62,7 @@ export class KimiCliAdapter {
       error.code = "INVALID_PROMPT";
       throw error;
     }
-    const args = buildKimiArgs({ prompt, sessionId, model: model || this.model, permissionMode });
+    const args = buildKimiArgs({ prompt, sessionId, model: model || this.model, permissionMode, nativeApprovalMode });
     let resolvedSessionId = sessionId || null;
     const textParts = [];
     const pendingTasks = createBoundedTaskTracker();

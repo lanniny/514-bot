@@ -17,10 +17,11 @@
 .atelier .sidebar {
   border-right: 1px solid var(--border, #e4e1ea);
   /* Wave G codeg 磨砂族：color-mix 86% + blur14/saturate150（与 topbar 触感统一）；
-     老引擎 color-mix 作废自动回落 var(--card) 纯色，明暗随 token 自动跟随 */
-  background: color-mix(in oklab, var(--card, #ffffff) var(--forge-glass-alpha, 86%), transparent);
-  -webkit-backdrop-filter: blur(var(--forge-glass-blur, 14px)) saturate(150%);
-  backdrop-filter: blur(var(--forge-glass-blur, 14px)) saturate(150%);
+     老引擎 color-mix 作废自动回落 var(--card) 纯色，明暗随 token 自动跟随；
+     --glass-tint 由外观面板内联覆盖（未设时回退 --card 随主题） */
+  background: color-mix(in oklab, var(--glass-tint, var(--card, #ffffff)) var(--forge-glass-alpha, 86%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
   color: var(--muted-foreground, #6b6f76);
 }
 
@@ -223,8 +224,19 @@
 .atelier .topbar {
   gap: 12px;
   border-bottom: 1px solid var(--border, #e4e1ea);
-  background: color-mix(in oklab, var(--card, #ffffff) 86%, transparent);
-  backdrop-filter: blur(14px) saturate(150%);
+  /* 与侧栏同走玻璃令牌族（外观面板可调透明度/模糊/底色） */
+  background: color-mix(in oklab, var(--glass-tint, var(--card, #ffffff)) var(--forge-glass-alpha, 86%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+}
+
+/* 不支持 backdrop-filter 的老引擎：侧栏/顶栏玻璃面直接实色保底（同 primitives.css 玻璃族兜底）。
+   本块必须在侧栏/顶栏规则之后：同特异性下后加载者胜。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .atelier .sidebar,
+  .atelier .topbar {
+    background: var(--glass-tint, var(--card, #ffffff));
+  }
 }
 
 /* 桌面：品牌已由侧栏承载，顶栏品牌位让渡给导航与标题；移动端保留（侧栏变抽屉） */
@@ -741,6 +753,78 @@
   margin: -4px 0 10px;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.team-capability-heading {
+  flex-wrap: wrap;
+}
+
+.team-capability-heading .text-button {
+  margin-left: auto;
+}
+
+.team-capability-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 14px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl, 14px);
+  background: color-mix(in oklab, var(--surface-muted) 62%, transparent);
+}
+
+.team-capability-flow > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 9px;
+  border-radius: var(--radius-small);
+}
+
+.team-capability-flow > div.is-current {
+  background: var(--rose-soft);
+  box-shadow: inset 0 0 0 1px var(--rose-line);
+}
+
+.team-capability-flow span,
+.team-capability-flow small {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-capability-flow strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-capability-flow > .icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text-soft);
+}
+
+@media (max-width: 720px) {
+  .team-capability-heading .text-button {
+    margin-left: 0;
+  }
+
+  .team-capability-flow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .team-capability-flow > .icon {
+    justify-self: center;
+    transform: rotate(90deg);
+  }
 }
 
 .chip:has(input:disabled) {

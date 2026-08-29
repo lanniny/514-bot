@@ -10,9 +10,19 @@ test("resume hints map provider-native commands only", () => {
     "pi-resident": "sess-p1",
   });
   assert.equal(hints.find((h) => h.agentId === "claude-fable").command, "claude -r sess-c1");
-  assert.equal(hints.find((h) => h.agentId === "codex-technical").command, "codex exec resume sess-x1");
+  assert.equal(hints.find((h) => h.agentId === "codex-technical").command, "codex resume sess-x1");
+  const rolloutHints = resumeHintsFromSessions({
+    "codex-technical": "rollout-2026-07-17T09-21-00-019f0000-0000-7000-8000-000000000000.jsonl",
+  });
+  assert.equal(rolloutHints[0].command, "codex resume 019f0000-0000-7000-8000-000000000000");
   assert.equal(hints.find((h) => h.agentId === "kimi-frontend").command, "kimi -S sess-k1");
-  assert.equal(hints.find((h) => h.agentId === "pi-resident").canResume, false);
+  assert.equal(hints.find((h) => h.agentId === "pi-resident").canResume, true);
+  assert.equal(hints.find((h) => h.agentId === "pi-resident").command, "pi --session-id sess-p1");
+  const uuidHints = resumeHintsFromSessions(
+    { "custom-uuid-member": "sess-x2" },
+    { members: [{ id: "custom-uuid-member", runtimeProfileId: "codex-technical" }] },
+  );
+  assert.equal(uuidHints[0].command, "codex resume sess-x2");
 });
 
 test("resume hints markup only lists canResume commands", () => {
@@ -21,6 +31,6 @@ test("resume hints markup only lists canResume commands", () => {
     { escapeHtml: (value) => String(value) },
   );
   assert.match(html, /claude -r abc/);
-  assert.doesNotMatch(html, /pi-resident/);
+  assert.match(html, /pi --session-id nope/);
   assert.match(html, /data-copy-resume/);
 });

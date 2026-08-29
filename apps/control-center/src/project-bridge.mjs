@@ -156,6 +156,30 @@ async function inspectSource(canonicalCwd, { runner, realpathImpl }) {
   };
 }
 
+export async function inspectProjectIdentity(cwd, {
+  runner = runProcess,
+  realpathImpl = fsRealpath,
+} = {}) {
+  const requested = normalizeProjectCwd(cwd);
+  const source = await inspectSource(requested, { runner, realpathImpl });
+  if (!source.exists) {
+    throw Object.assign(new Error(`project cwd does not exist: ${requested}`), { code: "INVALID_CWD" });
+  }
+  const fingerprint = repositoryFingerprint({
+    gitCommonDir: source.gitCommonDir,
+    firstCommit: source.firstCommit,
+    canonicalCwd: source.canonicalCwd,
+  });
+  return {
+    projectId: projectIdFromCwd(source.canonicalCwd),
+    anchorId: anchorIdFromFingerprint(fingerprint),
+    canonicalCwd: source.canonicalCwd,
+    fingerprint,
+    gitCommonDir: source.gitCommonDir,
+    firstCommit: source.firstCommit,
+  };
+}
+
 export async function collectProjectBridge({
   cwd,
   runtime = {},

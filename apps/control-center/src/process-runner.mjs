@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { basename, delimiter, extname, isAbsolute, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { childRegistry } from "./child-registry.mjs";
+import { withRuntimeExecutablePath } from "./runtime-executable-dirs.mjs";
 
 // Provider subprocesses must not inherit the control plane's entire environment.
 // Keep only the OS/user paths needed to locate executables and credential stores;
@@ -255,6 +256,7 @@ export function inferProcessProvider(command, args = []) {
 
 export function resolveCommand(command, env = process.env) {
   if (process.platform !== "win32") return { command, prefixArgs: [], resolvedPath: command };
+  env = withRuntimeExecutablePath(env);
   const candidates = [];
   if (isAbsolute(command) || command.includes("\\") || command.includes("/")) candidates.push(command);
   else {
@@ -266,6 +268,13 @@ export function resolveCommand(command, env = process.env) {
       // Preserve PATH ownership boundaries. Prefer a native or PowerShell entry
       // in the first matching directory instead of jumping to a later desktop
       // executable that may proxy into a shared, long-lived host.
+      // Claude Code is commonly installed through npm, which leaves a
+      // `claude.ps1` shim early in PATH while the native installer places
+      // `claude.exe` later (for example in ~/.local/bin). Prefer the native
+      // seat for this known provider so stdin remains a trusted UTF-8 pipe;
+      // keep the legacy first-directory ordering for every other command.
+      const nativePreferred = command.toLowerCase() === "claude";
+      const suffixes = nativePreferred ? [".exe", ".com"] : [".exe", ".com", ".ps1"];
       for (const directory of directories) {
         if (command.toLowerCase() === "opencode") {
           // npm 的 opencode.ps1 只是跳板，真正的二进制在 node_modules/opencode-ai/bin。
@@ -290,7 +299,12 @@ export function resolveCommand(command, env = process.env) {
             "codex.exe",
           ));
         }
-        for (const suffix of [".exe", ".com", ".ps1"]) candidates.push(join(directory, `${command}${suffix}`));
+        for (const suffix of suffixes) candidates.push(join(directory, `${command}${suffix}`));
+      }
+      if (nativePreferred) {
+        // Only use the shim when no native peer exists. Non-ASCII prompts are
+        // still rejected by prompt-transport.mjs if this fallback is selected.
+        for (const directory of directories) candidates.push(join(directory, `${command}.ps1`));
       }
       for (const directory of directories) candidates.push(join(directory, `${command}.cmd`));
       // Grok Build installs to ~/.grok/bin (a non-PATH location); fall back to the
@@ -393,7 +407,7 @@ export function childProcessEnv(overrides = {}, base = process.env, policy = {})
   if (!Object.keys(env).some((key) => envName(key) === "PYTHONUTF8")) env.PYTHONUTF8 = "1";
   if (!Object.keys(env).some((key) => envName(key) === "LANG")) env.LANG = "C.UTF-8";
   if (!Object.keys(env).some((key) => envName(key) === "LC_ALL")) env.LC_ALL = "C.UTF-8";
-  return env;
+  return withRuntimeExecutablePath(env);
 }
 
 const terminationByChild = new WeakMap();

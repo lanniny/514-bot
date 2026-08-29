@@ -16,6 +16,7 @@ function fixture() {
       status: "waiting_agent",
       taskType: "coding",
       orchestrationMode: "social",
+      conversationKind: "workspace_group",
       permissionMode: "build",
       teamId: "team-514cc",
       coordinatorId: "claude-fable",
@@ -90,6 +91,7 @@ test("mission projection is deterministic, bounded and excludes raw bodies and s
   assert.equal(first.schema, MISSION_CONTROL_SCHEMA);
   assert.equal(first.schemaVersion, 3);
   assert.equal(first.task.executionOwnerId, "codex-technical");
+  assert.equal(first.task.conversationKind, "workspace_group");
   assert.match(first.snapshotId, /^mc-snapshot-[0-9a-f]{64}$/);
   assert.equal(first.attempts.length, MISSION_CONTROL_LIMITS.attempts);
   assert.equal(first.messageRoutes.length, MISSION_CONTROL_LIMITS.messageRoutes);

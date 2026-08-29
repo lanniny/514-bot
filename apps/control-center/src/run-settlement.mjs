@@ -32,6 +32,23 @@ function statusOf(run) {
   return asText(run?.status, "unknown").toLowerCase();
 }
 
+function evidenceReadRisk(evidenceSource) {
+  if (!evidenceSource || typeof evidenceSource !== "object") return null;
+  const issues = Array.isArray(evidenceSource.issues) ? evidenceSource.issues : [];
+  const failed = issues
+    .filter((item) => item && typeof item === "object" && item.ok === false)
+    .map((item) => ({
+      id: asText(item.id, "evidence-source-unavailable").slice(0, 80),
+      status: "blocked",
+      reason: asText(item.reason || item.error || "治理证据源读取失败", "治理证据源读取失败").slice(0, 180),
+    }));
+  if (failed.length) return failed;
+  if (evidenceSource.status === "unavailable" || evidenceSource.available === false) {
+    return [{ id: "evidence-source-unavailable", status: "blocked", reason: "治理证据源不可用，不能确认交付记录完整性" }];
+  }
+  return null;
+}
+
 function nextActionFor(verdict, risks, { dirty = false } = {}) {
   const first = risks[0];
   if (verdict === "remote-unsupported") {
@@ -49,6 +66,7 @@ export function synthesizeRunSettlement({
   run = null,
   artifacts = [],
   diffSummary = null,
+  evidenceSource = null,
   now = () => new Date().toISOString(),
 } = {}) {
   const runId = asText(run?.id, "") || null;
@@ -65,6 +83,8 @@ export function synthesizeRunSettlement({
         ? "none"
         : "none";
   const risks = [];
+  const evidenceRisks = evidenceReadRisk(evidenceSource);
+  if (evidenceRisks) risks.push(...evidenceRisks);
 
   if (!runId) {
     return {
@@ -186,6 +206,7 @@ export async function collectRunSettlement({
   includeDiff = false,
   handoffs = [],
   deltas = [],
+  evidenceSource = null,
   summarizeDiff = summarizeRunDiff,
   now = () => new Date().toISOString(),
 } = {}) {
@@ -206,6 +227,7 @@ export async function collectRunSettlement({
     run,
     artifacts: cards,
     diffSummary,
+    evidenceSource,
     now,
   });
 }

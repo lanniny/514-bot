@@ -1,5 +1,5 @@
 {
-  "count": 137,
+  "count": 141,
   "icons": [
     "activity",
     "archive",
@@ -62,6 +62,7 @@
     "heart-pulse",
     "hexagon",
     "history",
+    "image",
     "import",
     "info",
     "key-round",
@@ -79,7 +80,9 @@
     "message-circle",
     "message-square",
     "messages-square",
+    "mic",
     "minus",
+    "monitor",
     "moon",
     "network",
     "orbit",
@@ -89,6 +92,7 @@
     "panel-left",
     "panel-right",
     "paperclip",
+    "pause",
     "pencil",
     "pin",
     "play",

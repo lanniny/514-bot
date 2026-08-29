@@ -406,7 +406,8 @@ test("orchestrator rechecks remote authorization at every provider dispatch boun
 
   const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../src/orchestrator.mjs", import.meta.url), "utf8"));
   const turn = source.slice(source.indexOf("async turn("), source.indexOf("async execute("));
-  assert.match(turn, /try \{\s*this\.assertRemoteDispatchable\(run\);\s*response = await adapter\.send/);
+  assert.match(turn, /this\.assertRemoteDispatchable\(run\);\s*response = await adapter\.send/);
+  assert.match(turn, /this\.assertRemoteDispatchable\(run\);\s*const compacted = await adapter\.compactThread/);
   const fallbackOwner = turn.indexOf("this.assertLifecycleOwner(run, controller);", turn.indexOf('"adapter.fallback"'));
   const fallbackGate = turn.indexOf("this.assertRemoteDispatchable(run);", fallbackOwner);
   const fallbackSend = turn.indexOf("response = await fallback.send(sendInput);", fallbackGate);

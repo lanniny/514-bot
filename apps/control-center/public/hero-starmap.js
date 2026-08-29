@@ -413,12 +413,13 @@ function createEngine(canvas, overlay, { onSelect } = {}) {
     if (reduced) draw(0);
   }
 
+  // 背景画布全程承接指针移动：passive 避免每帧滚动阻塞主线程（处理器不依赖 preventDefault）
   canvas.addEventListener("pointermove", (event) => {
     const rect = canvas.getBoundingClientRect();
     pointer.x = event.clientX - rect.left;
     pointer.y = event.clientY - rect.top;
     pointer.inside = true;
-  });
+  }, { passive: true });
   canvas.addEventListener("pointerleave", () => {
     pointer.inside = false;
     pointer.x = -9999;

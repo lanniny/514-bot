@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MISSION_CONTROL_LIMITS, MISSION_CONTROL_SCHEMA } from "../src/mission-control.mjs";
@@ -79,6 +79,7 @@ test("authenticated run mission endpoint returns a bounded redacted snapshot", {
   await mkdir(join(dataRoot, "bus"), { recursive: true });
   await mkdir(join(workspaceRoot, "src"), { recursive: true });
   await writeFile(join(workspaceRoot, "src", "index.js"), "const token = 'workspace-http-secret';\n", "utf8");
+  await writeFile(join(workspaceRoot, "src", "editable.js"), "export const value = 1;\n", "utf8");
 
   const run = {
     id: runId,
@@ -299,13 +300,34 @@ test("authenticated run mission endpoint returns a bounded redacted snapshot", {
   assert.equal(missing.status, 404);
   assert.equal((await missing.json()).error?.code, "RUN_NOT_FOUND");
 
+  const settlement = await fetch(`${origin}/api/runs/${runId}/settlement?diff=0`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(settlement.status, 200);
+  const settlementPayload = await settlement.json();
+  assert.equal(settlementPayload.schema, "514cc.run-settlement/v1");
+  assert.equal(settlementPayload.runId, runId);
+  assert.deepEqual(settlementPayload.autoLanding, {
+    merge: false,
+    rebase: false,
+    commit: false,
+    push: false,
+    gitAdd: false,
+  });
+
+  const missingSettlement = await fetch(`${origin}/api/runs/22222222-2222-4222-8222-222222222222/settlement`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(missingSettlement.status, 404);
+  assert.equal((await missingSettlement.json()).error?.code, "RUN_NOT_FOUND");
+
   const workspace = await fetch(`${origin}/api/runs/${runId}/workspace?path=src`, {
     headers: { authorization: `Bearer ${token}` },
   });
   assert.equal(workspace.status, 200);
   const workspaceSnapshot = await workspace.json();
   assert.equal(workspaceSnapshot.type, "directory");
-  assert.deepEqual(workspaceSnapshot.entries.map((item) => item.path), ["src/index.js"]);
+  assert.deepEqual(workspaceSnapshot.entries.map((item) => item.path), ["src/editable.js", "src/index.js"]);
   assert.equal(JSON.stringify(workspaceSnapshot).includes(workspaceRoot), false);
 
   const preview = await fetch(`${origin}/api/runs/${runId}/workspace?path=src%2Findex.js`, {
@@ -315,6 +337,30 @@ test("authenticated run mission endpoint returns a bounded redacted snapshot", {
   const file = await preview.json();
   assert.equal(file.file.redacted, true);
   assert.equal(file.file.content.includes("workspace-http-secret"), false);
+
+  const editableResponse = await fetch(`${origin}/api/runs/${runId}/workspace?path=src%2Feditable.js`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  assert.equal(editableResponse.status, 200);
+  const editable = await editableResponse.json();
+  assert.equal(editable.file.editable, true);
+  const save = await fetch(`${origin}/api/runs/${runId}/workspace?path=src%2Feditable.js`, {
+    method: "PUT",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ content: "export const value = 2;\n", expectedRevision: editable.file.revision }),
+  });
+  assert.equal(save.status, 200);
+  const saved = await save.json();
+  assert.equal(saved.file.content, "export const value = 2;\n");
+  assert.equal(await readFile(join(workspaceRoot, "src", "editable.js"), "utf8"), "export const value = 2;\n");
+
+  const stale = await fetch(`${origin}/api/runs/${runId}/workspace?path=src%2Feditable.js`, {
+    method: "PUT",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ content: "stale\n", expectedRevision: editable.file.revision }),
+  });
+  assert.equal(stale.status, 409);
+  assert.equal((await stale.json()).error?.code, "WORKSPACE_VERSION_CONFLICT");
 
   const traversal = await fetch(`${origin}/api/runs/${runId}/workspace?path=..%2Foutside`, {
     headers: { authorization: `Bearer ${token}` },

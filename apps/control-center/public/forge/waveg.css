@@ -314,7 +314,7 @@
   align-items: center;
   gap: var(--forge-space-2, 8px);
 }
-.waveg-card-head .icon { width: 18px; height: 18px; color: var(--forge-accent, #e11d48); }
+.waveg-card-head .icon { width: 18px; height: 18px; color: var(--forge-accent, var(--primary, #d97757)); }
 .waveg-card-head h3 { margin: 0; font-size: 15px; font-weight: 650; flex: 1; }
 .waveg-card .subtle { color: var(--forge-text-secondary, #78716c); font-size: 12.5px; margin: 0; }
 .waveg-card-actions {

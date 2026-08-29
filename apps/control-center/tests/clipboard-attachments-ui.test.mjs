@@ -210,6 +210,24 @@ test("clipboard upload keeps the saved attachment and reports a failed lease cla
   assert.deepEqual(context.uploads, []);
 });
 
+test("clipboard upload carries an optional preview URL without changing the submitted path contract", async () => {
+  const context = {
+    attachments: [],
+    uploads: [],
+    previews: new Map(),
+    previewUploads: new Map([["preview-upload", "blob:pending-preview"]]),
+  };
+  await queueClipboardImageUploads({
+    files: [pngFile],
+    context,
+    id: () => "preview-upload",
+    upload: async () => ({ path: "C:/data/preview.png", previewUrl: "blob:saved-preview" }),
+  });
+  assert.deepEqual(context.attachments, ["C:/data/preview.png"]);
+  assert.equal(context.previews.get("C:/data/preview.png"), "blob:saved-preview");
+  assert.equal(context.previewUploads.has("preview-upload"), false);
+});
+
 test("quota retry reuses the original File and preserves it when capacity is still exhausted", async () => {
   const context = { attachments: [], uploads: [] };
   const quotaError = (files) => Object.assign(new Error("storage quota exhausted"), {
@@ -297,4 +315,43 @@ test("composer wires image paste into attachment state and blocks send while upl
   assert.match(state, /composerDraftId:/);
   assert.match(state, /attachmentContexts:\s*new Map\(\)/);
   assert.match(styles, /\.attach-chip > span\s*\{[\s\S]*?min-width:\s*0;[\s\S]*?overflow:\s*hidden;[\s\S]*?text-overflow:\s*ellipsis;/);
+});
+
+test("Bot composer accepts paste, drop, file selection, and isolates attachments per conversation", async () => {
+  const [app, html, css] = await Promise.all([
+    readFile(resolve(import.meta.dirname, "../public/app.js"), "utf8"),
+    readFile(resolve(import.meta.dirname, "../public/index.html"), "utf8"),
+    readFile(resolve(import.meta.dirname, "../public/forge/bot-shell.css"), "utf8"),
+  ]);
+  assert.match(app, /function botAttachmentContextKeyFor\(conversation = botActiveConversation\(\), agentId = botState\.agentId\)/);
+  assert.match(app, /return conversation\?\.id\s*\? `bot:conversation:\$\{String\(conversation\.id\)\}`/);
+  assert.match(app, /bindClipboardImagePaste\(botInput, queueBotImages\)/);
+  assert.match(app, /botInput\?\.addEventListener\("dragover"/);
+  assert.match(app, /botInput\?\.addEventListener\("drop"/);
+  assert.match(app, /bot-attachment-file.*change/);
+  assert.match(app, /bot-attach-chips.*data-bot-detach/s);
+  assert.match(app, /if \(botAttachmentUploadInFlight\(\)\)/);
+  assert.match(app, /botEnsureAttachmentPreviewMaps\(context\)/);
+  assert.match(app, /botSafeAttachmentPreviewUrl/);
+  assert.match(app, /class="bot-attach-preview-frame"/);
+  assert.match(app, /<img class="bot-attach-preview-trigger" src="\$\{escapeHtml\(preview\)\}/);
+  assert.match(app, /botRemoveAttachmentPreview\(context, path\)/);
+  assert.match(app, /function botOpenImagePreview\(previewUrl, name/);
+  assert.match(app, /dialog\.showModal\(\)/);
+  assert.match(app, /data-bot-preview/);
+  assert.match(app, /bot-image-preview-dialog.*addEventListener\("close"/);
+  assert.match(app, /imagePreviewOpenerUrl/);
+  assert.match(app, /find\(\(element\) => element\.dataset\.botPreview === openerUrl\)/);
+  assert.match(app, /setTimeout\(restoreFocus, 0\)/);
+  assert.match(app, /botOpenImagePreview\(preview\.dataset\.botPreview/);
+  assert.match(html, /id="bot-attachment-file"[^>]+accept="image\/(png|jpeg|gif|webp)/);
+  assert.match(html, /id="bot-attach-chips"/);
+  assert.match(html, /id="bot-image-preview-dialog"[^>]+aria-labelledby="bot-image-preview-title"/);
+  assert.match(html, /id="bot-image-preview-image"/);
+  assert.match(css, /\.bot-attach-chip/);
+  assert.match(css, /\.bot-attach-preview-frame[\s\S]*aspect-ratio:\s*1/);
+  assert.match(css, /\.bot-attach-preview-frame img[\s\S]*object-fit:\s*cover/);
+  assert.match(css, /\.bot-attach-remove[\s\S]*border-radius:\s*50%/);
+  assert.match(css, /\.bot-image-preview-dialog::backdrop/);
+  assert.match(css, /\.bot-image-preview-body img[\s\S]*object-fit:\s*contain/);
 });

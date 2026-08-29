@@ -5,7 +5,8 @@ import { basename, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { BusStore, parseDirectives } from "./bus.mjs";
 import { findSecretCandidates, sanitizeForPersistence } from "./redaction.mjs";
-import { ADAPTER_TEMPLATES } from "./adapters/manifest.mjs";
+import { ADAPTER_TEMPLATES, adapterTemplateForRuntimeProfileId } from "./adapters/manifest.mjs";
+import { resolveNativeCommand } from "./adapters/native-commands.mjs";
 import { createRemoteAdapter } from "./adapters/index.mjs";
 import { attestRunWorkspace } from "./run-workspace.mjs";
 import { normalizeRunSources, promptWithRunSources, visualSourceType } from "./run-sources.mjs";
@@ -24,11 +25,24 @@ export { normalizeRunSources, promptWithRunSources } from "./run-sources.mjs";
 const execFileAsync = promisify(execFile);
 
 const TERMINAL = new Set(["succeeded", "failed", "cancelled"]);
+const CONVERSATION_KINDS = new Set(["direct", "workspace_group", "legacy_pipeline"]);
 
 function markPromptTransportFailure(run, error) {
   if (!isPromptTransportError(error)) return;
   run.failureClass = "provider_error";
 }
+
+export function resolveBudgetUsdPerTurn(value, policy = {}, { legacyDefault = 0.75 } = {}) {
+  const limits = policy?.limits || policy || {};
+  const max = Number(limits.maxBudgetUsdPerTurn);
+  const hardMax = Number.isFinite(max) && max >= 0.05 ? Math.min(max, 50) : 2;
+  const requested = value !== undefined && value !== null && String(value).trim() !== ""
+    ? Number(value)
+    : Number(limits.defaultBudgetUsdPerTurn ?? legacyDefault);
+  const fallback = Number.isFinite(requested) && requested >= 0.05 ? requested : Math.min(legacyDefault, hardMax);
+  return Math.max(0.05, Math.min(fallback, hardMax));
+}
+
 const MAX_REQUESTED_AGENTS = 4;
 // social 协作：显式 @N 个成员的闭环 = N+1 步（各回一句 + 主脑汇总），另留该余量给 agent 间
 // 自主往复（追问/补强/复核），避免一次多 agent 协作被"单交互自主步骤"闸在闭环边界截断。
@@ -38,6 +52,10 @@ const CODEX_TRANSPORT_FAILURES = new Set(["APP_SERVER_EXIT", "APP_SERVER_TIMEOUT
 // 才有安全续跑语义。次数按当前用户交互计，不把一次超时变成整场会话的永久惩罚。
 const AUTO_RECOVERY_TIMEOUT_CODES = new Set(["TURN_TIMEOUT", "TURN_IDLE_TIMEOUT"]);
 const MAX_AUTO_RECOVERIES_PER_INTERACTION = 2;
+// 原生上下文压缩预算按"当前用户交互"计，且必须是显式计数器而非递归参数：压缩链与自动续跑链
+// 会互相嵌套（压缩轮超时 → 自动续跑 → 新轮又带默认 allowContextRecovery），任何一处递归漏传
+// 参数都会让"一次压缩上限"失效，把单次「继续」拉成数轮 5 分钟静默。计数器落在 run 上、可审计。
+const MAX_CONTEXT_COMPACTIONS_PER_INTERACTION = 1;
 // Codex 官方权限档（LO 2026-08-09：与 Codex 桌面批准菜单一致，不再用 514cc 自造档位替代）：
 // composer mode → 原生组合 id（sandbox+approvalPolicy 由 codex adapter 解析，见 codex-app-server.mjs）。
 // 官方语义不走 514cc 的 build 审批/租约门——审批发生在 Codex 层（on-request/on-failure 升级到
@@ -60,15 +78,39 @@ const PERMISSION_HOT_TRANSITIONS = Object.freeze({
   ask: ["auto"],
   auto: ["ask"],
   "full-access": [],
+  // CLI 原生审批档（native:* 透传 override）：与治理档同款降档哲学——只放开收缩方向，
+  // 升档要求新建任务；与前端 public/app.js 的同名表严格同源（语义不得分叉）。
+  "native:auto": [],
+  "native:acceptEdits": ["native:auto"],
+  "native:always-approve": ["native:acceptEdits", "native:auto"],
   config: [],
 });
 const AUTO_RECOVERY_CONTINUATION_PROMPT = "[514cc 编排器自动恢复] 你的上一轮原生轮因超时被编排器打断，打断已获 provider 确认，会话内无残留活跃工作，但任务尚未交付。请利用本会话已保留的排查进展继续完成当前任务：不要从头重复已完成的读取与分析，直接补齐剩余工作并给出最终交付与可验证证据。";
 const TRANSIENT_RENAME_ERRORS = new Set(["EPERM", "EACCES", "EBUSY"]);
 const RENAME_RETRY_DELAYS_MS = [10, 25, 50, 100];
+const CODEX_RESUME_UUID = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value ?? null);
+}
+
+/** Codex 交互恢复吃线程 uuid；rollout 文件名里夹着同一枚，抽出来再用。 */
+export function codexInteractiveResumeId(sessionId) {
+  const text = String(sessionId ?? "").trim();
+  const match = CODEX_RESUME_UUID.exec(text);
+  return match ? match[1] : text;
+}
+
 const ADAPTER_RESUME_FEATURES = Object.freeze({
   "claude-stream-json": { defaultCommand: "claude", args: (sessionId) => ["-r", sessionId] },
-  "codex-app-server": { defaultCommand: "codex", args: (sessionId) => ["exec", "resume", sessionId] },
-  "codex-exec-json": { defaultCommand: "codex", args: (sessionId) => ["exec", "resume", sessionId] },
+  // 交互 TUI 必须是 `codex resume <uuid>`。`codex exec resume` 是无交互一轮，没 prompt 会立刻
+  // 报 "No prompt provided" 然后进程退出——这正是罩层打开 Codex 会话时看到的那句。
+  "codex-app-server": { defaultCommand: "codex", args: (sessionId) => ["resume", codexInteractiveResumeId(sessionId)] },
+  "codex-exec-json": { defaultCommand: "codex", args: (sessionId) => ["resume", codexInteractiveResumeId(sessionId)] },
   "gemini-stream-json": { defaultCommand: "gemini", args: (sessionId) => ["--resume", sessionId] },
   "grok-build-headless": { defaultCommand: "grok", args: (sessionId) => ["-r", sessionId] },
   "kimi-headless-resume": { defaultCommand: "kimi", args: (sessionId) => ["-S", sessionId] },
@@ -236,6 +278,32 @@ export function normalizeRequestedAgentIds(value, teamMembers) {
   return requested;
 }
 
+export function normalizeConversationRecipientIds(value, conversation) {
+  if (value == null) return null;
+  if (!Array.isArray(value)) {
+    throw Object.assign(new Error("recipientMemberIds must be an array"), { code: "VALIDATION_FAILED" });
+  }
+  const requested = value.map((item) => String(item || "").trim());
+  if (requested.some((id) => !id)) {
+    throw Object.assign(new Error("recipientMemberIds cannot contain empty member IDs"), { code: "VALIDATION_FAILED" });
+  }
+  if (new Set(requested).size !== requested.length) {
+    throw Object.assign(new Error("recipientMemberIds cannot contain duplicate member IDs"), { code: "VALIDATION_FAILED" });
+  }
+  if (requested.length > 1) {
+    throw Object.assign(new Error("a Conversation message can target at most one member"), { code: "VALIDATION_FAILED" });
+  }
+  if (!requested.length) return null;
+  const allowed = new Set((conversation?.memberIds || []).map(String));
+  if (requested.some((id) => !allowed.has(id))) {
+    throw Object.assign(new Error("every recipient must belong to the selected Conversation"), { code: "NOT_TEAM_MEMBER" });
+  }
+  if (conversation?.kind === "direct" && requested[0] !== String(conversation.directMemberId || "")) {
+    throw Object.assign(new Error("a direct Conversation can only target its bound member"), { code: "NOT_TEAM_MEMBER" });
+  }
+  return requested;
+}
+
 export function resolveStartAgentId(value, teamMembers, fallbackId) {
   const explicit = value == null ? "" : String(value).trim();
   const members = Array.isArray(teamMembers) ? new Set(teamMembers) : null;
@@ -319,6 +387,9 @@ export class Orchestrator {
     approvalBroker,
     teams = null,
     teamMembers = null,
+    projects = null,
+    conversations = null,
+    conversationContexts = null,
     models = null,
     modelDiscovery = null,
     capabilities = null,
@@ -335,6 +406,9 @@ export class Orchestrator {
     this.approvalBroker = approvalBroker;
     this.teams = teams;
     this.teamMembers = teamMembers;
+    this.projects = projects;
+    this.conversations = conversations;
+    this.conversationContexts = conversationContexts;
     this.remoteRunner = remoteRunner;
     this.repoRoot = repoRoot;
     this.interruptTimeoutMs = Math.max(1, Math.trunc(Number(interruptTimeoutMs) || 30_000));
@@ -347,6 +421,9 @@ export class Orchestrator {
     this.runs = new Map();
     this.controllers = new Map();
     this.executions = new Map();
+    this.createClaims = new Map(); // `${conversationId || "global"}\0${idempotencyKey}` -> in-flight create promise
+    this.conversationMessageChains = new Map(); // conversationId -> serialized message admission promise
+    this.contextClaimRunIds = new Set(); // Run persisted 前也必须占住 Conversation native session
     this.closing = false;
     this.closePromise = null;
     this.runDir = join(dataRoot, "runs");
@@ -426,7 +503,7 @@ export class Orchestrator {
         changed = true;
       }
     }
-    for (const field of ["interactionCostUsd", "interactionStepsRefunded", "interactionAutoRecoveries"]) {
+    for (const field of ["interactionCostUsd", "interactionStepsRefunded", "interactionAutoRecoveries", "interactionContextCompactions"]) {
       const value = Math.max(0, Number(run[field]) || 0);
       if (run[field] !== value) {
         run[field] = value;
@@ -462,6 +539,7 @@ export class Orchestrator {
         interactionCostUsd: Math.max(0, Number(rawState.interactionCostUsd) || 0),
         interactionStepsRefunded: Math.max(0, Math.trunc(Number(rawState.interactionStepsRefunded) || 0)),
         interactionAutoRecoveries: Math.max(0, Math.trunc(Number(rawState.interactionAutoRecoveries) || 0)),
+        interactionContextCompactions: Math.max(0, Math.trunc(Number(rawState.interactionContextCompactions) || 0)),
         interactionStartedAt: rawState.interactionStartedAt || null,
         sources: normalizeRunSources(rawState.sources || []),
       };
@@ -474,6 +552,7 @@ export class Orchestrator {
         interactionCostUsd: Math.max(0, Number(run.interactionCostUsd) || 0),
         interactionStepsRefunded: Math.max(0, Math.trunc(Number(run.interactionStepsRefunded) || 0)),
         interactionAutoRecoveries: Math.max(0, Math.trunc(Number(run.interactionAutoRecoveries) || 0)),
+        interactionContextCompactions: Math.max(0, Math.trunc(Number(run.interactionContextCompactions) || 0)),
         interactionStartedAt: run.interactionStartedAt || null,
         sources: activeSources,
       };
@@ -516,8 +595,11 @@ export class Orchestrator {
     run.interactionCostUsd = stored?.interactionCostUsd || 0;
     run.interactionStepsRefunded = stored?.interactionStepsRefunded || 0;
     run.interactionAutoRecoveries = stored?.interactionAutoRecoveries || 0;
+    run.interactionContextCompactions = stored?.interactionContextCompactions || 0;
     run.activeInteractionSources = sources;
     run.interactionStartedAt = stored?.interactionStartedAt || new Date().toISOString();
+    run.stopReason = null;
+    run.attention = null;
     run.interactionStates ||= {};
     run.interactionStates[interactionId] = {
       interactionSeq: run.activeInteractionSeq,
@@ -525,6 +607,7 @@ export class Orchestrator {
       interactionCostUsd: run.interactionCostUsd,
       interactionStepsRefunded: run.interactionStepsRefunded,
       interactionAutoRecoveries: run.interactionAutoRecoveries,
+      interactionContextCompactions: run.interactionContextCompactions,
       interactionStartedAt: run.interactionStartedAt,
       sources,
     };
@@ -576,6 +659,7 @@ export class Orchestrator {
       interactionCostUsd: run.interactionCostUsd,
       interactionStepsRefunded: run.interactionStepsRefunded,
       interactionAutoRecoveries: run.interactionAutoRecoveries,
+      interactionContextCompactions: run.interactionContextCompactions,
       interactionStartedAt: run.interactionStartedAt,
       activeInteractionSources: normalizeRunSources(run.activeInteractionSources || []),
       pendingInteractionSources: normalizeRunSources(run.pendingInteractionSources || []),
@@ -625,10 +709,57 @@ export class Orchestrator {
         continue;
       }
       if (!run?.id) continue;
+      // P0-07：异常 createdAt（null / 非 ISO / 不可解析）会让公共 list() 的
+      // 时间序排序崩溃并污染恢复链。这里把它隔离——仍保留在控制面可见（可诊断），
+      // 但标记为不可自动恢复，绝不让它参与 resume/replay 或把 /api/runs 打到 500。
+      if (!(typeof run.createdAt === "string") || !Number.isFinite(Date.parse(run.createdAt))) {
+        run.createdAt = run.createdAt == null ? null : run.createdAt;
+        this.markRecoveryIssue(run, "RUN_CREATED_AT_INVALID", Object.assign(
+          new Error("persisted run has an invalid createdAt; quarantined from recovery"),
+          { code: "RUN_CREATED_AT_INVALID" },
+        ));
+        this.runs.set(run.id, run);
+        continue;
+      }
       this.runs.set(run.id, run); // 先建立控制面可见性；后续 bus/save 故障不能把有效 run 隐藏成 404。
       let restatedOnRestart = false;
       try {
         restatedOnRestart ||= this.ensureInteractionState(run);
+        if (run.conversationKind == null) {
+          run.conversationKind = "legacy_pipeline";
+          restatedOnRestart = true;
+        } else if (!CONVERSATION_KINDS.has(run.conversationKind)) {
+          throw Object.assign(new Error(`persisted run has an invalid conversation kind: ${run.conversationKind}`), {
+            code: "CONVERSATION_KIND_INVALID",
+          });
+        }
+        if (run.conversationId === undefined) {
+          run.conversationId = null;
+          restatedOnRestart = true;
+        }
+        const persistedConversation = run.conversationId && this.conversations
+          ? this.conversations.get(run.conversationId)
+          : null;
+        const persistedProjectId = persistedConversation?.projectId || null;
+        if (run.projectId === undefined) {
+          run.projectId = persistedProjectId;
+          restatedOnRestart = true;
+        } else if ((run.projectId || null) !== persistedProjectId && persistedConversation) {
+          throw Object.assign(new Error("persisted run project does not match its conversation"), {
+            code: "RUN_PROJECT_MISMATCH",
+          });
+        }
+        if (run.projectId) {
+          if (!this.projects) throw Object.assign(new Error("persisted project run has no project registry"), { code: "PROJECT_STORE_UNAVAILABLE" });
+          const project = this.projects.get(run.projectId);
+          if (run.cwd) {
+            const actualKey = process.platform === "win32" ? resolve(run.cwd).toLowerCase() : resolve(run.cwd);
+            const expectedKey = process.platform === "win32" ? resolve(project.canonicalCwd).toLowerCase() : resolve(project.canonicalCwd);
+            if (actualKey !== expectedKey) {
+              throw Object.assign(new Error("persisted run cwd does not match its project"), { code: "RUN_PROJECT_MISMATCH" });
+            }
+          }
+        }
         const rosterCapabilitiesMigrated = migrateRunRosterCapabilities(run);
         restatedOnRestart = rosterCapabilitiesMigrated || restatedOnRestart;
         const currentInteraction = this.currentInteraction(run);
@@ -1055,6 +1186,18 @@ export class Orchestrator {
     return requested;
   }
 
+  // 权限覆盖校验（与 effort 覆盖同款位置：创建与热改同源）：值必须在当前模板声明的
+  // permissionModes 内（含 native:* 透传档），否则拒绝并回报原因（fail-closed）。
+  // 接线层只对 native: 前缀的值透传给 Adapter；普通三档维持原路径。
+  validatePermissionOverride({ executionOwnerId, executionAdapterTemplate }, requestedPermission) {
+    const requested = String(requestedPermission).trim();
+    const modes = executionAdapterTemplate?.permissionModes;
+    if (!Array.isArray(modes) || !modes.length || !modes.includes(requested)) {
+      throw Object.assign(new Error(`unsupported permission override for ${executionOwnerId}: ${requested}`), { code: "INVALID_PERMISSION" });
+    }
+    return requested;
+  }
+
   markRecoveryIssue(run, code, error) {
     run.auditDegraded = true;
     run.persistenceDegraded = true;
@@ -1078,6 +1221,7 @@ export class Orchestrator {
 
   requiresRecovery(run, error = null) {
     if (error?.code === "RECOVERY_REQUIRED") return true;
+    if (error?.nativeSessionBusy === true) return true;
     if (isPromptTransportError(error)) return false;
     if (error?.nativeTurnSettled === true) return false;
     return Boolean(run.resumeClaim)
@@ -1252,6 +1396,139 @@ export class Orchestrator {
       upstreamProviderId: null,
       upstreamAttribution: "unavailable",
     };
+  }
+
+  conversationContextPlan({ conversation, conversationKind, projectId, sessionCwd, sessionRemote, teamRoster, executionOwnerId }) {
+    if (!conversation || conversationKind === "legacy_pipeline" || !this.conversationContexts) return null;
+    // Remote adapters are instantiated per Run and bind host-local process state. Until that
+    // factory exposes a stable cross-Run resume contract, local and remote epochs stay isolated.
+    if (sessionRemote) return null;
+    const memberIds = conversationKind === "direct"
+      ? [executionOwnerId]
+      : [...new Set(conversation.memberIds || [])].sort();
+    const cwdKey = sessionCwd
+      ? (process.platform === "win32" ? sessionCwd.toLowerCase() : sessionCwd)
+      : null;
+    const candidates = [];
+    const topologyMembers = [];
+    for (const memberId of memberIds) {
+      const runtimeProfileId = teamRoster
+        ? rosterMember(teamRoster, memberId)?.runtimeProfileId || null
+        : memberId;
+      const adapter = runtimeProfileId ? this.adapters.get(runtimeProfileId) : null;
+      const providerBinding = adapter && runtimeProfileId
+        ? this.providerBindingFor(adapter, runtimeProfileId, { remote: false })
+        : null;
+      topologyMembers.push({
+        memberId,
+        runtimeProfileId,
+        adapterId: adapter?.id || null,
+        providerBinding,
+      });
+      if (!runtimeProfileId || !adapter?.id || !ADAPTER_RESUME_FEATURES[adapter.id]) continue;
+      candidates.push({
+        memberId,
+        runtimeProfileId,
+        adapterId: adapter.id,
+        providerBinding,
+        cwdKey,
+        remoteKey: null,
+      });
+    }
+    const topology = {
+      conversationId: conversation.id,
+      conversationKind,
+      projectId: projectId || null,
+      roomRole: conversation.roomRole || null,
+      cwdKey,
+      remoteKey: null,
+      members: topologyMembers,
+    };
+    return {
+      topologyKey: createHash("sha256").update(stableJson(topology)).digest("hex"),
+      candidates,
+    };
+  }
+
+  async publishConversationContext(run, agentId, attemptId, response, adapter, providerBinding) {
+    if (!this.conversationContexts || !run.conversationId || !run.contextTopologyKey) return { published: false, reason: "disabled" };
+    const attempt = (run.turnAttempts || []).find((item) => item.attemptId === attemptId) || null;
+    if (!response?.sessionId || attempt?.sessionResumable === false || !ADAPTER_RESUME_FEATURES[adapter?.id]) {
+      return { published: false, reason: "not-resumable" };
+    }
+    try {
+      const result = await this.conversationContexts.publish({
+        conversationId: run.conversationId,
+        topologyKey: run.contextTopologyKey,
+        runId: run.id,
+        ownerIsValid: () => {
+          this.assertLifecycleOwner(run, this.controllers.get(run.id));
+          return true;
+        },
+        binding: {
+          memberId: agentId,
+          sessionId: response.sessionId,
+          runtimeProfileId: this.runtimeProfileIdFor(run, agentId),
+          adapterId: adapter.id,
+          protocol: response.protocol || attempt?.protocol || adapter.id,
+          providerBinding,
+          sourceAttemptId: attemptId,
+          cwdKey: run.cwd ? (process.platform === "win32" ? run.cwd.toLowerCase() : run.cwd) : null,
+          remoteKey: null,
+        },
+      });
+      run.contextPublication = {
+        state: result.published ? "published" : "skipped",
+        agentId,
+        sourceAttemptId: attemptId,
+        reason: result.reason || null,
+        epoch: result.epoch || run.contextEpoch || null,
+        updatedAt: new Date().toISOString(),
+      };
+      await this.save(run);
+      return result;
+    } catch (error) {
+      run.contextPublication = {
+        state: "failed",
+        agentId,
+        sourceAttemptId: attemptId,
+        code: error?.code || "CONVERSATION_CONTEXT_STORE_UNAVAILABLE",
+        message: error?.message || "conversation context publication failed",
+        updatedAt: new Date().toISOString(),
+      };
+      await this.save(run).catch(() => {});
+      await this.emitEvent(run, "run.context_publication_failed", {
+        agentId,
+        sourceAttemptId: attemptId,
+        code: run.contextPublication.code,
+        message: run.contextPublication.message,
+      }, { runId: run.id, sessionId: response.sessionId, agentId });
+      return { published: false, reason: "store-unavailable" };
+    }
+  }
+
+  async invalidateConversationContext(run, agentId, sessionId, reason) {
+    if (!this.conversationContexts || !run.conversationId || !sessionId) return { invalidated: false };
+    return this.conversationContexts.invalidate({
+      conversationId: run.conversationId,
+      memberId: agentId,
+      sessionId,
+      reason,
+    });
+  }
+
+  isConversationContextBindingUnsafe(conversationId, memberId, binding) {
+    const bindingUpdatedAt = Number.isFinite(Date.parse(binding?.updatedAt)) ? Date.parse(binding.updatedAt) : -1;
+    return [...this.runs.values()].some((candidate) => {
+      if (candidate.conversationId !== conversationId) return false;
+      if ((candidate.invalidatedSessions || []).some((entry) => (
+        entry?.agentId === memberId && entry?.sessionId === binding?.sessionId
+      ))) return true;
+      const publication = candidate.contextPublication;
+      return publication?.state === "failed"
+        && publication.agentId === memberId
+        && (!Number.isFinite(Date.parse(publication.updatedAt)) || Date.parse(publication.updatedAt) >= bindingUpdatedAt);
+    });
   }
 
   /** 远程 run 终态处置：关闭其专用 adapter（codex app-server close → 通道收 + pgid kill 远端进程树）。 */
@@ -1657,7 +1934,7 @@ export class Orchestrator {
 
   /**
    * 交互式 CLI 接续规格（一键跳终端用）：返回可直接 spawn 的 { command, args, cwd }。
-   * 与 headless resume 同一张特征表（ADAPTER_RESUME_FEATURES）——交互式不带 -p/--json，
+   * 交互式 resume 用 ADAPTER_RESUME_FEATURES（TUI 命令，不是 headless `codex exec`）。
    * 用户拿到的是真 CLI 界面，与控制台共享同一个原生会话（同一 session 文件）。
    * 优先级：显式指定成员 → 执行所有者 → 任一已有原生会话的成员。
    */
@@ -1763,7 +2040,14 @@ export class Orchestrator {
   }
 
   list() {
-    return [...this.runs.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return [...this.runs.values()].sort((a, b) => {
+      const at = a.createdAt == null ? -1 : Date.parse(a.createdAt);
+      const bt = b.createdAt == null ? -1 : Date.parse(b.createdAt);
+      if (at === -1 && bt === -1) return 0;
+      if (at === -1) return 1;
+      if (bt === -1) return -1;
+      return bt - at;
+    });
   }
 
   // 清除已结束任务（succeeded/failed/cancelled）——活跃与 recovery_required 一律不动
@@ -1821,6 +2105,146 @@ export class Orchestrator {
   }
 
   async create(input = {}) {
+    const idempotencyKey = input.idempotencyKey == null ? "" : String(input.idempotencyKey).trim();
+    if (!idempotencyKey || idempotencyKey.length > 200 || !/^[A-Za-z0-9:._-]+$/.test(idempotencyKey)) {
+      return this.#createOnce(input);
+    }
+    const conversationScope = input.conversationId == null ? "global" : String(input.conversationId).trim();
+    const claimKey = `${conversationScope}\0${idempotencyKey}`;
+    const active = this.createClaims.get(claimKey);
+    if (active) return active;
+    const operation = this.#createOnce(input);
+    this.createClaims.set(claimKey, operation);
+    try {
+      return await operation;
+    } finally {
+      if (this.createClaims.get(claimKey) === operation) this.createClaims.delete(claimKey);
+    }
+  }
+
+  async conversationMessage(conversationId, request = {}) {
+    const id = String(conversationId || "").trim();
+    if (!id) throw Object.assign(new Error("conversationId is required"), { code: "VALIDATION_FAILED" });
+    const previous = this.conversationMessageChains.get(id) || Promise.resolve();
+    const operation = previous.catch(() => {}).then(() => this.#conversationMessageOnce(id, request));
+    const tail = operation.catch(() => {});
+    this.conversationMessageChains.set(id, tail);
+    try {
+      return await operation;
+    } finally {
+      if (this.conversationMessageChains.get(id) === tail) this.conversationMessageChains.delete(id);
+    }
+  }
+
+  async #conversationMessageOnce(conversationId, request = {}) {
+    if (!this.conversations) {
+      throw Object.assign(new Error("persisted conversations require a conversation store"), { code: "CONVERSATION_STORE_UNAVAILABLE" });
+    }
+    const conversation = this.conversations.get(conversationId);
+    if (conversation.deletedAt) {
+      throw Object.assign(new Error("deleted conversations cannot accept messages"), { code: "CONVERSATION_DELETED" });
+    }
+    const recipientMemberIds = normalizeConversationRecipientIds(request.recipientMemberIds, conversation);
+    const continuationRequest = { ...request };
+    delete continuationRequest.recipientMemberIds;
+    if (conversation.kind === "direct") {
+      continuationRequest.agentId = String(conversation.directMemberId || "");
+    } else if (recipientMemberIds?.length) {
+      continuationRequest.agentId = recipientMemberIds[0];
+    }
+
+    const activeRunId = String(conversation.activeRunId || "").trim();
+    let activeRun = null;
+    if (activeRunId) {
+      try {
+        activeRun = this.get(activeRunId);
+      } catch (error) {
+        if (error?.code !== "RUN_NOT_FOUND") throw error;
+        // clearFinished may have removed the terminal Run body while the Conversation
+        // intentionally retains its bounded runIds audit chain.
+      }
+      if (activeRun && String(activeRun.conversationId || "") !== conversationId) {
+        throw Object.assign(new Error("conversation active run ownership is inconsistent"), {
+          code: "TRANSACTION_INCONSISTENT",
+          httpStatus: 503,
+          conversationId,
+          runId: activeRunId,
+        });
+      }
+      if (activeRun && !TERMINAL.has(activeRun.status)) {
+        return { run: await this.continue(activeRun.id, continuationRequest), created: false };
+      }
+    }
+
+    if (request.messageIntent === "answer" || request.answerToAskId) {
+      throw Object.assign(new Error("a terminal conversation has no pending ask to answer"), { code: "ASK_NOT_PENDING" });
+    }
+    if (request.acknowledgeRecovery === true || request.nativeCommand === true) {
+      throw Object.assign(new Error("recovery acknowledgement and native commands require an active run"), { code: "RUN_TERMINAL" });
+    }
+
+    const memberIds = [...new Set((conversation.memberIds || []).map(String).filter(Boolean))];
+    if (!memberIds.length) {
+      throw Object.assign(new Error("conversation has no executable members"), { code: "NOT_TEAM_MEMBER" });
+    }
+    const roster = await this.snapshotTeamRoster(memberIds);
+    let coordinator = roster.find((member) => member.coordinatorEligible === true)?.id || null;
+    const teamMembers = [...memberIds];
+    if (!coordinator && conversation.kind === "direct" && this.teamMembers?.list) {
+      const fallback = this.teamMembers.list().find((member) => (
+        member?.teamMemberEligible === true && member?.coordinatorEligible === true
+      ));
+      if (fallback?.id) {
+        coordinator = String(fallback.id);
+        if (!teamMembers.includes(coordinator)) teamMembers.push(coordinator);
+      }
+    }
+    if (!coordinator) {
+      throw Object.assign(new Error("conversation has no coordinator-eligible member"), { code: "RUNTIME_PROFILE_INELIGIBLE" });
+    }
+
+    const previousRunId = [...(conversation.runIds || [])].reverse().find((runId) => this.runs.has(String(runId))) || null;
+    const previousRun = previousRunId ? this.runs.get(String(previousRunId)) : null;
+    const selectedMemberIds = recipientMemberIds?.length ? recipientMemberIds : memberIds;
+    const startAgentId = conversation.kind === "direct"
+      ? String(conversation.directMemberId)
+      : selectedMemberIds.includes(String(previousRun?.startAgentId || ""))
+        ? String(previousRun.startAgentId)
+        : selectedMemberIds[0];
+    const requestedAgentIds = conversation.kind === "workspace_group"
+      ? selectedMemberIds.filter((memberId) => memberId !== startAgentId).slice(0, MAX_REQUESTED_AGENTS)
+      : [];
+    const prompt = String(request.prompt || "").trim();
+    const createInput = {
+      prompt,
+      execute: true,
+      conversationId,
+      conversationKind: conversation.kind,
+      orchestrationMode: conversation.kind === "workspace_group" ? "social" : "pipeline",
+      startAgentId,
+      requestedProvider: startAgentId,
+      requestedAgentIds,
+      ephemeralTeam: {
+        name: String(conversation.title || "514 Bot Conversation").slice(0, 60),
+        description: "由持久化 Conversation 重建的运行快照",
+        systemPrompt: "",
+        coordinator,
+        members: teamMembers,
+        skills: [],
+        mcp: [],
+        providers: {},
+      },
+      sources: request.sources,
+      collaborationMode: previousRun?.collaborationMode === "deep" ? "deep" : "standard",
+      model: previousRun?.modelOverride || undefined,
+      effort: previousRun?.effortOverride || undefined,
+      maxBudgetUsdPerTurn: request.maxBudgetUsdPerTurn,
+      permissionMode: "plan",
+    };
+    return { run: await this.create(createInput), created: true };
+  }
+
+  async #createOnce(input = {}) {
     if (this.closing) throw Object.assign(new Error("control plane is shutting down"), { code: "CONTROL_PLANE_CLOSING" });
     const prompt = String(input.prompt || "").trim();
     if (!prompt) throw Object.assign(new Error("prompt is required"), { code: "INVALID_PROMPT" });
@@ -1832,15 +2256,69 @@ export class Orchestrator {
     if (idempotencyKey && (idempotencyKey.length > 200 || !/^[A-Za-z0-9:._-]+$/.test(idempotencyKey))) {
       throw Object.assign(new Error("idempotencyKey contains unsupported characters or exceeds 200 characters"), { code: "VALIDATION_FAILED" });
     }
+    const runSources = normalizeRunSources(input.sources);
+    const conversationIdProvided = input.conversationId != null;
+    const conversationId = conversationIdProvided ? String(input.conversationId).trim() : null;
+    if (conversationIdProvided && !conversationId) {
+      throw Object.assign(new Error("conversationId cannot be empty"), { code: "VALIDATION_FAILED" });
+    }
+    const requestedConversationKind = input.conversationKind == null ? null : String(input.conversationKind).trim();
+    if ((conversationId || requestedConversationKind === "workspace_group") && !this.conversations) {
+      throw Object.assign(new Error("persisted conversations require a conversation store"), { code: "CONVERSATION_STORE_UNAVAILABLE" });
+    }
+    const conversation = conversationId && this.conversations ? this.conversations.get(conversationId) : null;
+    if (conversationId && !conversation) {
+      throw Object.assign(new Error("conversation not found"), { code: "CONVERSATION_NOT_FOUND" });
+    }
+    if (!conversation && input.projectId != null) {
+      throw Object.assign(new Error("projectId must be derived from a persisted conversation"), { code: "VALIDATION_FAILED" });
+    }
+    const projectId = conversation?.projectId || null;
+    if (input.projectId != null && String(input.projectId).trim() !== projectId) {
+      throw Object.assign(new Error("projectId does not match the persisted conversation"), { code: "VALIDATION_FAILED" });
+    }
+    if (projectId && !this.projects) {
+      throw Object.assign(new Error("project conversations require a project registry"), { code: "PROJECT_STORE_UNAVAILABLE" });
+    }
+    const project = projectId && this.projects ? this.projects.get(projectId) : null;
+    if (conversation?.scope === "project" && !project) {
+      throw Object.assign(new Error("project conversation has no verified project"), { code: "PROJECT_NOT_FOUND" });
+    }
+    const conversationKind = String(input.conversationKind || conversation?.kind || "legacy_pipeline").trim();
+    if (!CONVERSATION_KINDS.has(conversationKind)) {
+      throw Object.assign(new Error(`unsupported conversation kind: ${conversationKind}`), { code: "VALIDATION_FAILED" });
+    }
+    if (conversation && conversation.kind !== conversationKind) {
+      throw Object.assign(new Error("conversation kind does not match the persisted conversation"), { code: "VALIDATION_FAILED" });
+    }
+    if (conversationKind === "workspace_group" && !conversation) {
+      throw Object.assign(new Error("workspace group runs require a persisted conversation"), { code: "CONVERSATION_NOT_FOUND" });
+    }
+    if (project?.archivedAt) {
+      throw Object.assign(new Error("archived projects must be restored before starting runs"), {
+        code: "PROJECT_ARCHIVED",
+        projectId: project.projectId,
+      });
+    }
     if (idempotencyKey) {
-      const existing = [...this.runs.values()].find((item) => item.idempotencyKey === idempotencyKey);
+      const existing = [...this.runs.values()].find((item) => (
+        item.idempotencyKey === idempotencyKey
+        && (item.conversationId || null) === conversationId
+      ));
       if (existing) return existing;
     }
-    const runSources = normalizeRunSources(input.sources);
     // 团队 = 会话级能力配比：成员进路由白名单，提示词/能力声明注入主脑规划轮
     let team = null;
     if (this.teams) {
-      team = this.teams.get(String(input.teamId || "team-514cc")); // 不存在 → SOURCE_NOT_FOUND
+      const hasEphemeralTeam = input.ephemeralTeam != null;
+      if (hasEphemeralTeam && input.teamId != null && String(input.teamId).trim()) {
+        throw Object.assign(new Error("teamId and ephemeralTeam cannot be used together"), { code: "VALIDATION_FAILED" });
+      }
+      team = hasEphemeralTeam
+        ? this.teams.materializeEphemeral(input.ephemeralTeam)
+        : this.teams.get(String(input.teamId || "team-514cc")); // 不存在 → SOURCE_NOT_FOUND
+    } else if (input.ephemeralTeam != null) {
+      throw Object.assign(new Error("ephemeral teams require a team store"), { code: "VALIDATION_FAILED" });
     }
     const teamMemberIds = team ? [...team.members] : null;
     const teamRoster = team ? await this.snapshotTeamRoster(teamMemberIds) : null;
@@ -1858,10 +2336,19 @@ export class Orchestrator {
       });
     }
     const orchestrationMode = resolveOrchestrationMode(input);
+    if (conversationKind === "direct" && orchestrationMode === "social") {
+      throw Object.assign(new Error("direct conversations cannot use social orchestration"), { code: "VALIDATION_FAILED" });
+    }
+    if (conversationKind === "workspace_group" && orchestrationMode !== "social") {
+      throw Object.assign(new Error("workspace group conversations require social orchestration"), { code: "VALIDATION_FAILED" });
+    }
     if (orchestrationMode !== "social" && requestedAgentIds.length) {
       throw Object.assign(new Error("requestedAgentIds is only supported by social orchestration"), { code: "VALIDATION_FAILED" });
     }
-    const explicitStartAgentId = String(input.startAgentId ?? "").trim();
+    const explicitStartAgentId = String(input.startAgentId ?? conversation?.directMemberId ?? "").trim();
+    if (conversationKind === "direct" && !explicitStartAgentId) {
+      throw Object.assign(new Error("direct conversations require an explicit member"), { code: "VALIDATION_FAILED" });
+    }
     const startAgentId = resolveStartAgentId(explicitStartAgentId || null, teamMemberIds, requestedAgentIds[0] || coordinatorId);
     const initialTargets = initialSocialTargets(startAgentId, requestedAgentIds);
     const startRuntimeProfileId = teamRoster
@@ -1938,8 +2425,12 @@ export class Orchestrator {
     // 会话项目地址：CLI 子进程的工作目录。地址=项目身份（claude 原生按 cwd 归属 ~/.claude/projects）。
     // 校验绝对路径 + 真实存在的目录；不存在/不是目录如实拒绝，不静默回退 repoRoot。
     let sessionCwd = null;
-    if (input.cwd) {
-      const requested = String(input.cwd).trim();
+    if (conversation?.scope === "global" && input.cwd) {
+      throw Object.assign(new Error("global conversations cannot override cwd"), { code: "INVALID_CWD" });
+    }
+    const requestedConversationCwd = project?.canonicalCwd || (conversation ? null : input.cwd) || null;
+    if (requestedConversationCwd) {
+      const requested = String(requestedConversationCwd).trim();
       if (!isAbsolute(requested)) {
         throw Object.assign(new Error("session cwd must be an absolute path"), { code: "INVALID_CWD" });
       }
@@ -1953,6 +2444,37 @@ export class Orchestrator {
         throw Object.assign(new Error(`session cwd is not a directory: ${requested}`), { code: "INVALID_CWD" });
       }
       sessionCwd = await realpath(requested);
+    }
+    if (project && input.cwd) {
+      const requestedOverride = String(input.cwd).trim();
+      if (!isAbsolute(requestedOverride)) {
+        throw Object.assign(new Error("session cwd must be an absolute path"), { code: "INVALID_CWD" });
+      }
+      const overrideCwd = await realpath(requestedOverride).catch(() => null);
+      const overrideKey = overrideCwd && (process.platform === "win32" ? overrideCwd.toLowerCase() : overrideCwd);
+      const projectKey = sessionCwd && (process.platform === "win32" ? sessionCwd.toLowerCase() : sessionCwd);
+      if (!overrideKey || overrideKey !== projectKey) {
+        throw Object.assign(new Error("client cwd does not match the persisted project"), { code: "INVALID_CWD" });
+      }
+    }
+    if (conversationKind === "direct" && conversation?.directMemberId !== undefined
+      && conversation.directMemberId !== executionOwnerId) {
+      throw Object.assign(new Error("direct conversation member must be the execution owner"), { code: "VALIDATION_FAILED" });
+    }
+    if (conversationKind === "workspace_group") {
+      if (!sessionCwd) throw Object.assign(new Error("workspace group conversations require cwd"), { code: "INVALID_CWD" });
+      if (project?.canonicalCwd) {
+        const actualKey = process.platform === "win32" ? sessionCwd.toLowerCase() : sessionCwd;
+        const expectedKey = process.platform === "win32" ? project.canonicalCwd.toLowerCase() : project.canonicalCwd;
+        if (actualKey !== expectedKey) {
+          throw Object.assign(new Error("run cwd does not match the workspace group"), { code: "INVALID_CWD" });
+        }
+      }
+      const runMembers = [...new Set(teamMemberIds || [])].sort();
+      const conversationMembers = [...new Set(conversation?.memberIds || [])].sort();
+      if (JSON.stringify(runMembers) !== JSON.stringify(conversationMembers)) {
+        throw Object.assign(new Error("run team does not match the workspace group members"), { code: "VALIDATION_FAILED" });
+      }
     }
     // v41 波二：远程 run（{hostId, path}）——远端探针校验目录真实存在；与 cwd 互斥（两套 cwd 语义绝不混用）。
     // 门闸（ssh）+ 主机存在/启用 + 远端 test -d 全在 assertRunnable 一处；失败如实 422/404/409/501。
@@ -2008,12 +2530,23 @@ export class Orchestrator {
         input.effort,
       );
     }
+    // 权限覆盖（同款机制）：只接受当前模板 permissionModes 内的值；仅 native: 前缀的值会透传给
+    // Adapter（如 grok 原生审批档），不影响 run.permissionMode 的三档治理路径。
+    let permissionOverride = null;
+    if (input.permission) {
+      permissionOverride = this.validatePermissionOverride(
+        { executionOwnerId, executionAdapterTemplate },
+        input.permission,
+      );
+    }
     // v4.0 codeg 对标：委托深度限制（1-8，默认 4）——防止无限递归委派
     // codeg 的 DelegationBroker 含 depth_limit（1-8）、per-agent defaults、cancel 传播
     const delegationDepthLimit = Math.max(1, Math.min(8, Number(input.delegationDepthLimit) || 4));
     // maxRounds 是公开 API/审批哈希的兼容名；实际语义是每条用户消息可触发的自主 provider 步数。
     const explicitSteps = Number(input.maxStepsPerInteraction ?? input.maxRounds) || 0;
-    const topologyMinimumRounds = executionOwnerId === coordinatorId ? (route.independentRequired ? 3 : 1) : 3;
+    const topologyMinimumRounds = conversationKind === "direct"
+      ? 1
+      : executionOwnerId === coordinatorId ? (route.independentRequired ? 3 : 1) : 3;
     // social 模式：显式 @N 个成员的协作闭环 = N+1 步，另留往复余量。不再被 pipeline 的
     // policy.maxRounds（默认 6）硬顶——否则 @4 成员时闭环正好占满 6 步、任何一次追问即截断。
     const socialMinimumRounds = orchestrationMode === "social"
@@ -2048,12 +2581,21 @@ export class Orchestrator {
         })))
       : [];
     const maxStepsPerInteraction = Math.max(minimumRounds, Math.min(explicitSteps || effectiveDefault, effectiveCap));
-    const maxBudgetUsdPerTurn = Math.max(0.05, Math.min(Number(input.maxBudgetUsdPerTurn) || 0.75, Number(this.policy.limits.maxBudgetUsdPerTurn) || 2));
+    const maxBudgetUsdPerTurn = resolveBudgetUsdPerTurn(input.maxBudgetUsdPerTurn, this.policy);
     const socialContract = projectSocialContract({
       orchestrationMode,
       maxRounds: maxStepsPerInteraction,
       delegationDepthLimit,
       maxBudgetUsdPerTurn,
+    });
+    const contextPlan = this.conversationContextPlan({
+      conversation,
+      conversationKind,
+      projectId,
+      sessionCwd,
+      sessionRemote,
+      teamRoster,
+      executionOwnerId,
     });
     const run = {
       id: runId,
@@ -2072,6 +2614,7 @@ export class Orchestrator {
       interactionCostUsd: 0,
       interactionStepsRefunded: 0,
       interactionAutoRecoveries: 0,
+      interactionContextCompactions: 0,
       interactionStartedAt: now,
       activeInteractionSources: runSources,
       pendingInteractionSources: [],
@@ -2082,6 +2625,7 @@ export class Orchestrator {
           interactionCostUsd: 0,
           interactionStepsRefunded: 0,
           interactionAutoRecoveries: 0,
+          interactionContextCompactions: 0,
           interactionStartedAt: now,
           sources: runSources,
         },
@@ -2090,6 +2634,10 @@ export class Orchestrator {
       refundedAttemptIds: [],
       route,
       sessions: {},
+      contextEpoch: null,
+      contextTopologyKey: contextPlan?.topologyKey || null,
+      contextInheritedFromRunId: null,
+      contextInheritedMembers: [],
       turns: [],
       turnAttempts: [],
       inflightTurns: {},
@@ -2098,13 +2646,17 @@ export class Orchestrator {
       execute: input.execute === true,
       teamId: team?.id ?? null,
       teamName: team?.name ?? null,
-      teamBrief: team ? this.teams.brief(team.id) : null,
+      teamBrief: team && typeof this.teams.briefFor === "function" ? this.teams.briefFor(team) : null,
+      teamEphemeral: team?.ephemeral === true,
       teamMembers: teamMemberIds, // 逻辑成员白名单快照，续聊按此服务端强制隔离（团队删除后仍固化）
       teamRoster, // 逻辑成员 → runtime profile 与人格/默认档快照；既有 run 不受后续成员编辑漂移
       teamRosterVersion: team ? 1 : null,
       teamSkills: team ? [...(team.skills ?? [])] : null, // 团队 skill 声明快照（成员轮按 agent 负名单过滤注入）
       teamMcp: team ? [...(team.mcp ?? [])] : null, // 团队 MCP 声明快照（隔离区过滤后注入，不假装服务器还在）
       coordinatorId,
+      projectId,
+      conversationId,
+      conversationKind,
       orchestrationMode,
       socialContract,
       startAgentId,
@@ -2112,6 +2664,7 @@ export class Orchestrator {
       requestedAgentIds,
       modelOverride,
       effortOverride,
+      permissionOverride,
       idempotencyKey,
       cwd: sessionCwd, // null=控制面默认（repoRoot）；有值=会话项目地址，CLI 原生会话落该项目
       remote: sessionRemote, // v41：{hostId, path}=远端运行位置；null=本机。与 cwd 互斥（create 校验）
@@ -2156,9 +2709,85 @@ export class Orchestrator {
     await withManagedClipboardSourceRegistration({
       dataRoot: this.dataRoot,
       sources: run.sources,
-      operation: () => this.save(run),
+      operation: async () => {
+        let conversationLinked = false;
+        let contextClaimed = false;
+        let contextClaimOwnerRegistered = false;
+        try {
+          if (conversationId && this.conversations) {
+            await this.conversations.attachRun(conversationId, run.id);
+            conversationLinked = true;
+          }
+          if (run.execute && contextPlan && this.conversationContexts) {
+            this.contextClaimRunIds.add(run.id);
+            contextClaimOwnerRegistered = true;
+            const claim = await this.conversationContexts.claim({
+              conversationId,
+              topologyKey: contextPlan.topologyKey,
+              runId: run.id,
+              candidates: contextPlan.candidates,
+              ownerIsActive: (ownerRunId) => {
+                const owner = this.runs.get(ownerRunId);
+                return this.contextClaimRunIds.has(ownerRunId)
+                  || Boolean(owner && !TERMINAL.has(owner.status));
+              },
+            });
+            contextClaimed = true;
+            for (const [memberId, binding] of Object.entries(claim.inherited)) {
+              if (!this.isConversationContextBindingUnsafe(conversationId, memberId, binding)) continue;
+              await this.conversationContexts.invalidate({
+                conversationId,
+                memberId,
+                sessionId: binding.sessionId,
+                reason: "run-ledger-invalidated",
+              });
+              delete claim.inherited[memberId];
+            }
+            run.contextEpoch = claim.epoch;
+            run.sessions = Object.fromEntries(Object.entries(claim.inherited).map(([memberId, binding]) => [memberId, binding.sessionId]));
+            run.contextInheritedMembers = Object.keys(claim.inherited).sort();
+            const sourceRunIds = [...new Set(Object.values(claim.inherited).map((binding) => binding.sourceRunId).filter(Boolean))];
+            run.contextInheritedFromRunId = sourceRunIds.length === 1 ? sourceRunIds[0] : null;
+          }
+          await this.save(run);
+        } catch (error) {
+          let contextCompensationError = null;
+          if (contextClaimed) {
+            try {
+              await this.conversationContexts.releaseClaim(conversationId, run.id);
+            } catch (releaseError) {
+              contextCompensationError = releaseError;
+            }
+          }
+          if (conversationLinked) {
+            try {
+              await this.conversations.detachRun(conversationId, run.id);
+            } catch (compensationError) {
+              if (typeof this.conversations.markTransactionInconsistent === "function") {
+                throw this.conversations.markTransactionInconsistent("run-create rollback", error, compensationError);
+              }
+              throw Object.assign(new Error("run and conversation stores are inconsistent; operator recovery is required"), {
+                code: "TRANSACTION_INCONSISTENT",
+                httpStatus: 503,
+                recoveryRequired: true,
+              });
+            }
+          }
+          if (contextCompensationError) throw contextCompensationError;
+          throw error;
+        } finally {
+          if (contextClaimOwnerRegistered) this.contextClaimRunIds.delete(run.id);
+        }
+      },
     });
-    await this.emitEvent(run, "run.created", { taskType: run.taskType, execute: run.execute, route: route.selected, collaborationMode: run.collaborationMode }, { runId: run.id });
+    await this.emitEvent(run, "run.created", {
+      taskType: run.taskType,
+      execute: run.execute,
+      route: route.selected,
+      collaborationMode: run.collaborationMode,
+      conversationId: run.conversationId,
+      conversationKind: run.conversationKind,
+    }, { runId: run.id });
     if (!run.execute) {
       run.status = "succeeded";
       run.result = { type: "route-preview", route };
@@ -2281,8 +2910,10 @@ export class Orchestrator {
     sourceWorkItemId = null,
     sourceBusMessageId = null,
     allowAutoRecovery = true,
+    allowContextRecovery = true,
     nativeCommand = false,
   } = {}) {
+    const contextRetryPrompt = prompt;
     const member = this.memberForRun(run, agentId);
     const runtimeProfileId = member.runtimeProfileId;
     if (nativeCommand && !/^\/[A-Za-z0-9_-]+([ \t]+\S+){0,8}$/.test(String(prompt))) {
@@ -2387,6 +3018,7 @@ export class Orchestrator {
     const remotePair = run.remote ? await this.remoteAdapterFor(run, runtimeProfileId) : null;
     const adapter = remotePair ? remotePair.adapter : this.adapters.get(runtimeProfileId);
     if (!adapter) throw Object.assign(new Error(`no executable adapter for ${agentId}`), { code: "ADAPTER_UNAVAILABLE" });
+    let effectiveAdapter = adapter;
     let providerBinding = this.providerBindingFor(adapter, runtimeProfileId, { remote: Boolean(run.remote) });
     const adapterTemplate = adapter.id ? ADAPTER_TEMPLATES.find((item) => item.id === adapter.id) : null;
     if (adapterTemplate && !adapterTemplate.permissionModes.includes(effectivePermissionMode)) {
@@ -2483,6 +3115,8 @@ export class Orchestrator {
       const usageKey = createHash("sha256").update(JSON.stringify({
         adapterId,
         code: error?.code || null,
+        failureKind: error?.failureKind || null,
+        resultSubtype: error?.resultSubtype || null,
         costUsd,
         tokens,
         providerBinding: binding ?? null,
@@ -2514,6 +3148,8 @@ export class Orchestrator {
         usageKey,
         adapterId,
         code: error?.code || null,
+        failureKind: error?.failureKind || null,
+        resultSubtype: error?.resultSubtype || null,
         costUsd,
         tokens,
         providerBinding: binding ?? null,
@@ -2583,6 +3219,10 @@ export class Orchestrator {
         adapterId: failedAdapter?.id || runtimeProfileId,
         code: error?.code || null,
         message: error?.message || "provider turn failed",
+        timeoutKind: error?.timeoutKind || null,
+        timeoutMs: Number.isFinite(error?.timeoutMs) ? error.timeoutMs : null,
+        idleTimeoutMs: Number.isFinite(error?.idleTimeoutMs) ? error.idleTimeoutMs : null,
+        interruptConfirmed: error?.interruptConfirmed === true,
         protocol: error?.protocol || settledAttempt?.protocol || null,
         costUsd: failureCostUsd,
         tokens: failureTokens,
@@ -2608,18 +3248,93 @@ export class Orchestrator {
       runId: run.id,
       signal: controller.signal,
       permissionMode: effectivePermissionMode,
-      maxBudgetUsd: run.maxBudgetUsdPerTurn,
+      maxBudgetUsd: resolveBudgetUsdPerTurn(run.maxBudgetUsdPerTurn, this.policy),
       timeoutMs: this.policy.limits.turnTimeoutMs,
       idleTimeoutMs: this.policy.limits.turnIdleTimeoutMs,
       model: this.effectiveModelFor(run, agentId),
       effort: this.effectiveEffortFor(run, agentId),
+      // 原生审批透传：仅执行拥有者拿到，写面不扩散；只接 native: 前缀，其余值不下发（普通三档维持原路径）。
+      nativeApprovalMode: agentId === executionOwnerId && String(run.permissionOverride || "").startsWith("native:")
+        ? run.permissionOverride
+        : null,
       cwd: cwd ?? run.cwd ?? null,
       nativeCommand,
       ...lifecycle,
     };
     try {
-      this.assertRemoteDispatchable(run);
-      response = await adapter.send(sendInput);
+      const nativeResolved = nativeCommand
+        ? resolveNativeCommand(adapterTemplateForRuntimeProfileId(runtimeProfileId), prompt)
+        : null;
+      if (nativeResolved && !nativeResolved.ok) {
+        throw Object.assign(new Error(nativeResolved.message), { code: nativeResolved.code || "NATIVE_COMMAND_UNSUPPORTED" });
+      }
+      if (nativeResolved?.command?.execution === "adapter-hook") {
+        if (nativeResolved.command.hook !== "compactThread") {
+          throw Object.assign(new Error(`${adapter.id || runtimeProfileId} 不支持钩子 ${nativeResolved.command.hook || "(missing)"}`), {
+            code: "NATIVE_COMMAND_UNSUPPORTED",
+          });
+        }
+        const sessionId = run.sessions[agentId] || null;
+        if (!sessionId) {
+          throw Object.assign(new Error("没有可压缩的原生会话；先完成一轮对话或用 /cli 附着。"), {
+            code: "NATIVE_COMMAND_UNSUPPORTED",
+          });
+        }
+        if (typeof adapter.compactThread !== "function") {
+          throw Object.assign(new Error(`${adapter.id || runtimeProfileId} 不支持原生上下文压缩`), {
+            code: "NATIVE_COMMAND_UNSUPPORTED",
+          });
+        }
+        await lifecycle.onTurnSubmitting({ sessionId, protocol: adapter.id, sessionResumable: true });
+        await lifecycle.onTurnAccepted({ sessionId, protocol: adapter.id, sessionResumable: true, turnId: null });
+        run.contextRecovery = {
+          state: "compacting",
+          agentId,
+          sessionId,
+          sourceAttemptId: attemptId,
+          startedAt: new Date().toISOString(),
+          operator: true,
+        };
+        await this.save(run);
+        await this.emitEvent(run, "run.context_compaction_started", {
+          agentId,
+          sessionId,
+          sourceAttemptId: attemptId,
+          operator: true,
+          timeoutMs: adapter.contextCompactionTimeoutMs ?? null,
+        }, { runId: run.id, sessionId, agentId });
+        this.assertRemoteDispatchable(run);
+        const compacted = await adapter.compactThread(sessionId, {
+          signal: controller.signal,
+          runId: run.id,
+          agentId,
+        });
+        run.contextRecovery = {
+          ...run.contextRecovery,
+          state: "completed",
+          compactTurnId: compacted?.turnId || null,
+          completedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        await this.save(run);
+        await this.emitEvent(run, "run.context_compaction_completed", {
+          agentId,
+          sessionId,
+          sourceAttemptId: attemptId,
+          compactTurnId: compacted?.turnId || null,
+          operator: true,
+        }, { runId: run.id, sessionId, agentId });
+        response = {
+          sessionId,
+          text: "已压缩当前线程上下文。",
+          protocol: adapter.id,
+          nativePersistence: true,
+          turnId: compacted?.turnId || null,
+        };
+      } else {
+        this.assertRemoteDispatchable(run);
+        response = await adapter.send(sendInput);
+      }
       providerBinding = response?.providerBinding ?? providerBinding;
     } catch (error) {
       providerBinding = error?.providerBinding ?? providerBinding;
@@ -2647,10 +3362,176 @@ export class Orchestrator {
           turnId: error.turnId || null,
         });
       }
+      if (error.failureKind === "budget_exhausted") {
+        await recordTurnFailure(error, { failedAdapter: adapter });
+        this.markBudgetAttention(run, error, { attemptId });
+        await this.save(run);
+        await this.emitBudgetAttention(run, error, { attemptId, source: "provider-turn" });
+        throw error;
+      }
+
+      if (error.code === "CONTEXT_WINDOW_EXCEEDED" && error.nativeTurnSettled === true && !controller.signal.aborted) {
+        const exhaustedSessionId = error.sessionId || run.sessions[agentId] || null;
+        await recordTurnFailure(error, { failedAdapter: adapter });
+
+        const invalidateContextSession = async (compactionError) => {
+          const invalidatedAt = new Date().toISOString();
+          // fail-closed 必须 abort-safe：压缩窗口最长 5 分钟，LO 在窗口内点中断/取消是最高频的真实
+          // 操作。若这里走 withLifecycleEffect，owner 断言会在 abort 后直接抛 ABORTED，作废动作
+          // 整个被跳过——耗尽的原生线程原样留在 run.sessions，下一次「继续」resume 它必然重演
+          // CONTEXT_WINDOW_EXCEEDED。改走无断言的 withRunLifecycle：删除仍受
+          // `sessions[agentId] === exhaustedSessionId` 守卫，新执行者已换会话时天然不误删。
+          await this.withRunLifecycle(run.id, async () => {
+            if (exhaustedSessionId && run.sessions[agentId] === exhaustedSessionId) delete run.sessions[agentId];
+            const failedAttempt = (run.turnAttempts || []).find((item) => item.attemptId === attemptId);
+            if (failedAttempt) {
+              failedAttempt.sessionResumable = false;
+              failedAttempt.invalidatedAt = invalidatedAt;
+              failedAttempt.invalidationReason = "context-compaction-failed";
+            }
+            run.invalidatedSessions = [...(run.invalidatedSessions || []), {
+              agentId,
+              sessionId: exhaustedSessionId,
+              reason: "context-compaction-failed",
+              code: compactionError?.code || "CONTEXT_COMPACTION_UNAVAILABLE",
+              at: invalidatedAt,
+            }].slice(-50);
+            run.contextRecovery = {
+              state: "failed",
+              agentId,
+              sessionId: exhaustedSessionId,
+              sourceAttemptId: attemptId,
+              code: compactionError?.code || "CONTEXT_COMPACTION_UNAVAILABLE",
+              message: compactionError?.message || "native context compaction is unavailable",
+              updatedAt: invalidatedAt,
+            };
+            await this.save(run);
+            await this.emitEvent(run, "run.context_compaction_failed", {
+              agentId,
+              sessionId: exhaustedSessionId,
+              sourceAttemptId: attemptId,
+              code: run.contextRecovery.code,
+              message: run.contextRecovery.message,
+              sessionInvalidated: true,
+            }, { runId: run.id, sessionId: exhaustedSessionId, agentId });
+          });
+          try {
+            await this.invalidateConversationContext(run, agentId, exhaustedSessionId, "context-compaction-failed");
+          } catch (contextError) {
+            run.contextRecovery = {
+              ...run.contextRecovery,
+              contextBindingInvalidationFailed: true,
+              contextBindingInvalidationCode: contextError?.code || "CONVERSATION_CONTEXT_STORE_UNAVAILABLE",
+            };
+            await this.save(run).catch(() => {});
+          }
+          // 取消语义优先于恢复语义：LO 主动 abort 时本轮仍按 ABORTED 收束（否则会把一次取消
+          // 改写成 recovery_required 状态），但线程作废已经在上面无条件落盘，账目照样是干净的。
+          if (controller?.signal?.aborted) {
+            return Object.assign(
+              new Error(`run cancelled during native context compaction; the exhausted native thread was invalidated: ${compactionError?.message || "compaction aborted"}`),
+              {
+                code: "ABORTED",
+                contextRecoveryCode: compactionError?.code || "CONTEXT_COMPACTION_UNAVAILABLE",
+                contextRecoveryFailed: true,
+                invalidatedSessionId: exhaustedSessionId,
+                sessionId: null,
+              },
+            );
+          }
+          return Object.assign(
+            new Error(`Codex context compaction failed; the exhausted native thread was invalidated before another continuation: ${compactionError?.message || "compaction unavailable"}`),
+            {
+              code: "RECOVERY_REQUIRED",
+              contextRecoveryCode: compactionError?.code || "CONTEXT_COMPACTION_UNAVAILABLE",
+              contextRecoveryFailed: true,
+              nativeTurnSettled: true,
+              invalidatedSessionId: exhaustedSessionId,
+              sessionId: null,
+            },
+          );
+        };
+
+        const compactionsUsed = Math.max(0, Math.trunc(Number(run.interactionContextCompactions) || 0));
+        const compactionBudgetExhausted = compactionsUsed >= MAX_CONTEXT_COMPACTIONS_PER_INTERACTION;
+        if (!allowContextRecovery || compactionBudgetExhausted || nativeCommand || !exhaustedSessionId || typeof adapter.compactThread !== "function") {
+          throw await invalidateContextSession(Object.assign(
+            new Error(!allowContextRecovery || compactionBudgetExhausted
+              ? `context was still exhausted after ${MAX_CONTEXT_COMPACTIONS_PER_INTERACTION} compaction retry in this interaction`
+              : nativeCommand ? "native command turns are not replayed automatically"
+                : !exhaustedSessionId ? "the exhausted turn did not expose a resumable session"
+                  : "the active adapter does not support native context compaction"),
+            { code: "CONTEXT_COMPACTION_UNAVAILABLE" },
+          ));
+        }
+
+        await this.withLifecycleEffect(run, controller, async () => {
+          // 预算在发起前扣：压缩被中断/超时后若不计数，重来一次又能白拿一次 5 分钟窗口。
+          run.interactionContextCompactions = compactionsUsed + 1;
+          run.contextRecovery = {
+            state: "compacting",
+            agentId,
+            sessionId: exhaustedSessionId,
+            sourceAttemptId: attemptId,
+            startedAt: new Date().toISOString(),
+          };
+          await this.save(run);
+          await this.emitEvent(run, "run.context_compaction_started", {
+            agentId,
+            sessionId: exhaustedSessionId,
+            sourceAttemptId: attemptId,
+            attempt: run.interactionContextCompactions,
+            cap: MAX_CONTEXT_COMPACTIONS_PER_INTERACTION,
+            timeoutMs: adapter.contextCompactionTimeoutMs ?? null,
+            nextRound: run.round + 1,
+          }, { runId: run.id, sessionId: exhaustedSessionId, agentId });
+        });
+
+        let compacted;
+        try {
+          this.assertRemoteDispatchable(run);
+          compacted = await adapter.compactThread(exhaustedSessionId, {
+            signal: controller.signal,
+            runId: run.id,
+            agentId,
+          });
+        } catch (compactionError) {
+          throw await invalidateContextSession(compactionError);
+        }
+
+        await this.withLifecycleEffect(run, controller, async () => {
+          run.contextRecovery = {
+            ...run.contextRecovery,
+            state: "completed",
+            compactTurnId: compacted?.turnId || null,
+            completedAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+          await this.save(run);
+          await this.emitEvent(run, "run.context_compaction_completed", {
+            agentId,
+            sessionId: exhaustedSessionId,
+            sourceAttemptId: attemptId,
+            compactTurnId: compacted?.turnId || null,
+            nextRound: run.round + 1,
+          }, { runId: run.id, sessionId: exhaustedSessionId, agentId });
+        });
+
+        return await this.turn(run, agentId, contextRetryPrompt, {
+          allowWorkspaceWrite,
+          cwd,
+          sourceWorkItemId,
+          sourceBusMessageId,
+          allowAutoRecovery,
+          allowContextRecovery: false,
+          nativeCommand,
+        });
+      }
       // The registry owns fallback identity. A known app-server may report its no-replay
       // boundary even when transport loss prevented lifecycle callbacks from persisting.
       const isCodexAppServer = adapter.id === "codex-app-server" || Boolean(fallback);
       const replayBlocked = (candidate) => candidate?.safeToFallback === false
+        && candidate?.nativeTurnSettled !== true
         && (isCodexAppServer || ["submitting", "submitted", "ambiguous"].includes(attempt?.phase));
       // ambiguous 封存 + 阻断事件只有一个出口：首轮失败与自动续跑失败都经这里，避免两套台账漂移。
       const markAmbiguous = async (blockedError) => {
@@ -2720,6 +3601,11 @@ export class Orchestrator {
             sourceWorkItemId,
             sourceBusMessageId,
             allowAutoRecovery: false,
+            // 与压缩链的递归（allowContextRecovery: false）对称。压缩预算另有 run 级计数器兜底，
+            // 但这里显式传递才能让"续跑轮不得再开压缩"这条语义在读代码时是自明的；
+            // nativeCommand 同样必须透传，否则原生命令轮会被静默降级成散文轮。
+            allowContextRecovery: false,
+            nativeCommand,
           });
         }
       }
@@ -2755,6 +3641,7 @@ export class Orchestrator {
           throw error;
         }
         providerBinding = this.providerBindingFor(fallback, runtimeProfileId, { remote: Boolean(run.remote) });
+        effectiveAdapter = fallback;
         const fallbackAttempt = (run.turnAttempts || []).find((item) => item.attemptId === attemptId);
         if (fallbackAttempt) {
           fallbackAttempt.providerBinding = providerBinding;
@@ -2803,6 +3690,18 @@ export class Orchestrator {
     // publishing the terminal cancellation state.
     await this.withLifecycleEffect(run, controller, async () => {
       run.sessions[agentId] = response.sessionId;
+      if (run.contextRecovery?.state === "failed"
+        && run.contextRecovery.agentId === agentId
+        && response.sessionId
+        && response.sessionId !== run.contextRecovery.sessionId) {
+        run.contextRecovery = {
+          ...run.contextRecovery,
+          state: "replaced",
+          replacementSessionId: response.sessionId,
+          recoveredAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+      }
       // 全会话成本只做审计；派发硬闸按当前 interaction 已知成本计算，避免聊天久了永久锁死。
       // 无成本回执的 CLI（codex/grok/kimi）仍如实计不到，不能把这道闸宣称为普适保证。
       if (Number.isFinite(response.costUsd)) {
@@ -2875,6 +3774,8 @@ export class Orchestrator {
         providerBinding,
       });
       this.assertLifecycleOwner(run, controller);
+      await this.publishConversationContext(run, agentId, attemptId, response, effectiveAdapter, providerBinding);
+      this.assertLifecycleOwner(run, controller);
       await this.emitEvent(run, "agent.turn_completed", {
         round: run.round,
         interactionId: turnRecord.interactionId,
@@ -2927,8 +3828,47 @@ export class Orchestrator {
 
   /** 当前交互已知成本止损：只覆盖会回传 costUsd 的 adapter，不冒充所有 provider 的货币硬顶。 */
   budgetExhausted(run) {
-    const cap = (Number(run.maxBudgetUsdPerTurn) || 0) * this.maxStepsForInteraction(run);
+    const cap = resolveBudgetUsdPerTurn(run.maxBudgetUsdPerTurn, this.policy) * this.maxStepsForInteraction(run);
     return cap > 0 && Number(run.interactionCostUsd || 0) >= cap;
+  }
+
+  markBudgetAttention(run, error, { attemptId = null } = {}) {
+    const budget = resolveBudgetUsdPerTurn(run.maxBudgetUsdPerTurn, this.policy);
+    const at = new Date().toISOString();
+    run.status = "waiting_agent";
+    run.failureKind = "budget_exhausted";
+    run.error = error?.message || "Reached maximum budget";
+    run.recoveryNote = null;
+    run.stopReason = {
+      type: "budget_exhausted",
+      scope: "provider_turn",
+      attemptId,
+      interactionId: run.activeInteractionId || null,
+      at,
+    };
+    run.attention = {
+      type: "budget_exhausted",
+      severity: "warning",
+      maxBudgetUsdPerTurn: budget,
+      interactionCostUsd: Math.max(0, Number(run.interactionCostUsd) || 0),
+      maxInteractionCostUsd: budget * this.maxStepsForInteraction(run),
+      autoResume: false,
+      actions: ["adjust_budget", "lower_effort", "send_message"],
+    };
+  }
+
+  async emitBudgetAttention(run, error, { attemptId = null, source = "provider-turn" } = {}) {
+    await this.emitEvent(run, "run.budget_exhausted", {
+      code: error?.code || "CLAUDE_BUDGET_EXHAUSTED",
+      source,
+      attemptId,
+      interactionId: run.activeInteractionId || null,
+      interactionSeq: run.activeInteractionSeq || null,
+      interactionCostUsd: run.attention?.interactionCostUsd || 0,
+      maxBudgetUsdPerTurn: run.attention?.maxBudgetUsdPerTurn || null,
+      maxInteractionCostUsd: run.attention?.maxInteractionCostUsd || null,
+      autoResume: false,
+    }, { runId: run.id, sessionId: error?.sessionId || null });
   }
 
   async ensureStablePendingAsk(run, { messages = null, persist = true } = {}) {
@@ -3116,15 +4056,25 @@ export class Orchestrator {
           if (!promoted) break;
           await this.socialLoop(run, controller);
         }
+      } else if (run.conversationKind === "direct") {
+        const direct = await this.turn(
+          run,
+          executionOwnerIdOf(run),
+          run.prompt,
+          { allowWorkspaceWrite: run.permissionMode === "build" },
+        );
+        run.result = { direct, final: direct };
       } else {
       const specialistId = executionOwnerIdOf(run);
       const independentId = run.route.independent?.id || null;
       const coordinatorId = run.coordinatorId || "claude-fable";
       const teamContext = run.teamBrief ? `${run.teamBrief}\n\n` : "";
       // 轮间插话：每个 turn 边界尝试注入最早一条排队追问（turn 原子性不变——只在边界接管，不打断子进程）
+      let lastPipelineAttemptId = null;
       const turn = async (...args) => {
         const topologyInteraction = this.currentInteraction(run);
         const text = await this.turn(run, ...args);
+        lastPipelineAttemptId = run.turns.at(-1)?.id || null;
         if ((run.pendingSteer || []).length || run.activeSteer) {
           await this.injectNextSteer(run);
           // 插话处理完后恢复旧拓扑的独立步骤/成本/附件账；下一阶段不能继承插话图片。
@@ -3135,6 +4085,26 @@ export class Orchestrator {
         }
         return text;
       };
+      const recordPipelineDelegation = (fromAgentId, toAgentId, kind, sourceAttemptId) => {
+        if (!fromAgentId || !toAgentId || fromAgentId === toAgentId) return null;
+        const busMessageId = operationMessageId("pipeline", [
+          run.id,
+          run.activeInteractionId || "initial",
+          kind,
+          fromAgentId,
+          toAgentId,
+          sourceAttemptId || "root",
+        ].join(":"));
+        this.recordTaskGraphDelegation(run, {
+          fromAgentId,
+          toAgentId,
+          busMessageId,
+          kind,
+          state: "queued",
+          attemptId: sourceAttemptId,
+        });
+        return busMessageId;
+      };
       const coordinatorOwnsBuild = run.permissionMode === "build" && specialistId === coordinatorId;
       const plan = await turn(
         coordinatorId,
@@ -3143,16 +4113,21 @@ export class Orchestrator {
           : `${teamContext}你是 514cc 团队主脑与总协调者。本轮是规划阶段（plan 权限模式，只读不落盘）；禁止声称已写入、已部署或未验证的完成。请输出可公开审计的计划、派工理由、验收标准和给执行者的任务包，不输出隐藏思维链。\n\n用户目标：\n${run.prompt}\n\n执行所有者：${specialistId}\n路由器建议：${run.route.selected.id}\n路由理由：${run.route.reason}`,
         { allowWorkspaceWrite: coordinatorOwnsBuild },
       );
+      const planAttemptId = lastPipelineAttemptId;
       if (specialistId === coordinatorId || this.interactionLimitReached(run)) {
         if (independentId && !this.interactionLimitReached(run)) {
+          const reviewMessageId = recordPipelineDelegation(coordinatorId, independentId, "pipeline-review", planAttemptId);
           const independent = await turn(
             independentId,
             `你是独立验证者，不受主脑结论约束。请核查以下计划的正确性、遗漏、风险和可执行性，给出证据化 verdict。不要输出隐藏思维链。\n\n原始目标：\n${run.prompt}\n\n主脑计划：\n${plan}`,
+            { sourceBusMessageId: reviewMessageId },
           );
+          const independentAttemptId = lastPipelineAttemptId;
           const final = !this.interactionLimitReached(run)
             ? await turn(
                 coordinatorId,
                 `独立验证者 ${independentId} 已审查你的计划。请吸收有效纠偏并给出最终可执行结论、验收证据和剩余风险。\n\n原始计划：\n${plan}\n\n独立审查：\n${independent}`,
+                { sourceBusMessageId: recordPipelineDelegation(independentId, coordinatorId, "pipeline-synthesis", independentAttemptId) },
               )
             : independent;
           run.result = { plan, independent, final };
@@ -3160,33 +4135,44 @@ export class Orchestrator {
           run.result = { plan, final: plan };
         }
       } else {
+        const specialistMessageId = recordPipelineDelegation(coordinatorId, specialistId, "pipeline-dispatch", planAttemptId);
         const specialist = await turn(
           specialistId,
           `主脑（${coordinatorId}）派发以下任务。请作为独立技术/研究执行者完成，保留证据、指出阻塞并提出明确反问。\n\n原始目标：\n${run.prompt}\n\n主脑计划：\n${plan}`,
-          { allowWorkspaceWrite: true },
+          { allowWorkspaceWrite: true, sourceBusMessageId: specialistMessageId },
         );
+        const specialistAttemptId = lastPipelineAttemptId;
         if (this.interactionLimitReached(run)) {
           // 自动恢复也消耗当前交互的真实 step。预算已尽时保留已完成执行结果并明确标记未复核，
           // 不能再调用 provider，也不能伪造 independent critique。
           run.result = { plan, specialist, critique: null, verified: specialist, final: specialist, truncated: true };
         } else {
           const verifierId = independentId || coordinatorId;
+          const verifierMessageId = recordPipelineDelegation(specialistId, verifierId, "pipeline-review", specialistAttemptId);
           const critique = await turn(
             verifierId,
             `你是本轮独立验证者。执行者 ${specialistId} 已返回结果。请检查它是否满足原目标，指出缺口、核验证据，并输出可直接作为最终审计结论使用的 verdict；如仍有轮次，再附给执行者的补强指令。\n\n原始目标：\n${run.prompt}\n\n执行结果：\n${specialist}`,
+            { sourceBusMessageId: verifierMessageId },
           );
+          const verifierAttemptId = lastPipelineAttemptId;
           let verified = specialist;
+          let synthesisSourceId = verifierId;
+          let synthesisAttemptId = verifierAttemptId;
           if (run.collaborationMode === "deep" && !this.interactionLimitReached(run, 1)) {
+            const reworkMessageId = recordPipelineDelegation(verifierId, specialistId, "pipeline-rework", verifierAttemptId);
             verified = await turn(
               specialistId,
               `独立验证者（${verifierId}）对上一轮结果的复核如下。请在同一个原生会话中完成补强并给出最终证据。\n\n${critique}`,
-              { allowWorkspaceWrite: true },
+              { allowWorkspaceWrite: true, sourceBusMessageId: reworkMessageId },
             );
+            synthesisSourceId = specialistId;
+            synthesisAttemptId = lastPipelineAttemptId;
           }
           const final = !this.interactionLimitReached(run)
             ? await turn(
                 coordinatorId,
                 `作为主脑，请综合原始目标、执行结果和复核结果，输出最终结论、已验证证据、未完成风险与下一步。不要隐藏工具失败。\n\n原始目标：${run.prompt}\n\n初次执行：${specialist}\n\n复核/补强：${verified}`,
+                { sourceBusMessageId: recordPipelineDelegation(synthesisSourceId, coordinatorId, "pipeline-synthesis", synthesisAttemptId) },
               )
             : critique;
           run.result = { plan, specialist, critique, verified, final };
@@ -3230,11 +4216,15 @@ export class Orchestrator {
       // 早退、回答/追问被吞）——错误如实进 auditErrors 留痕，run 结果由接管协程呈现
       if (controller.signal.aborted || error.code === "ABORTED") return this.get(id);
       if (this.controllers.get(id) === controller) {
-        const recoveryBlocked = this.requiresRecovery(run, error);
-        run.status = recoveryBlocked
-          ? "recovery_required"
-          : controller.signal.aborted || error.code === "ABORTED" ? "cancelled" : "failed";
+        if (error.failureKind === "budget_exhausted" && run.attention?.type === "budget_exhausted") {
+          await this.save(run);
+        } else {
+          const recoveryBlocked = this.requiresRecovery(run, error);
+          run.status = recoveryBlocked
+            ? "recovery_required"
+            : controller.signal.aborted || error.code === "ABORTED" ? "cancelled" : "failed";
         markPromptTransportFailure(run, error);
+        run.failureKind = error.failureKind || null;
         run.error = error.message;
         if (recoveryBlocked) {
           // 分级恢复文案：interrupt 已获 provider 确认时"可能有活跃工作占用会话"不再成立，
@@ -3248,8 +4238,13 @@ export class Orchestrator {
           status: run.status,
           code: error.code || null,
           message: error.message,
+          timeoutKind: error?.timeoutKind || null,
+          timeoutMs: Number.isFinite(error?.timeoutMs) ? error.timeoutMs : null,
+          idleTimeoutMs: Number.isFinite(error?.idleTimeoutMs) ? error.idleTimeoutMs : null,
+          interruptConfirmed: error?.interruptConfirmed === true,
           failureClass: run.failureClass || null,
         }, { runId: run.id });
+        }
       } else {
         run.auditErrors = [...(run.auditErrors || []), { type: "execute.superseded", message: error.message, at: new Date().toISOString() }].slice(-20);
         await this.save(run).catch(() => {});
@@ -3736,10 +4731,13 @@ ${rosterLine}
     }
   }
 
-  // 运行时 roster：每个 turn 完成即登记（agentId → 会话/cwd/心跳）——"谁在线、持有什么会话"程序化可查
+  // 运行时 roster：seats 是并发真相（runId + memberId），agents 仅保留最新席位兼容投影。
   async registerRoster(run, agentId) {
     const file = join(this.dataRoot, "roster.json");
+    const seatId = `${run.id}:${agentId}`;
     const entry = {
+      seatId,
+      memberId: agentId,
       agentId,
       sessionId: run.sessions[agentId] ?? null,
       runId: run.id,
@@ -3750,13 +4748,15 @@ ${rosterLine}
     };
     this.rosterChain = this.rosterChain
       .then(async () => {
-        let roster = { agents: {} };
+        let roster = { agents: {}, seats: {} };
         try {
           roster = JSON.parse(await readFile(file, "utf8"));
         } catch {
           // 首写/坏文件：从空开始
         }
         roster.agents ||= {};
+        roster.seats ||= {};
+        roster.seats[seatId] = entry;
         roster.agents[agentId] = entry;
         await mkdir(this.dataRoot, { recursive: true });
         await writeFile(file, `${JSON.stringify(roster, null, 2)}\n`, "utf8");
@@ -3777,10 +4777,21 @@ ${rosterLine}
           return; // 无 roster 文件即无事可清
         }
         const agents = roster?.agents ?? {};
+        const seats = roster?.seats ?? {};
         let dirty = false;
+        for (const [seatId, entry] of Object.entries(seats)) {
+          if (entry?.runId === runId) {
+            delete seats[seatId];
+            dirty = true;
+          }
+        }
         for (const [agentId, entry] of Object.entries(agents)) {
           if (entry?.runId === runId) {
-            delete agents[agentId];
+            const replacement = Object.values(seats)
+              .filter((seat) => (seat?.memberId || seat?.agentId) === agentId)
+              .sort((left, right) => Date.parse(right?.lastSeenAt || 0) - Date.parse(left?.lastSeenAt || 0))[0];
+            if (replacement) agents[agentId] = replacement;
+            else delete agents[agentId];
             dirty = true;
           }
         }
@@ -3885,6 +4896,7 @@ ${rosterLine}
       roundsRefunded: run.roundsRefunded,
       interactionStep: run.interactionStep,
       interactionStepsRefunded: run.interactionStepsRefunded,
+      interactionContextCompactions: run.interactionContextCompactions,
       refundedAttemptIds: [...(run.refundedAttemptIds || [])],
       recoveryAcknowledgedAt: run.recoveryAcknowledgedAt,
       recoveryNote: run.recoveryNote,
@@ -4186,10 +5198,15 @@ ${rosterLine}
       }
     } catch (error) {
       if (controller.signal.aborted || error.code === "ABORTED" || error.code === "RUN_CANCELLED") return;
+      if (error.failureKind === "budget_exhausted" && run.attention?.type === "budget_exhausted") {
+        await this.save(run);
+        return;
+      }
       const recoveryBlocked = this.requiresRecovery(run, error);
       run.status = recoveryBlocked
         ? "recovery_required"
         : controller.signal.aborted ? "cancelled" : "failed";
+      run.failureKind = error.failureKind || null;
       run.error = error.message;
       if (recoveryBlocked) {
         run.recoveryNote = `Queued continuation stopped while its durable claim may own a native turn (${error.code || "STEER_RECOVERY_REQUIRED"}). Inspect the claimed work before acknowledging recovery.`;
@@ -4220,6 +5237,39 @@ ${rosterLine}
     const run = this.get(id);
     if (run.status === "cancelled") {
       throw Object.assign(new Error("cancelled runs cannot be continued"), { code: "RUN_TERMINAL" });
+    }
+    if (run.conversationId) {
+      if (!this.conversations) {
+        throw Object.assign(new Error("persisted conversations require a conversation store"), { code: "CONVERSATION_STORE_UNAVAILABLE" });
+      }
+      const conversation = this.conversations.get(run.conversationId);
+      if (conversation.deletedAt) {
+        throw Object.assign(new Error("deleted conversations cannot be continued"), { code: "CONVERSATION_DELETED" });
+      }
+      if ((conversation.projectId || null) !== (run.projectId || null)) {
+        throw Object.assign(new Error("run project no longer matches its conversation"), { code: "TRANSACTION_INCONSISTENT" });
+      }
+      if (run.projectId) {
+        if (!this.projects) {
+          throw Object.assign(new Error("project conversations require a project registry"), { code: "PROJECT_STORE_UNAVAILABLE" });
+        }
+        const project = this.projects.get(run.projectId);
+        if (project.archivedAt) {
+          throw Object.assign(new Error("archived projects must be restored before continuing runs"), {
+            code: "PROJECT_ARCHIVED",
+            projectId: project.projectId,
+          });
+        }
+      }
+      if (conversation.kind === "workspace_group" && Array.isArray(run.teamMembers)) {
+        const currentMembers = [...new Set(conversation.memberIds || [])].sort();
+        const runMembers = [...new Set(run.teamMembers)].sort();
+        if (JSON.stringify(currentMembers) !== JSON.stringify(runMembers)) {
+          throw Object.assign(new Error("project members changed; start a new run for the updated conversation"), {
+            code: "CONVERSATION_MEMBERS_CHANGED",
+          });
+        }
+      }
     }
     const admissionEpoch = this.cancelEpoch(id);
     this.assertContinuationAdmission(id, admissionEpoch);
@@ -4301,6 +5351,13 @@ ${rosterLine}
     const runtimeProfileId = this.runtimeProfileIdFor(run, agentId);
     if (!this.adapters.get(runtimeProfileId)) {
       throw Object.assign(new Error(`no executable adapter for ${agentId} (${runtimeProfileId})`), { code: "ADAPTER_UNAVAILABLE" });
+    }
+    if (nativeCommand) {
+      const template = adapterTemplateForRuntimeProfileId(runtimeProfileId);
+      const resolved = resolveNativeCommand(template, nextPrompt);
+      if (!resolved.ok) {
+        throw Object.assign(new Error(resolved.message), { code: resolved.code || "NATIVE_COMMAND_UNSUPPORTED" });
+      }
     }
     // 显式 answerToAskId 是 answer 所有权凭据；messageIntent 区分新客户端的 answer/steer。
     // 旧客户端没有 messageIntent，继续按历史 pendingAsk=answer 语义兼容。
@@ -4526,7 +5583,12 @@ ${rosterLine}
           throw error;
         }
         const recoveryBlocked = this.requiresRecovery(run, error);
+        if (error.failureKind === "budget_exhausted" && run.attention?.type === "budget_exhausted") {
+          await this.save(run);
+          throw error;
+        }
         run.status = recoveryBlocked ? "recovery_required" : "failed";
+        run.failureKind = error.failureKind || null;
         run.error = error.message;
         if (recoveryBlocked) {
           run.recoveryNote = `Recovery acknowledgement could not drain durable work (${error.code || "RESUME_DRAIN_FAILED"}). Inspect the claimed work before acknowledging another continuation.`;
@@ -4560,6 +5622,10 @@ ${rosterLine}
       this.ensureSteerDrained(id); // 直接续聊的收尾窗兜底（同 startExecution 链）；同步 no-op 不阻塞 HTTP 返回
     });
     this.executions.set(executionKey, tracked);
+    // HTTP continuation returns after durable admission. The tracked provider promise can reject
+    // later; executions still retains the original promise for close/interrupt ownership, while
+    // this observer prevents a handled run failure from surfacing as process-level unhandledRejection.
+    void tracked.catch(() => {});
     return waitForTurn ? tracked : admissionGate;
   }
 
@@ -4767,10 +5833,12 @@ ${rosterLine}
         status: run.status,
         modelOverride: run.modelOverride ?? null,
         effortOverride: run.effortOverride ?? null,
+        permissionOverride: run.permissionOverride ?? null,
         permissionMode: run.permissionMode,
+        maxBudgetUsdPerTurn: run.maxBudgetUsdPerTurn,
         ...this.abandonmentSnapshot(run),
       }
-      : null;
+      : { maxBudgetUsdPerTurn: run.maxBudgetUsdPerTurn };
     let recoveryRefund = null;
     try {
       if (recovery) {
@@ -4778,6 +5846,23 @@ ${rosterLine}
         // 确认后停在 failed 闲置终态（可续聊/可再热改），recoveryNote 如实记录"已确认放弃"。
         recoveryRefund = this.acknowledgeAbandonedWork(run);
         run.status = "failed";
+      }
+
+      if (patch.maxBudgetUsdPerTurn !== undefined) {
+        if (this.controllers.has(id) || this.executions.has(id) || this.executions.has(`continue:${id}`)
+          || Object.keys(run.inflightTurns || {}).length) {
+          throw Object.assign(new Error("budget cannot change while a provider turn is active"), { code: "RUN_ACTIVE" });
+        }
+        const requested = Number(patch.maxBudgetUsdPerTurn);
+        if (!Number.isFinite(requested) || requested < 0.05) {
+          throw Object.assign(new Error("maxBudgetUsdPerTurn must be at least 0.05"), { code: "VALIDATION_FAILED" });
+        }
+        const next = resolveBudgetUsdPerTurn(requested, this.policy);
+        const current = resolveBudgetUsdPerTurn(run.maxBudgetUsdPerTurn, this.policy);
+        if (next !== current) {
+          run.maxBudgetUsdPerTurn = next;
+          changes.push({ field: "maxBudgetUsdPerTurn", from: current, to: next });
+        }
       }
 
       if (patch.model !== undefined) {
@@ -4809,6 +5894,28 @@ ${rosterLine}
         if (next !== current) {
           run.effortOverride = next;
           changes.push({ field: "effort", from: current, to: next });
+        }
+      }
+
+      if (patch.permission !== undefined) {
+        const requested = String(patch.permission ?? "").trim();
+        // 空串 = 清除 override，回席位默认；非空值必须过模板 permissionModes 白名单（创建与热改同源，不得分叉）
+        const next = requested
+          ? this.validatePermissionOverride({ executionOwnerId, executionAdapterTemplate }, requested)
+          : null;
+        const current = run.permissionOverride ?? null;
+        if (next !== current) {
+          // 服务端同源把守转换方向（与 permissionMode 分支同款纪律）：已有值 → 新值只允许
+          // 同级保持/降档（写面收缩）/清除；升档（如 native:auto → native:always-approve）
+          // 绕开创建时的动作绑定审批门，必须拒绝。首次设置（无值）不受限，与创建路径一致。
+          if (current != null && next != null && !(PERMISSION_HOT_TRANSITIONS[current] || []).includes(next)) {
+            throw Object.assign(
+              new Error(`permission override ${current} → ${next} is not hot-switchable: 会话中只允许降档（写面收缩）或清除，升档请新建任务`),
+              { code: "CONTROL_TRANSITION_FORBIDDEN" },
+            );
+          }
+          run.permissionOverride = next;
+          changes.push({ field: "permission", from: current, to: next });
         }
       }
 
@@ -4859,19 +5966,46 @@ ${rosterLine}
     return this.get(id);
   }
 
-  // 项目级批量归档：cwd 归一匹配的全部终态任务标记 archived（侧栏项目右键"归档任务"）
-  async archiveFinishedByCwd(cwd) {
-    const target = String(cwd || "").replace(/[\\/]+$/, "").toLowerCase();
+  async archiveFinishedByProjectId(projectId) {
+    if (!this.projects) {
+      throw Object.assign(new Error("project archive requires a project registry"), { code: "PROJECT_STORE_UNAVAILABLE" });
+    }
+    const project = this.projects.get(String(projectId || "").trim());
     const archived = [];
     for (const run of this.runs.values()) {
       if (!TERMINAL.has(run.status) || run.archived) continue;
-      const runCwd = String(run.cwd || "").replace(/[\\/]+$/, "").toLowerCase();
-      if (runCwd !== target) continue;
+      if ((run.projectId || null) !== project.projectId) continue;
       run.archived = true;
       await this.save(run);
       archived.push(run.id);
     }
-    return { archived: archived.length, runIds: archived };
+    return { archived: archived.length, runIds: archived, projectId: project.projectId, matchedBy: "projectId" };
+  }
+
+  // 旧侧栏兼容入口：能解析到 Project 时立即转为 projectId 精确匹配；仅无 Project 的历史 run 才按 realpath 比较。
+  async archiveFinishedByCwd(cwd) {
+    const requested = String(cwd || "").trim();
+    if (!requested || !isAbsolute(requested)) {
+      throw Object.assign(new Error("archive cwd must be an absolute path"), { code: "INVALID_CWD" });
+    }
+    const target = await realpath(requested).catch(() => null);
+    if (!target) throw Object.assign(new Error(`archive cwd does not exist: ${requested}`), { code: "INVALID_CWD" });
+    if (this.projects) {
+      const project = await this.projects.findByCwd(target);
+      if (project) return this.archiveFinishedByProjectId(project.projectId);
+    }
+    const targetKey = process.platform === "win32" ? target.toLowerCase() : target;
+    const archived = [];
+    for (const run of this.runs.values()) {
+      if (!TERMINAL.has(run.status) || run.archived || run.projectId || !run.cwd) continue;
+      const canonicalRunCwd = await realpath(run.cwd).catch(() => null);
+      const runKey = canonicalRunCwd && (process.platform === "win32" ? canonicalRunCwd.toLowerCase() : canonicalRunCwd);
+      if (!runKey || runKey !== targetKey) continue;
+      run.archived = true;
+      await this.save(run);
+      archived.push(run.id);
+    }
+    return { archived: archived.length, runIds: archived, projectId: null, matchedBy: "legacy-cwd" };
   }
 
   /**
@@ -4947,7 +6081,9 @@ ${rosterLine}
           if (cancellationWon()) return;
           run.status = "recovery_required";
           run.error = `The provider turn did not confirm termination within ${this.interruptTimeoutMs} ms.`;
-          run.recoveryNote = "Do not continue yet: the native turn may still be stopping. The control plane will release the interrupt gate only after the execution settles.";
+          // 闸只在执行链 settle 后释放，理论上可能永不释放（adapter 死锁）。自动放闸会让原生轮
+          // 并发占用，不做；但唯一的人工出口必须写明，否则 LO 侧就是无提示的死锁。
+          run.recoveryNote = "Do not continue yet: the native turn may still be stopping. The control plane releases the interrupt gate once the execution settles; if it never does, cancel this run to release it.";
           await this.save(run);
           timeoutCommitted = !cancellationWon();
         });
@@ -4956,6 +6092,7 @@ ${rosterLine}
           round: run.round,
           interactionId: run.activeInteractionId || null,
           interactionSeq: run.activeInteractionSeq || null,
+          timeoutMs: this.interruptTimeoutMs, // 前端文案按实配置渲染，写死秒数会在改配置后变成假话
         }, { runId: id });
         void settlement.finally(() => this.interruptingRuns.delete(id));
         return this.get(id);
@@ -5021,8 +6158,40 @@ ${rosterLine}
     try {
       const projection = this.projectionChains.get(id);
       if (projection) await projection.catch(() => {});
+      const contextInvalidatedMembers = [];
+      const contextInvalidationFailures = [];
+      if (this.conversationContexts && run.conversationId) {
+        for (const [agentId, session] of Object.entries(run.sessions || {})) {
+          const sessionId = typeof session === "string" ? session : (session?.sessionId || session?.id || null);
+          if (!sessionId) continue;
+          try {
+            const result = await this.conversationContexts.invalidate({
+              conversationId: run.conversationId,
+              memberId: agentId,
+              sessionId,
+              ownerRunId: run.id,
+              reason: "run-cancelled",
+            });
+            if (result.invalidated) contextInvalidatedMembers.push(agentId);
+          } catch (error) {
+            contextInvalidationFailures.push({
+              agentId,
+              code: error?.code || "CONVERSATION_CONTEXT_STORE_UNAVAILABLE",
+              message: error?.message || "conversation context invalidation failed",
+            });
+          }
+        }
+      }
       await this.withRunTransition(id, async () => {
         run.status = "cancelled";
+        if (contextInvalidatedMembers.length || contextInvalidationFailures.length) {
+          run.contextCancellation = {
+            state: contextInvalidationFailures.length ? "degraded" : "invalidated",
+            invalidatedMembers: contextInvalidatedMembers.sort(),
+            failures: contextInvalidationFailures,
+            updatedAt: new Date().toISOString(),
+          };
+        }
         // 挂起态一并清场：取消后不存在"等回答"或排队追问。
         run.pendingAsk = null;
         run.pausedForInput = false;

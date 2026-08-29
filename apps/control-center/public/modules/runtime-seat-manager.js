@@ -13,6 +13,18 @@ const ELIGIBILITY_LABELS = Object.freeze({
   "runtime-profile-ineligible": "席位配置不完整",
 });
 
+/** T5：席位品牌 → 原生设置端点 agent（新 CLI 接入后端 builder 后在此补条目）。 */
+const NATIVE_SETTINGS_AGENT_BY_BRAND = Object.freeze({
+  grok: "grok-build",
+  codex: "codex-technical",
+});
+
+const NATIVE_SETTINGS_UNAVAILABLE_REASONS = Object.freeze({
+  "config-not-found": "未找到 config.toml——CLI 可能尚未初始化，先在终端跑一次 /config。",
+  "config-unreadable": "config.toml 读取失败，稍后重试或检查文件权限。",
+  "no-whitelisted-fields": "配置文件存在但没有可展示的白名单字段——CLI 可能还在用默认值。",
+});
+
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -35,6 +47,7 @@ export function createRuntimeSeatManager({
   onModeChanged,
   onSelectionChanged,
   onOpenMember,
+  onConnectionContextChanged,
   cliIconMarkup,
 } = {}) {
   const byId = (id) => document.getElementById(id);
@@ -47,6 +60,7 @@ export function createRuntimeSeatManager({
   let draft = null;
   let query = "";
   let filter = "all";
+  let nativeSettingsEpoch = 0; // 防陈旧响应：切席/换 Adapter 后旧 fetch 结果不再落屏
 
   const templates = () => Array.isArray(state.adapterTemplatesData?.templates)
     ? state.adapterTemplatesData.templates
@@ -342,6 +356,91 @@ export function createRuntimeSeatManager({
     return ELIGIBILITY_LABELS[view?.eligibilityReason] || "需要启用席位并开放主脑资格";
   }
 
+  /* ===== T5：CLI 原生设置（只读快照）=====
+   * 第一期只在 grok 席位的详情里渲染；其他 CLI 不渲染（NATIVE_SETTINGS_AGENT_BY_BRAND
+   * 留扩展位）。数据全部来自 GET /api/agents/native-settings，schema 驱动，前端不解析 TOML。 */
+
+  function nativeSettingsAgentFor(template) {
+    return NATIVE_SETTINGS_AGENT_BY_BRAND[seatBrand(template?.id)] || "";
+  }
+
+  function nativeSettingsValueMarkup(field) {
+    if (field.value === null || field.value === undefined) return '<span class="subtle">未设置</span>';
+    let valueMarkup;
+    if (field.type === "boolean") {
+      valueMarkup = `<span class="chip ${field.value ? "is-on" : ""}">${field.value ? "开" : "关"}</span>`;
+    } else {
+      valueMarkup = `<strong>${escapeHtml(String(field.value))}</strong>`;
+    }
+    const semantic = field.semantic ? `<span class="runtime-seat-native-settings-semantic">${escapeHtml(field.semantic)}</span>` : "";
+    return `${valueMarkup}${semantic}`;
+  }
+
+  function renderNativeSettings(payload) {
+    const body = byId("runtime-seat-native-settings-body");
+    const time = byId("runtime-seat-native-settings-time");
+    const note = byId("runtime-seat-native-settings-note");
+    if (!body) return;
+    if (!payload?.available) {
+      if (time) time.textContent = "";
+      if (note) note.textContent = NATIVE_SETTINGS_UNAVAILABLE_REASONS[payload?.reason] || "快照不可用，稍后重试。";
+      body.innerHTML = "";
+      return;
+    }
+    if (note) note.textContent = "只读快照 · 修改请用 CLI /config";
+    const stamp = payload.generatedAt
+      ? new Date(payload.generatedAt).toLocaleString("zh-CN", { hour12: false })
+      : "";
+    if (time) time.textContent = stamp ? `快照时间 ${stamp}${payload.source ? ` · ${payload.source}` : ""}` : "";
+    body.innerHTML = (payload.groups || []).filter((group) => Array.isArray(group.fields) && group.fields.length).map((group) => `
+      <div class="runtime-seat-native-settings-group">
+        <h5 class="runtime-seat-native-settings-group-title">${escapeHtml(group.label)}</h5>
+        <dl class="runtime-seat-native-settings-fields">
+          ${group.fields.map((field) => `<div class="runtime-seat-native-settings-field"><dt>${escapeHtml(field.label)}</dt><dd>${nativeSettingsValueMarkup(field)}</dd></div>`).join("")}
+        </dl>
+      </div>`).join("");
+  }
+
+  async function loadNativeSettings(agent) {
+    const epoch = ++nativeSettingsEpoch;
+    const body = byId("runtime-seat-native-settings-body");
+    const note = byId("runtime-seat-native-settings-note");
+    if (body) body.innerHTML = '<span class="subtle">正在读取原生设置快照…</span>';
+    if (note) note.textContent = "只读快照 · 修改请用 CLI /config";
+    try {
+      const payload = await request(api.agentNativeSettings(agent));
+      if (epoch !== nativeSettingsEpoch) return; // 期间已切席/换 Adapter，丢弃过期结果
+      renderNativeSettings(payload);
+    } catch (error) {
+      if (epoch !== nativeSettingsEpoch) return;
+      if (note) note.textContent = `快照拉取失败：${error.message}`;
+      if (body) body.innerHTML = "";
+    }
+  }
+
+  function syncNativeSettingsPanel(template) {
+    const section = byId("runtime-seat-native-settings-section");
+    if (!section) return;
+    const agent = nativeSettingsAgentFor(template);
+    if (!agent) {
+      section.hidden = true;
+      nativeSettingsEpoch += 1; // 非 grok 席位：在飞请求作废
+      return;
+    }
+    section.hidden = false;
+    void loadNativeSettings(agent);
+  }
+
+  /** SSE capability.changed 钩子：命中当前可见面板的 CLI 才重拉端点局部刷新，不整页刷。 */
+  function refreshNativeSettings(runtimeProfileId) {
+    const section = byId("runtime-seat-native-settings-section");
+    if (!section || section.hidden || byId("runtime-seat-form")?.hidden) return;
+    const template = templateById(byId("runtime-seat-adapter-select")?.value || draft?.adapter);
+    const agent = nativeSettingsAgentFor(template);
+    if (!agent || agent !== runtimeProfileId) return;
+    void loadNativeSettings(agent);
+  }
+
   function renderTemplateDetails(template, view = null) {
     const root = byId("runtime-seat-adapter-details");
     if (!root) return;
@@ -417,8 +516,10 @@ export function createRuntimeSeatManager({
     }
     renderExecutionControls(template, draft, { clearUnsupported: !preserveCapabilities });
     renderTemplateDetails(template, draft);
+    syncNativeSettingsPanel(template);
     providerOptions(template, preserveProvider ? draft?.providerId || "" : "");
     applyFieldLocks();
+    notifyConnectionContext();
   }
 
   function renderEditor(seat, { isNew = false } = {}) {
@@ -466,7 +567,9 @@ export function createRuntimeSeatManager({
     byId("runtime-seat-capabilities-wall").innerHTML = capabilityMarkup();
     providerOptions(template, seat.providerId || "");
     void refreshProviderBalance();
+    notifyConnectionContext();
     renderTemplateDetails(template, live ? { ...seat, ...live } : seat);
+    syncNativeSettingsPanel(template);
     applyFieldLocks();
 
     const status = live?.teamMemberEligible === false ? "配置待修复" : isNew ? "尚未保存" : "已保存";
@@ -573,6 +676,14 @@ export function createRuntimeSeatManager({
       confirmLabel: "放弃修改",
       danger: true,
     });
+  }
+
+  async function discard() {
+    if (!await canDiscard()) return false;
+    if (!dirty) return true;
+    if (source) renderEditor(seatById(source.id) || source);
+    else showEmpty();
+    return true;
   }
 
   async function selectSeat(id) {
@@ -736,13 +847,25 @@ export function createRuntimeSeatManager({
     }
   }
 
+  function connectionApp() {
+    if (byId("runtime-seat-form")?.hidden) return "";
+    const adapterId = byId("runtime-seat-adapter-select")?.value || draft?.adapter || "";
+    return templateById(adapterId)?.providerApp || "";
+  }
+
+  function notifyConnectionContext() {
+    onConnectionContextChanged?.(connectionApp(), byId("runtime-seat-provider-select")?.value || "");
+  }
+
   function showEmpty() {
     source = null;
     draft = null;
     dirty = false;
+    nativeSettingsEpoch += 1; // 编辑器关闭：在飞的原生设置快照作废
     byId("runtime-seat-editor-empty").hidden = false;
     byId("runtime-seat-form").hidden = true;
     setStatus("等待选择", "neutral");
+    notifyConnectionContext();
   }
 
   async function focus(id, { scroll = true } = {}) {
@@ -834,6 +957,13 @@ export function createRuntimeSeatManager({
       else renderEditor(blankSeat(), { isNew: true });
     });
     byId("runtime-seat-form")?.addEventListener("submit", (event) => void save(event));
+    byId("runtime-seat-native-settings-refresh")?.addEventListener("click", () => {
+      const section = byId("runtime-seat-native-settings-section");
+      if (!section || section.hidden) return;
+      const template = templateById(byId("runtime-seat-adapter-select")?.value || draft?.adapter);
+      const agent = nativeSettingsAgentFor(template);
+      if (agent) void loadNativeSettings(agent);
+    });
     byId("runtime-seat-form")?.addEventListener("input", (event) => {
       if (["runtime-seat-quality-input", "runtime-seat-speed-input"].includes(event.target.id)) syncMetricOutputs();
       markDirty();
@@ -846,7 +976,10 @@ export function createRuntimeSeatManager({
         draft.providerId = null;
         setTemplate(event.target.value, { preserveCapabilities: false, preserveProvider: false, previousTemplate });
       }
-      if (event.target.id === "runtime-seat-provider-select") void refreshProviderBalance();
+      if (event.target.id === "runtime-seat-provider-select") {
+        void refreshProviderBalance();
+        notifyConnectionContext();
+      }
       if (["runtime-seat-enabled-input", "runtime-seat-coordinator-input"].includes(event.target.id)) {
         renderTemplateDetails(templateById(byId("runtime-seat-adapter-select").value), {
           ...draft,
@@ -874,6 +1007,9 @@ export function createRuntimeSeatManager({
     syncProviders,
     renderList,
     refreshBindings,
+    refreshNativeSettings,
+    connectionApp,
+    discard,
     isDirty: () => dirty,
     isBusy: () => busy,
   };

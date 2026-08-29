@@ -116,7 +116,7 @@ export class ObservabilityService {
     return result;
   }
 
-  async deltaLedger({ recent = 40 } = {}) {
+  async deltaLedger({ recent = 40, strict = false } = {}) {
     // stop-gate 双扫口径：decisions.md + handoff/*.md
     const entries = [];
     const metas = []; // 与 entries 平行：v4.0 deltas[] 的规范化元数据（id/ts/topic 合成源）
@@ -133,14 +133,16 @@ export class ObservabilityService {
     try {
       // decisions.md 行内无时间戳：ts 如实置 null，由前端决定如何呈现
       collect(await readFile(join(this.aiSharedRoot, "decisions.md"), "utf8"), "decisions.md", { ts: null, topic: "decisions" });
-    } catch {
+    } catch (error) {
       // decisions.md 缺失时账本仍可由 handoff 侧构成
+      if (strict) throw Object.assign(new Error("decisions.md is unavailable"), { code: "OBSERVABILITY_DECISIONS_UNAVAILABLE", cause: error });
     }
-    for (const file of await this.#handoffFiles()) {
+    for (const file of await this.#handoffFiles({ strict })) {
       try {
         collect(await readFile(file.path, "utf8"), file.name, handoffEntryMeta(file));
-      } catch {
+      } catch (error) {
         // 单文件读取失败不阻塞账本
+        if (strict) throw Object.assign(new Error(`handoff ${file.name} is unavailable`), { code: "OBSERVABILITY_HANDOFF_UNAVAILABLE", cause: error });
       }
     }
     const byScore = { 0: 0, 1: 0, 2: 0, invalid: 0 };
@@ -165,8 +167,8 @@ export class ObservabilityService {
     };
   }
 
-  async handoffs({ limit = 120 } = {}) {
-    const files = await this.#handoffFiles();
+  async handoffs({ limit = 120, strict = false } = {}) {
+    const files = await this.#handoffFiles({ strict });
     files.sort((a, b) => b.mtimeMs - a.mtimeMs);
     return files.slice(0, limit).map((file) => ({
       name: file.name,
@@ -334,12 +336,13 @@ export class ObservabilityService {
     }
   }
 
-  async #handoffFiles() {
+  async #handoffFiles({ strict = false } = {}) {
     const root = join(this.aiSharedRoot, "handoff");
     let names;
     try {
       names = await readdir(root);
-    } catch {
+    } catch (error) {
+      if (strict) throw Object.assign(new Error("handoff directory is unavailable"), { code: "OBSERVABILITY_HANDOFF_ROOT_UNAVAILABLE", cause: error });
       return [];
     }
     const files = [];
@@ -348,8 +351,9 @@ export class ObservabilityService {
       try {
         const info = await stat(join(root, name));
         if (info.isFile()) files.push({ name, path: join(root, name), size: info.size, mtimeMs: info.mtimeMs });
-      } catch {
+      } catch (error) {
         // 列表期间被移动/删除的文件直接跳过
+        if (strict) throw Object.assign(new Error(`handoff ${name} is unavailable`), { code: "OBSERVABILITY_HANDOFF_UNAVAILABLE", cause: error });
       }
     }
     return files;

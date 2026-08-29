@@ -19,4 +19,6 @@ test("custom personas fall back to label initials instead of empty faces", () =>
 
   const branded = memberFaceMarkup({ id: "codex-technical", provider: "openai" });
   assert.equal(branded, officialCliIconMarkup("codex", "cli-logo"));
+  assert.match(officialCliIconMarkup("claude", "bot-avatar-icon"), /class="bot-avatar-icon cli-brand-claude"/);
+  assert.match(officialCliIconMarkup("claude", "bot-avatar-icon"), /data-cli-brand="claude"/);
 });

@@ -4,7 +4,8 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { normalizeRunSources, Orchestrator, renameWithRetry } from "../src/orchestrator.mjs";
+import { normalizeConversationRecipientIds, normalizeRunSources, Orchestrator, renameWithRetry } from "../src/orchestrator.mjs";
+import { ConversationContextStore } from "../src/conversation-contexts.mjs";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -17,6 +18,20 @@ function deferred() {
   });
   return { promise, resolve: resolvePromise, reject: rejectPromise };
 }
+
+test("Conversation recipient normalization keeps stable member identity and direct topology", () => {
+  const direct = { kind: "direct", directMemberId: "codex-technical", memberIds: ["codex-technical"] };
+  const group = { kind: "workspace_group", memberIds: ["claude-fable", "codex-technical"] };
+  assert.equal(normalizeConversationRecipientIds(undefined, direct), null);
+  assert.equal(normalizeConversationRecipientIds([], group), null);
+  assert.deepEqual(normalizeConversationRecipientIds(["codex-technical"], direct), ["codex-technical"]);
+  assert.deepEqual(normalizeConversationRecipientIds(["codex-technical"], group), ["codex-technical"]);
+  assert.throws(() => normalizeConversationRecipientIds("codex-technical", group), { code: "VALIDATION_FAILED" });
+  assert.throws(() => normalizeConversationRecipientIds(["codex-technical", "codex-technical"], group), { code: "VALIDATION_FAILED" });
+  assert.throws(() => normalizeConversationRecipientIds(["claude-fable", "codex-technical"], group), { code: "VALIDATION_FAILED" });
+  assert.throws(() => normalizeConversationRecipientIds(["claude-fable"], direct), { code: "NOT_TEAM_MEMBER" });
+  assert.throws(() => normalizeConversationRecipientIds(["outside-agent"], group), { code: "NOT_TEAM_MEMBER" });
+});
 
 function policy() {
   return {
@@ -75,10 +90,13 @@ async function fixture({
   policy: policyOverride = null,
   models = null,
   interruptTimeoutMs = 30_000,
+  conversationContexts = null,
+  extraAdapterIds = [],
 } = {}) {
   const root = await mkdtemp(resolve(appRoot, ".test-orchestrator-"));
   const calls = [];
   const adapter = (id) => ({
+    id,
     cwd: root,
     async send(input) {
       calls.push({ id, ...input });
@@ -87,12 +105,17 @@ async function fixture({
       await input.onTurnAccepted?.({ sessionId: `${id}-session`, protocol: `${id}-mock`, clientUserMessageId: `${id}-message-${calls.length}`, turnId: `${id}-turn-${calls.length}` });
       return { sessionId: `${id}-session`, text: `${id}-round-${calls.length}`, protocol: `${id}-mock`, tokens: 1000 + calls.length, costUsd: 0.01 * calls.length };
     },
+    async compactThread(threadId, options = {}) {
+      calls.push({ id, compactThread: true, threadId, ...options });
+      return { turnId: `${id}-compact-${calls.length}` };
+    },
     async close() {},
   });
   const adapters = new Map([
     ["claude-fable", adapter("claude-fable")],
     ["codex-technical", adapter("codex-technical")],
     ["codex-technical-fallback", adapter("codex-fallback")],
+    ...extraAdapterIds.map((id) => [id, adapter(id)]),
   ]);
   const approvalBroker = {
     request: approvalRequest || (async () => ({ decision: "accept", approvalId: "approval-fixture" })),
@@ -109,9 +132,41 @@ async function fixture({
     capabilities,
     models,
     interruptTimeoutMs,
+    conversationContexts,
   }).init();
   return { root, calls, orchestrator, approvalBroker, events };
 }
+
+test("init quarantines runs with malformed createdAt and list() never 500s", async (t) => {
+  const root = await mkdtemp(resolve(appRoot, ".test-orch-malformed-createdat-"));
+  t.after(async () => { await rm(root, { recursive: true, force: true }); });
+  const runDir = join(root, "runs");
+  const { mkdir } = await import("node:fs/promises");
+  await mkdir(runDir, { recursive: true });
+  const badRun = {
+    id: "bad-created-at",
+    status: "active",
+    prompt: "x",
+    createdAt: null,
+    conversationKind: "legacy_pipeline",
+  };
+  await writeFile(join(runDir, "bad-created-at.json"), JSON.stringify(badRun), "utf8");
+  const orchestrator = await new Orchestrator({
+    router: { preview: async () => null },
+    adapters: new Map(),
+    eventStore: { emit: async () => undefined },
+    dataRoot: root,
+    policy: policy(),
+    approvalBroker: { request: async () => ({ decision: "accept" }), denyRun() {} },
+  }).init();
+  t.after(async () => { try { await orchestrator.close(); } catch {} });
+  // list() 不得因 createdAt:null 崩溃（P0-07）
+  const list = orchestrator.list();
+  assert.equal(list.length, 1, "malformed run stays diagnosable, not dropped");
+  assert.equal(list[0].id, "bad-created-at");
+  assert.equal(list[0].recoveryIssue?.code, "RUN_CREATED_AT_INVALID", "quarantined from automatic recovery");
+  assert.equal(list[0].status, "recovery_required");
+});
 
 async function waitTerminal(orchestrator, id) {
   // A wider deadline only affects a failing run under full-suite contention; ownership must still
@@ -150,6 +205,606 @@ test("high-risk execution performs planner, specialist and independent verifier 
   assert.equal(completed.result.final, completed.result.critique);
   assert.equal(completed.turnAttempts.length, 3);
   assert.ok(completed.turnAttempts.every((attempt) => attempt.phase === "completed" && attempt.sessionId));
+  const delegations = completed.taskGraph.delegations;
+  assert.deepEqual(delegations.map((edge) => [edge.fromAgentId, edge.toAgentId, edge.kind]), [
+    ["claude-fable", "codex-technical", "pipeline-dispatch"],
+    ["codex-technical", "claude-fable", "pipeline-review"],
+  ]);
+  assert.equal(delegations[0].sourceAttemptId, completed.turnAttempts[0].attemptId);
+  assert.equal(delegations[0].targetAttemptId, completed.turnAttempts[1].attemptId);
+  assert.equal(delegations[1].sourceAttemptId, completed.turnAttempts[1].attemptId);
+  assert.equal(delegations[1].targetAttemptId, completed.turnAttempts[2].attemptId);
+  assert.ok(delegations.every((edge) => edge.state === "completed"));
+});
+
+test("direct conversations dispatch only to the selected member and keep its native session", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const linkedRuns = [];
+  fx.orchestrator.conversations = {
+    get(id) {
+      assert.equal(id, "conversation-1");
+      return { id, kind: "direct", directMemberId: "codex-technical", memberIds: ["codex-technical"] };
+    },
+    async attachRun(id, runId) { linkedRuns.push([id, runId]); },
+    async detachRun() { throw new Error("successful persistence must not roll back the conversation link"); },
+  };
+  const created = await fx.orchestrator.create({
+    prompt: "只和 Codex 对话",
+    execute: true,
+    conversationKind: "direct",
+    conversationId: "conversation-1",
+    orchestrationMode: "pipeline",
+    startAgentId: "codex-technical",
+    requestedProvider: "codex-technical",
+    maxRounds: 1,
+    permissionMode: "plan",
+  });
+  const completed = await waitTerminal(fx.orchestrator, created.id);
+  assert.equal(completed.status, "succeeded");
+  assert.equal(completed.conversationKind, "direct");
+  assert.equal(completed.conversationId, "conversation-1");
+  assert.deepEqual(linkedRuns, [["conversation-1", completed.id]]);
+  assert.deepEqual(fx.calls.map((call) => call.id), ["codex-technical"]);
+  assert.equal(completed.result.direct, completed.result.final);
+  assert.equal(completed.turnAttempts.length, 1);
+
+  await fx.orchestrator.continue(completed.id, { prompt: "继续单聊", waitForTurn: true });
+  const resumed = await waitTerminal(fx.orchestrator, completed.id);
+  assert.equal(resumed.status, "succeeded");
+  assert.deepEqual(fx.calls.map((call) => call.id), ["codex-technical", "codex-technical"]);
+  assert.equal(fx.calls[1].sessionId, "codex-technical-session");
+});
+
+test("Conversation message admission keeps an active Run instead of creating a second Run", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const firstTurn = deferred();
+  const runtimeAdapter = fx.orchestrator.adapters.get("codex-technical");
+  const originalSend = runtimeAdapter.send.bind(runtimeAdapter);
+  let sendCount = 0;
+  runtimeAdapter.send = async (input) => {
+    sendCount += 1;
+    if (sendCount === 1) await firstTurn.promise;
+    return originalSend(input);
+  };
+  const conversation = {
+    id: "conversation-active",
+    kind: "direct",
+    scope: "global",
+    roomRole: "task",
+    projectId: null,
+    directMemberId: "codex-technical",
+    memberIds: ["codex-technical"],
+    runIds: [],
+    activeRunId: null,
+  };
+  fx.orchestrator.conversations = {
+    get(id) {
+      assert.equal(id, conversation.id);
+      return conversation;
+    },
+    async attachRun(_id, runId) {
+      conversation.runIds.push(runId);
+      conversation.activeRunId = runId;
+    },
+    async detachRun() {},
+  };
+  const created = await fx.orchestrator.create({
+    prompt: "active first turn",
+    execute: true,
+    conversationKind: "direct",
+    conversationId: conversation.id,
+    orchestrationMode: "pipeline",
+    startAgentId: "codex-technical",
+    requestedProvider: "codex-technical",
+    maxRounds: 1,
+    permissionMode: "plan",
+  });
+  const admitted = await fx.orchestrator.conversationMessage(conversation.id, {
+    prompt: "queue through Conversation identity",
+    messageIntent: "steer",
+    recipientMemberIds: ["codex-technical"],
+    waitForTurn: false,
+  });
+  assert.equal(admitted.created, false);
+  assert.equal(admitted.run.id, created.id);
+  assert.equal(conversation.runIds.length, 1);
+  assert.equal(admitted.run.pendingSteer.length, 1);
+  assert.equal(admitted.run.pendingSteer[0].prompt, "queue through Conversation identity");
+  assert.equal(admitted.run.pendingSteer[0].agentId, "codex-technical");
+  firstTurn.resolve();
+  const completed = await waitTerminal(fx.orchestrator, created.id);
+  assert.equal(completed.status, "succeeded");
+  assert.equal(sendCount, 2);
+});
+
+test("a completed direct Conversation epoch carries its native session into the next Run only", async (t) => {
+  const contextRoot = await mkdtemp(resolve(appRoot, ".test-conversation-epoch-"));
+  const conversationContexts = await new ConversationContextStore({ dataRoot: contextRoot }).init();
+  const fx = await fixture({ conversationContexts });
+  t.after(async () => {
+    await fx.orchestrator.close();
+    await conversationContexts.close();
+    await rm(fx.root, { recursive: true, force: true });
+    await rm(contextRoot, { recursive: true, force: true });
+  });
+  const runtimeAdapter = fx.orchestrator.adapters.get("codex-technical");
+  runtimeAdapter.id = "codex-app-server";
+  const linkedRuns = [];
+  fx.orchestrator.conversations = {
+    get(id) {
+      return {
+        id,
+        kind: "direct",
+        scope: "global",
+        roomRole: "task",
+        projectId: null,
+        directMemberId: "codex-technical",
+        memberIds: ["codex-technical"],
+      };
+    },
+    async attachRun(id, runId) { linkedRuns.push([id, runId]); },
+    async detachRun() {},
+  };
+  const createDirect = () => fx.orchestrator.create({
+    prompt: "跨 Run 保持会话",
+    execute: true,
+    conversationKind: "direct",
+    conversationId: "conversation-epoch",
+    orchestrationMode: "pipeline",
+    startAgentId: "codex-technical",
+    requestedProvider: "codex-technical",
+    maxRounds: 1,
+    permissionMode: "plan",
+  });
+
+  const first = await createDirect();
+  const firstDone = await waitTerminal(fx.orchestrator, first.id);
+  assert.equal(firstDone.contextEpoch, 1);
+  assert.deepEqual(firstDone.contextInheritedMembers, []);
+  assert.equal(contextRoot === fx.root, false, "the context ledger is independent from Run persistence in this fixture");
+
+  const second = await createDirect();
+  const secondDone = await waitTerminal(fx.orchestrator, second.id);
+  assert.equal(secondDone.contextEpoch, 1);
+  assert.deepEqual(secondDone.contextInheritedMembers, ["codex-technical"]);
+  assert.equal(secondDone.contextInheritedFromRunId, first.id);
+  assert.equal(fx.calls[1].sessionId, "codex-technical-session");
+  assert.equal(secondDone.permissionMode, "plan", "session inheritance must not copy a prior Run permission state");
+  assert.equal(secondDone.buildApproval, null);
+  assert.equal(linkedRuns.length, 2);
+});
+
+test("concurrent Run creation cannot inherit one Conversation native session twice", async (t) => {
+  const contextRoot = await mkdtemp(resolve(appRoot, ".test-conversation-epoch-race-"));
+  const conversationContexts = await new ConversationContextStore({ dataRoot: contextRoot }).init();
+  await conversationContexts.claim({
+    conversationId: "conversation-race",
+    topologyKey: "seed-topology",
+    runId: "seed-run",
+    candidates: [],
+  });
+  const fx = await fixture({ conversationContexts });
+  t.after(async () => {
+    await fx.orchestrator.close();
+    await conversationContexts.close();
+    await rm(fx.root, { recursive: true, force: true });
+    await rm(contextRoot, { recursive: true, force: true });
+  });
+  const runtimeAdapter = fx.orchestrator.adapters.get("codex-technical");
+  runtimeAdapter.id = "codex-app-server";
+  const conversation = {
+    id: "conversation-race",
+    kind: "direct",
+    scope: "global",
+    roomRole: "task",
+    projectId: null,
+    directMemberId: "codex-technical",
+    memberIds: ["codex-technical"],
+  };
+  fx.orchestrator.conversations = {
+    get: () => conversation,
+    async attachRun() {},
+    async detachRun() {},
+  };
+  const seedPlan = fx.orchestrator.conversationContextPlan({
+    conversation,
+    conversationKind: "direct",
+    projectId: null,
+    sessionCwd: null,
+    sessionRemote: null,
+    teamRoster: null,
+    executionOwnerId: "codex-technical",
+  });
+  await conversationContexts.claim({
+    conversationId: conversation.id,
+    topologyKey: seedPlan.topologyKey,
+    runId: "seed-run",
+    candidates: [],
+  });
+  await conversationContexts.publish({
+    conversationId: conversation.id,
+    topologyKey: seedPlan.topologyKey,
+    runId: "seed-run",
+    binding: {
+      memberId: "codex-technical",
+      sessionId: "seed-session",
+      runtimeProfileId: "codex-technical",
+      adapterId: "codex-app-server",
+      protocol: "app-server-v2",
+      providerBinding: fx.orchestrator.providerBindingFor(runtimeAdapter, "codex-technical", { remote: false }),
+      sourceAttemptId: "seed-attempt",
+      cwdKey: null,
+      remoteKey: null,
+    },
+  });
+
+  const originalClaim = conversationContexts.claim.bind(conversationContexts);
+  const firstClaimed = deferred();
+  const releaseFirst = deferred();
+  let claimCount = 0;
+  conversationContexts.claim = async (input) => {
+    const result = await originalClaim(input);
+    claimCount += 1;
+    if (claimCount === 1) {
+      firstClaimed.resolve();
+      await releaseFirst.promise;
+    }
+    return result;
+  };
+  const createDirect = (prompt) => fx.orchestrator.create({
+    prompt,
+    execute: true,
+    conversationKind: "direct",
+    conversationId: conversation.id,
+    orchestrationMode: "pipeline",
+    startAgentId: "codex-technical",
+    requestedProvider: "codex-technical",
+    maxRounds: 1,
+    permissionMode: "plan",
+  });
+
+  const firstPromise = createDirect("first concurrent run");
+  await firstClaimed.promise;
+  const second = await createDirect("second concurrent run");
+  releaseFirst.resolve();
+  const first = await firstPromise;
+  assert.deepEqual(first.contextInheritedMembers, ["codex-technical"]);
+  assert.equal(first.contextInheritedFromRunId, "seed-run");
+  assert.deepEqual(second.contextInheritedMembers, []);
+  assert.equal(second.contextInheritedFromRunId, null);
+});
+
+test("cancel invalidates an in-flight context publication without waiting for the provider lifecycle", async (t) => {
+  const contextRoot = await mkdtemp(resolve(appRoot, ".test-conversation-cancel-publication-"));
+  const conversationContexts = await new ConversationContextStore({ dataRoot: contextRoot }).init();
+  const fx = await fixture({ conversationContexts });
+  t.after(async () => {
+    await fx.orchestrator.close();
+    await conversationContexts.close();
+    await rm(fx.root, { recursive: true, force: true });
+    await rm(contextRoot, { recursive: true, force: true });
+  });
+  fx.orchestrator.adapters.get("codex-technical").id = "codex-app-server";
+  const conversation = {
+    id: "conversation-cancel-publication",
+    kind: "direct",
+    scope: "global",
+    roomRole: "task",
+    projectId: null,
+    directMemberId: "codex-technical",
+    memberIds: ["codex-technical"],
+    runIds: [],
+    activeRunId: null,
+  };
+  fx.orchestrator.conversations = {
+    get: () => conversation,
+    async attachRun(_id, runId) {
+      conversation.runIds.push(runId);
+      conversation.activeRunId = runId;
+    },
+    async detachRun() {},
+  };
+  const publicationStarted = deferred();
+  const releasePublication = deferred();
+  const originalPublish = conversationContexts.publish.bind(conversationContexts);
+  conversationContexts.publish = async (input) => {
+    publicationStarted.resolve();
+    await releasePublication.promise;
+    return originalPublish(input);
+  };
+
+  const created = await fx.orchestrator.create({
+    prompt: "cancel while publishing context",
+    execute: true,
+    conversationKind: "direct",
+    conversationId: conversation.id,
+    orchestrationMode: "pipeline",
+    startAgentId: "codex-technical",
+    requestedProvider: "codex-technical",
+    maxRounds: 1,
+    permissionMode: "plan",
+  });
+  await publicationStarted.promise;
+  const cancellation = fx.orchestrator.cancel(created.id);
+  const cancelled = await cancellation;
+  assert.equal(cancelled.status, "cancelled");
+  const execution = fx.orchestrator.executions.get(created.id);
+  assert.ok(execution, "the blocked provider lifecycle remains owned until publication settles");
+  releasePublication.resolve();
+  await execution;
+  assert.deepEqual(conversationContexts.get(conversation.id).bindings, {});
+
+  const next = await fx.orchestrator.create({
+    prompt: "fresh context after cancellation",
+    execute: true,
+    conversationKind: "direct",
+    conversationId: conversation.id,
+    orchestrationMode: "pipeline",
+    startAgentId: "codex-technical",
+    requestedProvider: "codex-technical",
+    maxRounds: 1,
+    permissionMode: "plan",
+  });
+  assert.deepEqual(next.contextInheritedMembers, []);
+  assert.equal(next.contextInheritedFromRunId, null);
+});
+
+test("direct conversations reject social orchestration", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  await assert.rejects(
+    fx.orchestrator.create({
+      prompt: "invalid topology",
+      execute: false,
+      conversationKind: "direct",
+      orchestrationMode: "social",
+      startAgentId: "codex-technical",
+    }),
+    { code: "VALIDATION_FAILED" },
+  );
+});
+
+test("persisted conversation inputs fail closed without their stores", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  await assert.rejects(
+    fx.orchestrator.create({
+      prompt: "missing conversation store",
+      execute: false,
+      conversationId: "conversation-missing",
+      conversationKind: "direct",
+      startAgentId: "codex-technical",
+      permissionMode: "plan",
+    }),
+    { code: "CONVERSATION_STORE_UNAVAILABLE" },
+  );
+  await assert.rejects(
+    fx.orchestrator.create({
+      prompt: "unpersisted workspace",
+      execute: false,
+      conversationKind: "workspace_group",
+      orchestrationMode: "social",
+      cwd: fx.root,
+      permissionMode: "plan",
+    }),
+    { code: "CONVERSATION_STORE_UNAVAILABLE" },
+  );
+});
+
+test("project conversations derive projectId and cwd from the persisted server-side scope", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const project = { projectId: "project-1", canonicalCwd: fx.root, title: "Project" };
+  const conversation = {
+    id: "conversation-project-1",
+    kind: "workspace_group",
+    scope: "project",
+    roomRole: "default",
+    projectId: project.projectId,
+    memberIds: ["claude-fable", "codex-technical"],
+  };
+  const linkedRuns = [];
+  fx.orchestrator.projects = { get: (id) => id === project.projectId ? project : null };
+  fx.orchestrator.conversations = {
+    get: (id) => id === conversation.id ? conversation : null,
+    async attachRun(id, runId) { linkedRuns.push([id, runId]); },
+    async detachRun() {},
+  };
+  fx.orchestrator.teams = {
+    materializeEphemeral(input) {
+      return { id: null, name: input.name, coordinator: input.coordinator, members: [...input.members], skills: [], mcp: [], ephemeral: true };
+    },
+    briefFor() { return "project fixture"; },
+  };
+  const ephemeralTeam = {
+    name: "Project fixture",
+    coordinator: "claude-fable",
+    members: [...conversation.memberIds],
+  };
+  const created = await fx.orchestrator.create({
+    prompt: "project route",
+    execute: false,
+    conversationId: conversation.id,
+    conversationKind: conversation.kind,
+    orchestrationMode: "social",
+    startAgentId: "claude-fable",
+    requestedAgentIds: ["codex-technical"],
+    ephemeralTeam,
+    permissionMode: "plan",
+  });
+  assert.equal(created.projectId, project.projectId);
+  assert.equal(created.cwd, fx.root);
+  assert.deepEqual(linkedRuns, [[conversation.id, created.id]]);
+  conversation.memberIds = [];
+  await assert.rejects(
+    fx.orchestrator.create({
+      prompt: "empty project room must stay idle",
+      execute: false,
+      conversationId: conversation.id,
+      conversationKind: conversation.kind,
+      orchestrationMode: "social",
+      startAgentId: "claude-fable",
+      requestedAgentIds: ["codex-technical"],
+      ephemeralTeam,
+      permissionMode: "plan",
+    }),
+    { code: "VALIDATION_FAILED" },
+  );
+  conversation.memberIds = ["claude-fable", "codex-technical"];
+  await assert.rejects(
+    fx.orchestrator.create({
+      prompt: "attempt client override",
+      execute: false,
+      conversationId: conversation.id,
+      conversationKind: conversation.kind,
+      orchestrationMode: "social",
+      startAgentId: "claude-fable",
+      requestedAgentIds: ["codex-technical"],
+      ephemeralTeam,
+      cwd: resolve(fx.root, "other"),
+      permissionMode: "plan",
+    }),
+    { code: "INVALID_CWD" },
+  );
+  project.archivedAt = new Date().toISOString();
+  await assert.rejects(
+    fx.orchestrator.create({
+      prompt: "archived project",
+      execute: false,
+      conversationId: conversation.id,
+      conversationKind: conversation.kind,
+      orchestrationMode: "social",
+      startAgentId: "claude-fable",
+      requestedAgentIds: ["codex-technical"],
+      ephemeralTeam,
+      permissionMode: "plan",
+    }),
+    { code: "PROJECT_ARCHIVED" },
+  );
+  await assert.rejects(
+    fx.orchestrator.continue(created.id, { prompt: "continue archived project" }),
+    { code: "PROJECT_ARCHIVED" },
+  );
+  project.archivedAt = null;
+  await fx.orchestrator.continue(created.id, { prompt: "continue restored project", waitForTurn: true });
+  assert.equal((await waitTerminal(fx.orchestrator, created.id)).status, "succeeded");
+  conversation.memberIds = ["claude-fable"];
+  await assert.rejects(
+    fx.orchestrator.continue(created.id, { prompt: "continue stale membership" }),
+    { code: "CONVERSATION_MEMBERS_CHANGED" },
+  );
+  const archived = await fx.orchestrator.archiveFinishedByProjectId(project.projectId);
+  assert.deepEqual(archived.runIds, [created.id]);
+  assert.equal(archived.matchedBy, "projectId");
+});
+
+test("a targeted workspace Conversation message keeps the full roster but starts with the mentioned member", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const project = { projectId: "project-targeted", canonicalCwd: fx.root, title: "Targeted" };
+  const conversation = {
+    id: "conversation-targeted",
+    kind: "workspace_group",
+    scope: "project",
+    roomRole: "task",
+    projectId: project.projectId,
+    title: "Targeted room",
+    memberIds: ["claude-fable", "codex-technical"],
+    runIds: [],
+    activeRunId: null,
+  };
+  fx.orchestrator.projects = { get: (id) => id === project.projectId ? project : null };
+  fx.orchestrator.conversations = {
+    get: (id) => id === conversation.id ? conversation : null,
+    async attachRun(_id, runId) {
+      conversation.runIds.push(runId);
+      conversation.activeRunId = runId;
+    },
+    async detachRun() {},
+  };
+  fx.orchestrator.teams = {
+    materializeEphemeral(input) {
+      return { id: null, name: input.name, coordinator: input.coordinator, members: [...input.members], skills: [], mcp: [], ephemeral: true };
+    },
+    briefFor() { return "targeted conversation fixture"; },
+  };
+  const admitted = await fx.orchestrator.conversationMessage(conversation.id, {
+    prompt: "only Codex should answer this message",
+    recipientMemberIds: ["codex-technical"],
+  });
+  assert.equal(admitted.created, true);
+  assert.equal(admitted.run.startAgentId, "codex-technical");
+  assert.deepEqual(admitted.run.requestedAgentIds, []);
+  assert.deepEqual(admitted.run.teamMembers, ["claude-fable", "codex-technical"]);
+  assert.equal(admitted.run.conversationId, conversation.id);
+  await waitTerminal(fx.orchestrator, admitted.run.id);
+});
+
+test("idempotency keys are isolated by conversation", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const conversations = new Map([
+    ["conversation-a", { id: "conversation-a", kind: "direct", scope: "global", directMemberId: "codex-technical", memberIds: ["codex-technical"] }],
+    ["conversation-b", { id: "conversation-b", kind: "direct", scope: "global", directMemberId: "codex-technical", memberIds: ["codex-technical"] }],
+  ]);
+  fx.orchestrator.conversations = {
+    get: (id) => conversations.get(id) || null,
+    async attachRun() {},
+    async detachRun() {},
+  };
+  const input = {
+    prompt: "conversation-scoped retry",
+    execute: false,
+    conversationKind: "direct",
+    orchestrationMode: "pipeline",
+    startAgentId: "codex-technical",
+    requestedProvider: "codex-technical",
+    permissionMode: "plan",
+    idempotencyKey: "client:retry:1",
+  };
+  const [first, concurrentReplay] = await Promise.all([
+    fx.orchestrator.create({ ...input, conversationId: "conversation-a" }),
+    fx.orchestrator.create({ ...input, conversationId: "conversation-a" }),
+  ]);
+  const replay = await fx.orchestrator.create({ ...input, conversationId: "conversation-a" });
+  const isolated = await fx.orchestrator.create({ ...input, conversationId: "conversation-b" });
+  assert.equal(concurrentReplay.id, first.id);
+  assert.equal(replay.id, first.id);
+  assert.notEqual(isolated.id, first.id);
+  assert.equal(isolated.conversationId, "conversation-b");
+});
+
+test("a failed run-link compensation marks the conversation store inconsistent", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  let inconsistent = null;
+  fx.orchestrator.conversations = {
+    get: (id) => ({ id, kind: "direct", scope: "global", directMemberId: "codex-technical", memberIds: ["codex-technical"] }),
+    async attachRun() {},
+    async detachRun() { throw Object.assign(new Error("detach run failed"), { code: "DETACH_RUN_FAILED" }); },
+    markTransactionInconsistent(operation, cause, compensationError) {
+      inconsistent = { operation, cause, compensationError };
+      return Object.assign(new Error("store inconsistent"), { code: "TRANSACTION_INCONSISTENT", recoveryRequired: true });
+    },
+  };
+  fx.orchestrator.save = async () => { throw Object.assign(new Error("run persistence failed"), { code: "RUN_PERSIST_FAILED" }); };
+  await assert.rejects(
+    fx.orchestrator.create({
+      prompt: "persist run",
+      execute: false,
+      conversationId: "conversation-a",
+      conversationKind: "direct",
+      startAgentId: "codex-technical",
+      requestedProvider: "codex-technical",
+      permissionMode: "plan",
+    }),
+    (error) => error.code === "TRANSACTION_INCONSISTENT" && error.recoveryRequired === true,
+  );
+  assert.equal(inconsistent.operation, "run-create rollback");
+  assert.equal(inconsistent.cause.code, "RUN_PERSIST_FAILED");
+  assert.equal(inconsistent.compensationError.code, "DETACH_RUN_FAILED");
 });
 
 test("missing capability provider blocks every provider dispatch", async (t) => {
@@ -241,24 +896,304 @@ test("settled Grok upstream failure preserves its preassigned native session for
   assert.equal(resumed.turns.at(-1).sessionId, nativeSessionId);
 });
 
-test("native slash command turns reach the adapter raw and flagged (Codex /compact parity)", async (t) => {
+test("settled Codex context exhaustion compacts the same thread before a new durable attempt", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({ prompt: "preview", execute: false, permissionMode: "plan" });
+  const target = fx.orchestrator.adapters.get("codex-technical");
+  const sessionId = "01a0178b-e92f-77c2-af6e-0762934fba1c";
+  const prompts = [];
+  const compactCalls = [];
+  target.id = "codex-app-server";
+  target.compactThread = async (threadId, options) => {
+    compactCalls.push({ threadId, options });
+    return { sessionId: threadId, turnId: "compact-turn", protocol: "app-server-v2" };
+  };
+  target.send = async (input) => {
+    prompts.push(input.prompt);
+    await input.onSessionStarted?.({ sessionId, protocol: "app-server-v2" });
+    await input.onTurnSubmitting?.({
+      sessionId,
+      protocol: "app-server-v2",
+      clientUserMessageId: `context-message-${prompts.length}`,
+    });
+    await input.onTurnAccepted?.({
+      sessionId,
+      protocol: "app-server-v2",
+      clientUserMessageId: `context-message-${prompts.length}`,
+      turnId: `context-turn-${prompts.length}`,
+    });
+    if (prompts.length === 1) {
+      throw Object.assign(new Error("context exhausted"), {
+        code: "CONTEXT_WINDOW_EXCEEDED",
+        nativeTurnSettled: true,
+        requiresContextCompaction: true,
+        safeToFallback: false,
+        sessionId,
+        protocol: "app-server-v2",
+        clientUserMessageId: "context-message-1",
+        turnId: "context-turn-1",
+      });
+    }
+    return { sessionId, text: "continued after compaction", protocol: "app-server-v2" };
+  };
+
+  const completed = await fx.orchestrator.continue(created.id, {
+    prompt: "继续",
+    agentId: "codex-technical",
+  });
+  assert.equal(completed.status, "succeeded");
+  assert.equal(compactCalls.length, 1);
+  assert.equal(compactCalls[0].threadId, sessionId);
+  assert.equal(prompts.length, 2);
+  assert.equal(prompts[1], prompts[0], "retry must not duplicate member/team prompt wrappers");
+  assert.deepEqual(completed.turnAttempts.slice(-2).map((attempt) => attempt.phase), ["failed", "completed"]);
+  assert.notEqual(completed.turnAttempts.at(-2).attemptId, completed.turnAttempts.at(-1).attemptId);
+  assert.equal(completed.turnAttempts.at(-1).round, completed.turnAttempts.at(-2).round + 1);
+  assert.equal(completed.sessions["codex-technical"], sessionId);
+  assert.equal(completed.contextRecovery?.state, "completed");
+  assert.equal(fx.events.some((event) => event.type === "adapter.replay_blocked"), false);
+});
+
+test("failed Codex context compaction invalidates the old thread before recovery acknowledgement", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({ prompt: "preview", execute: false, permissionMode: "plan" });
+  const target = fx.orchestrator.adapters.get("codex-technical");
+  const oldSessionId = "01a0178b-e92f-77c2-af6e-0762934fba1c";
+  const receivedSessionIds = [];
+  let shouldFail = true;
+  target.id = "codex-app-server";
+  target.compactThread = async () => {
+    throw Object.assign(new Error("compact turn failed"), { code: "CONTEXT_COMPACTION_FAILED" });
+  };
+  target.send = async (input) => {
+    receivedSessionIds.push(input.sessionId);
+    const sessionId = input.sessionId || (shouldFail ? oldSessionId : "fresh-thread");
+    await input.onSessionStarted?.({ sessionId, protocol: "app-server-v2" });
+    await input.onTurnSubmitting?.({ sessionId, protocol: "app-server-v2", clientUserMessageId: `message-${receivedSessionIds.length}` });
+    await input.onTurnAccepted?.({ sessionId, protocol: "app-server-v2", clientUserMessageId: `message-${receivedSessionIds.length}`, turnId: `turn-${receivedSessionIds.length}` });
+    if (shouldFail) {
+      throw Object.assign(new Error("context exhausted"), {
+        code: "CONTEXT_WINDOW_EXCEEDED",
+        nativeTurnSettled: true,
+        requiresContextCompaction: true,
+        safeToFallback: false,
+        sessionId,
+        protocol: "app-server-v2",
+      });
+    }
+    return { sessionId, text: "fresh session continued", protocol: "app-server-v2" };
+  };
+
+  await assert.rejects(
+    () => fx.orchestrator.continue(created.id, { prompt: "继续", agentId: "codex-technical" }),
+    { code: "RECOVERY_REQUIRED" },
+  );
+  const blocked = fx.orchestrator.get(created.id);
+  assert.equal(blocked.status, "recovery_required");
+  assert.equal(blocked.sessions["codex-technical"], undefined);
+  assert.equal(blocked.contextRecovery?.state, "failed");
+  assert.equal(blocked.invalidatedSessions.at(-1)?.sessionId, oldSessionId);
+
+  shouldFail = false;
+  await fx.orchestrator.continue(created.id, {
+    prompt: "确认后继续",
+    agentId: "codex-technical",
+    acknowledgeRecovery: true,
+  });
+  const recovered = fx.orchestrator.get(created.id);
+  assert.equal(recovered.status, "succeeded");
+  assert.deepEqual(receivedSessionIds, [null, null], "the invalidated native thread must never be retried");
+  assert.equal(recovered.sessions["codex-technical"], "fresh-thread");
+});
+
+// 「继续」循环是否真的收敛，唯一硬断言就在这里：压缩过一次之后再耗尽必须终止，不得再开窗口。
+test("a second context exhaustion after compaction ends the interaction instead of compacting again", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({ prompt: "preview", execute: false, permissionMode: "plan" });
+  const target = fx.orchestrator.adapters.get("codex-technical");
+  const sessionId = "01a0178b-e92f-77c2-af6e-0762934fba1c";
+  const compactCalls = [];
+  let sends = 0;
+  target.id = "codex-app-server";
+  target.compactThread = async (threadId) => {
+    compactCalls.push(threadId);
+    return { sessionId: threadId, turnId: `compact-turn-${compactCalls.length}`, protocol: "app-server-v2" };
+  };
+  target.send = async (input) => {
+    sends += 1;
+    await input.onSessionStarted?.({ sessionId, protocol: "app-server-v2" });
+    await input.onTurnSubmitting?.({ sessionId, protocol: "app-server-v2", clientUserMessageId: `message-${sends}` });
+    await input.onTurnAccepted?.({ sessionId, protocol: "app-server-v2", clientUserMessageId: `message-${sends}`, turnId: `turn-${sends}` });
+    throw Object.assign(new Error("context exhausted"), {
+      code: "CONTEXT_WINDOW_EXCEEDED",
+      nativeTurnSettled: true,
+      requiresContextCompaction: true,
+      safeToFallback: false,
+      sessionId,
+      protocol: "app-server-v2",
+    });
+  };
+
+  await assert.rejects(
+    () => fx.orchestrator.continue(created.id, { prompt: "继续", agentId: "codex-technical" }),
+    { code: "RECOVERY_REQUIRED" },
+  );
+  assert.equal(compactCalls.length, 1, "单次交互最多压缩一次——第二次耗尽必须终止，不得再开一个压缩窗口");
+  assert.equal(sends, 2, "压缩后只重试一轮");
+  const blocked = fx.orchestrator.get(created.id);
+  assert.equal(blocked.status, "recovery_required");
+  assert.equal(blocked.interactionContextCompactions, 1);
+  assert.equal(blocked.sessions["codex-technical"], undefined, "耗尽的原生线程必须作废，否则下一次「继续」原地重演");
+});
+
+// fail-closed 必须 abort-safe：压缩窗口最长 5 分钟，窗口内点中断是最高频的真实操作。
+test("interrupting inside the compaction window still invalidates the exhausted native thread", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({ prompt: "preview", execute: false, permissionMode: "plan" });
+  const target = fx.orchestrator.adapters.get("codex-technical");
+  const sessionId = "01a0178b-e92f-77c2-af6e-0762934fba1c";
+  const compactionEntered = deferred();
+  target.id = "codex-app-server";
+  target.compactThread = async (threadId, { signal } = {}) => {
+    compactionEntered.resolve();
+    // 真实适配器同样是"挂在压缩上、被 abort 才 reject"，这里复刻该形状
+    await new Promise((_, rejectCompaction) => {
+      const fail = () => rejectCompaction(Object.assign(new Error("compaction aborted"), { code: "ABORTED", sessionId: threadId }));
+      if (signal?.aborted) { fail(); return; }
+      signal?.addEventListener("abort", fail, { once: true });
+    });
+  };
+  target.send = async (input) => {
+    await input.onSessionStarted?.({ sessionId, protocol: "app-server-v2" });
+    await input.onTurnSubmitting?.({ sessionId, protocol: "app-server-v2", clientUserMessageId: "message-1" });
+    await input.onTurnAccepted?.({ sessionId, protocol: "app-server-v2", clientUserMessageId: "message-1", turnId: "turn-1" });
+    throw Object.assign(new Error("context exhausted"), {
+      code: "CONTEXT_WINDOW_EXCEEDED",
+      nativeTurnSettled: true,
+      requiresContextCompaction: true,
+      safeToFallback: false,
+      sessionId,
+      protocol: "app-server-v2",
+    });
+  };
+
+  const continuation = fx.orchestrator.continue(created.id, { prompt: "继续", agentId: "codex-technical" });
+  void continuation.catch(() => {});
+  await compactionEntered.promise;
+  await fx.orchestrator.interrupt(created.id);
+  // 中断的续聊按 interrupted/cancelled 正常收束（不抛），本条契约要照的是"线程有没有被作废"
+  await continuation.catch(() => {});
+
+  const interrupted = fx.orchestrator.get(created.id);
+  assert.equal(
+    interrupted.sessions["codex-technical"],
+    undefined,
+    "压缩窗口内的中断同样必须作废耗尽线程——否则下一次「继续」会 resume 它并再次撞满上下文",
+  );
+  assert.equal(interrupted.contextRecovery?.state, "failed");
+  assert.equal(interrupted.invalidatedSessions.at(-1)?.sessionId, sessionId);
+  assert.ok(
+    fx.events.some((event) => event.type === "run.context_compaction_failed" && event.data?.sessionInvalidated === true),
+    "作废动作必须留下可见事件",
+  );
+});
+
+// 压缩链与自动续跑链会互相嵌套；任何一条递归漏掉 allowContextRecovery:false 都会让上限失效。
+test("auto-recovered turns must not reopen the context compaction budget", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({ prompt: "preview", execute: false, permissionMode: "plan" });
+  const target = fx.orchestrator.adapters.get("codex-technical");
+  const sessionId = "01a0178b-e92f-77c2-af6e-0762934fba1c";
+  let compactions = 0;
+  let sends = 0;
+  target.id = "codex-app-server";
+  target.compactThread = async (threadId) => {
+    compactions += 1;
+    return { sessionId: threadId, turnId: "compact-turn", protocol: "app-server-v2" };
+  };
+  target.send = async (input) => {
+    sends += 1;
+    await input.onSessionStarted?.({ sessionId, protocol: "app-server-v2" });
+    await input.onTurnSubmitting?.({ sessionId, protocol: "app-server-v2", clientUserMessageId: `message-${sends}` });
+    await input.onTurnAccepted?.({ sessionId, protocol: "app-server-v2", clientUserMessageId: `message-${sends}`, turnId: `turn-${sends}` });
+    if (sends === 1) {
+      throw Object.assign(new Error("Codex turn silent for 300s"), {
+        code: "TURN_IDLE_TIMEOUT",
+        interruptConfirmed: true,
+        safeToFallback: false,
+        sessionId,
+        protocol: "app-server-v2",
+      });
+    }
+    throw Object.assign(new Error("context exhausted"), {
+      code: "CONTEXT_WINDOW_EXCEEDED",
+      nativeTurnSettled: true,
+      requiresContextCompaction: true,
+      safeToFallback: false,
+      sessionId,
+      protocol: "app-server-v2",
+    });
+  };
+
+  await assert.rejects(
+    () => fx.orchestrator.continue(created.id, { prompt: "继续", agentId: "codex-technical" }),
+    { code: "RECOVERY_REQUIRED" },
+  );
+  assert.equal(sends, 2, "超时轮自动续跑一次后即遇上下文耗尽");
+  assert.equal(compactions, 0, "自动续跑轮不得重新打开压缩预算——否则单次「继续」会被拉成数轮 5 分钟静默");
+  assert.equal(fx.orchestrator.get(created.id).sessions["codex-technical"], undefined);
+});
+
+test("native slash command turns reach the adapter raw and flagged (Claude passthrough)", async (t) => {
   const fx = await fixture();
   t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
   const created = await fx.orchestrator.create({ prompt: "start", execute: true, orchestrationMode: "pipeline", permissionMode: "plan" });
   await waitTerminal(fx.orchestrator, created.id);
 
-  await fx.orchestrator.continue(created.id, { prompt: "/compact", agentId: "codex-technical", nativeCommand: true });
+  await fx.orchestrator.continue(created.id, { prompt: "/compact", agentId: "claude-fable", nativeCommand: true });
   await waitTerminal(fx.orchestrator, created.id);
   const nativeCall = fx.calls.at(-1);
   assert.equal(nativeCall.prompt, "/compact", "raw command only — no attachment/declaration/persona wrapping");
   assert.equal(nativeCall.nativeCommand, true, "adapter sees the native command flag");
+  assert.equal(nativeCall.compactThread, undefined);
 
-  // 对照：普通续聊不带标记（提示注入无法靠消息内容伪装命令轮）
-  await fx.orchestrator.continue(created.id, { prompt: "普通续聊 /compact 只是文本", agentId: "codex-technical" });
+  await fx.orchestrator.continue(created.id, { prompt: "普通续聊 /compact 只是文本", agentId: "claude-fable" });
   await waitTerminal(fx.orchestrator, created.id);
   const normalCall = fx.calls.at(-1);
   assert.equal(normalCall.nativeCommand, false);
   assert.ok(normalCall.prompt.includes("普通续聊"), "normal turns keep full prompt assembly");
+});
+
+test("Codex /compact uses compactThread instead of a prompt turn", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({ prompt: "start", execute: true, orchestrationMode: "pipeline", permissionMode: "plan" });
+  await waitTerminal(fx.orchestrator, created.id);
+  const sendsBefore = fx.calls.filter((call) => !call.compactThread).length;
+
+  await fx.orchestrator.continue(created.id, { prompt: "/compact", agentId: "codex-technical", nativeCommand: true });
+  await waitTerminal(fx.orchestrator, created.id);
+  const compactCall = fx.calls.find((call) => call.compactThread && call.id === "codex-technical");
+  assert.ok(compactCall, "Codex compact hook fired");
+  assert.equal(compactCall.threadId, "codex-technical-session");
+  assert.equal(fx.calls.filter((call) => !call.compactThread).length, sendsBefore, "compact is not sent as a prompt");
+  assert.ok(fx.events.some((event) => event.type === "run.context_compaction_completed" && event.data?.operator === true));
+});
+
+test("unknown native slash commands fail closed", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({ prompt: "start", execute: true, orchestrationMode: "pipeline", permissionMode: "plan" });
+  await waitTerminal(fx.orchestrator, created.id);
+  await assert.rejects(
+    () => fx.orchestrator.continue(created.id, { prompt: "/not-a-real-cli", agentId: "codex-technical", nativeCommand: true }),
+    { code: "NATIVE_COMMAND_UNSUPPORTED" },
+  );
 });
 
 test("native command turns reject invalid shapes at admission", async (t) => {
@@ -270,6 +1205,10 @@ test("native command turns reject invalid shapes at admission", async (t) => {
   await assert.rejects(
     () => fx.orchestrator.continue(created.id, { prompt: "not-a-slash-command", agentId: "codex-technical", nativeCommand: true }),
     { code: "VALIDATION_FAILED" },
+  );
+  await assert.rejects(
+    () => fx.orchestrator.continue(created.id, { prompt: "/compact leftover", agentId: "codex-technical", nativeCommand: true }),
+    { code: "NATIVE_COMMAND_INVALID" },
   );
   await assert.rejects(
     () => fx.orchestrator.continue(created.id, { prompt: "/compact\n第二行走私", agentId: "codex-technical", nativeCommand: true }),
@@ -651,6 +1590,88 @@ test("514cc permission downgrades are hot-switchable, upgrades stay creation-gat
   assert.ok(fx.calls.every((call) => ["plan", "read-only"].includes(call.permissionMode)), "降档后任何成员不得拿写档");
 });
 
+// T2：grok 原生审批档透传（native:*）——permissionOverride 创建与热改同源校验，
+// 仅执行拥有者拿到 native 值，写面不扩散；非法值/未声明模板一律 fail-closed。
+function grokNativeFixture(extra = {}) {
+  return fixture({
+    models: { profiles: [
+      { id: "grok-build", adapter: "grok-build-headless" },
+      { id: "claude-fable", adapter: "claude-stream-json" },
+    ] },
+    extraAdapterIds: ["grok-build"],
+    ...extra,
+  });
+}
+
+test("native permission overrides validate against the template and reach only the execution owner", async (t) => {
+  const fx = await grokNativeFixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({
+    prompt: "native auto", execute: true, orchestrationMode: "pipeline", maxRounds: 3,
+    permissionMode: "plan", permission: "native:auto", requestedProvider: "grok-build",
+  });
+  const completed = await waitTerminal(fx.orchestrator, created.id);
+  assert.equal(completed.status, "succeeded");
+  assert.equal(completed.permissionOverride, "native:auto");
+  const grokCall = fx.calls.find((call) => call.id === "grok-build");
+  assert.equal(grokCall?.nativeApprovalMode, "native:auto", "执行拥有者必须拿到原生透传档");
+  assert.ok(fx.calls.filter((call) => call.id !== "grok-build").every((call) => call.nativeApprovalMode === null),
+    "非执行拥有者不得拿原生透传档，写面不扩散");
+  // fail-closed：未知值与未声明模板在创建时即拒绝并回报原因
+  await assert.rejects(
+    () => fx.orchestrator.create({ prompt: "bad value", execute: false, permission: "native:yolo", requestedProvider: "grok-build" }),
+    { code: "INVALID_PERMISSION" },
+  );
+  await assert.rejects(
+    () => fx.orchestrator.create({ prompt: "bad on claude", execute: false, permission: "native:auto", startAgentId: "claude-fable" }),
+    { code: "INVALID_PERMISSION" },
+    "claude 模板未声明 native:*，不得放行",
+  );
+});
+
+test("native permission override hot-update uses the same validation and applies next turn", async (t) => {
+  const fx = await grokNativeFixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({
+    prompt: "hot native", execute: true, orchestrationMode: "pipeline", maxRounds: 3,
+    permissionMode: "plan", requestedProvider: "grok-build",
+  });
+  await waitTerminal(fx.orchestrator, created.id);
+  // 首次设置（无值）允许任意白名单档 + 非法值拒绝（与创建路径一致）
+  await fx.orchestrator.updateRunControls(created.id, { permission: "native:always-approve" });
+  assert.equal(fx.orchestrator.get(created.id).permissionOverride, "native:always-approve");
+  await assert.rejects(
+    () => fx.orchestrator.updateRunControls(created.id, { permission: "native:turbo" }),
+    { code: "INVALID_PERMISSION" },
+  );
+  assert.equal(fx.orchestrator.get(created.id).permissionOverride, "native:always-approve", "非法热改不得改掉原值");
+  // 降档链通过：always-approve → acceptEdits → auto（写面收缩，不触发审批门）
+  await fx.orchestrator.updateRunControls(created.id, { permission: "native:acceptEdits" });
+  assert.equal(fx.orchestrator.get(created.id).permissionOverride, "native:acceptEdits");
+  await fx.orchestrator.updateRunControls(created.id, { permission: "native:auto" });
+  assert.equal(fx.orchestrator.get(created.id).permissionOverride, "native:auto");
+  // 升档被拒：已有值只允许同级保持/降档/清除，服务端与前端降档表同源把守，不得经 API 绕开审批门升档
+  for (const target of ["native:acceptEdits", "native:always-approve"]) {
+    await assert.rejects(
+      () => fx.orchestrator.updateRunControls(created.id, { permission: target }),
+      { code: "CONTROL_TRANSITION_FORBIDDEN" },
+      `native:auto → ${target} 不得热改`,
+    );
+  }
+  assert.equal(fx.orchestrator.get(created.id).permissionOverride, "native:auto", "升档被拒不得改掉原值");
+  // 清除通过：空串回席位默认（收缩到底，永远放行）
+  await fx.orchestrator.updateRunControls(created.id, { permission: "" });
+  assert.equal(fx.orchestrator.get(created.id).permissionOverride, null);
+  // 热改后的下一轮派工使用新值（清除后再设 = 首次设置，任意白名单档放行）
+  await fx.orchestrator.updateRunControls(created.id, { permission: "native:always-approve" });
+  fx.calls.length = 0;
+  await fx.orchestrator.continue(created.id, { prompt: "go" });
+  const grokCall = fx.calls.find((call) => call.id === "grok-build");
+  assert.equal(grokCall?.nativeApprovalMode, "native:always-approve", "下一轮必须用上热改后的原生档");
+  await fx.orchestrator.updateRunControls(created.id, { permission: "" });
+  assert.equal(fx.orchestrator.get(created.id).permissionOverride, null);
+});
+
 test("hot control gates mirror continuation admission: approval-pending and recovery block, idle allows", async (t) => {
   let decide;
   const decision = new Promise((resolveDecision) => { decide = resolveDecision; });
@@ -886,7 +1907,7 @@ test("heterogeneous resume hints stay provider-native", async (t) => {
   assert.equal(claude.canResume, true);
   assert.match(claude.command, /claude -r /);
   assert.equal(codex.canResume, true);
-  assert.match(codex.command, /codex exec resume /);
+  assert.match(codex.command, /codex resume /);
   assert.notEqual(claude.command, codex.command);
 });
 
@@ -913,8 +1934,18 @@ test("interactiveCliSpecForRun returns a spawnable interactive resume spec", asy
   assert.equal(claudeSpec.command, "claude");
   assert.deepEqual(claudeSpec.args, ["-r", "claude-sess-1"]);
 
-  // OpenCode / Pi 席位同样有交互接续特征（TUI --session / --session-id，均经 --help 实证）
+  // Codex 交互接续必须是 TUI `codex resume <uuid>`，不能走无交互的 `exec resume`
   const shared = fx.orchestrator.adapters.get("codex-technical");
+  shared.id = "codex-app-server";
+  shared.command = "codex";
+  run.sessions = { "codex-technical": "rollout-2026-07-17T09-21-00-019f0000-0000-7000-8000-000000000000.jsonl" };
+  const codexSpec = fx.orchestrator.interactiveCliSpecForRun(run);
+  assert.equal(codexSpec.command, "codex");
+  assert.deepEqual(codexSpec.args, ["resume", "019f0000-0000-7000-8000-000000000000"]);
+  run.sessions = { "codex-technical": "019f0000-0000-7000-8000-000000000000" };
+  assert.deepEqual(fx.orchestrator.interactiveCliSpecForRun(run).args, ["resume", "019f0000-0000-7000-8000-000000000000"]);
+
+  // OpenCode / Pi 席位同样有交互接续特征（TUI --session / --session-id，均经 --help 实证）
   shared.id = "opencode-run-json";
   shared.command = "opencode";
   run.sessions = { "codex-technical": "ses_opencode_1" };
@@ -3106,7 +4137,7 @@ test("session effort override validates the CLI whitelist and reaches the execut
   );
 });
 
-test("run meta updates are whitelisted and project-level archive matches by cwd", async (t) => {
+test("run meta updates are whitelisted and legacy project archive matches by canonical cwd", async (t) => {
   const fx = await fixture();
   t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
   const created = await fx.orchestrator.create({ prompt: "meta target", execute: false, permissionMode: "plan", cwd: fx.root });
@@ -3117,8 +4148,10 @@ test("run meta updates are whitelisted and project-level archive matches by cwd"
   assert.equal(pinned.ignored, undefined, "白名单外字段不落盘");
   await assert.rejects(() => fx.orchestrator.updateMeta(created.id, { title: "   " }), { code: "VALIDATION_FAILED" });
   const other = await fx.orchestrator.create({ prompt: "other cwd", execute: false, permissionMode: "plan" });
-  const archived = await fx.orchestrator.archiveFinishedByCwd(fx.root);
+  const archiveCwd = process.platform === "win32" ? fx.root.toUpperCase() : fx.root;
+  const archived = await fx.orchestrator.archiveFinishedByCwd(archiveCwd);
   assert.deepEqual(archived.runIds, [created.id], "仅归档 cwd 匹配的终态任务");
+  assert.equal(archived.matchedBy, "legacy-cwd");
   assert.equal(fx.orchestrator.get(created.id).archived, true);
   assert.equal(fx.orchestrator.get(other.id).archived, undefined, "其他 cwd 不受影响");
 });
@@ -3328,7 +4361,7 @@ test("logical team members sharing one runtime profile keep isolated sessions an
     { agentId: "member-alpha", runtimeProfileId: "codex-technical" },
     { agentId: "member-beta", runtimeProfileId: "codex-technical" },
   ]);
-  assert.ok(hints.every((hint) => hint.canResume && hint.command.startsWith("codex exec resume ")));
+  assert.ok(hints.every((hint) => hint.canResume && hint.command.startsWith("codex resume ")));
 
   const continued = await orchestrator.continue(completed.id, {
     agentId: "member-beta",
@@ -3477,6 +4510,45 @@ test("HTTP-style continue returns after admission while the provider turn is sti
   release.resolve();
   const settled = await pending;
   assert.equal(settled.status, "succeeded");
+});
+
+test("HTTP-style background provider failure is owned and never becomes an unhandled rejection", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({ prompt: "route only", execute: false, permissionMode: "plan" });
+  const failed = deferred();
+  const target = fx.orchestrator.adapters.get("codex-technical");
+  target.id = "codex-app-server";
+  target.send = async (input) => {
+    await input.onSessionStarted?.({ sessionId: "async-failed-session", protocol: "app-server-v2" });
+    await input.onTurnSubmitting?.({ sessionId: "async-failed-session", protocol: "app-server-v2", clientUserMessageId: "async-failed-message" });
+    failed.resolve();
+    throw Object.assign(new Error("thread already has an active writer"), {
+      code: "TURN_ACTIVE",
+      submissionRejected: true,
+      nativeSessionBusy: true,
+      safeToFallback: false,
+      sessionId: "async-failed-session",
+    });
+  };
+  const unhandled = [];
+  const onUnhandled = (error) => unhandled.push(error);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const admitted = await fx.orchestrator.continue(created.id, {
+      prompt: "后台失败也必须有人接住",
+      agentId: "codex-technical",
+      waitForTurn: false,
+    });
+    assert.equal(admitted.status, "running");
+    await failed.promise;
+    const blocked = await waitTerminal(fx.orchestrator, created.id);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(unhandled, []);
+    assert.equal(blocked.status, "recovery_required");
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
 });
 
 test("interrupt withdraws a pending build approval instead of no-op", async (t) => {

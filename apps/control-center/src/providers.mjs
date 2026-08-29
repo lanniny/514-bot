@@ -1688,11 +1688,15 @@ export class ProviderStore {
         // 显式清空
       } else {
         if (typeof input.extraEnv !== "object" || Array.isArray(input.extraEnv)) fail("meta.extraEnv must be an object", "VALIDATION_FAILED");
-        const extraEnv = {};
+        const extraEnv = isPlainRecord(existing?.extraEnv) ? { ...existing.extraEnv } : {};
         for (const app of ["claude", "gemini"]) {
           const table = input.extraEnv[app];
           if (table === undefined) continue;
-          if (typeof table !== "object" || table === null || Array.isArray(table)) fail(`meta.extraEnv.${app} must be an object`, "VALIDATION_FAILED");
+          if (table === null) {
+            delete extraEnv[app];
+            continue;
+          }
+          if (typeof table !== "object" || Array.isArray(table)) fail(`meta.extraEnv.${app} must be an object`, "VALIDATION_FAILED");
           const entries = Object.entries(table);
           if (entries.length > 20) fail(`meta.extraEnv.${app} exceeds 20 keys`, "VALIDATION_FAILED");
           extraEnv[app] = {};
@@ -1765,9 +1769,13 @@ export class ProviderStore {
         // 显式清空
       } else {
         if (typeof input.appConfig !== "object" || Array.isArray(input.appConfig)) fail("meta.appConfig must be an object", "VALIDATION_FAILED");
-        const appConfig = {};
+        const appConfig = isPlainRecord(existing?.appConfig) ? { ...existing.appConfig } : {};
         for (const [app, config] of Object.entries(input.appConfig)) {
           if (!PROVIDER_APPS.includes(app)) fail(`meta.appConfig has unknown app: ${app}`, "VALIDATION_FAILED");
+          if (config === null) {
+            delete appConfig[app];
+            continue;
+          }
           const cloned = cloneBoundedAppConfig(config, `meta.appConfig.${app}`);
           if (app === "grokbuild") {
             if (!isPlainRecord(cloned)) fail("meta.appConfig.grokbuild must be an object", "VALIDATION_FAILED");

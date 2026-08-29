@@ -721,6 +721,7 @@ export function projectMissionControl({
     status: taskStatus,
     taskType: shortText(run.taskType, 48, "unknown"),
     orchestrationMode: shortText(run.orchestrationMode, 24, "pipeline").toLowerCase(),
+    conversationKind: shortText(run.conversationKind, 32, "legacy_pipeline").toLowerCase(),
     permissionMode: shortText(run.permissionMode, 24, "plan").toLowerCase(),
     teamId: participant(run.teamId) || null,
     coordinatorId: participant(run.coordinatorId) || null,

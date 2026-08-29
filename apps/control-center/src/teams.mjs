@@ -14,6 +14,41 @@ const TEXT_MAX = 4000;
 const LIST_MAX = 40;
 const ITEM_MAX = 80;
 
+// 团队背景预设（纯 CSS 渐变，前端 styles.css 定义同名渐变类）。图片走
+// /api/team-backgrounds 上传管线，这里只管落盘字段的白名单校验。
+export const TEAM_BACKGROUND_PRESETS = Object.freeze(["none", "aurora", "ember", "tide", "moss", "noir"]);
+
+// 动效档位（dsh-wallpaper-engine 式分级 → 工作台化）：off 保帧率；subtle 单层缓流；
+// rich 叠光尘。前端渲染以 data-team-motion 驱动 CSS，prefers-reduced-motion 一律回落 off。
+export const TEAM_MOTION_LEVELS = Object.freeze(["off", "subtle", "rich"]);
+
+// 视频壁纸播放控制（对标 dsh-wallpaper-engine：倍速走原生 playbackRate 即时生效不重载，
+// 翻转走 CSS scaleX(-1) 零主线程开销）。rate 白名单制——非法值回落 1 而不是拒绝；
+// flipped/paused 布尔。缺失字段 = 默认值，视觉零回归。
+export const TEAM_BG_PLAYBACK_RATES = Object.freeze([0.5, 1, 1.5, 2]);
+const DEFAULT_BACKGROUND_PLAYBACK = Object.freeze({ rate: 1, flipped: false, paused: false });
+
+// 融合调节（对齐参考项目的融合滑杆精神：blur/brightness/contrast/saturation/dim 五轴，
+// 值域即 clamp 边界；超出边界的持久化输入被夹回而不是拒绝——滑杆语义要宽容）。
+export const TEAM_BACKGROUND_FILTER_BOUNDS = Object.freeze({
+  blur: [0, 24],
+  brightness: [0.5, 1.5],
+  contrast: [0.5, 1.5],
+  saturation: [0, 2],
+  dim: [0, 0.85],
+});
+
+const DEFAULT_BACKGROUND_FILTER = Object.freeze({ blur: 0, brightness: 1, contrast: 1, saturation: 1, dim: 0 });
+
+function cleanFilterValue(key, raw) {
+  const [min, max] = TEAM_BACKGROUND_FILTER_BOUNDS[key];
+  const numeric = Number(raw);
+  if (!Number.isFinite(numeric)) return DEFAULT_BACKGROUND_FILTER[key];
+  const clamped = Math.min(max, Math.max(min, numeric));
+  // 固定精度防浮点尾巴写脏 teams.json（0.30000000000000004 这类）
+  return Math.round(clamped * 100) / 100;
+}
+
 // 仅作旧调用方的默认目录；真实运行目录由 adapter manifest + 当前 models profile 共同生成。
 export const COORDINATOR_ELIGIBLE = Object.freeze(
   ADAPTER_BINDINGS
@@ -33,7 +68,60 @@ export const BUILTIN_TEAM = Object.freeze({
   members: Object.freeze(["claude-fable", "codex-technical", "grok-search", "grok-build", "kimi-frontend", "pi-resident"]),
   skills: Object.freeze(["co-review", "co-research", "co-status", "co-enhance", "vibe", "ssh", "docx"]),
   mcp: Object.freeze(["codex-agent", "serena", "playwright", "exa", "grok-search-rs", "context7", "sequential-thinking"]),
+  appearance: Object.freeze({ background: Object.freeze({ preset: "none", image: "" }) }),
 });
+
+function cleanBackground(value) {
+  if (value == null) {
+    return {
+      background: { preset: "none", image: "" },
+      motion: "off",
+      filter: { ...DEFAULT_BACKGROUND_FILTER },
+      playback: { ...DEFAULT_BACKGROUND_PLAYBACK },
+    };
+  }
+
+  const raw = value.background ?? {};
+  if (typeof raw !== "object" || Array.isArray(raw)) fail("appearance.background must be an object", "VALIDATION_FAILED");
+  const presetRaw = String(raw.preset ?? "").trim().toLowerCase();
+  if (presetRaw.length > ITEM_MAX) fail("background preset exceeds limit", "VALIDATION_FAILED");
+  if (presetRaw && !TEAM_BACKGROUND_PRESETS.includes(presetRaw)) {
+    fail(`unknown background preset: ${presetRaw} (allowed: ${TEAM_BACKGROUND_PRESETS.join("/")})`, "VALIDATION_FAILED");
+  }
+  // image 只是"该团队在 uploads/team-backgrounds 有自定义图"的标记位；真实字节只经
+  // /api/team-backgrounds 上传管线写入，API 层不接受任意文件引用。
+  const image = String(raw.image ?? "").trim();
+  if (image && image !== "custom") fail('background image marker must be "" or "custom"', "VALIDATION_FAILED");
+
+  // 动效档位：白名单校验；历史记录/手改数据里未知值回落 off，不构成拒绝载入的理由。
+  const motionRaw = String(value.motion ?? "").trim().toLowerCase();
+  const motion = TEAM_MOTION_LEVELS.includes(motionRaw) ? motionRaw : "off";
+
+  // 融合调节：未知键忽略、值域夹紧（宽容语义——滑杆产物不该把整条团队配置打红）。
+  const filterRaw = value.filter ?? {};
+  const filter = { ...DEFAULT_BACKGROUND_FILTER };
+  if (filterRaw && typeof filterRaw === "object" && !Array.isArray(filterRaw)) {
+    for (const key of Object.keys(DEFAULT_BACKGROUND_FILTER)) {
+      if (Object.hasOwn(filterRaw, key)) filter[key] = cleanFilterValue(key, filterRaw[key]);
+    }
+  }
+
+  // 播放控制：宽容校验——rate 白名单外回落 1，布尔字段强转；未知键忽略。
+  const playbackRaw = value.playback ?? {};
+  const playback = { ...DEFAULT_BACKGROUND_PLAYBACK };
+  if (playbackRaw && typeof playbackRaw === "object" && !Array.isArray(playbackRaw)) {
+    if (TEAM_BG_PLAYBACK_RATES.includes(Number(playbackRaw.rate))) playback.rate = Number(playbackRaw.rate);
+    if (typeof playbackRaw.flipped === "boolean") playback.flipped = playbackRaw.flipped;
+    if (typeof playbackRaw.paused === "boolean") playback.paused = playbackRaw.paused;
+  }
+
+  return {
+    background: { preset: presetRaw || "none", image: image === "custom" ? "custom" : "" },
+    motion,
+    filter,
+    playback,
+  };
+}
 
 function fail(message, code) {
   throw Object.assign(new Error(message), { code });
@@ -322,11 +410,15 @@ export class TeamStore {
       name,
       description: cleanText(input.description, "description", TEXT_MAX),
       systemPrompt: cleanText(input.systemPrompt, "system prompt", TEXT_MAX),
+      // 团队世界观（LO 2026-08-27）：叙事性设定——成员共同身处的虚构/语义空间
+      //（例："魔法世界"）。注入主脑规划轮供表达风格与协作语境对齐；不是执行指令。
+      worldview: cleanText(input.worldview, "team worldview", TEXT_MAX),
       coordinator,
       members,
       skills: cleanList(input.skills, "skills"),
       mcp: cleanList(input.mcp, "mcp"),
       providers: cleanProviders(input.providers),
+      appearance: cleanBackground(input.appearance),
     };
   }
 
@@ -424,6 +516,20 @@ export class TeamStore {
     });
   }
 
+  materializeEphemeral(input = {}) {
+    this.#assertWritable();
+    const fields = this.#validate(input);
+    const now = new Date().toISOString();
+    return {
+      id: `team-ephemeral-${randomUUID()}`,
+      builtin: false,
+      ephemeral: true,
+      ...fields,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
   update(id, input = {}) {
     return this.#serialize(async () => {
       if (id === BUILTIN_TEAM.id) fail("the builtin 514cc team is frozen and cannot be modified", "FROZEN_BLOCK");
@@ -450,14 +556,41 @@ export class TeamStore {
     });
   }
 
+  /** 把指定团队的 background.image 标记为 custom（上传成功后由 server 层回调）。
+      磁盘记录已过校验闸，这里只改白名单内的标记位，不整单重验。 */
+  async markBackgroundImage(teamId) {
+    if (teamId === BUILTIN_TEAM.id) fail("the builtin 514cc team is frozen and cannot be modified", "FROZEN_BLOCK");
+    return this.#serialize(async () => {
+      this.#assertWritable();
+      const existing = this.get(teamId);
+      const appearance = {
+        ...(existing.appearance ?? {}),
+        background: { ...(existing.appearance?.background ?? {}), image: "custom" },
+      };
+      const team = { ...existing, appearance, updatedAt: new Date().toISOString() };
+      const next = new Map(this.custom);
+      next.set(teamId, team);
+      await this.#commit(next);
+      return team;
+    });
+  }
+
   /** run 归属团队的规划注入段：结构化包裹 + 明示不得覆盖平台契约（烛 R10 建议——
       团队提示词是受信配置但不与 planner 契约同层级）。 */
   brief(id) {
-    const team = this.get(id);
+    return this.briefFor(this.get(id));
+  }
+
+  briefFor(team) {
     const memberById = new Map((this.teamCatalog() || []).map((member) => [member.id, member]));
     const parts = [`当前团队：${team.name}`];
     const coordinator = memberById.get(team.coordinator);
     parts.push(`团队主脑（会话入口与总协调者）：${coordinator?.label || team.coordinator || DEFAULT_COORDINATOR}（${team.coordinator || DEFAULT_COORDINATOR}）`);
+    if (team.worldview) {
+      // 世界观是叙事语境（角色扮演式的表达/命名/协作风格基垫），必须显式声明"不越权"：
+      // 它不改变安全边界，也不得覆盖平台契约与权限模式。
+      parts.push(`团队世界观（叙事语境）：${team.worldview}`);
+    }
     if (team.systemPrompt) parts.push(`团队指令：${team.systemPrompt}`);
     if (team.members?.length) {
       const roster = team.members.map((memberId) => {

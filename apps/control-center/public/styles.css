@@ -2160,6 +2160,83 @@ pre,
   white-space: pre;
 }
 
+.workspace-file-editor-head {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 7px 5px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.workspace-file-editor-status {
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.workspace-file-editor-status.is-dirty {
+  color: var(--amber);
+}
+
+.workspace-file-save {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  border: 1px solid color-mix(in oklab, var(--primary) 38%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--primary) 12%, var(--surface));
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.workspace-file-save .icon {
+  width: 12px;
+  height: 12px;
+}
+
+.workspace-file-save:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--primary) 19%, var(--surface));
+}
+
+.workspace-file-save:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.workspace-file-editor {
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  max-height: min(420px, 52dvh);
+  resize: vertical;
+  padding: 11px 12px 48px;
+  border: 0;
+  outline: 0;
+  background:
+    linear-gradient(90deg, transparent 31px, color-mix(in oklab, var(--primary) 10%, transparent) 32px, transparent 33px),
+    var(--surface);
+  color: var(--text);
+  caret-color: var(--primary);
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.65;
+  tab-size: 2;
+  white-space: pre;
+  scrollbar-width: thin;
+}
+
+.workspace-file-editor:focus {
+  box-shadow: inset 2px 0 0 color-mix(in oklab, var(--primary) 72%, transparent);
+}
+
 .registry-empty {
   padding: 18px 10px;
   color: var(--text-soft);
@@ -3049,6 +3126,24 @@ pre,
 
 .model-pick select:focus {
   outline: none;
+}
+
+.budget-pick input,
+.budget-action input {
+  width: 4.8rem;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: right;
+}
+
+.budget-pick input:focus,
+.budget-action input:focus {
+  outline: 2px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  outline-offset: 2px;
 }
 
 /* 发送键：圆圈内向上箭头 */
@@ -4895,6 +4990,15 @@ input::placeholder {
   color: var(--text-muted);
   font-size: 11.5px;
   line-height: 1.5;
+  min-width: 0;
+}
+
+/* 文本列必须可收缩+可断行：错误原文（如 API 5xx 的整块 JSON）是无空格巨型 token，
+   没有 anywhere 就会把 flex min-content 撑爆——会话流被挤成竖排窄列、整屏文字墙 */
+.gov-note > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .gov-note.is-rose {
@@ -4906,6 +5010,92 @@ input::placeholder {
   flex: 0 0 auto;
   color: var(--text-soft);
   font-size: 10px;
+}
+
+/* 长错误折叠上限：全文收进 <details>，默认最多 6 行——失败原因要一眼可读，不是文字墙。
+   选择器不限定宿主：gov-note / run-end-note / recovery-bar 三处长错误渲染共用同一组件 */
+.gov-detail {
+  margin-top: 4px;
+  min-width: 0;
+  max-width: 100%;
+  font-size: 10.5px;
+  color: var(--text-soft);
+}
+
+.gov-detail summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-soft);
+}
+
+.gov-detail summary:hover {
+  color: var(--text);
+}
+
+.gov-detail pre {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-small);
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  max-width: 100%;
+  overflow: auto;
+}
+
+.failure-reason {
+  min-width: 0;
+}
+
+.failure-reason > span {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.provider-failure-card {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--red);
+  border-radius: 0 var(--radius-small) var(--radius-small) 0;
+  background: var(--red-soft);
+}
+
+.provider-failure-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.provider-failure-head > .icon {
+  flex: 0 0 auto;
+  color: var(--red);
+}
+
+.provider-failure-head > div {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.provider-failure-head strong {
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.provider-failure-head span {
+  color: var(--text-soft);
+  font-family: var(--mono);
+  font-size: 10.5px;
 }
 
 /* Codex 过程卡：命令 / 文件改动 / 旁白。默认折叠成一行，展开看完整命令与输出——
@@ -5024,19 +5214,24 @@ input::placeholder {
 .process-file-kind.is-add { background: var(--emerald-soft, var(--amber-soft)); }
 .process-file-kind.is-delete { background: var(--rose-soft); }
 
-/* 旁白/推理摘要：无边框，比过程卡更轻——它是说明不是动作 */
+/* 旁白/推理摘要：无边框，比过程卡更轻——它是说明不是动作。
+   居中纪律：禁止 40px 左边距，否则会盖掉 .conversation-stream > * 的 margin-inline:auto。 */
 .process-note {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   align-items: baseline;
   gap: 8px;
-  margin: 0 0 8px 40px;
-  padding: 2px 4px;
+  max-width: 36rem;
+  margin: 12px auto;
+  padding: 2px 16px;
   color: var(--text-muted);
   font-size: 11.5px;
   line-height: 1.55;
+  text-align: center;
 }
 
-.process-note-body { flex: 1 1 auto; min-width: 0; }
+.process-note-body { flex: 1 1 16rem; min-width: 0; text-align: center; }
 
 .process-note-label {
   margin-right: 6px;
@@ -5174,33 +5369,165 @@ input::placeholder {
 
 /* recovery 恢复条：composer 上方、与胶囊同宽居中；显隐由 [hidden] 控制（全局 !important 规则兜底） */
 .recovery-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 12px;
-  width: min(720px, calc(100% - 36px));
+  width: min(760px, calc(100% - 32px));
+  min-width: 0;
   margin: 0 auto 8px;
   padding: 10px 14px;
   border: 1px solid var(--amber);
   border-radius: var(--radius-small);
-  background: var(--amber-soft);
+  background: color-mix(in srgb, var(--surface) 88%, var(--amber) 12%);
 }
 
+.recovery-bar-content,
+.recovery-reasons,
+.recovery-bar-actions {
+  min-width: 0;
+}
+
+.recovery-bar-content {
+  display: grid;
+  gap: 8px;
+}
+
+.recovery-bar-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.recovery-bar-heading > .icon {
+  flex: 0 0 auto;
+  color: var(--amber);
+}
+
+.recovery-bar-heading > div {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.recovery-bar-heading strong {
+  color: var(--text-strong);
+  font-size: 12px;
+}
+
+.recovery-bar-heading span,
 .recovery-note {
   color: var(--text);
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
+.recovery-reasons {
+  display: grid;
+  gap: 6px;
+}
+
+.recovery-reasons .failure-reason {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.recovery-bar-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
 .recovery-acked {
-  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
   color: var(--green);
   font-size: 11.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 
 .recovery-bar .button {
   flex: 0 0 auto;
+}
+
+.run-attention-bar {
+  border-color: color-mix(in srgb, var(--amber) 75%, var(--border));
+}
+
+.run-attention-actions {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.budget-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.recovery-bar .resume-hints {
+  width: 100%;
+  min-width: 0;
+  margin-top: 0;
+  padding: 8px 0 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.recovery-bar.is-acked {
+  align-items: center;
+}
+
+.recovery-bar.is-acked .recovery-bar-content {
+  gap: 0;
+}
+
+@media (max-width: 640px) {
+  .recovery-bar {
+    grid-template-columns: minmax(0, 1fr);
+    width: calc(100% - 16px);
+    padding: 10px 12px;
+  }
+
+  .recovery-bar-actions,
+  .recovery-bar-actions .button {
+    width: 100%;
+  }
+
+  .recovery-bar-actions .button {
+    justify-content: center;
+  }
+
+  .recovery-acked {
+    max-width: none;
+  }
+}
+
+/* 恢复卡和多行 Composer 会把中等/移动视口的消息轨压到 0 高。消息轨保留 padding 时会
+   继续越过自己的 grid track，与恢复标题叠字；恢复状态下先收起历史，确认翻页后自动还原。 */
+@media (max-width: 1100px) {
+  .conversation-pane.has-recovery:not(.has-recovery-acked) .conversation-stream {
+    min-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    overflow: hidden;
+    visibility: hidden;
+  }
+
+  .conversation-pane.has-recovery-acked .composer-target-tabs,
+  .conversation-pane.has-recovery-acked .composer-cli-console {
+    display: none;
+  }
 }
 
 /* 终态原因：failed/cancelled 挂会话流末尾，与治理注记同款克制竖条 */
@@ -5229,7 +5556,8 @@ input::placeholder {
   color: var(--red);
 }
 
-.run-end-note span {
+.run-end-note span,
+.run-end-note .failure-reason > span {
   display: block;
   color: var(--text-muted);
   overflow-wrap: anywhere;
@@ -6399,6 +6727,19 @@ input::placeholder {
   stroke: none;
 }
 
+/* 官方徽标沿用原始几何，颜色由统一品牌槽提供；单色品牌继续随主题反转。 */
+.cli-brand-claude { color: #d97757; }
+.cli-brand-codex { color: #0f8a70; }
+.cli-brand-gemini { color: #7967e8; }
+.cli-brand-grok,
+.cli-brand-kimi,
+.cli-brand-pi,
+.cli-brand-opencode { color: #181918; }
+[data-theme="dark"] .cli-brand-grok,
+[data-theme="dark"] .cli-brand-kimi,
+[data-theme="dark"] .cli-brand-pi,
+[data-theme="dark"] .cli-brand-opencode { color: #f1f2ef; }
+
 .cli-group .cli-logo {
   width: 11px;
   height: 11px;
@@ -7075,6 +7416,10 @@ input::placeholder {
   background: var(--surface-strong);
   font-size: 10px;
   font-weight: 650;
+  /* 页签多开空间不足时 flex 压缩会把 agent 名挤成一字一行竖排——名签不缩，
+     收缩压力全部交给 title 的 ellipsis */
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .conv-tab.is-agent-claude-fable .conv-tab-agent { background: var(--rose-soft); color: var(--rose); }
@@ -7292,6 +7637,17 @@ button.topology-node {
 .agent-pick-logo .cli-logo {
   width: 24px;
   height: 24px;
+}
+
+/* 自定义头像兜底：img 无尺寸约束时浏览器按原始像素渲染，会把宿主容器整行撑爆。
+   任何宿主漏写尺寸都先退化成字号量级的小图，具体尺寸仍由下面各宿主规则接管。 */
+.avatar-photo {
+  box-sizing: border-box;
+  width: 1.5em;
+  height: 1.5em;
+  max-width: 100%;
+  object-fit: cover;
+  border-radius: inherit;
 }
 
 .agent-pick-logo .avatar-photo,
@@ -7744,9 +8100,9 @@ body * {
   gap: 10px;
   padding: 0 10px 0 14px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  background: var(--surface-glass);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(140%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(140%));
 }
 
 .topbar-brand {
@@ -7845,10 +8201,12 @@ body * {
   gap: 0;
   overflow: hidden;
   border-top: 1px solid rgba(0, 0, 0, 0.12);
-  background: var(--statusbar);
+  background: var(--surface-glass);
   color: rgba(255, 255, 255, 0.9);
   font-size: 10.5px;
   line-height: 1;
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(140%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(140%));
 }
 
 .statusbar-segment {
@@ -8598,8 +8956,9 @@ h2 {
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     border-top: 1px solid var(--border);
-    background: var(--surface);
-    backdrop-filter: none;
+    background: var(--surface-glass);
+    -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(140%));
+    backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(140%));
   }
 
   .mobile-nav-item {
@@ -9566,6 +9925,24 @@ h2 {
   background: linear-gradient(180deg, var(--aqua-soft), var(--surface));
 }
 
+.settlement-card.is-loading {
+  border-left-color: var(--amber);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--amber) 7%, var(--surface)), var(--surface));
+}
+
+.settlement-card.is-error,
+.settlement-card.is-blocked,
+.settlement-card.is-partial {
+  border-left-color: var(--danger);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 7%, var(--surface)), var(--surface));
+}
+
+.settlement-card.is-error .settlement-head strong,
+.settlement-card.is-blocked .settlement-head strong,
+.settlement-card.is-partial .settlement-head strong {
+  color: var(--danger);
+}
+
 .settlement-head {
   display: flex;
   flex-wrap: wrap;
@@ -9953,6 +10330,8 @@ h2 {
 
 /* —— Wave K：resume 提示 / 远程门闩 / 证据聚焦 —— */
 .resume-hints {
+  min-width: 0;
+  max-width: 100%;
   margin-top: 10px;
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -9984,10 +10363,11 @@ h2 {
 }
 
 .resume-hint-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(7em, max-content) minmax(0, 1fr) auto;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
 
 .resume-hint-agent {
@@ -9998,7 +10378,8 @@ h2 {
 }
 
 .resume-hint-cmd {
-  flex: 1 1 180px;
+  min-width: 0;
+  max-width: 100%;
   padding: 3px 8px;
   border-radius: 6px;
   background: var(--surface);
@@ -10009,6 +10390,17 @@ h2 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+@media (max-width: 520px) {
+  .resume-hint-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .resume-hint-agent {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
 }
 
 .remote-gates-list {
@@ -12995,6 +13387,43 @@ h2 {
   background: var(--accent-soft, var(--blue-soft));
 }
 
+.provider-row.is-live-match {
+  border-color: color-mix(in srgb, var(--warning, #c47d12) 55%, var(--border));
+}
+
+.provider-kimi-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 8px 0 0;
+  padding: 8px 0 0;
+  border: 0;
+}
+
+.provider-kimi-caps legend {
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.provider-kimi-caps label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.cap-detected-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--ok-soft, color-mix(in srgb, var(--ok, #2f9d6a) 16%, transparent));
+  color: var(--ok, #2f9d6a);
+  font-size: 11px;
+  font-weight: 650;
+}
+
 /* 当前档案右侧状态丸：对齐 CCS 灰色「使用中」 */
 .provider-state-pill {
   display: inline-flex;
@@ -13029,8 +13458,17 @@ h2 {
 }
 
 .provider-state-pill-check {
-  font-size: 11px;
-  font-weight: 900;
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.6;
+}
+
+/* 行内标记图标：跟随正文字号缩到 12px，基线对齐，避免撑高文本行 */
+.preview-tab-raw-mark,
+.field-hint-mark {
+  width: 12px;
+  height: 12px;
+  vertical-align: -1px;
 }
 
 .provider-row.is-dragging {
@@ -13485,6 +13923,32 @@ h2 {
   flex: 0 0 auto;
   display: inline-flex;
   color: var(--rose);
+}
+
+/* T6：Grok 原生模式组——分组标题与「需审批」徽标，沿用菜单既有字号与边框语言 */
+.permission-menu-group {
+  margin: 6px 4px 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.permission-menu-row:first-of-type {
+  margin-top: 0;
+}
+
+.permission-menu-risk {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 
 /* —— Codex 式侧栏对齐（2026-08-11）：操作行置顶、分区头悬停动作、团队树折叠、项目文件夹图标、展开显示 —— */
@@ -14005,14 +14469,17 @@ h2 {
   background: var(--accent);
 }
 
+/* 勾用纯几何描边画，不借字符也不借图标字体：与 Lucide check 同为 2px 圆角折线观感 */
 .sshconn-check:checked::after {
   position: absolute;
-  inset: 0;
-  color: #fff;
-  font-size: 12px;
-  line-height: 15px;
-  text-align: center;
-  content: "✓";
+  top: 2px;
+  left: 5px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  content: "";
+  transform: rotate(45deg);
 }
 
 .sshconn-manual {

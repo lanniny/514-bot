@@ -75,6 +75,7 @@ export const AUTOMATION_TEMPLATES = Object.freeze([
 export function parseAutomationRoute(hashValue = "") {
   const path = String(hashValue).replace(/^#/, "").split("?")[0];
   const parts = path.split("/").filter(Boolean);
+  if (parts[0] === "bot" && parts[1] === "automations") parts.splice(0, 1);
   if (parts[0] !== "automations") return { mode: "list", id: null };
   if (parts[1] === "new") return { mode: "create", id: null };
   if (parts[1] && parts[2] === "history") return { mode: "history", id: parts[1] };
@@ -126,6 +127,7 @@ export function mountAutomationsPage({
   getSnapshot = () => ({}),
   onChanged = null,
   onOpenRun = null,
+  routePrefix = "",
 } = {}) {
   if (!root) return null;
   let draft = EMPTY_DRAFT();
@@ -160,7 +162,12 @@ export function mountAutomationsPage({
   }
 
   function setHash(path) {
-    history.replaceState(null, "", path);
+    const normalized = String(path || "#automations");
+    const prefix = typeof routePrefix === "function" ? routePrefix() : routePrefix;
+    const prefixed = prefix
+      ? `#${String(prefix).replace(/^#|\/+$/g, "")}/${normalized.replace(/^#\/?/, "")}`
+      : normalized;
+    history.replaceState(null, "", prefixed);
   }
 
   function route() {

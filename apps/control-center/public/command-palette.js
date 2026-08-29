@@ -21,6 +21,7 @@ import { request as apiRequest } from "./api.js";
 import { VIEW_TITLES } from "./state.js";
 
 const NAV_ICON_BY_VIEW = {
+  bot: "messages-square",
   workbench: "messages-square",
   overview: "layout-dashboard",
   config: "settings",
@@ -41,6 +42,7 @@ const NAV_ICON_BY_VIEW = {
 };
 
 const NAV_KEYWORDS_BY_VIEW = {
+  bot: "514 bot agent chat master 代理 对话 工作台",
   workbench: "collaboration workbench 协作 任务",
   overview: "overview 总览 dashboard 健康",
   config: "config 配置 settings 设置 源 capabilities 能力 skills 技能 MCP 图谱 provider 供应商",

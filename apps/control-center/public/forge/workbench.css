@@ -528,6 +528,7 @@
   position: relative;
   flex: 0 0 5px;
   cursor: col-resize;
+  touch-action: none;
   background: transparent;
   transition: background var(--dur-fast, 100ms) var(--ease-out, ease);
   /* 把手在 grid 里自成一轨：由 splitter.js 插入左右栏之间 */
@@ -1363,6 +1364,27 @@
 .composer-collaborator-chip .cli-logo {
   width: 13px;
   height: 13px;
+}
+
+/* 自定义头像走 img.avatar-photo，与官方 CLI 字形同尺寸收口；
+   缺约束时原始像素会撑爆 overflow-x 的 chip 行，把"额外协作者"标签挤成竖排 */
+.composer-collaborator-chip .avatar-photo,
+.composer-collaborator-chip .avatar-initials,
+.composer-collaborator-chip .composer-collaborator-fallback {
+  width: 13px;
+  height: 13px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.composer-collaborator-chip .avatar-initials,
+.composer-collaborator-chip .composer-collaborator-fallback {
+  display: inline-grid;
+  place-items: center;
+  font-size: 8px;
+  font-weight: 750;
+  letter-spacing: 0;
 }
 
 .composer-collaborator-chip {

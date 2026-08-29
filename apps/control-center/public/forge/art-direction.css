@@ -1,0 +1,919 @@
+/**
+ * 514 Forge — Living Orchestration art direction
+ *
+ * Signature: the interface is a live orchestration field. Copper energy only
+ * appears where intent, focus or execution flows; everything else stays paper
+ * and ink. This file owns the cross-view art direction; view-local surfaces may
+ * load after it and narrow the contract (for example bot-shell.css).
+ */
+
+:root {
+  --forge-paper: #f4f0e7;
+  --forge-paper-deep: #e8e0d2;
+  --forge-ink: #211d18;
+  --forge-ink-soft: #5f584f;
+  --forge-copper: #d97757;
+  --forge-copper-hot: #ed9b78;
+  --forge-copper-ink: #984126;
+  --forge-hairline: color-mix(in oklab, var(--forge-ink) 12%, transparent);
+  --forge-display: "Iowan Old Style", "Baskerville", "Songti SC", "Noto Serif SC", serif;
+  --forge-utility: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+  --forge-physical: cubic-bezier(.2, .82, .24, 1);
+}
+
+[data-theme="dark"] {
+  --forge-paper: #171411;
+  --forge-paper-deep: #211c18;
+  --forge-ink: #f2eadf;
+  --forge-ink-soft: #b5aa9e;
+  --forge-copper-ink: #f0a17d;
+  --forge-hairline: color-mix(in oklab, var(--forge-ink) 14%, transparent);
+}
+
+body.atelier {
+  background: var(--forge-paper);
+  color: var(--forge-ink);
+}
+
+/* The ambient field is a functional metaphor for agent topology, not a wallpaper. */
+.atelier-stage {
+  position: fixed;
+  z-index: 0;
+  display: block;
+  overflow: hidden;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, var(--forge-hairline) 1px, transparent 1px),
+    linear-gradient(0deg, var(--forge-hairline) 1px, transparent 1px),
+    radial-gradient(circle at 78% 12%, color-mix(in oklab, var(--forge-copper) 11%, transparent), transparent 29%),
+    var(--forge-paper);
+  background-size: 72px 72px, 72px 72px, auto, auto;
+  opacity: 1;
+  mask-image: linear-gradient(to bottom, black, transparent 82%);
+}
+
+.atelier-mesh,
+.atelier-orb,
+.atelier-grain {
+  display: none;
+}
+
+#atelier-canvas {
+  display: block;
+  opacity: .76;
+  mix-blend-mode: multiply;
+}
+
+[data-theme="dark"] #atelier-canvas {
+  opacity: .62;
+  mix-blend-mode: screen;
+}
+
+.app-shell {
+  position: relative;
+  z-index: 1;
+  background: transparent;
+}
+
+/* Chrome: translucent ink plates with a single copper energy rail.
+   玻璃令牌接线（零回归）：本文件是级联最后一层（仅 bot-shell 后载且只管
+   Bot 工作面），此前 shell.css 的令牌消费会被本层硬编码盖死，导致「背景与玻璃」
+   滑杆/色板对顶栏/侧栏无效。现改为消费 --forge-glass-alpha/--forge-glass-filter/
+   --glass-tint，并以本地基线做 var() 回退：基线 = 原观感（侧栏背景 = var(--sidebar)
+   实色，顶栏 96%/不磨砂），未调节时 app.js 不写令牌→回退生效→视觉零回归；
+   用户拖动滑杆/选色板后令牌内联写入→两表面同步响应。--forge-glass-filter 是整串
+   滤镜令牌：默认档未设→顶栏/侧栏严格无滤镜（不产生层叠上下文），拖离默认档才磨砂。
+   色板「跟随主题」时 --glass-tint 被移除→回退底色随主题。 */
+.atelier .sidebar {
+  border-right-color: var(--forge-hairline);
+  box-shadow: 18px 0 50px color-mix(in oklab, var(--forge-ink) 5%, transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, none);
+  backdrop-filter: var(--forge-glass-filter, none);
+}
+
+/* 背景单独用 body.atelier .sidebar（0,2,1）：codex-desktop.css 的同特规则把侧栏背景
+   钉在实色 var(--sidebar)，本文件虽后加载但 .atelier .sidebar（0,2,0）盖不动它；
+   同特后载才能接管。基线 = var(--sidebar) 实色（100%），与原观感一致；拖动玻璃滑杆/
+   选色板后令牌写入→侧栏同步变通透/上色。 */
+body.atelier .sidebar {
+  background: color-mix(in oklab, var(--glass-tint, var(--sidebar)) var(--forge-glass-alpha, 100%), transparent);
+}
+
+.atelier .sidebar::after {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  background: linear-gradient(90deg, var(--forge-copper), transparent 82%);
+  content: "";
+}
+
+.atelier .brand-mark {
+  position: relative;
+  border-radius: 50%;
+  background: var(--forge-ink);
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--forge-copper) 45%, transparent),
+    0 8px 26px color-mix(in oklab, var(--forge-copper) 18%, transparent);
+  color: var(--forge-paper);
+  transition: transform 420ms var(--forge-physical), box-shadow 420ms var(--forge-physical);
+}
+
+.atelier .brand:hover .brand-mark {
+  transform: rotate(9deg) scale(1.06);
+  box-shadow:
+    0 0 0 4px color-mix(in oklab, var(--forge-copper) 12%, transparent),
+    0 12px 32px color-mix(in oklab, var(--forge-copper) 24%, transparent);
+}
+
+.atelier .brand-copy strong {
+  font-family: var(--forge-display);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.atelier .nav-item,
+.atelier .nav-item.nav-primary {
+  position: relative;
+  min-height: 36px;
+  border-radius: 4px 16px 16px 4px;
+  transition:
+    background-color 240ms var(--forge-physical),
+    color 240ms var(--forge-physical),
+    transform 320ms var(--forge-physical);
+}
+
+.atelier .nav-item:hover,
+.atelier .nav-item.nav-primary:hover {
+  transform: translateX(3px);
+}
+
+.atelier .nav-item.is-active,
+.atelier .nav-item.nav-primary.is-active {
+  background:
+    linear-gradient(90deg, color-mix(in oklab, var(--forge-copper) 18%, transparent), transparent);
+}
+
+.atelier .nav-item.is-active::before,
+.atelier .nav-item.nav-primary.is-active::before {
+  position: absolute;
+  inset: 7px auto 7px -1px;
+  display: block;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--forge-copper);
+  box-shadow: 0 0 14px var(--forge-copper);
+  content: "";
+}
+
+/* 顶栏基线 = 96% 纸色 + 不磨砂：默认档令牌未设→ backdrop-filter: none（严格等价改造前，
+   不产生层叠上下文/包含块，不恒加饱和）；模糊滑杆拖离默认档后 app.js 写入整串滤镜令牌才真正磨砂。
+   body.atelier .topbar（0,2,1）：同特规则在 experience-polish.css 把顶栏背景钉在
+   var(--surface)、backdrop-filter 钉在 none，本文件后加载，同特才能接管两者。 */
+.atelier .topbar {
+  border-bottom-color: var(--forge-hairline);
+  background: color-mix(in oklab, var(--glass-tint, var(--forge-paper)) var(--forge-glass-alpha, 96%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, none);
+  backdrop-filter: var(--forge-glass-filter, none);
+}
+
+body.atelier .topbar {
+  background: color-mix(in oklab, var(--glass-tint, var(--forge-paper)) var(--forge-glass-alpha, 96%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, none);
+  backdrop-filter: var(--forge-glass-filter, none);
+}
+
+/* 老引擎兜底：失去 backdrop-filter 时，本层覆盖面以令牌底色实色保底（同 shell.css/
+   primitives.css 玻璃族契约）；令牌未设时回退纸色，与原硬编码观感一致。 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .atelier .sidebar,
+  .atelier .topbar {
+    background: var(--glass-tint, var(--forge-paper));
+  }
+}
+
+.main-content:not(:has(#view-workbench.is-active)) {
+  padding: clamp(24px, 4vw, 68px);
+  background: transparent;
+}
+
+/* Editorial scale: headings become coordinates in the system, not dashboard labels. */
+.view:not(#view-workbench) .page-heading {
+  position: relative;
+  min-height: clamp(150px, 24vh, 270px);
+  align-items: flex-end;
+  margin-bottom: clamp(28px, 5vw, 72px);
+  padding: 0 0 clamp(20px, 3vw, 38px);
+  border-bottom: 1px solid var(--forge-hairline);
+}
+
+.view:not(#view-workbench) .page-heading::after {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  width: clamp(72px, 12vw, 180px);
+  height: 2px;
+  background: var(--forge-copper);
+  content: "";
+  transform-origin: right;
+  animation: forge-line-arrive 900ms var(--forge-physical) both;
+}
+
+.view:not(#view-workbench) .page-heading .eyebrow {
+  color: var(--forge-copper-ink);
+  font-family: var(--forge-utility);
+  font-size: 10px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+}
+
+.view:not(#view-workbench) .page-heading h1,
+#view-team .team-hero-title {
+  max-width: 12ch;
+  margin: 4px 0 0;
+  font-family: var(--forge-display);
+  font-size: clamp(46px, 7vw, 104px);
+  font-weight: 540;
+  letter-spacing: -.055em;
+  line-height: .88;
+}
+
+.view:not(#view-workbench) .page-heading > div:first-child > p:last-of-type {
+  max-width: 48ch;
+  margin-top: 18px;
+  color: var(--forge-ink-soft);
+  font-size: clamp(13px, 1.2vw, 16px);
+  line-height: 1.7;
+}
+
+.view:not(#view-workbench) .heading-actions {
+  align-self: flex-end;
+  margin-bottom: 4px;
+}
+
+/* Cards become layers cut from one sheet rather than a grid of SaaS tiles. */
+.content-section,
+.view .metric-card,
+.overview-chart-card,
+.overview-ledger,
+.team-runtime-block,
+.team-command-deck,
+.settings-card {
+  border-color: var(--forge-hairline);
+  border-radius: 2px 24px 2px 24px;
+  background: color-mix(in oklab, var(--card) 84%, transparent);
+  box-shadow: 0 20px 55px color-mix(in oklab, var(--forge-ink) 5%, transparent);
+  backdrop-filter: none;
+}
+
+.view .metric-grid {
+  gap: 1px;
+  border: 1px solid var(--forge-hairline);
+  background: var(--forge-hairline);
+}
+
+.view .metric-card {
+  min-height: 130px;
+  padding: 20px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  transition:
+    transform 380ms var(--forge-physical),
+    background-color 260ms ease;
+}
+
+.view .metric-card:hover {
+  z-index: 1;
+  transform: translateY(-6px);
+  background: color-mix(in oklab, var(--card) 94%, var(--forge-copper) 6%);
+}
+
+.view .metric-value {
+  font-family: var(--forge-display);
+  font-size: clamp(38px, 4vw, 62px);
+  font-weight: 520;
+  letter-spacing: -.05em;
+}
+
+.metric-label,
+.section-heading p,
+.subtle,
+.mono {
+  font-family: var(--forge-utility);
+}
+
+/* Team: restore the hidden thesis and let the live topology own the page. */
+#view-team .team-hero {
+  display: grid;
+  min-height: clamp(210px, 31vh, 380px);
+  place-content: end start;
+  padding: clamp(24px, 5vw, 72px);
+}
+
+#view-team .team-hero::before {
+  position: absolute;
+  inset: 12% 5% auto auto;
+  width: min(38vw, 480px);
+  aspect-ratio: 1;
+  border: 1px solid color-mix(in oklab, var(--forge-copper) 22%, transparent);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 32px color-mix(in oklab, var(--forge-copper) 3%, transparent),
+    inset 0 0 0 96px color-mix(in oklab, var(--forge-copper) 2%, transparent);
+  content: "";
+}
+
+#view-team .team-hero-eyebrow,
+#view-team .team-hero-sub,
+#view-team .eyebrow {
+  display: block;
+}
+
+#view-team .team-hero-eyebrow {
+  color: var(--forge-copper-ink);
+  font-family: var(--forge-utility);
+  font-size: 10px;
+  letter-spacing: .28em;
+  text-transform: uppercase;
+}
+
+#view-team .team-hero-title {
+  position: static;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  clip: auto;
+  color: var(--forge-ink);
+}
+
+#view-team .team-hero-sub {
+  max-width: 34ch;
+  margin: 18px 0 0;
+  color: var(--forge-ink-soft);
+  font-size: 14px;
+}
+
+#view-team .team-control-workspace {
+  gap: 18px;
+  padding: 0 clamp(18px, 4vw, 60px) 60px;
+}
+
+.team-starmap-shell {
+  border-radius: 2px 34px 2px 34px;
+  background:
+    radial-gradient(circle at 50% 48%, color-mix(in oklab, var(--forge-copper) 12%, transparent), transparent 44%),
+    color-mix(in oklab, var(--forge-ink) 96%, var(--forge-paper));
+  box-shadow:
+    inset 0 0 0 1px color-mix(in oklab, white 10%, transparent),
+    0 30px 80px color-mix(in oklab, var(--forge-ink) 18%, transparent);
+}
+
+.hero-stage {
+  height: min(58vh, 580px);
+  min-height: 360px;
+}
+
+/* Workbench: the operational view stays dense, but floats as an instrument. */
+.main-content:has(#view-workbench.is-active) {
+  padding: 10px;
+  background: transparent;
+}
+
+#view-workbench .workbench-shell {
+  overflow: hidden;
+  border: 1px solid var(--forge-hairline);
+  border-radius: 2px 28px 2px 28px;
+  background: color-mix(in oklab, var(--forge-paper) 97%, transparent);
+  box-shadow: 0 28px 90px color-mix(in oklab, var(--forge-ink) 9%, transparent);
+  backdrop-filter: none;
+}
+
+#view-workbench .run-rail {
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--forge-copper) 5%, transparent), transparent 28%),
+    color-mix(in oklab, var(--forge-paper-deep) 72%, transparent);
+}
+
+#view-workbench .conversation-pane,
+#view-workbench .conversation-heading,
+#view-workbench .task-composer,
+#view-workbench .conv-tabs {
+  background: color-mix(in oklab, var(--forge-paper) 97%, transparent);
+}
+
+.conversation-stream > * {
+  max-width: min(820px, calc(100% - 28px));
+}
+
+.conversation-stream .message-row {
+  transition: transform 360ms var(--forge-physical);
+}
+
+.conversation-stream .message-row:hover {
+  transform: translateX(4px);
+}
+
+.task-composer .composer-shell {
+  border-color: color-mix(in oklab, var(--forge-copper) 28%, var(--forge-hairline));
+  border-radius: 2px 22px 2px 22px;
+  box-shadow:
+    0 16px 42px color-mix(in oklab, var(--forge-ink) 8%, transparent),
+    0 0 0 1px color-mix(in oklab, var(--forge-copper) 5%, transparent);
+  transition: box-shadow 360ms var(--forge-physical), transform 360ms var(--forge-physical);
+}
+
+.task-composer .composer-shell:focus-within {
+  transform: translateY(-3px);
+  box-shadow:
+    0 24px 60px color-mix(in oklab, var(--forge-ink) 12%, transparent),
+    0 0 0 2px color-mix(in oklab, var(--forge-copper) 30%, transparent);
+}
+
+/* ── Right rail: the mission dock reads as one bound instrument, not a stack of
+ * shrink-wrapped strips. Three deliberate bands: identity → environment →
+ * registry, each with its own rhythm and a single copper focus per band. ── */
+/* The dock floats over the conversation pane, so it must be fully opaque:
+   at 97% the stream behind it ghosted through the empty registry band. */
+.atelier .context-rail.registry-dock {
+  /* styles.css still carries the era when this rail was a bottom-docked panel
+     and pins it to height:250px below 1120px / 320px below 820px. The rail is
+     now an inset overlay driven by top/bottom, so those heights only produced a
+     stubby floating box. Height comes from the insets; the explicit grid area
+     keeps the containing block the whole shell rather than an implicit row. */
+  grid-area: 1 / 1 / -1 / -1;
+  height: auto;
+  margin-top: 0;
+  border: 1px solid var(--forge-hairline);
+  border-radius: 2px 20px 2px 20px;
+  background: var(--forge-paper);
+  box-shadow: 0 24px 70px color-mix(in oklab, var(--forge-ink) 12%, transparent);
+}
+
+.atelier .context-rail.registry-dock::before {
+  position: absolute;
+  z-index: 3;
+  inset: 0 0 auto;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--forge-copper) 78%);
+  content: "";
+}
+
+.atelier .context-rail.registry-dock .rail-tabbar {
+  min-height: 44px;
+  padding: 7px 8px 7px 12px;
+  border-bottom: 1px solid var(--forge-hairline);
+  background: color-mix(in oklab, var(--forge-paper-deep) 40%, transparent);
+}
+
+.atelier .registry-dock .rail-tab {
+  border-radius: 999px;
+}
+
+.atelier .registry-dock .rail-tab.is-active {
+  border-color: color-mix(in oklab, var(--forge-copper) 30%, transparent);
+  background: color-mix(in oklab, var(--forge-copper) 12%, transparent);
+}
+
+.atelier .registry-dock .rail-tab-main {
+  padding: 6px 4px 6px 11px;
+  font-family: var(--forge-utility);
+  font-size: 10.5px;
+  letter-spacing: .04em;
+}
+
+.atelier .registry-dock .rail-tab.is-active .rail-tab-main {
+  color: var(--forge-copper-ink);
+}
+
+.atelier .registry-dock .registry-dock-header {
+  min-height: 0;
+  align-items: flex-end;
+  padding: 15px 16px 13px;
+  border-bottom: 1px solid var(--forge-hairline);
+  background: transparent;
+}
+
+.atelier .registry-dock .registry-dock-kicker {
+  color: var(--forge-copper-ink);
+  font-family: var(--forge-utility);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: .24em;
+  text-transform: uppercase;
+}
+
+.atelier .registry-dock .registry-dock-header strong {
+  margin-top: 5px;
+  font-family: var(--forge-display);
+  font-size: 17px;
+  font-weight: 560;
+  letter-spacing: -.02em;
+  line-height: 1.15;
+}
+
+.atelier .registry-dock .registry-dock-status {
+  max-width: 130px;
+  padding: 3px 9px;
+  border: 1px solid var(--forge-hairline);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--forge-paper-deep) 55%, transparent);
+  color: var(--forge-ink-soft);
+  font-family: var(--forge-utility);
+  font-size: 9.5px;
+  letter-spacing: .04em;
+}
+
+/* The environment band earns the extra height it was previously starved of,
+   but never grows past its own content — a loading row must not reserve half
+   the rail. It caps; the registry below takes whatever is left. */
+.atelier .registry-dock .mission-environment-panel {
+  flex: 0 1 auto;
+  max-height: min(560px, 56dvh);
+  border-bottom: 1px solid var(--forge-hairline);
+  background: transparent;
+  scrollbar-color: color-mix(in oklab, var(--forge-copper) 40%, transparent) transparent;
+}
+
+.atelier .registry-dock .environment-primary {
+  padding: 8px 10px 10px;
+}
+
+.atelier .registry-dock .environment-row {
+  min-height: 44px;
+  padding: 7px 8px;
+  border-radius: 3px 12px 12px 3px;
+  gap: 10px;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  transition:
+    background-color 220ms var(--forge-physical),
+    transform 280ms var(--forge-physical);
+}
+
+.atelier .registry-dock .environment-row.is-action:not(:disabled):hover {
+  background: color-mix(in oklab, var(--forge-copper) 8%, transparent);
+  transform: translateX(2px);
+}
+
+.atelier .registry-dock .environment-row.is-open {
+  background: color-mix(in oklab, var(--forge-paper-deep) 52%, transparent);
+}
+
+.atelier .registry-dock .environment-row-main {
+  gap: 3px;
+}
+
+.atelier .registry-dock .environment-row-main strong {
+  font-size: 12px;
+  letter-spacing: -.004em;
+}
+
+/* Diagnoses like「四面未齐，不能称为项目已接通」are the point of the row;
+   truncating them to one ellipsised line was the main source of visual noise. */
+.atelier .registry-dock .environment-row-main small {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--forge-ink-soft);
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.atelier .registry-dock .environment-detail {
+  padding: 8px 0 8px 14px;
+  border-left: 1px solid color-mix(in oklab, var(--forge-copper) 30%, transparent);
+  margin: 2px 0 8px 15px;
+  gap: 5px 12px;
+}
+
+.atelier .registry-dock .environment-detail dt {
+  font-family: var(--forge-utility);
+  font-size: 9.5px;
+  letter-spacing: .06em;
+}
+
+.atelier .registry-dock .environment-detail dd {
+  font-size: 10px;
+}
+
+.atelier .registry-dock .environment-diff-count {
+  font-size: 10px;
+}
+
+.atelier .registry-dock .environment-group {
+  border-top: 1px solid var(--forge-hairline);
+}
+
+.atelier .registry-dock .environment-group summary {
+  min-height: 38px;
+  padding: 8px 14px;
+  color: var(--forge-ink-soft);
+  font-family: var(--forge-utility);
+  font-size: 10px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.atelier .registry-dock .environment-group summary small {
+  font-size: 9.5px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.atelier .registry-dock .environment-compact-list {
+  padding: 0 14px 10px 30px;
+}
+
+.atelier .registry-dock .environment-compact-list > div {
+  min-height: 30px;
+  border-top-color: var(--forge-hairline);
+}
+
+.atelier .registry-dock .environment-compact-list strong {
+  font-size: 10.5px;
+}
+
+.atelier .registry-dock .environment-compact-list small,
+.atelier .registry-dock .environment-compact-list p {
+  color: var(--forge-ink-soft);
+  font-size: 9.5px;
+}
+
+/* Registry views become a segmented control: no hairline cage, one copper pill. */
+.atelier .registry-dock .registry-tabs {
+  padding: 9px 12px 11px;
+  border-bottom: 1px solid var(--forge-hairline);
+  background: transparent;
+  gap: 2px;
+}
+
+.atelier .registry-dock .registry-tab-slot,
+.atelier .registry-dock .registry-tab {
+  border: 0;
+}
+
+.atelier .registry-dock .registry-tab {
+  min-height: 28px;
+  padding: 0 6px;
+  border-radius: 999px;
+  color: var(--forge-ink-soft);
+  font-family: var(--forge-utility);
+  font-size: 10.5px;
+  letter-spacing: .04em;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+.atelier .registry-dock .registry-tab:hover {
+  background: color-mix(in oklab, var(--forge-paper-deep) 66%, transparent);
+  color: var(--forge-ink);
+}
+
+.atelier .registry-dock .registry-tab.is-active {
+  background: color-mix(in oklab, var(--forge-copper) 15%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--forge-copper) 32%, transparent);
+  color: var(--forge-copper-ink);
+  font-weight: 640;
+}
+
+.atelier .registry-dock .registry-list {
+  padding: 6px 14px 16px;
+}
+
+/* An unselected registry used to strand one grey sentence at the top of a tall
+   void. It now reads as a deliberate resting state centred in its own band. */
+.atelier .registry-dock .registry-panel:has(> :first-child > .registry-empty:only-child) > :first-child {
+  display: grid;
+  min-height: 100%;
+  align-content: center;
+}
+
+.atelier .registry-dock .registry-empty {
+  display: grid;
+  max-width: 30ch;
+  justify-items: center;
+  padding: 30px 20px;
+  margin-inline: auto;
+  color: var(--forge-ink-soft);
+  font-size: 11.5px;
+  gap: 14px;
+  line-height: 1.75;
+}
+
+.atelier .registry-dock .registry-empty::before {
+  width: 44px;
+  height: 44px;
+  border: 1px solid color-mix(in oklab, var(--forge-copper) 34%, transparent);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 7px color-mix(in oklab, var(--forge-copper) 6%, transparent),
+    0 0 26px color-mix(in oklab, var(--forge-copper) 12%, transparent);
+  content: "";
+}
+
+.button,
+.icon-button,
+.text-button,
+.newtask-button {
+  transition:
+    transform 280ms var(--forge-physical),
+    box-shadow 280ms var(--forge-physical),
+    background-color 180ms ease;
+}
+
+.button:hover:not(:disabled),
+.icon-button:hover:not(:disabled),
+.newtask-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.button:active:not(:disabled),
+.icon-button:active:not(:disabled),
+.newtask-button:active:not(:disabled) {
+  transform: translateY(0) scale(.98);
+}
+
+@keyframes forge-line-arrive {
+  from { opacity: 0; transform: scaleX(0); }
+  to { opacity: 1; transform: scaleX(1); }
+}
+
+@media (max-width: 1100px) {
+  .view:not(#view-workbench) .page-heading {
+    min-height: 160px;
+  }
+
+  .view:not(#view-workbench) .page-heading h1,
+  #view-team .team-hero-title {
+    font-size: clamp(42px, 8vw, 74px);
+  }
+
+  .hero-stage {
+    height: 420px;
+  }
+}
+
+@media (max-width: 820px) {
+  .atelier-stage {
+    background-size: 48px 48px, 48px 48px, auto, auto;
+  }
+
+  .main-content:not(:has(#view-workbench.is-active)) {
+    padding: 20px 16px 44px;
+  }
+
+  .view:not(#view-workbench) .page-heading {
+    min-height: 180px;
+    align-items: flex-start;
+    flex-direction: column;
+    justify-content: flex-end;
+  }
+
+  .view:not(#view-workbench) .heading-actions {
+    align-self: stretch;
+  }
+
+  #view-team .team-hero {
+    min-height: 260px;
+    padding: 30px 18px;
+  }
+
+  #view-team .team-hero::before {
+    width: 220px;
+    opacity: .55;
+  }
+
+  #view-team .team-control-workspace {
+    padding-inline: 12px;
+  }
+
+  .hero-stage {
+    height: 260px;
+    min-height: 240px;
+  }
+
+  #view-workbench .workbench-shell {
+    border-radius: 0 18px 0 18px;
+  }
+
+  .atelier .context-rail.registry-dock {
+    border-radius: 0 16px 0 16px;
+  }
+
+  .atelier .registry-dock .registry-dock-header {
+    padding: 12px 14px 11px;
+  }
+
+  .atelier .registry-dock .registry-dock-header strong {
+    font-size: 15px;
+  }
+
+  .atelier .registry-dock .mission-environment-panel {
+    max-height: min(420px, 46dvh);
+  }
+}
+
+@media (max-width: 520px) {
+  .view:not(#view-workbench) .page-heading h1,
+  #view-team .team-hero-title {
+    font-size: 44px;
+  }
+
+  .view .metric-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .view .metric-card {
+    min-height: 112px;
+    padding: 14px;
+  }
+
+  .view .metric-value {
+    font-size: 36px;
+  }
+
+  .content-section,
+  .overview-chart-card,
+  .overview-ledger,
+  .team-runtime-block,
+  .team-command-deck,
+  .settings-card {
+    border-radius: 0 18px 0 18px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .atelier-stage,
+  #atelier-canvas {
+    display: none;
+  }
+
+  .view:not(#view-workbench) .page-heading::after {
+    animation: none;
+  }
+
+  .atelier .brand:hover .brand-mark,
+  .atelier .nav-item:hover,
+  .atelier .nav-item.nav-primary:hover,
+  .atelier .registry-dock .environment-row.is-action:not(:disabled):hover,
+  .view .metric-card:hover,
+  .conversation-stream .message-row:hover,
+  .task-composer .composer-shell:focus-within,
+  .button:hover:not(:disabled),
+  .icon-button:hover:not(:disabled),
+  .newtask-button:hover:not(:disabled) {
+    transform: none;
+  }
+}
+
+/* Configuration is an operational surface, not an editorial landing page.
+   Keep the Forge typography, but compress the hero into a coordinate strip so
+   live controls remain above the fold. This file loads last and intentionally
+   owns the exception to the global editorial heading. */
+.app-shell.is-settings #view-config.view .page-heading.compact-heading {
+  min-height: 84px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 8px 0 14px;
+}
+
+.app-shell.is-settings #view-config.view .page-heading.compact-heading::after {
+  width: clamp(96px, 16vw, 220px);
+}
+
+.app-shell.is-settings #view-config.view .page-heading.compact-heading h1 {
+  max-width: none;
+  margin-top: 3px;
+  font-size: clamp(30px, 3.2vw, 46px);
+  line-height: 1;
+}
+
+.app-shell.is-settings #view-config.view .page-heading.compact-heading > div:first-child > p:last-of-type {
+  max-width: 60ch;
+  margin-top: 8px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.app-shell.is-settings #view-config.view .page-heading.compact-heading > .status-label {
+  align-self: center;
+}
+
+@media (max-width: 720px) {
+  .app-shell.is-settings #view-config.view .page-heading.compact-heading {
+    min-height: 72px;
+    margin-bottom: 10px;
+    padding-bottom: 12px;
+  }
+
+  .app-shell.is-settings #view-config.view .page-heading.compact-heading h1 {
+    font-size: 28px;
+  }
+
+  .app-shell.is-settings #view-config.view .page-heading.compact-heading > div:first-child > p:last-of-type {
+    display: none;
+  }
+}
+
+/* Bot 重新嵌入 514cc 单界面控制台；具体 inset 与工作面边界由最后加载的
+   bot-shell.css 独占，艺术指导层不再隐藏 topbar/statusbar 或覆盖 Forge token。 */

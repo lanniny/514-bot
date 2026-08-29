@@ -3242,3 +3242,1091 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
+
+/* ─── 团队背景设置（form-section-label 同节奏）─── */
+
+.team-background-picker {
+  display: grid;
+  gap: 10px;
+}
+
+.team-bg-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.team-bg-swatch {
+  --swatch-a: var(--surface-muted);
+  --swatch-b: var(--surface-strong);
+  position: relative;
+  min-width: 74px;
+  padding: 22px 10px 7px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background:
+    linear-gradient(140deg, var(--swatch-a), var(--swatch-b));
+  color: var(--text, inherit);
+  font-size: 12px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+
+.team-bg-swatch:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.team-bg-swatch.is-active {
+  border-color: var(--accent, #b85c3e);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #b85c3e) 35%, transparent);
+}
+
+.team-bg-swatch:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.team-bg-swatch span {
+  position: relative;
+  z-index: 1;
+}
+
+.bg-aurora { --swatch-a: #7f9cf5; --swatch-b: #b9f3d4; }
+.bg-ember  { --swatch-a: #f6ad7b; --swatch-b: #c05621; }
+.bg-tide   { --swatch-a: #63b3ed; --swatch-b: #285e61; }
+.bg-moss   { --swatch-a: #9ae6b4; --swatch-b: #276749; }
+.bg-noir   { --swatch-a: #2d3748; --swatch-b: #0a0d12; }
+
+.team-bg-image-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.team-bg-thumb {
+  width: 96px;
+  height: 54px;
+  object-fit: cover;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+}
+
+.team-bg-upload input[type="file"] {
+  display: none;
+}
+
+label.team-bg-upload {
+  cursor: pointer;
+}
+
+/* ─── 团队氛围层（融入 forge ambient field）───
+   根因（LO 2026-08-27 实测"背景设置无效"）：body 背景被 body.atelier 实底 +
+   .atelier-stage fixed 全屏纸面层完全遮死，任何 body 级渐变都不可见。
+   正确落点是 .atelier-stage 的 ::after 叠加层——设计系统认可的 ambient 位，
+   z 顺序位于网格/画布之上、内容之下；custom 图片同通道，预设走渐变。
+   渐变带透明度并沿用 stage 自身的 mask 柔化，不抢正文对比度。 */
+
+body[data-team-bg="aurora"] .atelier-stage::after,
+body[data-team-bg="ember"] .atelier-stage::after,
+body[data-team-bg="tide"] .atelier-stage::after,
+body[data-team-bg="moss"] .atelier-stage::after,
+body[data-team-bg="noir"] .atelier-stage::after,
+body.team-bg-custom .atelier-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+}
+
+body[data-team-bg="aurora"] .atelier-stage::after { background-image: linear-gradient(135deg, rgba(127,156,245,.55), rgba(185,243,212,.42)); }
+body[data-team-bg="ember"]  .atelier-stage::after { background-image: linear-gradient(135deg, rgba(246,173,123,.52), rgba(192,86,33,.40)); }
+body[data-team-bg="tide"]   .atelier-stage::after { background-image: linear-gradient(135deg, rgba(99,179,237,.52), rgba(40,94,97,.46)); }
+body[data-team-bg="moss"]   .atelier-stage::after { background-image: linear-gradient(135deg, rgba(154,230,180,.48), rgba(39,103,73,.46)); }
+body[data-team-bg="noir"]   .atelier-stage::after { background-image: linear-gradient(160deg, rgba(12,15,22,.88), rgba(4,6,10,.92)); }
+
+/* 自定义图：经 --team-bg-image 注入同一 ::after 层，渐变垫底保证文字可读 */
+body.team-bg-custom .atelier-stage::after {
+  background-image: linear-gradient(color-mix(in oklab, var(--bg) 35%, transparent), var(--bg)), var(--team-bg-image);
+}
+
+/* 兜底：无 atelier-stage 的宿主（异常态）直接落在 body 上 */
+body.team-bg-custom { background-size: cover; background-position: center; background-attachment: fixed; }
+
+
+/* ─── 氛围引擎（dsh-wallpaper-engine 工作台化）─── */
+
+/* 媒体对象层：图片/视频平铺 stage，object-fit cover；z 序在网格画布之上、内容之下 */
+.atelier-stage .team-bg-media {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* 水平翻转：合成器 transform（scaleX(-1)）零主线程开销，对照参考项目的镜像播放 */
+.atelier-stage .team-bg-media.is-flipped {
+  transform: scaleX(-1);
+}
+
+.team-bg-media img,
+.team-bg-media video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* ─── 内容层透出（2026-08-28 遮挡层根因）───
+   氛围只落在 fixed stage（z-index: 0），而主界面（工作台）的操作台壳/会话面/左轨/右轨
+   各自铺了不透明实底（--forge-paper 97% / --surface / --sidebar / --surface-muted），把 stage 完全遮死，
+   壁纸在任何触发路径下都不可见（LO 实测：主界面恒为米色实底）。
+   修复：JS 在壁纸真正生效时给 body 挂 .team-bg-active（applyActiveTeamBackground 的
+   唯一门控），仅该态下撤掉内容层实底、改用玻璃令牌族透光；无壁纸时规则不匹配，
+   默认米色观感零回归。带 ID 的选择器（1,2,1）稳压 art-direction 的（1,1,0）与
+   experience-polish 同特后载规则（0,2,0），级联不依赖加载顺序。
+   覆盖面：会话面/左轨之外，会话面内层（消息流/标题栏/输入台，experience-polish 铺的
+   --bg/--surface 实底）、右轨 context-rail/registry-dock、左轨底部状态栏同段门控；
+   消息流保更高 alpha 玻璃护正文可读性，不做全透明。
+   限定桌面宽幅（min-width: 821px）：≤820px 时 run-rail 为抽屉（z-80）+ 遮罩（z-70），
+   backdrop-filter 一旦新建层叠上下文，pane 的子元素终端抽屉（z-86）会被囚禁压住；
+   移动端轨为抽屉形态，壁纸透出收益低，宁可不透出也不破坏抽屉层叠。 */
+@media (min-width: 821px) {
+  body.team-bg-active #view-workbench .workbench-shell {
+    background: transparent;
+  }
+
+  body.team-bg-active #view-workbench .conversation-pane,
+  body.team-bg-active #view-workbench .run-rail {
+    background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-glass-alpha, 86%), transparent);
+    -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+    backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  }
+
+  /* 会话面内层：pane 玻璃之上还铺着流/标题/输入台的实底，内层不透则玻璃白做。
+     消息流在外层 alpha 基础上 +6%（封顶 96%）保正文对比；不另挂 backdrop-filter，
+     磨砂由父面 pane 统一承担，少一层合成。 */
+  body.team-bg-active #view-workbench .conversation-stream {
+    background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--bg))) var(--forge-glass-alpha-mid, 92%), transparent);
+  }
+
+  body.team-bg-active #view-workbench .conversation-heading,
+  body.team-bg-active #view-workbench .task-composer {
+    background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-glass-alpha, 86%), transparent);
+  }
+
+  /* 右轨：context-rail 是 pane 的兄弟，需要自带磨砂才能透出壁纸；
+     registry-dock 即 context-rail 本体，styles.css 的 --surface-muted 实底一并撤掉。 */
+  body.team-bg-active #view-workbench .context-rail {
+    background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-glass-alpha, 86%), transparent);
+    -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+    backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  }
+
+  body.team-bg-active #view-workbench .registry-dock {
+    background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface-muted))) var(--forge-glass-alpha, 86%), transparent);
+  }
+
+  /* 左轨底部状态栏：位于 run-rail 内（父面已磨砂）。v8.2 起统一由内容卡玻璃度驱动
+     （「流内残留实底清扫」段的 .rail-statusline 规则）——此处不再用 glass-alpha +
+     --sidebar 暖米 fallback 与之双轨打架（LO 截图：状态行在亮壁纸上呈暖白块）。
+     老引擎兜底（下方 @supports）保留实底回落。 */
+
+  /* 老引擎兜底：失去 backdrop-filter 时不能透出不可读的裸壁纸，回落实色保底 */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    body.team-bg-active #view-workbench .conversation-pane,
+    body.team-bg-active #view-workbench .run-rail,
+    body.team-bg-active #view-workbench .conversation-heading,
+    body.team-bg-active #view-workbench .task-composer,
+    body.team-bg-active #view-workbench .context-rail,
+    body.team-bg-active #view-workbench .registry-dock {
+      background: var(--surface);
+    }
+    body.team-bg-active #view-workbench .conversation-stream {
+      background: var(--bg);
+    }
+    body.team-bg-active #view-workbench .run-rail > .rail-statusline {
+      background: var(--sidebar);
+    }
+  }
+}
+
+/* ─── 窄桌面/高缩放（≤820px 逻辑宽）的壁纸玻璃（2026-08-29 v3 补）───
+   工作台玻璃原限定 min-width: 821px：窄幅下 run-rail 变抽屉（z-80），pane 挂
+   backdrop-filter 会新建层叠上下文，把 pane 内终端抽屉（z-86）囚禁在 pane 里被
+   rail 抽屉盖住。后果：高 DPR 缩放屏（如 2000 物理 ÷ 250% = 800 逻辑）整块工作台
+   玻璃静默失效——壳层透壁纸、中央仍是暖纸实底（LO 实测「没有太大改变」）。
+   修法：磨砂从 pane 下沉到内层（流/标题/输入台各自带 backdrop-filter），pane 与
+   workbench-shell 只让位、不建层叠上下文 → 终端抽屉 z-86 恢复与 rail 抽屉 z-80 的
+   全局层序比较。宽幅段（>821）行为不变。 */
+@media (max-width: 820px) {
+  body.team-bg-active #view-workbench .workbench-shell {
+    background: transparent;
+  }
+  body.team-bg-active #view-workbench .conversation-pane {
+    background: transparent;
+  }
+  body.team-bg-active #view-workbench .conversation-stream {
+    background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--bg))) var(--forge-glass-alpha, 86%), transparent);
+    -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+    backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  }
+  body.team-bg-active #view-workbench .conversation-heading,
+  body.team-bg-active #view-workbench .task-composer {
+    background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-glass-alpha, 86%), transparent);
+    -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+    backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  }
+  /* 老引擎兜底：内层磨砂不可用时回实底，宁不透也不裸奔 */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    body.team-bg-active #view-workbench .conversation-stream {
+      background: var(--bg);
+    }
+    body.team-bg-active #view-workbench .conversation-heading,
+    body.team-bg-active #view-workbench .task-composer {
+      background: var(--surface);
+    }
+  }
+}
+
+/* ─── 整壳玻璃透出（2026-08-28 第二轮补强）───
+   LO 反馈：当前只有工作台三块大卡片（会话面/左轨/右轨）玻璃化，顶栏/侧栏/底栏/
+   移动 nav/底部 dock 仍是实底，整体观感割裂。这段在 body.team-bg-active 下统一
+   给全壳层（顶栏 + 底栏 + 侧栏 + 移动 nav + dock）换上玻璃族——背景用 color-mix
+   走与工作台段同公式（var(--glass-tint) + var(--forge-glass-alpha)），滤镜挂
+   var(--forge-glass-filter) 与视频墙纸共享一条变量管线。无壁纸态下规则不匹配、
+   样式表基底的 surface-glass 默认轻玻璃仍生效，零回归。
+   移动 nav 在桌面态 hidden（grid-area 没渲染），不必担心层叠上下文；照样挂上规则
+   是为窄屏开启抽屉态时不至于再变实底。底栏高 z（30）+ 顶栏 z 含菜单/抽屉可能
+   80；不互压——顶/底栏位于 grid area 的边沿，与 shell 同帧，无需自定 z。 */
+body.team-bg-active .topbar,
+body.team-bg-active .global-statusbar,
+body.team-bg-active .mobile-nav,
+body.team-bg-active .sidebar {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-glass-alpha, 86%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+}
+
+/* 特异度补强：atelier 形态的壳层基线（art-direction.css / atelier.css）在壁纸激活态下
+   会把整壳玻璃打穿——实测顶栏 computed backdrop-filter 被压回 none、侧栏背景回 100%
+   实色、底栏被 !important 钉在实色。三处基线分别靠「同特后载」与 !important 压制，
+   这里统一叠 .atelier 抬到 (0,3,1) 稳压；无壁纸态本段不匹配，atelier 基线原样保留
+   （底栏的 !important 实色另在 atelier.css 收窄为 :not(.team-bg-active)）。 */
+body.team-bg-active.atelier .topbar,
+body.team-bg-active.atelier .sidebar,
+body.team-bg-active.atelier .mobile-nav {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--forge-paper))) var(--forge-glass-alpha, 86%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+}
+/* 底栏是深玫红人文条：玻璃化时以自身 --statusbar 为底色够深，不必混纸色 */
+body.team-bg-active.atelier .global-statusbar {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--statusbar))) var(--forge-glass-alpha, 86%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+}
+
+/* 顶栏底线在磨砂上会断手感：补一道更柔的发丝边，避免整壳看起「飘起来」 */
+body.team-bg-active .topbar {
+  border-bottom-color: color-mix(in oklab, var(--border) 60%, transparent);
+}
+body.team-bg-active .global-statusbar {
+  border-top-color: color-mix(in oklab, var(--border) 60%, transparent);
+}
+
+/* 「协作/总览/会话…」等常规视图下，顶栏里的 chrome 菜单（文件/编辑/视图/帮助）
+   与右侧 icon 簇原本各铺 surface-soft 实底，玻璃顶栏底下再叠一层会发暗——
+   透出即可，按钮各自 hover/active 态不受影响。 */
+body.team-bg-active .topbar .chrome-menu-label,
+body.team-bg-active .topbar .chrome-icon-button,
+body.team-bg-active .topbar .command-trigger,
+body.team-bg-active .topbar .icon-button,
+body.team-bg-active .topbar .window-control-button {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) 70%, transparent);
+}
+
+/* 底栏 segment 常是黑实底（statusbar-team-pulse / statusbar-connection），
+   玻璃底下会成为黑条；透出。 */
+body.team-bg-active .global-statusbar .statusbar-segment,
+body.team-bg-active .global-statusbar .statusbar-connection {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) 70%, transparent);
+}
+body.team-bg-active .global-statusbar .statusbar-connection {
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--border) 50%, transparent);
+}
+
+/* 移动端顶/底栏壳层补强：浏览器默认隐藏时不影响，激活时共用。
+   account-dock 移到「流内残留实底清扫」段统一吃内容卡玻璃度（--sidebar 暖米
+   fallback 在亮壁纸上呈白块，LO 截图反馈）。 */
+body.team-bg-active .sidebar .sidebar-footer,
+body.team-bg-active .sidebar .brand {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--sidebar))) var(--forge-glass-alpha, 86%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+}
+
+/* ─── 整壳底层幕布透出（2026-08-29 第三轮补强）───
+   LO 反馈：重启后顶/底/侧栏已玻璃化，但「整张图看起来还是糊在中台那块」——
+   OPAQUE-PROBE 溯源：1440×900 的 .atelier-stage（art-direction.css:49
+   var(--forge-paper) 实色 + 72px 网格）与 .app-shell（styles.css:7050 var(--bg)
+   实色）以及 body.atelier 自身 paper 实色，三层堆在 wallpaper 之上构成全屏
+   纸面，把团队氛围渐变 / 自定义图一起压掉。这里在壁纸激活态下统一让位：
+   body 与 app-shell 完全透出，atelier-stage 保留它原有 72px 网格 + radial-copper
+   氛围光的设计语言（设计系统认可的 ambient field），仅把背景从 paper 实色换成
+   oklab 半透，壁纸自身渲染由 team.css:3331+ 的 .atelier-stage::after 与 line
+   3363 的 .team-bg-media 负责。无壁纸态下规则不匹配，atelier 仍为纯净纸面。 */
+body.team-bg-active.atelier .atelier-stage {
+  background:
+    linear-gradient(90deg, color-mix(in oklab, var(--forge-hairline) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(0deg, color-mix(in oklab, var(--forge-hairline) 70%, transparent) 1px, transparent 1px),
+    radial-gradient(circle at 78% 12%, color-mix(in oklab, var(--forge-copper) 11%, transparent), transparent 29%),
+    color-mix(in oklab, var(--wall-tint, var(--forge-paper)) 18%, transparent);
+  background-size: 72px 72px, 72px 72px, auto, auto;
+  opacity: 1;
+}
+body.team-bg-active.atelier { background: transparent; }
+body.team-bg-active .app-shell { background: transparent; }
+/* 移动 nav 父层兜底：revert styles.css 7050 实色，玻璃公式由「整壳玻璃段」接管 */
+body.team-bg-active.atelier .app-shell.is-settings {
+  background: transparent;
+}
+
+/* html 让位（2026-08-29 透出档位波补）：让位链（body/app-shell/stage）之下是 html 的
+   暖纸实底（--bg #faf9f5），壁纸媒体挂载的几秒窗口期里整个界面透出的就是它——
+   暖米色 + stage 网格纹理。html 挂同类（app.js syncWallpaperGlassEnvironment 同步
+   加摘）把底色换成调和色：窗口期是干净的「蒙玻璃纯色面」，媒体到位后壁纸盖上来；
+   摘除时类撤、回暖纸基线零回归。 */
+html.team-bg-active {
+  background: var(--wall-tint, var(--bg));
+}
+
+/* ─── 玻璃质感 v2：边缘光学 + 内层卡调和（2026-08-29 第四轮）───   LO 反馈「玻璃质感和颜色还是有问题」。前几轮解决了「透不透」，这轮解决
+   「像不像玻璃、脏不脏」：
+   1. 发脏的根因是暖纸色系（--surface #fdfcf9 / --sidebar #f4f1ea / recovery 条的
+      amber 混底 / 用户便签的 rose 软底）在冷色壁纸上整体偏暖发灰。app.js 的壁纸
+      环境采样（--wall-tint）已让玻璃底色与壁纸同族，这里把 stage 纸色幕布与内容层
+      暖实底也接到同一调和链上。
+   2. 像不像玻璃：真磨砂玻璃有三重光学特征——顶缘高光（环境光在玻璃上缘的镜面反射）、
+      侧缘微光（玻璃厚度）、下方环境影（玻璃板悬浮在壁纸上）。14px 磨砂 + 平涂半透
+      没有这些线索，看起来像「半透明白塑料」。这里用 inset 高光 + 外投影补齐；
+      blur/alpha 的壁纸态增强（blur 24 / alpha 78%）由 app.js --forge-glass-* 有效令牌承担。 */
+
+/* 玻璃边缘光学令牌：亮主题吃白高光，暗主题压到微光防止边缘发光感 */
+body.team-bg-active {
+  --glass-edge-hi: color-mix(in srgb, #ffffff 38%, transparent);
+  --glass-edge-lo: color-mix(in srgb, #ffffff 12%, transparent);
+  --glass-plate-shadow: 0 18px 44px color-mix(in srgb, #16233a 16%, transparent);
+}
+[data-theme="dark"] body.team-bg-active {
+  --glass-edge-hi: color-mix(in srgb, #ffffff 10%, transparent);
+  --glass-edge-lo: color-mix(in srgb, #ffffff 4%, transparent);
+  --glass-plate-shadow: 0 18px 44px rgba(0, 0, 0, 0.42);
+}
+
+/* 壳层（顶/底/侧/移动 nav/dock）：顶缘高光 + 两侧微光，替代原 box-shadow: none */
+body.team-bg-active .topbar,
+body.team-bg-active .sidebar,
+body.team-bg-active .global-statusbar,
+body.team-bg-active .mobile-nav,
+body.team-bg-active .sidebar .sidebar-footer,
+body.team-bg-active .sidebar .brand,
+body.team-bg-active .account-dock {
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge-hi),
+    inset 1px 0 0 var(--glass-edge-lo),
+    inset -1px 0 0 var(--glass-edge-lo);
+}
+
+/* 工作台三大玻璃板（会话面/左轨/右轨）：同款边缘 + 环境浮起影 */
+body.team-bg-active #view-workbench .conversation-pane,
+body.team-bg-active #view-workbench .run-rail,
+body.team-bg-active #view-workbench .context-rail {
+  box-shadow:
+    inset 0 1px 0 var(--glass-edge-hi),
+    inset 1px 0 0 var(--glass-edge-lo),
+    inset -1px 0 0 var(--glass-edge-lo),
+    var(--glass-plate-shadow);
+}
+
+/* 内层暖实底卡调和：恢复条（amber 混底）/用户便签（rose 软底）/输入台壳（surface 实底）
+   浮在冷壁纸上发脏，底色改吃壁纸调和色玻璃片 + 自带磨砂，只保留各自的识别色
+   （amber/rose）边框与前景。实体感统一由 --forge-card-alpha（外观面板「内容卡玻璃度」，
+   auto 随透出档位 / 手动 40–95）驱动——不再各写死百分比双轨。 */
+body.team-bg-active .recovery-bar {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+  border-color: color-mix(in srgb, var(--amber) 45%, transparent);
+}
+body.team-bg-active .conversation-stream .message-row.is-user .message-body {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-hi, 84%), var(--rose) 12%);
+  border-color: color-mix(in srgb, var(--rose) 30%, transparent);
+}
+body.team-bg-active .task-composer .composer-shell {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+/* 新任务页快捷模板卡：「发送给谁?」成员选择卡：surface 暖实底 → 调和玻璃片
+   （hover 玫瑰态同步减透明） */
+body.team-bg-active .template-card {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+body.team-bg-active .template-card:hover {
+  background: color-mix(in srgb, var(--rose) 9%, transparent);
+}
+body.team-bg-active .agent-pick-card {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+
+/* ─── 流内残留实底清扫（2026-08-29 v8，LO「查看目前还是不是玻璃质感的地方」）───
+   成员直发会话复用 bot-shell 气泡（.bot-bubble 的 --bot-panel 暖米实底）、会话页签条
+   （conv-tabs 的 --surface-muted）、governance 注记与终态注记（amber-soft）、轮次胶囊
+   （turn-divider span 的 --surface）——这些都是浮在壁纸上的内容面，统一吃内容卡
+   玻璃度令牌；注记类保留各自的识别色（琥珀/红）但退成薄纱。 */
+body.team-bg-active #view-workbench .bot-bubble {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+body.team-bg-active #view-workbench .bot-message-user .bot-bubble {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-hi, 84%), transparent);
+}
+body.team-bg-active #view-workbench .conv-tabs {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-lo, 42%), transparent);
+}
+body.team-bg-active #view-workbench .conv-tab.is-active {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+}
+body.team-bg-active #view-workbench .gov-note,
+body.team-bg-active #view-workbench .run-end-note {
+  background: color-mix(in srgb, var(--amber) 9%, transparent);
+}
+body.team-bg-active #view-workbench .run-end-note.is-failed {
+  background: color-mix(in srgb, var(--red) 9%, transparent);
+}
+body.team-bg-active #view-workbench .conversation-stream .turn-divider span {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+}
+/* 左轨底部状态行：暖米实底 → 内容卡玻璃（mono 小字可读性由 card-alpha 保底）。
+   状态行包在 .rail-footer 钉底容器里（非 .run-rail 直接子级，v8.1 的 > 选择器没命中），
+   后代选择器命中。 */
+body.team-bg-active #view-workbench .rail-statusline {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+}
+/* composer 成员条 chips 与「直接发送」目标：--card/--surface-muted 实底 → 内容卡玻璃；
+   选中态在玻璃底上叠品牌色薄纱保识别。 */
+body.team-bg-active #view-workbench .composer-collaborator-chip {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-lo, 42%), transparent);
+}
+body.team-bg-active #view-workbench .member-chip {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-lo, 42%), transparent);
+}
+body.team-bg-active #view-workbench .member-chip.is-active {
+  border-color: var(--forge-agent, var(--primary, var(--rose)));
+  background-color: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-hi, 84%), transparent);
+  background-image: linear-gradient(color-mix(in oklch, var(--forge-agent, var(--primary, var(--rose))) 10%, transparent), color-mix(in oklch, var(--forge-agent, var(--primary, var(--rose))) 10%, transparent));
+}
+body.team-bg-active #view-workbench .conv-tab:hover {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-lo, 42%), transparent);
+}
+/* 防御兜底：壁纸态消息行不再吃 hover 米灰底（悬停高亮在连续玻璃场上是突兀色块），
+   也压掉任何来源未知的行底——消息区只保留内容自身。 */
+body.team-bg-active #view-workbench .conversation-stream .message-row {
+  background: transparent;
+}
+/* 恢复条里的 resume 命令输入框：白实底 → 内容卡玻璃（等宽命令文本由 card-alpha 保底） */
+body.team-bg-active #view-workbench .recovery-bar input,
+body.team-bg-active .recovery-bar .recovery-resume-command {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+}
+
+/* ─── 透出档位（data-wall-glass：bold/soft/solid，由 app.js 按壁纸×墨色亮度距离挂）───
+   LO 反馈「看不到自定义壁纸了」：基础档（alpha 86 + 流 +6% + 幕布 18%）三层叠乘后
+   壁纸只剩 ~8% 透出。这里按档位把「大面积背景」放出来——文字可读性交给磨砂
+   （blur 24px 全档一致）与内容卡，壁纸可见度交给档位：
+   bold（亮度差大，如亮壁纸×深字）：流无额外叠加 → 壁纸大面积可见；
+   soft：维持基础公式；
+   solid（亮度贴脸，如亮壁纸×浅字[暗主题]）：流再 +14%，宁实勿透。
+   内容卡实体感不再按档位写 CSS 双轨——app.js 把档位值算进 --forge-card-alpha，
+   卡片公式统一吃令牌（v7）。 */
+body.team-bg-active[data-wall-glass="bold"] #view-workbench .conversation-stream {
+  background: transparent;
+}
+body.team-bg-active[data-wall-glass="solid"] #view-workbench .conversation-stream {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--bg))) var(--forge-glass-alpha-hi, 96%), transparent);
+}
+body[data-wall-glass="bold"].team-bg-active.atelier .atelier-stage {
+  /* v4 减雾：bold 档壁纸是主角——网格/铜晕/纸幕整体让位，壁纸原样呈现
+     （仅隔面板玻璃的轻度磨砂）；soft/solid 档保留幕布设计语言。 */
+  background: transparent;
+}
+/* 铜色画布（multiply 0.76）在照片壁纸上会显脏斑，bold 档一并让位；
+   mesh/orb/grain 在 art-direction 基线本就 display:none。 */
+body[data-wall-glass="bold"].team-bg-active.atelier #atelier-canvas {
+  display: none;
+}
+
+/* 顶边对齐 + 无缝化（2026-08-29 滚动缺陷波 v2，LO「不要有明显的线缝/右边还是没对齐」）：
+   workbench 的 main-content 四周 10px 呼吸 + shell 的 hairline 边框/右上 28px 圆角/
+   浮起影，在非壁纸态是「仪表浮岛」语言；壁纸态面板透明后，tint 沿圆角和边框描出一圈
+   线缝、顶边看起来错位。壁纸态整壳是连续玻璃场：呼吸全收 0、边框/圆角/阴影全撤，
+   工作台内三块板（含各自的 inset 接缝光与浮起影）一并归零——区分交给内容密度，
+   不再靠面板分界线。仅壁纸态生效，非壁纸浮岛观感不变。 */
+body.team-bg-active .main-content:has(#view-workbench.is-active) {
+  padding: 0;
+}
+body.team-bg-active #view-workbench .workbench-shell {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+body.team-bg-active #view-workbench .conversation-pane,
+body.team-bg-active #view-workbench .run-rail,
+body.team-bg-active #view-workbench .context-rail {
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  /* console-form 浮岛给 pane 留的 margin: 8px 0 0（顶缝直因）一并归零——
+     topbar 底边与 heading 顶边无缝贴合 */
+  margin: 0;
+}
+/* sidebar 右缘 hairline 是侧栏与中央之间最后一条竖缝 */
+body.team-bg-active.atelier .sidebar {
+  border-right-color: transparent;
+}
+
+/* 壁纸态滚动条调和（2026-08-29 缺陷波）：暖灰实心 thumb 在蓝壁纸上是一条白杠，
+   改半透墨色——亮壁纸沉稳、暗壁纸可辨。 */
+body.team-bg-active .conversation-stream,
+body.team-bg-active .run-rail-list,
+body.team-bg-active .project-tree,
+body.team-bg-active .team-picker,
+body.team-bg-active .timeline,
+body.team-bg-active .context-rail {
+  scrollbar-color: color-mix(in srgb, var(--forge-ink) 34%, transparent) transparent;
+}
+body.team-bg-active .conversation-stream::-webkit-scrollbar-thumb,
+body.team-bg-active .run-rail-list::-webkit-scrollbar-thumb,
+body.team-bg-active .project-tree::-webkit-scrollbar-thumb,
+body.team-bg-active .team-picker::-webkit-scrollbar-thumb,
+body.team-bg-active .timeline::-webkit-scrollbar-thumb,
+body.team-bg-active .context-rail::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--forge-ink) 34%, transparent);
+}
+
+/* 老引擎兜底：无 backdrop-filter 时 inset 高光贴在实底上会显脏，退回平面 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  body.team-bg-active .topbar,
+  body.team-bg-active .sidebar,
+  body.team-bg-active .global-statusbar,
+  body.team-bg-active .mobile-nav,
+  body.team-bg-active .sidebar .sidebar-footer,
+  body.team-bg-active .sidebar .brand,
+  body.team-bg-active .account-dock,
+  body.team-bg-active #view-workbench .conversation-pane,
+  body.team-bg-active #view-workbench .run-rail,
+  body.team-bg-active #view-workbench .context-rail {
+    box-shadow: none;
+  }
+  body.team-bg-active .recovery-bar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* 老引擎兜底：无 backdrop-filter 时不能透裸壁纸 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  body.team-bg-active .topbar,
+  body.team-bg-active .global-statusbar,
+  body.team-bg-active .mobile-nav,
+  body.team-bg-active .sidebar,
+  body.team-bg-active .sidebar .sidebar-footer,
+  body.team-bg-active .sidebar .brand,
+  body.team-bg-active .account-dock {
+    background: var(--surface);
+  }
+  body.team-bg-active .topbar .chrome-menu-label,
+  body.team-bg-active .topbar .chrome-icon-button,
+  body.team-bg-active .topbar .command-trigger,
+  body.team-bg-active .topbar .icon-button,
+  body.team-bg-active .topbar .window-control-button,
+  body.team-bg-active .global-statusbar .statusbar-segment,
+  body.team-bg-active .global-statusbar .statusbar-connection {
+    background: var(--surface-muted);
+  }
+}
+
+/* 压暗膜：独立于媒体与 preset 渐变，透明度由 --team-bg-dim 驱动 */
+.atelier-stage .team-bg-dim {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgba(6, 8, 12, 1);
+  opacity: 0;
+  transition: opacity 160ms ease;
+  z-index: 2;
+}
+
+/* 动效档位：flow 是单层缓流渐变（subtle）；rich 另加光尘上浮。
+   will-change 不做持久声明：只在动效真正跑起来（非 suspended）时由状态类临时抬升，
+   动效关闭/挂起时属性不在，不留常驻合成层。 */
+body[data-team-motion] .atelier-stage::before {
+  content: "";
+  position: absolute;
+  inset: -18%;
+  pointer-events: none;
+  z-index: 1;
+  background:
+    radial-gradient(42% 34% at 24% 30%, rgba(127, 156, 245, .16), transparent 70%),
+    radial-gradient(36% 30% at 74% 58%, rgba(185, 243, 212, .13), transparent 72%),
+    radial-gradient(30% 28% at 55% 20%, rgba(240, 161, 125, .10), transparent 75%);
+  animation: team-bg-flow-drift 46s linear infinite alternate;
+}
+
+body[data-team-motion]:not(.team-bg-suspended) .atelier-stage::before {
+  will-change: transform;
+}
+
+body[data-team-motion="rich"] .team-bg-flow-sparks {
+  display: block;
+}
+
+@keyframes team-bg-flow-drift {
+  from { transform: translate3d(-2.2%, -1.4%, 0) scale(1.02); }
+  to   { transform: translate3d(2.4%, 1.6%, 0) scale(1.05); }
+}
+
+.team-bg-flow-sparks {
+  display: none;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.team-bg-flow-sparks span {
+  position: absolute;
+  bottom: -6%;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 236, 210, .65);
+  box-shadow: 0 0 9px 2px rgba(255, 220, 180, .35);
+  opacity: 0;
+  animation: team-bg-spark-rise var(--rise, 26s) linear infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+/* 光尘 will-change 同样只限 rich 档生效且未挂起时临时抬升（门控替代持久声明） */
+body[data-team-motion="rich"]:not(.team-bg-suspended) .team-bg-flow-sparks span {
+  will-change: transform, opacity;
+}
+
+@keyframes team-bg-spark-rise {
+  0%   { transform: translate3d(0, 0, 0); opacity: 0; }
+  8%   { opacity: .85; }
+  86%  { opacity: .25; }
+  100% { transform: translate3d(var(--sway, 18px), calc(-108vh), 0); opacity: 0; }
+}
+
+/* rich 光尘：12 个 DOM 点位由 CSS 单独定义轨迹（零 JS 运行时成本） */
+.team-bg-flow-sparks span:nth-child(1)  { left: 6%;  --rise: 31s; --delay: 0s;   --sway: 22px; }
+.team-bg-flow-sparks span:nth-child(2)  { left: 14%; --rise: 24s; --delay: 3s;   --sway: -16px; }
+.team-bg-flow-sparks span:nth-child(3)  { left: 23%; --rise: 37s; --delay: 7s;   --sway: 26px; }
+.team-bg-flow-sparks span:nth-child(4)  { left: 31%; --rise: 27s; --delay: 11s;  --sway: -21px; }
+.team-bg-flow-sparks span:nth-child(5)  { left: 40%; --rise: 33s; --delay: 5s;   --sway: 15px; }
+.team-bg-flow-sparks span:nth-child(6)  { left: 49%; --rise: 29s; --delay: 14s;  --sway: -28px; }
+.team-bg-flow-sparks span:nth-child(7)  { left: 57%; --rise: 36s; --delay: 2s;   --sway: 19px; }
+.team-bg-flow-sparks span:nth-child(8)  { left: 66%; --rise: 25s; --delay: 9s;   --sway: -14px; }
+.team-bg-flow-sparks span:nth-child(9)  { left: 74%; --rise: 34s; --delay: 17s;  --sway: 24px; }
+.team-bg-flow-sparks span:nth-child(10) { left: 82%; --rise: 28s; --delay: 6s;   --sway: -18px; }
+.team-bg-flow-sparks span:nth-child(11) { left: 90%; --rise: 32s; --delay: 12s;  --sway: 21px; }
+.team-bg-flow-sparks span:nth-child(12) { left: 96%; --rise: 39s; --delay: 20s;  --sway: -25px; }
+
+/* 遮挡暂停：页面不可见/窗口失焦档生效时冻结所有氛围动画（视频解码由 JS 显式 pause） */
+body.team-bg-suspended .atelier-stage *,
+body.team-bg-suspended .atelier-stage::before,
+body.team-bg-suspended .atelier-stage::after {
+  animation-play-state: paused !important;
+}
+
+/* 壁纸透出到整个界面（不只工作台）：所有 .view 面板（设置/总览/观测/会话/Bot 等）
+   在壁纸态下撤掉不透明实底，改玻璃族透光。无壁纸时规则不匹配、零回归。
+   带 .app-shell.is-settings 的门控与 experience-polish 同段规则呼应——这里兜住
+   is-settings 之外的普通视图（总览/观测/会话/Bot）。 */
+body.team-bg-active #main-content .view:not(.bot-shell):not(#view-workbench) {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--bg, #f5f6f8))) var(--forge-glass-alpha, 86%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  border-radius: 12px;
+}
+
+body.team-bg-active #main-content .view .page-heading,
+body.team-bg-active #main-content .view .settings-card {
+  background: transparent;
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  body.team-bg-active #main-content .view:not(.bot-shell):not(#view-workbench) {
+    background: var(--surface);
+  }
+}
+
+/* 系统级减弱动态：动效层直接不渲染 */
+@media (prefers-reduced-motion: reduce) {
+  body[data-team-motion] .atelier-stage::before { animation: none; opacity: .55; }
+  .team-bg-flow-sparks { display: none !important; }
+}
+
+/* 表单控件：motion 行 + 融合滑杆 */
+.team-background-picker { gap: 12px; }
+
+.team-bg-motion-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.team-bg-motion-field select {
+  min-width: 200px;
+}
+
+/* 一键壁纸同步行：次要按钮靠右，与滑杆区隔出一条收尾线 */
+.team-bg-sync-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.team-bg-sliders {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+}
+
+.team-bg-sliders label {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* 视频播放控制行：倍速档位 + 水平翻转 + 暂停/播放，仅视频壁纸时可见 */
+.team-bg-playback-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.team-bg-rate-field {
+  margin: 0;
+}
+
+.team-bg-rate-field select {
+  min-width: 96px;
+}
+
+.team-bg-flip-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+/* ─── 壁纸选择弹窗（对标 dsh-wallpaper-engine）─── */
+
+/* 表单内「选择壁纸」入口行：标题靠左、按钮靠右 */
+.team-bg-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* 弹窗整体：比常规确认框更宽，容纳缩略图网格 */
+.wallpaper-picker-dialog {
+  width: min(760px, calc(100vw - 28px));
+}
+
+.wallpaper-picker-body {
+  display: grid;
+  gap: 10px;
+}
+
+/* 工具栏：类型筛选 + 搜索 + 紧凑开关 */
+.wallpaper-picker-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wallpaper-picker-filter {
+  margin: 0;
+  flex: 0 0 auto;
+}
+
+.wallpaper-picker-filter select {
+  min-width: 110px;
+}
+
+.wallpaper-picker-search {
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+
+/* 缩略图网格：常规 = 每行约 4–5 张、固定高度防重叠；紧凑 = CD 架纵向层叠、悬停放大置顶 */
+.wallpaper-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 10px;
+  max-height: min(52vh, 460px);
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.wallpaper-picker-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: stretch;
+  min-width: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: inherit;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color var(--dur-fast, 120ms) var(--ease-out, ease), transform var(--dur-fast, 120ms) var(--ease-out, ease);
+}
+
+.wallpaper-picker-card:hover:not(:disabled) {
+  border-color: color-mix(in oklch, var(--primary) 45%, var(--border));
+}
+
+.wallpaper-picker-card.is-active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.wallpaper-picker-card:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.wp-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--muted);
+}
+
+/* 预设缩略图 = 渐变条（复用 swatch 双色）：WP 卡片比 swatch 大，横向渐变更接近壁纸预览 */
+.wp-thumb.preset {
+  background: linear-gradient(135deg, var(--swatch-a) 0%, var(--swatch-b) 100%);
+}
+
+/* 自定义媒体缩略图：字节异步到达前显示骨架，失败显示占位 */
+.wp-thumb.is-custom.is-loading {
+  display: grid;
+  place-items: center;
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.wp-thumb.is-custom.is-loading::after {
+  content: "…";
+}
+
+.wp-thumb.is-custom.is-error {
+  display: grid;
+  place-items: center;
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.wp-thumb.is-custom.is-error::after {
+  content: "预览失败";
+}
+
+.wp-thumb img,
+.wp-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.wallpaper-picker-card-name {
+  padding: 0 8px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wallpaper-picker-tip {
+  font-size: 11px;
+}
+
+.wallpaper-picker-empty {
+  padding: 18px 4px;
+  text-align: center;
+}
+
+/* 紧凑 CD 架：下排上沿盖住上排下沿，左右不遮挡；悬停放大置顶 */
+.wallpaper-picker-grid.is-compact {
+  display: block;
+  columns: 4;
+  column-gap: 10px;
+  padding: 4px;
+}
+
+.wallpaper-picker-grid.is-compact .wallpaper-picker-card {
+  break-inside: avoid;
+  margin-bottom: -22px;
+  transition: transform var(--dur-fast, 120ms) var(--ease-out, ease), z-index 0s;
+}
+
+.wallpaper-picker-grid.is-compact .wallpaper-picker-card:hover {
+  transform: scale(1.06) translateY(-4px);
+  z-index: 5;
+  position: relative;
+}
+
+@media (max-width: 560px) {
+  .wallpaper-picker-grid.is-compact {
+    columns: 2;
+  }
+}
+
+
+/* ─── 全局壁纸（外观面板「全局壁纸」卡片，对标 dsh-wallpaper-engine 全局设置面）─── */
+
+/* 「自定义」色板：斜纹占位质感，区别于渐变预设；上传后仍以此外观表示媒体在服务端 */
+.bg-custom {
+  --swatch-a: color-mix(in oklab, var(--surface-muted, #ddd) 82%, var(--accent, #b85c3e) 18%);
+  --swatch-b: var(--surface-strong, #bbb);
+  background:
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, .12) 0 6px, transparent 6px 12px),
+    linear-gradient(140deg, var(--swatch-a), var(--swatch-b));
+}
+
+/* 适配模式：只作用于全局自定义媒体的铺排；团队路径不挂 data-fit，恒为 cover。
+   cover = 默认（媒体层基类）；contain 完整显示留边；center 原始尺寸居中；stretch 填满变形。 */
+.team-bg-media[data-fit="contain"] img,
+.team-bg-media[data-fit="contain"] video {
+  object-fit: contain;
+}
+
+.team-bg-media[data-fit="center"] {
+  display: grid;
+  place-items: center;
+}
+
+.team-bg-media[data-fit="center"] img,
+.team-bg-media[data-fit="center"] video {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: none;
+}
+
+.team-bg-media[data-fit="stretch"] img,
+.team-bg-media[data-fit="stretch"] video {
+  object-fit: fill;
+}
+
+/* ─── 全局壁纸：3 轴滤镜滑杆（dim/blur/saturate）─── */
+/* 复用团队路径的 grid 排布，3 轴放单列更易扫读；右侧「还原默认」与滑杆分两段 */
+.appearance-wallpaper-sliders {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  flex: 1 1 auto;
+}
+
+.appearance-wallpaper-slider {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.appearance-wallpaper-slider input[type="range"] {
+  width: 100%;
+  margin: 0;
+}
+
+.appearance-wallpaper-tune-row {
+  align-items: center;
+  gap: 12px;
+}
+
+/* 壁纸态玻璃不透明度行：自动按钮选中态 + 数值徽标（宽度固定防拖动时抖动）。
+   滑杆永远可拖（auto 档显示档位计算值、拖动即接管），不得加 disabled——
+   禁用滑杆 = 永远进不了手动模式（交互死锁，v5.1 已修）。 */
+.appearance-wallpaper-tune-row #appearance-wallpaper-glass-auto.is-active {
+  border-color: color-mix(in srgb, var(--accent, #b85c3e) 55%, transparent);
+  background: color-mix(in srgb, var(--accent, #b85c3e) 12%, transparent);
+  color: var(--accent, #b85c3e);
+}
+
+.appearance-wallpaper-glass-value {
+  flex: 0 0 auto;
+  min-width: 44px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted-foreground, var(--text-muted));
+  font-size: 11px;
+}
+
+/* 拖拽上传：拖入文件时给 label 一圈高亮，让用户知道落点正确 */
+.team-bg-upload.is-dragover {
+  outline: 2px dashed var(--accent, currentColor);
+  outline-offset: 2px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  cursor: copy;
+}
+
+/* 自定义媒体预览：固定宽高比 + 圆角，不让超长视频撑爆面板 */
+.appearance-wallpaper-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 220px;
+  max-width: 320px;
+  aspect-ratio: 16 / 9;
+  border-radius: 10px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.08);
+  border: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.appearance-wallpaper-preview img,
+.appearance-wallpaper-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}

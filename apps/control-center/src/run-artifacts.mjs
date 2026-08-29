@@ -69,13 +69,33 @@ export function projectEvidenceArtifact(input = {}) {
   };
 }
 
-function mentionsRun(value, run) {
+function tokenContainsRunId(value, runId) {
   const haystack = String(value ?? "").toLowerCase();
-  if (!haystack) return false;
-  const runId = String(run?.id ?? "").toLowerCase();
-  if (runId && haystack.includes(runId)) return true;
-  const title = String(run?.title || run?.prompt || "").toLowerCase().slice(0, 48);
-  return Boolean(title && title.length >= 8 && haystack.includes(title));
+  const needle = String(runId ?? "").trim().toLowerCase();
+  if (!haystack || !needle) return false;
+  let offset = 0;
+  while (offset <= haystack.length - needle.length) {
+    const index = haystack.indexOf(needle, offset);
+    if (index < 0) return false;
+    const before = haystack[index - 1] || "";
+    const after = haystack[index + needle.length] || "";
+    // Run ids are opaque identifiers. A token boundary prevents run-1 from
+    // claiming evidence named for run-10 (or an arbitrary title containing it).
+    if (!/[a-z0-9]/i.test(before) && !/[a-z0-9]/i.test(after)) return true;
+    offset = index + Math.max(1, needle.length);
+  }
+  return false;
+}
+
+function evidenceBelongsToRun(value, run) {
+  const runId = String(run?.id ?? "").trim();
+  if (!runId || !value || typeof value !== "object") return false;
+  const explicitRunId = String(value.runId ?? value.sourceRunId ?? "").trim();
+  // An explicit source is authoritative. Never rescue a cross-run record with
+  // a coincidental mention in its filename or prose.
+  if (explicitRunId) return explicitRunId === runId;
+  return [value.name, value.content, value.topic, value.evidence, value.id]
+    .some((candidate) => tokenContainsRunId(candidate, runId));
 }
 
 export function collectRunEvidenceArtifacts({
@@ -86,7 +106,7 @@ export function collectRunEvidenceArtifacts({
   if (!run?.id) return [];
   const cards = [];
   for (const file of handoffs) {
-    if (!mentionsRun(file?.name, run) && !mentionsRun(file?.content, run) && !mentionsRun(file?.topic, run)) continue;
+    if (!evidenceBelongsToRun(file, run)) continue;
     cards.push(projectEvidenceArtifact({
       runId: run.id,
       kind: "handoff",
@@ -103,7 +123,7 @@ export function collectRunEvidenceArtifacts({
     }));
   }
   for (const entry of deltas) {
-    if (!mentionsRun(entry?.evidence, run) && !mentionsRun(entry?.id, run) && !mentionsRun(entry?.topic, run)) continue;
+    if (!evidenceBelongsToRun(entry, run)) continue;
     cards.push(projectEvidenceArtifact({
       runId: run.id,
       kind: "delta",

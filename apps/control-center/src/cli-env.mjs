@@ -217,7 +217,11 @@ export function createCliEnvironmentService({
 
   function snapshot({ refresh = false, signal } = {}) {
     if (!refresh && state.cache && now() - state.cache.at < cacheTtlMs) return Promise.resolve(state.cache.payload);
-    if (state.inflight) return state.inflight;
+    if (state.inflight) {
+      // 「刷新」不得被旧探测吞掉：等在途批落地后强制重探（否则 UI 显示已完成却没重跑）
+      if (!refresh) return state.inflight;
+      return state.inflight.then(() => snapshot({ refresh: true, signal }));
+    }
     const job = (async () => {
       const tools = await Promise.all(CLI_TOOLS.map((tool) => probeTool(tool, { signal })));
       const payload = { tools, platform, generatedAt: new Date(now()).toISOString() };

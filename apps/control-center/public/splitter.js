@@ -30,6 +30,7 @@ export function attachSplitter(container, options = {}) {
     min = 180,
     max = 520,
     defaultWidth = null,
+    columns = 3,
   } = options;
   if (!container || container.dataset[`splitter${side}`]) return null;
   container.dataset[`splitter${side}`] = "1";
@@ -50,9 +51,11 @@ export function attachSplitter(container, options = {}) {
   const apply = (width) => {
     const clamped = Math.min(max, Math.max(min, Math.round(width)));
     const { left, right } = parseColumns(container);
-    const next = side === "left"
-      ? `${clamped}px minmax(0, 1fr) ${right}px`
-      : `${left}px minmax(0, 1fr) ${clamped}px`;
+    const next = columns === 2
+      ? `${clamped}px minmax(0, 1fr)`
+      : side === "left"
+        ? `${clamped}px minmax(0, 1fr) ${right}px`
+        : `${left}px minmax(0, 1fr) ${clamped}px`;
     container.style.setProperty("grid-template-columns", next);
     container.style.setProperty(`--forge-split-${side}`, `${clamped}px`);
     handle.dataset.width = String(clamped);
@@ -206,8 +209,8 @@ function bootSplitters() {
   const start = () => {
     const shell = document.querySelector(".workbench-shell");
     if (!shell) return;
-    attachSplitter(shell, { side: "left", storageKey: "514cc-split-left", min: 180, max: 420, defaultWidth: 248 });
-    attachSplitter(shell, { side: "right", storageKey: "514cc-split-right", min: 220, max: 480, defaultWidth: 292 });
+    // 桌面层把右栏作为 overlay，不再占 grid 末轨；左栏仍是可调的两列布局。
+    attachSplitter(shell, { side: "left", storageKey: "514cc-split-left", min: 180, max: 420, defaultWidth: 248, columns: 2 });
     attachOverlaySplitter(document.getElementById("mission-control-dock"), {
       host: shell,
       storageKey: "514cc-context-rail-width",

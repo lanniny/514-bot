@@ -26,8 +26,10 @@
 #view-config .ccswitch-workbench .ccs-heading h2,
 .ccswitch-workbench .ccs-heading h2 {
   color: var(--foreground);
-  font-size: 18px;
-  letter-spacing: -0.02em;
+  font-family: var(--forge-display, inherit);
+  font-size: clamp(19px, 1.8vw, 24px);
+  font-weight: 580;
+  letter-spacing: -0.025em;
 }
 
 #view-config .ccswitch-workbench .ccs-heading-sub,
@@ -49,6 +51,49 @@
   border: 1px solid var(--border);
   border-radius: 999px;
   background: color-mix(in oklab, var(--muted) 42%, transparent);
+}
+
+.ccswitch-workbench .ccs-capability-bridge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in oklab, var(--primary) 24%, var(--border));
+  border-radius: var(--radius-lg, 10px);
+  background: color-mix(in oklab, var(--primary) 6%, var(--card));
+}
+
+.ccswitch-workbench .ccs-capability-bridge h3 {
+  margin: 2px 0 3px;
+  color: var(--foreground);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.ccswitch-workbench .ccs-capability-bridge p {
+  max-width: 70ch;
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.ccswitch-workbench .ccs-capability-bridge .ccs-actions {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+@media (max-width: 720px) {
+  .ccswitch-workbench .ccs-capability-bridge {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ccswitch-workbench .ccs-capability-bridge .ccs-actions {
+    justify-content: flex-start;
+  }
 }
 
 #view-config .ccswitch-workbench .ccs-tab,

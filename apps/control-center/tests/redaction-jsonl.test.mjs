@@ -162,6 +162,24 @@ test("Windows command resolution respects the first safe PATH owner", { skip: pr
   assert.equal(resolved.command.toLowerCase(), "powershell.exe");
 });
 
+test("Claude prefers a native executable over an earlier PowerShell shim", { skip: process.platform !== "win32" }, async (t) => {
+  const root = await mkdtemp(resolve(appRoot, ".test-claude-native-seat-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const shimDir = resolve(root, "npm-global");
+  const nativeDir = resolve(root, "native");
+  await import("node:fs/promises").then(({ mkdir, writeFile }) => Promise.all([
+    mkdir(shimDir, { recursive: true }),
+    mkdir(nativeDir, { recursive: true }),
+  ]).then(() => Promise.all([
+    writeFile(resolve(shimDir, "claude.ps1"), "exit 0\n"),
+    writeFile(resolve(nativeDir, "claude.exe"), "stub"),
+  ])));
+  const resolved = resolveCommand("claude", { PATH: `${shimDir};${nativeDir}` });
+  assert.match(resolved.resolvedPath, /native[\\/]claude\.exe$/i);
+  assert.equal(resolved.prefixArgs.length, 0);
+  assert.notEqual(resolved.command.toLowerCase(), "powershell.exe");
+});
+
 test("grok resolves to ~/.grok/bin when PATH omits it (Phase 3 dispatch)", { skip: process.platform !== "win32" }, async (t) => {
   const home = await mkdtemp(resolve(appRoot, ".test-grok-home-"));
   t.after(() => rm(home, { recursive: true, force: true }));

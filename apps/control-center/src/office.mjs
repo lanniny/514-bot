@@ -9,6 +9,7 @@
  */
 
 import { createRequire } from "node:module";
+import { randomUUID } from "node:crypto";
 import { appendFile, mkdir, readFile, stat, writeFile, rename } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 import { isWithin } from "./paths.mjs";
@@ -205,7 +206,8 @@ export function createOfficeService({ repoRoot, dataRoot, eventStore = null } = 
     const buffer = await builders[safeKind]({ ...spec, title: title ?? spec.title });
     if (!buffer?.length) throw officeError("OFFICE_BUILD_EMPTY", "generator produced empty output", 500);
     await mkdir(dir, { recursive: true });
-    const tmp = join(dir, `.${withExt}.tmp`);
+    // pid+uuid 临时名：固定名在同名并发生成时会互相踩写/半成品 rename（对齐全仓原子写惯例）
+    const tmp = join(dir, `.${withExt}.${process.pid}.${randomUUID()}.tmp`);
     await writeFile(tmp, buffer);
     await rename(tmp, fullPath);
     await appendHistory({ kind: safeKind, path: fullPath, fileName: withExt, title: plan.title, bytes: buffer.length, at: new Date().toISOString() });
@@ -261,7 +263,8 @@ export function createOfficeService({ repoRoot, dataRoot, eventStore = null } = 
       if (info && info.size > HISTORY_ROLLOVER_BYTES) {
         const lines = (await readFile(historyPath, "utf8")).trim().split("\n").filter(Boolean);
         const kept = lines.slice(-(HISTORY_CAP * 4));
-        const tmp = `${historyPath}.tmp`;
+        // pid+uuid 临时名：固定 `.tmp` 在并发轮转/崩溃残留时会互踩（对齐全仓原子写惯例）
+        const tmp = `${historyPath}.${process.pid}.${randomUUID()}.tmp`;
         await writeFile(tmp, kept.length ? `${kept.join("\n")}\n` : "", "utf8");
         await rename(tmp, historyPath);
       }

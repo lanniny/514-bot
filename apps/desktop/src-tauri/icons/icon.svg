@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">514cc 对话核</title>
+  <desc id="desc">深墨色圆角方形中的白色对话框、三位成员品牌色圆点和绿色在线状态点。</desc>
+  <rect width="512" height="512" rx="112" fill="#202221"/>
+  <path d="M98 105h316c24 0 43 19 43 43v190c0 24-19 43-43 43H268l-86 61 18-61H98c-24 0-43-19-43-43V148c0-24 19-43 43-43Z" fill="#f7f7f2"/>
+  <circle cx="170" cy="244" r="34" fill="#bd5d3d"/>
+  <circle cx="256" cy="244" r="34" fill="#0f755f"/>
+  <circle cx="342" cy="244" r="34" fill="#6554cf"/>
+  <circle cx="413" cy="389" r="37" fill="#68c39a" stroke="#202221" stroke-width="15"/>
+</svg>
