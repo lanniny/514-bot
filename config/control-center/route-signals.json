@@ -1,0 +1,18 @@
+{
+  "$schema": "../../schemas/control-center/contracts.schema.json#/$defs/routeSignals",
+  "version": 1,
+  "description": "route-gate hook 触发词配置（RED/DIV/UC/META 正则集中管理）",
+  "redSignals": [
+    { "pattern": "评审|审查|code\\s*review|\\breview\\b", "tag": "review" },
+    { "pattern": "安全|security|漏洞|vuln|注入攻击|sql\\s*inject|鉴权|越权|\\bauth\\b", "tag": "security" },
+    { "pattern": "性能|\\bperf\\b|优化|optimiz|瓶颈|latency|吞吐", "tag": "perf" },
+    { "pattern": "部署|deploy|生产环境|上线|发布到|\\bprod\\b", "tag": "deploy" },
+    { "pattern": "调研|最新|对比|竞品|官方文档|查一下|\\bsearch\\b|\\bresearch\\b|搜索", "tag": "research" }
+  ],
+  "ucSignals": [
+    "\\bultra\\s*code\\b|\\bultracode\\b|\\butralcode\\b|Codex\\s*ultra|Claude\\s*ultra|最强大脑|深度完善|全面审查体系|动态\\s*workflow|dynamic\\s*workflow"
+  ],
+  "divSignals": [
+    "怎么设计|如何设计|架构设计|技术方案|设计方案|实现方案|解决方案|思路|有没有更好|重构|选型|取舍|权衡|\\b(architecture|refactor|tradeoff|approach)\\b"
+  ]
+}
