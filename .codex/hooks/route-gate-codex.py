@@ -20,19 +20,41 @@ if sys.platform.startswith("win"):
             stream.reconfigure(encoding="utf-8", errors="replace")
 
 WORKSPACE_ANCHOR = "514claude"
-RED_SIGNALS = [
-    (r"评审|审查|code\s*review|\breview\b", "review"),
-    (r"安全|security|漏洞|vuln|注入攻击|sql\s*inject|鉴权|越权|\bauth\b", "security"),
-    (r"性能|\bperf\b|优化|optimiz|瓶颈|latency|吞吐", "perf"),
-    (r"部署|deploy|生产环境|上线|发布到|\bprod\b", "deploy"),
-    (r"调研|最新|对比|竞品|官方文档|查一下|\bsearch\b|\bresearch\b|搜索", "research"),
-]
-UC_SIGNALS = [
-    r"\bultra\s*code\b|\bultracode\b|\butralcode\b|Codex\s*ultra|Claude\s*ultra|最强大脑|深度完善|全面审查体系|动态\s*workflow|dynamic\s*workflow",
-]
-DIV_SIGNALS = [
-    r"怎么设计|如何设计|架构设计|技术方案|设计方案|实现方案|解决方案|思路|有没有更好|重构|选型|取舍|权衡|\b(architecture|refactor|tradeoff|approach)\b",
-]
+
+# F-069: 从外部配置文件加载触发词（单一真源）
+def load_route_signals(cwd: str) -> dict | None:
+    """Load route-signals.json from config/control-center/ if available."""
+    base = Path(cwd) if cwd else Path.cwd()
+    for parent in [base, *base.parents]:
+        cand = parent / "config" / "control-center" / "route-signals.json"
+        if cand.exists():
+            try:
+                return json.loads(cand.read_text(encoding="utf-8"))
+            except Exception:
+                return None
+    return None
+
+# 尝试加载外部配置，失败则使用硬编码默认值
+_signals_config = load_route_signals(os.getcwd())
+if _signals_config:
+    RED_SIGNALS = [(s["pattern"], s["tag"]) for s in _signals_config.get("redSignals", [])]
+    UC_SIGNALS = _signals_config.get("ucSignals", [])
+    DIV_SIGNALS = _signals_config.get("divSignals", [])
+else:
+    # Fallback to hardcoded defaults
+    RED_SIGNALS = [
+        (r"评审|审查|code\s*review|\breview\b", "review"),
+        (r"安全|security|漏洞|vuln|注入攻击|sql\s*inject|鉴权|越权|\bauth\b", "security"),
+        (r"性能|\bperf\b|优化|optimiz|瓶颈|latency|吞吐", "perf"),
+        (r"部署|deploy|生产环境|上线|发布到|\bprod\b", "deploy"),
+        (r"调研|最新|对比|竞品|官方文档|查一下|\bsearch\b|\bresearch\b|搜索", "research"),
+    ]
+    UC_SIGNALS = [
+        r"\bultra\s*code\b|\bultracode\b|\butralcode\b|Codex\s*ultra|Claude\s*ultra|最强大脑|深度完善|全面审查体系|动态\s*workflow|dynamic\s*workflow",
+    ]
+    DIV_SIGNALS = [
+        r"怎么设计|如何设计|架构设计|技术方案|设计方案|实现方案|解决方案|思路|有没有更好|重构|选型|取舍|权衡|\b(architecture|refactor|tradeoff|approach)\b",
+    ]
 NOISE_BLOCK = re.compile(r"<task-notification>.*?</task-notification>|<tool-use-id>.*?</tool-use-id>|<task-id>.*?</task-id>", re.S)
 MCP_NOISE = re.compile(r"✔\s*connected|connected\s*·|·\s*✔|web-search-prime|web-reader", re.I)
 
