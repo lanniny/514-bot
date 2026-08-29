@@ -184,23 +184,117 @@ export function scrub(text) {
   });
 }
 
-export function sanitizeForPersistence(value, key = "") {
+// --- 结构化落盘的健壮性边界 -------------------------------------------------
+//
+// 下面三条不是理论防御，是实测复现过的故障：
+//   1. 循环引用 / 深嵌套 → RangeError 栈溢出。sanitizeForPersistence 位于写盘
+//      关键路径（event-store / bus / orchestrator#persistRun / approval-broker），
+//      一崩就是整条事件流丢数据，而不是"少脱敏了一点"。
+//   2. Buffer 被 Object.entries 拆成 {"0":115,"1":107,...} 的字节索引字典——
+//      既把数据毁成无意义形状，又让二进制内容绕过所有字符串脱敏规则。
+//   3. Map/Set/Date/URL/Error 被静默压成 {}，BigInt 直接抛 TypeError。
+//
+// 原则：脱敏器的职责是**去秘密**，不是重新定义数据结构。凡是它认不出来的类型，
+// 默认动作应该是"保守放行或显式标记"，绝不应该是"悄悄改成空对象"。
+const MAX_PERSIST_DEPTH = 96;
+const BINARY_SCRUB_LIMIT = 1 << 20; // 1 MiB：再大就让脱敏本身变成性能事故
+
+function decodeLatin1(bytes) {
+  // 分块避免 String.fromCharCode(...arr) 在超大数组上爆栈
+  const CHUNK = 0x8000;
+  if (bytes.length <= CHUNK) return String.fromCharCode.apply(null, bytes);
+  let out = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    out += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return out;
+}
+
+function encodeLatin1(text) {
+  const out = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i += 1) out[i] = text.charCodeAt(i) & 0xff;
+  return out;
+}
+
+/**
+ * 二进制分支。latin1 是字节与码位的 1:1 映射，因此"解码 → 脱敏 → 回写"在
+ * 没有命中时**完全无损**；一旦命中凭据格式，则按 fail-closed 覆写该区段。
+ * 超过上限的 blob 不逐字节扫（避免 DoS），改为显式截断标记——宁可丢内容，
+ * 也不能让一个大文件成为凭据的免检通道。
+ *
+ * 这里刻意只跑 redactString（已知前缀的模式层），不用完整 scrub：
+ * scrub 的 scrubAssignments 会做 YAML 分块逐行切分，而二进制内容不是 YAML——
+ * 一个 1 MiB 全换行符的 blob 就能让行数组膨胀到百万级，把脱敏器本身变成 DoS 面。
+ * 二进制里真正需要拦的（sk-/AIza/AKIA/Bearer/JWT/PEM）redactString 全覆盖。
+ */
+function sanitizeBinary(view) {
+  const bytes = view instanceof ArrayBuffer ? new Uint8Array(view) : new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
+  if (bytes.byteLength > BINARY_SCRUB_LIMIT) return `[BINARY_TRUNCATED ${bytes.byteLength}B]`;
+  const text = decodeLatin1(bytes);
+  const safe = redactString(text);
+  return safe === text ? view : encodeLatin1(safe);
+}
+
+function sanitizeNode(value, key, seen, depth) {
   if (privateReasoningKey.test(key)) return "[NOT_PERSISTED]";
   // 键名疑似凭据时只遮字符串——数字/布尔不可能是密钥（否则 tokens 计量字段被误伤成 [REDACTED]）
   if (isSensitiveKeyName(key)) {
     return value == null || typeof value === "number" || typeof value === "boolean" ? value : "[REDACTED]";
   }
-  if (typeof value === "string") return scrub(value);
-  if (Array.isArray(value)) return value.map((item) => sanitizeForPersistence(item));
-  if (value && typeof value === "object") {
+
+  if (value === null) return null;
+  const type = typeof value;
+  if (type === "string") return scrub(value);
+  if (type === "number" || type === "boolean") return value;
+  if (type === "bigint") return `${value}`;          // JSON.stringify 会抛，先降级
+  if (type === "function" || type === "symbol") return "[NOT_SERIALIZABLE]";
+  if (type !== "object") return String(value);
+
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return sanitizeBinary(value);
+  if (value instanceof Date) return value;           // 无凭据面，原样保留
+  if (value instanceof RegExp) return value;
+  if (value instanceof URL) return scrub(value.href); // URL 可携带 userinfo 凭据
+  if (value instanceof Error) return { name: String(value.name || "Error"), message: scrub(String(value.message ?? "")) };
+
+  if (depth >= MAX_PERSIST_DEPTH) return "[TRUNCATED:depth]";
+  if (seen.has(value)) return "[CIRCULAR]";
+
+  if (value instanceof Map) {
+    seen.add(value);
+    try {
+      return Object.fromEntries([...value.entries()].map(([mapKey, mapValue]) => [
+        String(mapKey),
+        sanitizeNode(mapValue, String(mapKey), seen, depth + 1),
+      ]));
+    } finally {
+      seen.delete(value); // 路径作用域：同一个对象在不同分支重复出现不算环
+    }
+  }
+  if (value instanceof Set) {
+    seen.add(value);
+    try {
+      return [...value].map((item) => sanitizeNode(item, "", seen, depth + 1));
+    } finally {
+      seen.delete(value);
+    }
+  }
+
+  seen.add(value);
+  try {
+    if (Array.isArray(value)) return value.map((item) => sanitizeNode(item, "", seen, depth + 1));
     return Object.fromEntries(
       Object.entries(value).map(([childKey, childValue]) => [
         childKey,
-        sanitizeForPersistence(childValue, childKey),
+        sanitizeNode(childValue, childKey, seen, depth + 1),
       ]),
     );
+  } finally {
+    seen.delete(value);
   }
-  return value;
+}
+
+export function sanitizeForPersistence(value, key = "") {
+  return sanitizeNode(value, key, new WeakSet(), 0);
 }
 
 export function findSecretCandidates(content) {

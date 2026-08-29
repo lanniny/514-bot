@@ -10,7 +10,7 @@ import { spawnTestServer, stopTestServer, waitForUrl } from "./server-fixture.mj
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 
 // fixture 注入的机密值：断言整个响应 JSON 字符串绝不包含其子串（掩码红线）。
-const SECRET_API_KEY = "xai-t5fixtureSecretKey0123456789ABCDEF";
+const SECRET_API_KEY = "xai-t5fixtureSecretKey0123456789ABCDEF"; // gitleaks:allow 测试夹具：值本身含 fixture 字样，用于验证响应掩码
 const SECRET_BASE_URL_HOST = "internal-fixture.invalid";
 
 const GROK_FIXTURE_TOML = `

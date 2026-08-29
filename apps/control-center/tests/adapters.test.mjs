@@ -106,7 +106,7 @@ test("scrubbed line collector bounds and drops an oversized logical line", () =>
 test("scrubbed line collector suppresses a multi-line PEM private key", () => {
   const output = [];
   const collector = createScrubbedLineCollector((chunk) => output.push(chunk));
-  collector.push("before\n-----BEGIN PRIVATE KEY-----\nYWJjZGVm");
+  collector.push("before\n-----BEGIN PRIVATE KEY-----\nYWJjZGVm"); // gitleaks:allow 测试夹具：PEM 边界用于验证多行密钥被吞掉
   collector.push("Z2hpamtsbW5vcA==\n-----END PRIVATE KEY-----\nafter\n");
   collector.end();
   const safe = output.join("");

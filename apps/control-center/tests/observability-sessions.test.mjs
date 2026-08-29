@@ -155,7 +155,7 @@ test("opt-in summaries redact both high-entropy and assignment-style secrets", a
   try {
     const projectDir = join(home, ".claude", "projects", "demo");
     await mkdir(projectDir, { recursive: true });
-    const highEntropy = "sk-proj-ABCDEFGHIJKLMNOP1234567890";
+    const highEntropy = "sk-proj-ABCDEFGHIJKLMNOP1234567890"; // gitleaks:allow 测试夹具：顺序字母+数字的合成串，非真实凭据
     const assignment = "MyCompanySecret1234";
     const event = { message: { role: "user", content: `key ${highEntropy} 且 password=${assignment} 还有 token: abcdefghijklmnop` } };
     await writeFile(join(projectDir, "s.jsonl"), JSON.stringify(event) + "\n", "utf8");

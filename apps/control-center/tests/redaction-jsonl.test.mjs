@@ -82,9 +82,9 @@ test("secret scanner accepts references and rejects literals", () => {
   assert.deepEqual(findSecretCandidates('api_key: "${MODEL_API_KEY}"'), []);
   assert.equal(findSecretCandidates('api_key: "abcdefghijklmnop123456"').length, 1);
   assert.ok(findSecretCandidates('{"authorization":"Basic YWJjZGVmZ2hpamtsbW5vcA=="}').length);
-  assert.ok(findSecretCandidates('{"aws_access_key_id":"AKIAABCDEFGHIJKLMNOP"}').length);
+  assert.ok(findSecretCandidates('{"aws_access_key_id":"AKIAABCDEFGHIJKLMNOP"}').length); // gitleaks:allow 测试夹具：顺序字母合成串
   assert.match(sanitizeForPersistence({ prompt: "Authorization: Basic YWJjZGVmZ2hpamtsbW5vcA==" }).prompt, /REDACTED/);
-  assert.match(sanitizeForPersistence({ prompt: "AKIAABCDEFGHIJKLMNOP" }).prompt, /REDACTED/);
+  assert.match(sanitizeForPersistence({ prompt: "AKIAABCDEFGHIJKLMNOP" }).prompt, /REDACTED/); // gitleaks:allow 同上
   assert.ok(findSecretCandidates('service_key: "abcdefghijklmnop"').length);
   assert.ok(findSecretCandidates("--api-key abcdefghijklmnop").length);
   assert.ok(findSecretCandidates("api_key: |\n  abcdefghijklmnop\n").length);
@@ -102,7 +102,7 @@ test("PEM private keys are fail-closed across legacy, encrypted and truncated fo
     assert.equal(safe, "before\n[REDACTED]\nafter", label);
     assert.doesNotMatch(safe, /secret-body|BEGIN|END/);
   }
-  const truncated = "visible\n-----BEGIN PRIVATE KEY-----\nsecret-tail-without-an-end";
+  const truncated = "visible\n-----BEGIN PRIVATE KEY-----\nsecret-tail-without-an-end"; // gitleaks:allow 测试夹具：故意不闭合的 PEM 头，验证 fail-closed
   assert.equal(scrub(truncated), "visible\n[REDACTED]");
   assert.ok(findSecretCandidates(truncated).some((message) => message.includes("private key material")));
 });
@@ -449,4 +449,81 @@ test("numeric metering fields survive even when the key smells like a credential
   assert.equal(out.api_key, "[REDACTED]", "string credentials still redacted");
   assert.equal(out.service_key, "[REDACTED]", "arbitrary _key suffix is redacted");
   assert.equal(out.enabled, true, "booleans survive");
+});
+
+// --- F-053 结构化健壮性 -----------------------------------------------------
+// 这四条对应的都是实测复现过的故障，不是理论防御。sanitizeForPersistence 位于
+// 写盘关键路径（event-store / bus / orchestrator#persistRun / approval-broker），
+// 它一崩，丢的是整条事件流，而不只是"少脱敏了一点"。
+
+test("circular and deeply nested graphs are bounded, not fatal", () => {
+  const cyclic = { name: "run", children: [] };
+  cyclic.self = cyclic;
+  cyclic.children.push(cyclic);
+  const out = sanitizeForPersistence(cyclic);
+  assert.equal(out.self, "[CIRCULAR]", "self reference is bounded");
+  assert.equal(out.children[0], "[CIRCULAR]", "repeated child reference is bounded");
+  assert.equal(out.name, "run", "siblings outside the cycle survive");
+
+  // 各自独立的深链（非环）也必须被深度上限拦住，否则同样栈溢出
+  let deep = { leaf: true };
+  for (let i = 0; i < 4000; i += 1) deep = { child: deep };
+  let cursor = sanitizeForPersistence(deep);
+  let depth = 0;
+  while (cursor && typeof cursor === "object" && "child" in cursor) {
+    cursor = cursor.child;
+    depth += 1;
+  }
+  assert.equal(cursor, "[TRUNCATED:depth]", "deep chain is truncated instead of throwing");
+  assert.ok(depth > 0 && depth < 200, `truncation kicks in early (depth=${depth})`);
+
+  // 同一个对象在不同分支各出现一次，是 DAG 不是环——不该被误判
+  const shared = { note: "visible" };
+  const dag = sanitizeForPersistence({ left: shared, right: shared });
+  assert.deepEqual(dag, { left: { note: "visible" }, right: { note: "visible" } });
+});
+
+test("buffers keep their bytes and are still scanned for credentials", () => {
+  const clean = Buffer.from("plain log line with no credential");
+  assert.equal(sanitizeForPersistence({ blob: clean }).blob, clean, "clean buffer is passed through untouched");
+
+  // 修复前：Buffer 被 Object.entries 拆成 {"0":115,"1":107,...} 的字节索引字典，
+  // 既毁数据又让内容绕过全部字符串脱敏。这里两条一起钉死。
+  const leaky = Buffer.from(`connecting with sk-${"a1B2c3D4e5F6g7H8i9J0kLmN"}`);
+  const out = sanitizeForPersistence({ blob: leaky }).blob;
+  assert.ok(out instanceof Uint8Array, "still binary after sanitizing");
+  assert.match(Buffer.from(out).toString("latin1"), /\[REDACTED\]/, "credential inside binary is redacted");
+  assert.doesNotMatch(Buffer.from(out).toString("latin1"), /a1B2c3D4e5F6g7H8i9J0kLmN/, "raw secret bytes are gone");
+
+  const oversized = Buffer.alloc((1 << 20) + 1, 0x61);
+  assert.equal(sanitizeForPersistence({ blob: oversized }).blob, `[BINARY_TRUNCATED ${oversized.byteLength}B]`);
+});
+
+test("host object types are preserved rather than silently flattened", () => {
+  const at = new Date("2026-08-30T00:00:00.000Z");
+  const out = sanitizeForPersistence({
+    at,
+    endpoint: new URL("https://alice:hunter2@example.invalid/api"),
+    tags: new Set(["alpha", "sk-abcdefghijklmnopqrstuvwxyz012345"]),
+    limits: new Map([["apiKey", "sk-abcdefghijklmnopqrstuvwxyz012345"], ["rps", 5]]),
+    count: 10n,
+    pattern: /ab+c/,
+  });
+  assert.equal(out.at, at, "Date is preserved");
+  assert.match(out.endpoint, /\[REDACTED\]/, "URL userinfo credential is scrubbed");
+  assert.doesNotMatch(out.endpoint, /hunter2/);
+  assert.ok(Array.isArray(out.tags), "Set becomes an array");
+  assert.ok(out.tags.includes("alpha"), "non-secret Set members survive");
+  assert.ok(out.tags.some((item) => String(item).includes("[REDACTED]")), "secret Set member is redacted");
+  assert.equal(out.limits.apiKey, "[REDACTED]", "Map credential key is redacted");
+  assert.equal(out.limits.rps, 5, "Map non-secret value survives");
+  assert.equal(out.count, "10", "BigInt degrades to string instead of throwing");
+  assert.equal(out.pattern instanceof RegExp, true, "RegExp is preserved");
+});
+
+test("errors keep name and message with the message scrubbed", () => {
+  const out = sanitizeForPersistence({ failure: new Error(`upstream refused sk-${"a1B2c3D4e5F6g7H8i9J0kLmN"}`) });
+  assert.equal(out.failure.name, "Error");
+  assert.match(out.failure.message, /\[REDACTED\]/);
+  assert.doesNotMatch(out.failure.message, /a1B2c3D4e5F6g7H8i9J0kLmN/);
 });

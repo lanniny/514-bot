@@ -238,7 +238,7 @@ test("workspace explorer hard-denies sensitive names while ordinary key-like nam
 test("workspace explorer rejects unknown high-entropy text after known redaction", async (t) => {
   const root = await mkdtemp(resolve(appRoot, ".test-workspace-entropy-"));
   t.after(() => rm(root, { recursive: true, force: true }));
-  const opaque = "A7bK9mQ2xR5vT8zC1dF4gH6jL0nP3sU7wY9eB2iD5kM8oS1qV4";
+  const opaque = "A7bK9mQ2xR5vT8zC1dF4gH6jL0nP3sU7wY9eB2iD5kM8oS1qV4"; // gitleaks:allow 测试夹具：手工交替串，用于验证无前缀高熵拦截
   await writeFile(join(root, "notes.txt"), `opaque material follows\n${opaque}\n`, "utf8");
 
   await assert.rejects(
