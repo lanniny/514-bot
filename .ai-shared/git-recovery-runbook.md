@@ -81,8 +81,22 @@ printf '<本地最新 SHA>\n' > .git/refs/heads/main
 printf '<远端 SHA>\n'     > .git/refs/remotes/origin/main
 ```
 
-**坑 1**：`git update-ref` 对 `refs/remotes/*` 会**静默失败**——exit 0、
-不报错、不创建目录、不落盘。用 shell 重定向直写文件。
+**坑 1（已受控复现，根因未定位）**：git 自己写 `refs/remotes/*` 不只是失败，
+还会**删掉整个目录**。表现：
+
+| 操作 | 结果 |
+|---|---|
+| shell `mkdir -p` + `printf > main` | 成功，git 立刻可见 |
+| 只读命令（`for-each-ref` / `status`） | 无影响，文件保留 |
+| `git update-ref refs/heads/*` | 无影响，文件保留 |
+| **`git update-ref refs/remotes/origin/*`** | **exit 0，但 `.git/refs/remotes/origin/` 整个消失**（连同手工写的文件） |
+| **`git fetch <remote> +refs/heads/main:refs/remotes/origin/main`** | 报 `[new branch] main -> origin/main`，**但目录为空** |
+
+已排除：无 `reference-transaction` 钩子；权限位与 `refs/heads` 一致；
+`logs/refs/remotes/origin/` 被正常创建（说明 git 确实进入了写路径）。
+
+应对：**一律用 shell 重定向直写，并且不要用 `git fetch` 去"更新"远端引用**——
+fetch 会把目录清空。查远端状态改用 `git ls-remote`（只读不写盘）。
 （`refs/heads/*` 用 update-ref 正常，但既然有坑就统一用重定向。）
 
 **坑 2**：本地 ref 指向无效对象时，`git fetch` 会报
@@ -98,6 +112,10 @@ git -c http.proxy=http://127.0.0.1:7897 -c https.proxy=http://127.0.0.1:7897 fet
 ```
 
 然后按第 4 步重设 `refs/remotes/origin/main`。
+
+注意：**fetch 本身会把 `refs/remotes/` 清空（见坑 1）**，所以"fetch 完就好"是错觉，
+必须在 fetch 之后、且此后不再对 `refs/remotes/*` 跑任何 git 写命令的前提下重建。
+校验用 `git ls-remote <remote> refs/heads/main` 比对 SHA。
 
 ## 6. 重建索引（关键：必须二次清理）
 
