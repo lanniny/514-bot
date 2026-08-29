@@ -1,9 +1,11 @@
 #!/bin/sh
 # ---------------------------------------------------------------------------
-# F-004  pre-commit 密钥拦截
+# F-004  pre-commit 密钥拦截 + F-076 rules.md RFC 化检查
 #
 # 514cc 的远程 lanniny/514-bot 是 GitHub **公开**仓库。一旦密钥进入提交并推送，
-# 即视为永久公开。本钩子是"提交前闸门"，在密钥离开本机之前拦住它。
+# 即视为永久公开。本钩子是“提交前闸门”，在密钥离开本机之前拦住它。
+#
+# F-076：任何对 rules.md（宪法）的修改必须在 proposals/ 下有对应 RFC 提案。
 #
 # 启用方式（仓库根执行，只需一次）：
 #     git config core.hooksPath .githooks
@@ -62,6 +64,37 @@ EOF
 
 EOF
   exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# F-076 rules.md RFC 化检查
+# ---------------------------------------------------------------------------
+rules_changed=$(git diff --cached --name-only | grep -E '^rules\.md$' || true)
+if [ -n "$rules_changed" ]; then
+  # 检查 proposals/ 下是否有 rfc-*.md 文件引用了 rules.md
+  rfc_exists=$(find proposals/ -maxdepth 1 -name 'rfc-*.md' -exec grep -l 'rules\.md' {} \; 2>/dev/null || true)
+  if [ -z "$rfc_exists" ]; then
+    cat >&2 <<'EOF'
+
+===========================================================================
+ [F-076] 提交已阻断：rules.md 变更缺少 RFC 提案
+===========================================================================
+ rules.md 是 514cc 宪法，任何修改必须通过 RFC 流程：
+   1. 在 proposals/ 下创建 rfc-NNN-rules-change.md（使用 proposals/rfc-template.md）
+   2. 填写动机、变更内容、影响面、评审要求
+   3. 烛（Codex reviewer）审查 + LO 批准
+   4. 冷却期 24 小时（紧急修复可跳过）
+   5. 在 RFC 中记录实施 commit hash
+
+ 当前未找到引用 rules.md 的 RFC 提案。
+
+ 临时绕过（仅限紧急修复）：git commit --no-verify
+ 但必须在 commit message 中说明紧急原因，并在事后补 RFC。
+===========================================================================
+
+EOF
+    exit 1
+  fi
 fi
 
 exit 0
