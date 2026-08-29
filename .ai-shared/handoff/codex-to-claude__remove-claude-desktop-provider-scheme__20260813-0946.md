@@ -35,4 +35,4 @@
 - `src/providers.mjs`、`public/state.js` 与聚焦测试在当前工作区仍是未跟踪文件；交付时必须使用 `git status --short --untracked-files=all` 纳入，不能只取 tracked diff。
 - 浏览器 QA 使用独立临时 data/runtime 目录，没有读写真实供应商档案；隔离实例已通过授权测试接口正常关闭。
 
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/src/providers.mjs:2962 将团队方案默认执行集合与后端兼容集合拆开，避免隐藏 Claude Desktop 绑定继续被一键应用
+__DELTA__: 烛(Codex) | 1 | architecture | 证据：apps/control-center/src/providers.mjs:2962 将团队方案默认执行集合与后端兼容集合拆开，避免隐藏 Claude Desktop 绑定继续被一键应用

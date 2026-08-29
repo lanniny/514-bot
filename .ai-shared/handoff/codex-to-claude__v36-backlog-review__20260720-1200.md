@@ -57,7 +57,7 @@
 我未运行 `npm test`：当前工作区权限是只读，且该测试套件会创建/删除临时目录；已完成 `node --check` 全部改动源文件、`git diff --check`，并用纯函数/路径探针实证了脱敏绕过和 `../events` 逃逸。评审过程做了额外反向复查；工作区未被修改，也未写 handoff 文件。
 
 __VERDICT__: CHANGES_REQUESTED  
-__DELTA__: 烛(Codex) | 2 | 证据：child-registry 同镜像 PID 复用、真实 Codex cwd 未接收、bus API 路径穿越（见上述 file:line）
+__DELTA__: 烛(Codex) | 2 | observability | 证据：child-registry 同镜像 PID 复用、真实 Codex cwd 未接收、bus API 路径穿越（见上述 file:line）
 
 
 
@@ -83,4 +83,4 @@ __DELTA__: 烛(Codex) | 2 | 证据：child-registry 同镜像 PID 复用、真�
 
 新增 9 条边界测试：路径穿越×5 形态 / JSON+Bearer 脱敏 / 轮顶 ask 可恢复 / 双 answer 不并发 / 预算停派 / bus+roster+worktree 随 clear 回收 / 常驻适配器写盘 fail-closed / pid 复用四场景（异镜像/时间倒挂/空镜像/正常收割）。
 
-__DELTA__: 烛(Codex) | 2 | 证据：child-registry.mjs 同镜像 PID 复用误杀、orchestrator.mjs ensureRunWorktree 对 codex app-server 假隔离、server.mjs bus API ../events 路径穿越实证——主驾此前按 kimi 自测 132/132 视为可收，被烛推翻
+__DELTA__: 烛(Codex) | 2 | observability | 证据：child-registry.mjs 同镜像 PID 复用误杀、orchestrator.mjs ensureRunWorktree 对 codex app-server 假隔离、server.mjs bus API ../events 路径穿越实证——主驾此前按 kimi 自测 132/132 视为可收，被烛推翻

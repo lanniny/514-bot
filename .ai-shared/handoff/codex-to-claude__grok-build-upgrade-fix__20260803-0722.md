@@ -26,4 +26,4 @@
 - 磁盘：`C:/Users/16643/.grok/bin/grok.exe`，140687688 bytes，SHA-256 `8B365D13BA0956BD8015069A7230370DD11496CD18D03B5EB148A329A8D96F7C`。
 - 服务读回：CLI 环境服务返回 `status=up-to-date`、`currentVersion=latestVersion=0.2.118`、命令 `grok update --stable`、来源 `Grok 内置更新器`。
 
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/src/cli-env.mjs:230 将 Windows Grok 升级从必失败的 npm EBADPLATFORM 路径切换到官方内置 updater，并补齐真实失败诊断
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：apps/control-center/src/cli-env.mjs:230 将 Windows Grok 升级从必失败的 npm EBADPLATFORM 路径切换到官方内置 updater，并补齐真实失败诊断

@@ -34,4 +34,4 @@
 - Bot 的 run 归属仍是客户端有界索引，不是后端协议字段；事件历史仍由既有 `/api/runs/:id/events` 真源提供。
 - 工作树含其他协作者修改和 `.scratch` 产物，未做清理或回滚。
 
-__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/public/app.js` 的 fallback 通讯录行同步与离开 Bot 覆盖层收拢修复；`apps/control-center/.scratch/bot-shell-live-qa-v3.mjs` 三视口真实交互回归通过，并修正过早队列断言。
+__DELTA__: 烛(Codex) | 2 | correctness | 证据：`apps/control-center/public/app.js` 的 fallback 通讯录行同步与离开 Bot 覆盖层收拢修复；`apps/control-center/.scratch/bot-shell-live-qa-v3.mjs` 三视口真实交互回归通过，并修正过早队列断言。

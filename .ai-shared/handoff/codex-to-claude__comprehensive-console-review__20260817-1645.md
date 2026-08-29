@@ -43,4 +43,4 @@
 源码层本轮完成了五项窄而完整的逻辑补强，定向组 `28/28`、runtime-reload `3/3`、完整 Control Center 套件 `1399 pass / 1 skipped / 0 fail` 且退出码 `0`，`npm run validate` 13 项全绿。评审结论仍为 **CHANGES_REQUESTED**：未跟踪文件交付门禁、shutdown 全阶段可重试性和真实运行态验收尚未闭环。不得据此 handoff 宣称已发布或已激活。
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 烛(Codex) | 1 | 证据：`public/workbench-chrome.js:56-88`、`public/market-panel.js:138-168`、`public/modules/automations-page.js:101-151` 补上了独立探针发现的竞态、状态协议和重复提交边界；`git status --short --untracked-files=all` 仍证明交付完整性未闭环。
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：`public/workbench-chrome.js:56-88`、`public/market-panel.js:138-168`、`public/modules/automations-page.js:101-151` 补上了独立探针发现的竞态、状态协议和重复提交边界；`git status --short --untracked-files=all` 仍证明交付完整性未闭环。

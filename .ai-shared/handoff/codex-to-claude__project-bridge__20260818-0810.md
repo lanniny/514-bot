@@ -85,4 +85,4 @@ R1-01 的安全面是收住的：绝对路径由服务端从 run / 控制面根�
 - 环境舱日常会停在 unknown，不要把「不能绿」当成回归失败。
 
 __VERDICT__: APPROVED
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/src/project-bridge.mjs:46 普通仓库 mv 会换 fingerprint，路径移动测试只锁了 store
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：apps/control-center/src/project-bridge.mjs:46 普通仓库 mv 会换 fingerprint，路径移动测试只锁了 store

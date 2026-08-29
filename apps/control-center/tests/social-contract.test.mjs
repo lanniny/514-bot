@@ -45,3 +45,23 @@ test("composer submit sends social only after /social", async () => {
   assert.match(app, /orchestrationMode: socialMode \? "social" : "pipeline"/);
   assert.match(app, /includeRequestedAgents: !legacy/);
 });
+
+test("social contract rejects an unlimited per-turn budget with a dedicated code", () => {
+  assert.throws(
+    () => projectSocialContract({
+      orchestrationMode: "social",
+      maxRounds: 4,
+      delegationDepthLimit: 2,
+      maxBudgetUsdPerTurn: Number.POSITIVE_INFINITY,
+    }),
+    { code: "SOCIAL_UNLIMITED_BUDGET_REJECTED" },
+  );
+  // 有限预算路径不受影响
+  const contract = projectSocialContract({
+    orchestrationMode: "social",
+    maxRounds: 4,
+    delegationDepthLimit: 2,
+    maxBudgetUsdPerTurn: 1.5,
+  });
+  assert.equal(contract.maxBudgetUsdPerTurn, 1.5);
+});

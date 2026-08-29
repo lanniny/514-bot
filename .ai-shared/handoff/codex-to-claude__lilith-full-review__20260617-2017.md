@@ -69,4 +69,4 @@
 `validate-lilith.ps1` 当前通过不代表 Plan/Review 零写入成立，因为 regression case 覆盖了少数 blacklist 命令，没有覆盖 PowerShell 常见写入面。下一轮应优先修 P0/P1：Plan/Review shell 改 allowlist/只读 sandbox、Build `user_bash` 接同一危险确认、task-pack path containment、`--run-external` fail fast。
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 烛(Codex) | 2 | 推翻“Plan/Review 零写入已由 24-case regression 覆盖”的安全判断；复现显示 New-Item/重定向/Copy-Item/Add-Content/mkdir/Remove-Item 可绕过 lilith/pi-extension/src/index.ts:230-267 与 lilith/permission-policy.yaml:34-46。
+__DELTA__: 烛(Codex) | 2 | security | 推翻“Plan/Review 零写入已由 24-case regression 覆盖”的安全判断；复现显示 New-Item/重定向/Copy-Item/Add-Content/mkdir/Remove-Item 可绕过 lilith/pi-extension/src/index.ts:230-267 与 lilith/permission-policy.yaml:34-46。

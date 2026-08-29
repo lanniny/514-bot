@@ -77,4 +77,4 @@ G:/tasks/pi proxy/node_modules/.bin/tsx.cmd I:/514claude/514cc/lilith/scripts/te
 3. Implement `lilith-reflect` as candidate generation only, with no direct durable memory writes.
 4. Add runtime sync script only after validation remains green.
 
-__DELTA__: 烛(Codex) | 2 | 推翻初始 "Pi permission skeleton can serve as safety gate" 状态：`user_bash` 返回类型、env-root 扩权、policy drift 和 memory prompt-only 均改为可测试 gate，证据见 `lilith/pi-extension/src/index.ts:195`, `lilith/pi-extension/src/index.ts:337`, `lilith/scripts/test-lilith-policy.mjs:52`, `lilith/scripts/validate-lilith.ps1:249`.
+__DELTA__: 烛(Codex) | 2 | correctness | 推翻初始 "Pi permission skeleton can serve as safety gate" 状态：`user_bash` 返回类型、env-root 扩权、policy drift 和 memory prompt-only 均改为可测试 gate，证据见 `lilith/pi-extension/src/index.ts:195`, `lilith/pi-extension/src/index.ts:337`, `lilith/scripts/test-lilith-policy.mjs:52`, `lilith/scripts/validate-lilith.ps1:249`.

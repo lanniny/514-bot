@@ -21,4 +21,4 @@
 - Playwright 实机：行尾新建会话 → 6 卡 6 官方徽标全出 → 点 Grok Build → start-agent=grok-build + 选择器关闭；0 JS 错误。
 - 156/156 + qa:ui --suite=all ok:true。
 
-__DELTA__: 主驾(Kimi) | 1 | 证据：Pi 徽标未轻信 simple-icons 归属，下载 pi.dev/favicon.svg 比对同形后才采用——补强「官方标志必须实证出处」纪律（LO 明令不要主观臆造）
+__DELTA__: 主驾(Kimi) | 1 | observability | 证据：Pi 徽标未轻信 simple-icons 归属，下载 pi.dev/favicon.svg 比对同形后才采用——补强「官方标志必须实证出处」纪律（LO 明令不要主观臆造）

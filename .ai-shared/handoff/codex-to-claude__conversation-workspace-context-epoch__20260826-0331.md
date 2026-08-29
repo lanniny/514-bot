@@ -35,4 +35,4 @@
 - 该浏览器 fixture 把 `grok-build` 命令替换为本机 Node，仅验证 HTTP/UI/runtime admission，不调用真实 provider，不构成模型效果或付费链路验收。
 - 当前结论：`SOURCE_HARDENED / DELIVERY_BLOCKED / FORMAL_RUNTIME_UNVERIFIED`。未 reload 正式 Control Center、未替换 Tauri、未做真实 provider/SSH、未 commit/push，正式版本仍为 v3.5.0。
 
-__DELTA__: 烛(Codex) | 2 | 证据：apps/control-center/src/conversation-contexts.mjs:278-355、src/orchestrator.mjs:1407、:3675-3685；独立复核推翻“Context Epoch 已可收尾”，发现并修复取消后 stale native session 可跨 Run 发布的阻断竞态
+__DELTA__: 烛(Codex) | 2 | correctness | 证据：apps/control-center/src/conversation-contexts.mjs:278-355、src/orchestrator.mjs:1407、:3675-3685；独立复核推翻“Context Epoch 已可收尾”，发现并修复取消后 stale native session 可跨 Run 发布的阻断竞态

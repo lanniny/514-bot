@@ -39,4 +39,4 @@
 - 生产 `pendingAsk` 仍未提供 options 字段；question card 的预设选项只在已有字段或 mock 事件中可用，缺失时保持文本回答入口。
 - 工作树含其他协作者修改和 `.scratch` 产物，未做清理或回滚。
 
-__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/app.js` 的 `botApprovalCardMarkup`、`rememberApprovalEventOutcome` 与 `approvalsLoadGeneration` 把现有审批真源接入聊天并封住迟到刷新；`apps/control-center/.scratch/bot-approval-live-qa.mjs` 和全量测试提供真实交互回读。
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：`apps/control-center/public/app.js` 的 `botApprovalCardMarkup`、`rememberApprovalEventOutcome` 与 `approvalsLoadGeneration` 把现有审批真源接入聊天并封住迟到刷新；`apps/control-center/.scratch/bot-approval-live-qa.mjs` 和全量测试提供真实交互回读。

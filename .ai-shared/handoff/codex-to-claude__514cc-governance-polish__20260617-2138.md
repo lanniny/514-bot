@@ -50,4 +50,4 @@ s2=2
 - Codex/OpenCode external comparison adapters 仍未实现；Lilith 仍不得宣称 parity。
 
 __VERDICT__: APPROVED
-__DELTA__: 烛(Codex) | 1 | 补齐 Codex stop-gate session-scoped seen 语义和 Claude runtime sync 备份缺口；py_compile、sync check、isolated stop-gate simulation 均通过。
+__DELTA__: 烛(Codex) | 1 | observability | 补齐 Codex stop-gate session-scoped seen 语义和 Claude runtime sync 备份缺口；py_compile、sync check、isolated stop-gate simulation 均通过。

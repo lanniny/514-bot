@@ -47,4 +47,4 @@ Bot 已不再把聊天联系人称为“代理”。成员列表、成员资料�
 - focused Node TAP 的汇总后不退出仍应单独定位，不能用本轮 27 条断言通过掩盖 teardown 缺口。
 - 未执行 commit/push，未改正式 `team-members.json`。
 
-__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/app.js:14797`、`apps/control-center/public/app.js:14947` 接通真实席位与成员保存；浏览器回读发现并修复 `shortLabel` 从 48 被无意截成 8 的数据损失风险。
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：`apps/control-center/public/app.js:14797`、`apps/control-center/public/app.js:14947` 接通真实席位与成员保存；浏览器回读发现并修复 `shortLabel` 从 48 被无意截成 8 的数据损失风险。

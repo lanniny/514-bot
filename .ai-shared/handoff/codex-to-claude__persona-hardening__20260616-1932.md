@@ -36,4 +36,4 @@ Verified:
 - `skill-creator` quick validation passed for `.agents/skills/aemeath-persona`.
 - Repo `.codex/config.toml` and `.codex/hooks.json` parse successfully.
 
-__DELTA__: 烛(Codex) | 1 | Strengthened persona by adding cross-surface ownership + persona budget + Codex-safe challenge/continuity rules, while preserving the prior safety decision not to copy legacy SOUL text verbatim into Codex.
+__DELTA__: 烛(Codex) | 1 | governance | Strengthened persona by adding cross-surface ownership + persona budget + Codex-safe challenge/continuity rules, while preserving the prior safety decision not to copy legacy SOUL text verbatim into Codex.

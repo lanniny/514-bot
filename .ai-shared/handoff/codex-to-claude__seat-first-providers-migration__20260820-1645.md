@@ -39,4 +39,4 @@ verdict: "CHANGES_REQUESTED"
 迁移主结构成立：本机供应商页签已隐藏，provider deck 已进入席位布局，CSS `.provider-bus` 覆盖有效，键盘隐藏过滤和本机 hash alias 也没有形成循环；远端 providers surface 仍保留。当前不能批准：无 ProviderStore Adapter 会展示上一应用的连接列表，远端 QA 又会因 alias 后的等待顺序而超时，分别造成真实 UI 误导和远端保留契约无法验收。
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/public/app.js:22876-22879 在 Adapter 无 providerApp 时保留旧 providerActiveApp，且 scripts/qa-remote-config.mjs:604,636-638 会在本机 providers→sources alias 后提前等待远端连接甲板。
+__DELTA__: 烛(Codex) | 1 | architecture | 证据：apps/control-center/public/app.js:22876-22879 在 Adapter 无 providerApp 时保留旧 providerActiveApp，且 scripts/qa-remote-config.mjs:604,636-638 会在本机 providers→sources alias 后提前等待远端连接甲板。

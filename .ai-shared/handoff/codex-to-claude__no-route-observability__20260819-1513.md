@@ -42,4 +42,4 @@ session: zcode 会话（无 route-gate marker 注入，未凭空补造 session i
 - 变更未提交；工作区还有本轮之前的未提交改动，未触碰。
 - 前端无需改：`applyFailedRoutePreview` 已渲染 candidates，toast 直接展示更详细的 error.message。
 
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/src/router.mjs routeBlockers() 把排除原因带入 NO_ROUTE/NO_INDEPENDENT_ROUTE 文案；server.mjs server.error 事件补落 candidates 明细；tests/no-route-ledger-http.test.mjs 三处断言全过（20+1+124 pass）
+__DELTA__: 烛(Codex) | 1 | observability | 证据：apps/control-center/src/router.mjs routeBlockers() 把排除原因带入 NO_ROUTE/NO_INDEPENDENT_ROUTE 文案；server.mjs server.error 事件补落 candidates 明细；tests/no-route-ledger-http.test.mjs 三处断言全过（20+1+124 pass）

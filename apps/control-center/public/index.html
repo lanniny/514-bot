@@ -947,8 +947,12 @@
                             <label><span>默认模型</span><select id="composer-cli-default-model"></select></label>
                             <label><span>默认 Effort</span><select id="composer-cli-default-effort"></select></label>
                             <label><span>默认权限</span><select id="composer-cli-default-permission"></select></label>
-                            <label><span>默认单轮预算 $</span><input id="composer-cli-default-budget" type="number" min="0.05" max="50" step="0.05" inputmode="decimal" /></label>
-                            <label><span>安全硬上限 $</span><input id="composer-cli-max-budget" type="number" min="0.05" max="50" step="0.05" inputmode="decimal" /></label>
+                            <label class="composer-cli-budget-field"><span>默认单轮预算 $</span>
+                              <span class="budget-field">
+                                <input id="composer-cli-default-budget" type="number" min="0.05" max="50" step="0.05" inputmode="decimal" placeholder="0.75" />
+                                <button type="button" class="budget-infinite-toggle" id="composer-cli-default-budget-unlimited" data-budget-unlimited="composer-cli-default-budget" aria-pressed="false" title="设为无限：不按美元止损（步数上限仍兜底）">∞</button>
+                              </span>
+                            </label>
                             <button class="button secondary composer-cli-budget-save" id="composer-cli-budget-save" type="button">
                               <svg class="icon lucide" aria-hidden="true"><use href="#lucide-shield-check"></use></svg>
                               保存预算策略
@@ -1039,10 +1043,15 @@
                       </button>
                       <div class="permission-menu" id="permission-menu" role="menu" aria-label="权限模式" hidden></div>
                     </div>
-                    <label class="model-pick budget-pick" id="task-budget-pick" title="单个 provider 轮次的美元预算；全局默认和安全上限在配置真源中设置">
-                      <span aria-hidden="true">预算 $</span>
-                      <input id="task-budget" type="number" min="0.05" max="50" step="0.05" inputmode="decimal" aria-label="单轮预算（美元）" />
-                    </label>
+                    <div class="model-pick pick-menu-host budget-pick" id="task-budget-pick" title="单轮预算：每个 provider 轮次的美元止损；「无限」= 不按美元止损，步数上限仍生效；全局默认在 CLI 操作台设置">
+                      <input id="task-budget" type="hidden" aria-label="单轮预算（美元，或 unlimited）" />
+                      <button type="button" class="pick-pill budget-pill" id="budget-pill" aria-haspopup="menu" aria-expanded="false" aria-controls="budget-menu" title="单轮预算">
+                        <span class="pick-pill-kicker" aria-hidden="true">预算</span>
+                        <span class="pick-pill-label" id="budget-pill-label">默认</span>
+                        <svg class="icon lucide chevron" aria-hidden="true"><use href="#lucide-chevron-down"></use></svg>
+                      </button>
+                      <div class="pick-menu budget-menu" id="budget-menu" role="menu" aria-label="单轮预算" hidden></div>
+                    </div>
                     <span class="composer-session-controls" id="composer-session-controls" hidden title="沿用会话配置">
                       <svg class="icon lucide" aria-hidden="true"><use href="#lucide-lock"></use></svg>
                       <span>热调</span>

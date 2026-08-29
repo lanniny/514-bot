@@ -57,4 +57,4 @@
 
 下一扇门：LO 授权 git add 才能让交付闸变绿；授权 reload 才能说正式实例吃到这波源码。
 
-__DELTA__: 烛(Codex) | 1 | 证据：Inbox persist-then-append 与 close 跳过 automations.stop 被推翻并当场改；R2 复扫 DELTA=0。见 codex-to-claude__v42-pm-closeout__20260818-0850.md 与 ...-r2__20260818-0905.md
+__DELTA__: 烛(Codex) | 1 | governance | 证据：Inbox persist-then-append 与 close 跳过 automations.stop 被推翻并当场改；R2 复扫 DELTA=0。见 codex-to-claude__v42-pm-closeout__20260818-0850.md 与 ...-r2__20260818-0905.md

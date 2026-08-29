@@ -61,4 +61,4 @@
 
 外部回写恢复后，独立审查再次只读核验真实 runtime：TOML 可解析，SHA-256 为 `005888CE8796FC1350DD948219E1C29CB0F8A8A7823256482C70F275D7458F`，marker 为 `1 start / 1 end`，12 项 Agent/Skill 映射全部一致。Grok `env_vars` 精确为三项专用变量；`ace-tool` 使用 `%ACE_TOOL_TOKEN%` 与 `env_vars`，高熵 token 命中 `0`；handoff 与 decisions 密钥模式命中 `0`。最终结论 `APPROVED`，无新增致命问题或建议。
 
-__DELTA__: 烛(Codex) | 2 | 推翻“标准大写清理和 finalize 非空门槛已足够安全”的判断，发现 Windows 大小写绕过与新旧值不一致时误删旧变量；修复见 grok_search_chat_compat_core.mjs:10/22 与混合大小写回归，迁移故障注入 4/4 后独立复核 APPROVED。
+__DELTA__: 烛(Codex) | 2 | security | 推翻“标准大写清理和 finalize 非空门槛已足够安全”的判断，发现 Windows 大小写绕过与新旧值不一致时误删旧变量；修复见 grok_search_chat_compat_core.mjs:10/22 与混合大小写回归，迁移故障注入 4/4 后独立复核 APPROVED。

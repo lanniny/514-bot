@@ -60,4 +60,4 @@ Codeg 与 LiveAgent 采用本仓固定 `.scratch` 快照，不整体 fork、不�
 - Plugins 安装/认证、Update/Reset 仍是结构化壳层；question/running 尚未接入真实后端实时状态映射。
 - 未执行 `git commit` 或 `git push`；工作区仍有并发脏改动和 `.scratch` 产物，禁止 reset/checkout/clean。
 
-__DELTA__: 烛(Codex) | 1 | 证据：`public/forge/art-direction.css` 最终层覆盖 `main-content` 留白；`public/app.js` 的 `computerReturnPanel` 修复电脑交还与随后关闭面板的焦点生命周期；最新三视口真实回归见 `apps/control-center/.scratch/bot-shell-live-25444`。
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：`public/forge/art-direction.css` 最终层覆盖 `main-content` 留白；`public/app.js` 的 `computerReturnPanel` 修复电脑交还与随后关闭面板的焦点生命周期；最新三视口真实回归见 `apps/control-center/.scratch/bot-shell-live-25444`。

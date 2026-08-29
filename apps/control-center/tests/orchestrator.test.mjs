@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { normalizeConversationRecipientIds, normalizeRunSources, Orchestrator, renameWithRetry } from "../src/orchestrator.mjs";
+import { isUnlimitedBudgetValue, normalizeConversationRecipientIds, normalizeRunSources, Orchestrator, renameWithRetry, resolveBudgetUsdPerTurn, UNLIMITED_BUDGET } from "../src/orchestrator.mjs";
 import { ConversationContextStore } from "../src/conversation-contexts.mjs";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -4667,4 +4667,49 @@ test("an ambiguous attempt phase releases its inflight slot", async (t) => {
   await fx.orchestrator.checkpointTurn(run, "codex-technical", "a1", "ambiguous", {});
 
   assert.equal(run.inflightTurns["codex-technical"], undefined, "ambiguous 是终结相位，不得继续占用 inflight 槽位");
+});
+
+// LO 2026-08-30 预算"无限"语义：unlimited 哨兵贯穿解析/创建/热改/adapter 透传。
+// "无限"= 真无限（不按美元止损）——硬上限门槛已废；数字预算仅受 50 防手滑天花板约束。
+test("unlimited budget resolves to true infinity without a hard cap and numeric paths stay clamped", () => {
+  assert.equal(UNLIMITED_BUDGET, "unlimited");
+  assert.equal(isUnlimitedBudgetValue("unlimited"), true);
+  assert.equal(isUnlimitedBudgetValue("∞"), true);
+  assert.equal(isUnlimitedBudgetValue("Infinity"), true);
+  assert.equal(isUnlimitedBudgetValue(2), false);
+  assert.equal(isUnlimitedBudgetValue(null), false);
+  // "无限"就是无限：遗留 maxBudgetUsdPerTurn（安全硬上限）不再参与钳制
+  assert.equal(resolveBudgetUsdPerTurn("unlimited", policy()), Number.POSITIVE_INFINITY);
+  assert.equal(resolveBudgetUsdPerTurn("unlimited", { limits: { maxBudgetUsdPerTurn: 2 } }), Number.POSITIVE_INFINITY);
+  assert.equal(resolveBudgetUsdPerTurn("unlimited", {}), Number.POSITIVE_INFINITY);
+  // 数字预算：防手滑天花板 50；低于下限回 legacy 默认、缺省走默认预算（既有行为不变）
+  assert.equal(resolveBudgetUsdPerTurn(80, {}), 50);
+  assert.equal(resolveBudgetUsdPerTurn(undefined, { limits: { defaultBudgetUsdPerTurn: "unlimited" } }), Number.POSITIVE_INFINITY);
+  assert.equal(resolveBudgetUsdPerTurn(0.5, { limits: { defaultBudgetUsdPerTurn: "unlimited" } }), 0.5);
+  assert.equal(resolveBudgetUsdPerTurn(undefined, { limits: { maxBudgetUsdPerTurn: 2, defaultBudgetUsdPerTurn: "unlimited" } }), Number.POSITIVE_INFINITY);
+  assert.equal(resolveBudgetUsdPerTurn(0.01, policy()), 0.75);
+  assert.equal(resolveBudgetUsdPerTurn(undefined, policy()), 0.75);
+});
+
+test("unlimited budget run stores the sentinel, withholds the numeric cap from adapters and hot-round-trips", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({
+    prompt: "unlimited", execute: true, orchestrationMode: "pipeline", maxRounds: 3, permissionMode: "plan",
+    maxBudgetUsdPerTurn: "unlimited",
+  });
+  assert.equal(created.maxBudgetUsdPerTurn, "unlimited", "run must persist the sentinel verbatim (JSON-safe)");
+  const completed = await waitTerminal(fx.orchestrator, created.id);
+  assert.equal(completed.status, "succeeded", "unlimited budget must not stop a cheap run");
+  assert.equal(fx.calls[0].maxBudgetUsd, null, "adapters get null (=omit budget flag) instead of a fake numeric cap");
+
+  // 热改往返：unlimited ↔ 数字；别名 ∞ 归一为哨兵；非法值仍被拒
+  await fx.orchestrator.updateRunControls(created.id, { maxBudgetUsdPerTurn: 1 });
+  assert.equal(fx.orchestrator.get(created.id).maxBudgetUsdPerTurn, 1);
+  await fx.orchestrator.updateRunControls(created.id, { maxBudgetUsdPerTurn: "∞" });
+  assert.equal(fx.orchestrator.get(created.id).maxBudgetUsdPerTurn, "unlimited");
+  await assert.rejects(
+    () => fx.orchestrator.updateRunControls(created.id, { maxBudgetUsdPerTurn: 0.01 }),
+    { code: "VALIDATION_FAILED" },
+  );
 });

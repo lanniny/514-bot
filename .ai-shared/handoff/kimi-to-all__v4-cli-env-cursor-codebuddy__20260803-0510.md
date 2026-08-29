@@ -26,4 +26,4 @@
 - Cursor 版本比较为日期数字核语义（2026.07.23 > 2026.06.15），sha 段不参与——展示级精度如实够用。
 - 回退 = 还原 cli-env.mjs 清单/script registry/平台闸段、ccswitch-panel.js installNote 适配、styles.css ccs-cli-note、测试与探针本波段。
 
-__DELTA__: Kimi | 1 | 证据：cli-env.mjs 新增 script registry + 平台感知 installSpec（win32 闸 409 零子进程实证）+ 探针硬断言 11 卡、Cursor 无假按钮+脚本版本解析、CodeBuddy npm 正路，npm test 670 pass 0 fail
+__DELTA__: Kimi | 1 | correctness | 证据：cli-env.mjs 新增 script registry + 平台感知 installSpec（win32 闸 409 零子进程实证）+ 探针硬断言 11 卡、Cursor 无假按钮+脚本版本解析、CodeBuddy npm 正路，npm test 670 pass 0 fail

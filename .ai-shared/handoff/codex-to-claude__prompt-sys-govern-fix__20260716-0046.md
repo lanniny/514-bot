@@ -33,4 +33,4 @@
 核心事实没有捏造，运行时镜像也确实同步成功；但当前版本入口仍漂移、详细 CHANGELOG 漏项、v2 区间无权威承接、handoff 指针不可达，尚不满足“忠实且信息无损”。修复以上四项后再复核可转 APPROVED。
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 治理文档双地落修复 | 2 | 证据：致命#1（CLAUDE.md:12）
+__DELTA__: 治理文档双地落修复 | 2 | correctness | 证据：致命#1（CLAUDE.md:12）

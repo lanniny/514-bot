@@ -92,6 +92,6 @@ __VERDICT__: CHANGES_REQUESTED
 - 导出按钮在新草稿里会交出另一支团队的成员/提示词/供应商绑定包，迁移/分享会传错队。
 - 编排面下拉与花名册并排时，LO 会以为已经切了现场团队。
 
-__DELTA__: 烛(Codex) | 1 | 证据：app.js:7728-7747 新草稿导出错主体；app.js:17712-17718 下拉只改 editingTeamId；app.js:7394 注释仍写 dialog.open 但 7894 已改看 team-settings-panel
+__DELTA__: 烛(Codex) | 1 | governance | 证据：app.js:7728-7747 新草稿导出错主体；app.js:17712-17718 下拉只改 editingTeamId；app.js:7394 注释仍写 dialog.open 但 7894 已改看 team-settings-panel
 
 主驾收口（2026-08-15 22:10）：导出已去掉 `currentTeam()` 回退；无 `editingTeamId` 时提示「先保存团队，再导出」，新建草稿隐藏导出按钮。契约测试 `team export refuses unsaved drafts` 已过。双源用词未改行为，只把「设置」按钮 title 改成「打开正在配置的团队设置」。

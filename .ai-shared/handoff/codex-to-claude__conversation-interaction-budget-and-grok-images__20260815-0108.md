@@ -48,7 +48,7 @@
 定向断言全部为绿；`npm run validate` 通过。边界是 Node/TAP 与隔离 server 关闭链仍不能给出干净 exit 0，
 因此运行时交付结论为 `partial`，不是功能失败。现有 Control Center 需要由 LO 明确授权重启后才会加载服务端改动。
 
-__DELTA__: 烛(Codex) | 2 | 证据：独立 reviewer 推翻了“interaction 拆账已可交付”的先前判断，指出 orchestrator cancel 迟到结算、app.js 两段附件事务、旧拓扑继承新图和并发 continue 所有权四个 P1；当前对应实现与回归均已补齐。
+__DELTA__: 烛(Codex) | 2 | architecture | 证据：独立 reviewer 推翻了“interaction 拆账已可交付”的先前判断，指出 orchestrator cancel 迟到结算、app.js 两段附件事务、旧拓扑继承新图和并发 continue 所有权四个 P1；当前对应实现与回归均已补齐。
 
 ## 运行态激活补验（2026-08-15 07:23）
 
@@ -114,7 +114,7 @@ LO 最终裁决为：删除 Adapter 能力包络，模型、运行席位和成�
 运行态边界：当前 PID `27676` 于 07:23 启动，早于本节最后两项补强；图片软路由和默认全能力主链已在该实例，
 但旧 run roster 回写与独立复核特殊约束需下次正常重启才加载。本轮遵守约束，没有重启或终止 `51400`。
 
-__DELTA__: 烛(Codex) | 1 | 证据：独立 reviewer 发现旧 run roster 能力子集仍会进入 provider prompt；现由 `apps/control-center/src/orchestrator.mjs:119`、`:147` 的归一化/回写迁移与重启续聊回归闭环。
+__DELTA__: 烛(Codex) | 1 | governance | 证据：独立 reviewer 发现旧 run roster 能力子集仍会进入 provider prompt；现由 `apps/control-center/src/orchestrator.mjs:119`、`:147` 的归一化/回写迁移与重启续聊回归闭环。
 
 ## Grok Responses 第三次续调 400 与失败会话恢复（2026-08-15 13:32）
 
@@ -166,4 +166,4 @@ Control Center 的可修缺陷是：Grok 来不及发 `end` 时，原生 session
 监听，属于半关闭状态。PID `27676` 的启动时间早于本节后端修复，且当前 HTTP 内核已停；本轮没有终止、
 重启或覆盖该进程。源码与测试已收口，运行态激活仍需 LO 明确授权后做一次正常重启，再用真实多工具任务验收。
 
-__DELTA__: 烛(Codex) | 2 | 证据：独立 reviewer 两次推翻初版可恢复 session 设计，分别发现预分配 UUID 会制造幽灵会话、成功 end 会把 submitting 回退到可退款 session_ready；现由 `apps/control-center/src/adapters/grok-build.mjs:175`、`:240` 与 `apps/control-center/src/orchestrator.mjs:2077` 的 tentative/resumable 双账和单调 checkpoint 闭环。
+__DELTA__: 烛(Codex) | 2 | architecture | 证据：独立 reviewer 两次推翻初版可恢复 session 设计，分别发现预分配 UUID 会制造幽灵会话、成功 end 会把 submitting 回退到可退款 session_ready；现由 `apps/control-center/src/adapters/grok-build.mjs:175`、`:240` 与 `apps/control-center/src/orchestrator.mjs:2077` 的 tentative/resumable 双账和单调 checkpoint 闭环。

@@ -34,4 +34,4 @@ LO 要求参考微信桌面端，把 Bot 完善为以聊天为主的通讯界面
 - 独立审查另记两项后端债：`server.mjs:76-86` 的全局 `unhandledRejection` 只记录不退出；`src/avatars.mjs:192-214` 与 `server.mjs:1559-1562` 的头像清理/成员删除不是原子操作。它们不阻断本轮通讯 UI，但后续应单独修复和做故障注入。
 - 未执行 `git commit` / `git push`，工作区其他协作者改动全部保留。
 
-__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/forge/bot-shell.css:901` 与 `%TEMP%/514cc-bot-communications-qa/bot-contacts-mobile.png`；真实浏览器复核发现并修复移动端通讯录编辑/删除操作不可达。
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：`apps/control-center/public/forge/bot-shell.css:901` 与 `%TEMP%/514cc-bot-communications-qa/bot-contacts-mobile.png`；真实浏览器复核发现并修复移动端通讯录编辑/删除操作不可达。

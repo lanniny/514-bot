@@ -64,4 +64,4 @@ tests_claimed_by_user: targeted 5 tests green（本轮未复跑）
 - 能力页签文案被 `capability-flow-ui.test.mjs:22-23` 正向锁死
 
 __VERDICT__: APPROVED
-__DELTA__: 烛(Codex) | 1 | 证据：R2 弱向导已从 public/ 清除；残留 MCP_TARGET_META app.js:9674 零引用；页签文案仍锁「资源」index.html:1608-1612
+__DELTA__: 烛(Codex) | 1 | governance | 证据：R2 弱向导已从 public/ 清除；残留 MCP_TARGET_META app.js:9674 零引用；页签文案仍锁「资源」index.html:1608-1612

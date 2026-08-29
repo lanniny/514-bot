@@ -88,7 +88,7 @@ codex_channel: subagent-direct (codex-agent MCP 本会话未注册；未伪造 C
 - 导入后勾选即等于后续 delete/sync 的 live 写权限
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 烛(Codex) | 1 | 证据：domain.mjs:264-267 stripToml 不吃 CRLF，测试 ccswitch-domain.test.mjs:373-406 只写 LF；observeLiveMcps:687-754 同名跨 CLI 一份 config + apps 全 true，保存会覆写其他 live
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：domain.mjs:264-267 stripToml 不吃 CRLF，测试 ccswitch-domain.test.mjs:373-406 只写 LF；observeLiveMcps:687-754 同名跨 CLI 一份 config + apps 全 true，保存会覆写其他 live
 
 ## 主驾回修（2026-08-21）
 

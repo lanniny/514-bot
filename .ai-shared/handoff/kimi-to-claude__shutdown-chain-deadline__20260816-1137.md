@@ -119,4 +119,4 @@ fail-closed 逐窗口核过，最关键窗口有真实集成测试（`runtime-re
 - `.workflow/ultracode/collab-console-review-20260815/state.json` 仍有他人 in_progress
   packet，本修复不代标完成。
 
-__DELTA__: Kimi(514cc-cli) | 1 | 证据：src/app.mjs:439 起统一 close 预算 + src/orchestrator.mjs:4994、src/event-store.mjs:477 deadline 化 + shutdown.mjs 阶段计时 + tests/mission-control-http.test.mjs 新增共享 batch 集成用例，修复后回归 R1/R3 全绿
+__DELTA__: Kimi(514cc-cli) | 1 | correctness | 证据：src/app.mjs:439 起统一 close 预算 + src/orchestrator.mjs:4994、src/event-store.mjs:477 deadline 化 + shutdown.mjs 阶段计时 + tests/mission-control-http.test.mjs 新增共享 batch 集成用例，修复后回归 R1/R3 全绿

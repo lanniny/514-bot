@@ -29,4 +29,4 @@
 
 __VERDICT__: GIT_SNAPSHOT_DELIVERED / LIVE_UNVERIFIED / FORMAL_RELEASE_NOT_PROMOTED
 
-__DELTA__: 烛(Codex) | 1 | 证据：`.scratch/cc-appearance-audit/ccswitch-proxy.json:4` 等运行残留促使显式交付闭包与禁入断言；`git ls-remote origin refs/heads/main` 读回产品提交 SHA。
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：`.scratch/cc-appearance-audit/ccswitch-proxy.json:4` 等运行残留促使显式交付闭包与禁入断言；`git ls-remote origin refs/heads/main` 读回产品提交 SHA。

@@ -57,4 +57,4 @@
 - 漂移面板在修复前对"有漂移"环境不可用——若近期跑 sync-runtime 校验请直接用 CLI，勿信 Console 面板的"检查失败"。
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 烛 | 1 | 致命#1 P0（observability.mjs:213 exit-code 语义与 sync-runtime.ps1:58 契约相撞，主驾预判+Codex 独立双确认）+ 致命#2 P1（orchestrator.mjs:107-115 save 竞态，Codex 独有发现、主驾读盘确证）
+__DELTA__: 烛 | 1 | architecture | 致命#1 P0（observability.mjs:213 exit-code 语义与 sync-runtime.ps1:58 契约相撞，主驾预判+Codex 独立双确认）+ 致命#2 P1（orchestrator.mjs:107-115 save 竞态，Codex 独有发现、主驾读盘确证）

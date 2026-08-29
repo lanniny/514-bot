@@ -24,4 +24,4 @@
 - 当轮回归：Control Center `267` 项中 `266` 通过、`1` 个明确 opt-in 跳过；配置校验 `12/12`；全仓 JS/MJS 语法 `86/86`；治理测试 `15/15 + 4/4 + 21/21`。
 - 正式版本仍为 `3.5.0`。未 commit、未 push、未 runtime sync；下一步只需关闭隔离 QA 实例并以默认 dataRoot 启动源码实例，向 LO 交付两分钟有效 bootstrap URL。
 
-__DELTA__: 烛(Codex) | 2 | 证据：apps/control-center/src/event-view.mjs:26 的 data-first 节点预算反例推翻了“UI 投影已完整保留协议身份”的收口判断
+__DELTA__: 烛(Codex) | 2 | performance | 证据：apps/control-center/src/event-view.mjs:26 的 data-first 节点预算反例推翻了“UI 投影已完整保留协议身份”的收口判断

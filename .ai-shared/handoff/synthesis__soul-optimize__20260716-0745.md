@@ -33,4 +33,4 @@
 3. output-style 常驻性确认 + SOUL 是否加一句能力兜底（防切走悬空）。
 4. （体系级）SOUL 双地落保护方案（git / 分层 / 快照）待策规格；cursor mdc 重复段修 `sync-cursor-rules.py`。
 
-__DELTA__: 鉴(meta-reviewer) | 1 | 补强 SOUL 3 段方向正确未推翻；照出 #1"完整清单"指向不实(output-style:257-265 实为概括无枚举)已修 / slash 删后悬空(module.yaml+rules 双 No match) / CLI 与 rules§四双份 / SOUL 双地落手动无机械保护；撤销 cursor 漂移误报
+__DELTA__: 鉴(meta-reviewer) | 1 | governance | 补强 SOUL 3 段方向正确未推翻；照出 #1"完整清单"指向不实(output-style:257-265 实为概括无枚举)已修 / slash 删后悬空(module.yaml+rules 双 No match) / CLI 与 rules§四双份 / SOUL 双地落手动无机械保护；撤销 cursor 漂移误报

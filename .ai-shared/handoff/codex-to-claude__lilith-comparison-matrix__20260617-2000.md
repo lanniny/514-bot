@@ -83,4 +83,4 @@ LO 要求启动 Codex Ultracode，并参考 `J:/下载/cc2.1.88.gz`，做同一�
 - `run-comparison-matrix.mjs --run-external` 目前仅记录请求标志，外部 adapter 仍未实现。
 - 仍不得宣称 Lilith 已达到 Codex CLI/OpenCode parity。
 
-__DELTA__: 烛(Codex) | 1 | 将“同一任务包对比”从文档愿景落成 task-pack + matrix runner + latest report，并把 CC 2.1.88 权限/危险模式/工具校验参考转为 Lilith 可验证基准结构；同时保留 external not-run/unavailable 边界，避免伪 parity。
+__DELTA__: 烛(Codex) | 1 | correctness | 将“同一任务包对比”从文档愿景落成 task-pack + matrix runner + latest report，并把 CC 2.1.88 权限/危险模式/工具校验参考转为 Lilith 可验证基准结构；同时保留 external not-run/unavailable 边界，避免伪 parity。

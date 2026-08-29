@@ -36,4 +36,4 @@ meta pill 横贯顶栏），指令"关注红色标记的视觉处理，重点修
 - 会话头 chips 的项目/分支数据来自 `/api/workbench/environment`，探针种的无 cwd run
   只渲染 … 溢出钮；真实 run 的双 chip 形态与第二轮实拍一致（本轮未改其数据源）。
 
-__DELTA__: Kimi(514cc-cli) | 1 | 证据：console-form.css 第六轮区块 + --line 暗伤修复 11 处、app.js meta 压缩、实机三态截图 + 全量 1355/1356 绿
+__DELTA__: Kimi(514cc-cli) | 1 | correctness | 证据：console-form.css 第六轮区块 + --line 暗伤修复 11 处、app.js meta 压缩、实机三态截图 + 全量 1355/1356 绿

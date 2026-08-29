@@ -33,4 +33,4 @@
 - 预览实例 :5520 保留；桌面端 Ctrl+R 生效；未做 runtime sync/桌面重启。
 - 回退 = 删 modules/team-config-kit.js + app.js 接线段 + index.html 四处控件 + tests/team-config-kit.test.mjs。
 
-__DELTA__: Kimi | 1 | 证据：team-config-kit.js + app.js:4457-4600 预设/导入导出落地，探针实测导出 builtinRefs=3、导入全员复用零新建、坏包中文报错；另实证 bootstrap 启动期被长连接挤占 6.6-8s 的既有系统性降级并记入债务
+__DELTA__: Kimi | 1 | performance | 证据：team-config-kit.js + app.js:4457-4600 预设/导入导出落地，探针实测导出 builtinRefs=3、导入全员复用零新建、坏包中文报错；另实证 bootstrap 启动期被长连接挤占 6.6-8s 的既有系统性降级并记入债务

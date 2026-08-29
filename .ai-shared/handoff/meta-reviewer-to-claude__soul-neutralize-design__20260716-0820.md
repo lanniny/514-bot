@@ -60,4 +60,4 @@
 
 **安全与约束必须往 always 层（SOUL）收，人格与能力放大才往可切换层（output-style）放。** 设计当前方向相反（防护执行体外移、被约束的能力内留）。
 
-__DELTA__: 鉴(meta-reviewer) | 2 | 推翻设计蓝图 line 38 灰色处理#1 方案(a) 核心假设"安全由机制保证、短语只是载体"——证据：roxy/aemeath 反驳短语 Grep 零命中 + 9 个 output-style 仓库只管 2 个，坐实"output-style 可覆盖反驳短语"为当前不存在的能力，中性化=注入防护从 always 层净蒸发。就绪度 42/100 暂缓
+__DELTA__: 鉴(meta-reviewer) | 2 | security | 推翻设计蓝图 line 38 灰色处理#1 方案(a) 核心假设"安全由机制保证、短语只是载体"——证据：roxy/aemeath 反驳短语 Grep 零命中 + 9 个 output-style 仓库只管 2 个，坐实"output-style 可覆盖反驳短语"为当前不存在的能力，中性化=注入防护从 always 层净蒸发。就绪度 42/100 暂缓

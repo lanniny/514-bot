@@ -38,4 +38,4 @@ LO：「可以编辑历史对话直接返回上一个对话继续编辑」（Cha
 - 真实 provider e2e 曾见中文 prompt 到 CLI 变 `?` 乱码（Windows adapter prompt 管线 CJK 编码疑似缺陷，证据 `.scratch/e2e-real-provider-20260816041443.json`），LO 未指示是否追查。
 - 源码尚未重启进运行态 Control Center。
 
-__DELTA__: Kimi(514cc-cli) | 1 | 证据：workbench-chrome.js:397-415 铅笔注入+CustomEvent 桥、app.js:12969-13017 编辑态生命周期、e2e 8/8 + 回归 1312/1313 绿
+__DELTA__: Kimi(514cc-cli) | 1 | security | 证据：workbench-chrome.js:397-415 铅笔注入+CustomEvent 桥、app.js:12969-13017 编辑态生命周期、e2e 8/8 + 回归 1312/1313 绿

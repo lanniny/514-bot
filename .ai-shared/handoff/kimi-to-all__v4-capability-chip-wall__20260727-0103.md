@@ -24,4 +24,4 @@
 - 故障注入探针 `probe-chips-fail.mjs`：注入 500 → 墙停「目录读取失败：注入故障：目录服务熔断 + 重试」，静置 2s 请求数=1（**不自旋**）；放行后点重试 → 26/39 芯片回填、7 勾选保留。
 - 截图证据：`.scratch/desktop-launch/33-*.png` / `34-chips-fail.png`。
 
-__DELTA__: Kimi | 1 | 证据：probe-chips-fail.mjs SPIN-CHECK 请求数=1 实证自旋修复 + 33-skill-wall-element.png 五枚幽灵虚线片示形（CHANGELOG v4.0 未发布节）
+__DELTA__: Kimi | 1 | correctness | 证据：probe-chips-fail.mjs SPIN-CHECK 请求数=1 实证自旋修复 + 33-skill-wall-element.png 五枚幽灵虚线片示形（CHANGELOG v4.0 未发布节）

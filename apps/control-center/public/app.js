@@ -472,6 +472,9 @@ function cacheElements() {
     "task-effort",
     "task-budget",
     "task-budget-pick",
+    "budget-pill",
+    "budget-pill-label",
+    "budget-menu",
     "task-permission",
     "task-permission-pick",
     "permission-pill",
@@ -495,7 +498,6 @@ function cacheElements() {
     "composer-cli-default-effort",
     "composer-cli-default-permission",
     "composer-cli-default-budget",
-    "composer-cli-max-budget",
     "composer-cli-budget-save",
     "composer-cli-default-save",
     "composer-cli-command-value",
@@ -9468,6 +9470,7 @@ const COMPOSER_PICK_MENUS = Object.freeze([
   { menu: "permission-menu", button: "permission-pill" },
   { menu: "model-menu", button: "model-pill" },
   { menu: "effort-menu", button: "effort-pill" },
+  { menu: "budget-menu", button: "budget-pill" },
 ]);
 
 function setComposerPickMenuOpen(menuId, open) {
@@ -9542,6 +9545,115 @@ function syncComposerPickSurfaces() {
   syncPermissionPill();
   syncModelPickMenu();
   syncEffortPickMenu();
+  syncBudgetPickMenu();
+}
+
+// ---- 单轮预算三态：""（=席位默认）/ 数字字符串 / "unlimited" 哨兵（与后端 UNLIMITED_BUDGET 同契约）
+// "无限"= 真无限（LO 2026-08-30：硬上限门槛已废）；数字预算只受 50 的防手滑天花板约束。
+const BUDGET_NUMERIC_MAX = 50;
+
+function isUnlimitedBudgetValue(value) {
+  if (value === null || value === undefined) return false;
+  return ["unlimited", "∞", "inf", "infinity"].includes(String(value).trim().toLowerCase());
+}
+
+function formatBudgetUsd(value) {
+  if (isUnlimitedBudgetValue(value) || value === Number.POSITIVE_INFINITY) return "∞ 无限";
+  const num = Number(value);
+  return Number.isFinite(num) ? `$${num.toFixed(2)}` : "默认";
+}
+
+function budgetDefault(limits = {}) {
+  if (isUnlimitedBudgetValue(limits.defaultBudgetUsdPerTurn)) return Number.POSITIVE_INFINITY;
+  const fallback = Number(limits.defaultBudgetUsdPerTurn);
+  const base = Number.isFinite(fallback) && fallback >= 0.05 ? fallback : 0.75;
+  return Math.max(0.05, Math.min(base, BUDGET_NUMERIC_MAX));
+}
+
+// 提交/热改 wire 值："" → undefined（后端取席位默认）；哨兵原样；数字有限才放行
+function composerBudgetSubmissionValue(raw) {
+  const text = String(raw ?? "").trim();
+  if (!text) return undefined;
+  if (isUnlimitedBudgetValue(text)) return "unlimited";
+  const num = Number(text);
+  return Number.isFinite(num) ? num : undefined;
+}
+
+// 预算菜单：∞ 行 + 全局默认行 + 快捷档 + 自定义金额编辑器；行点击经 bindComposerPickMenu
+// 写回 #task-budget（hidden）并派发 change——与模型/Effort 菜单同一条状态链。
+function syncBudgetPickMenu() {
+  const menu = elements["budget-menu"];
+  const input = elements["task-budget"];
+  const pill = elements["budget-pill"];
+  const label = elements["budget-pill-label"];
+  if (!menu || !input) return;
+  const fallback = budgetDefault(state.bootstrap?.permissions?.limits || {});
+  const raw = String(input.value ?? "").trim();
+  const current = isUnlimitedBudgetValue(raw) ? "unlimited" : Number.isFinite(Number(raw)) && raw !== "" ? String(Number(raw)) : "";
+  const check = (active) => `<span class="pick-menu-check" aria-hidden="true">${active ? lucideIcon("check", "icon lucide") : ""}</span>`;
+  const rows = [];
+  const unlimitedActive = current === "unlimited";
+  rows.push(`
+    <button type="button" class="pick-menu-row budget-menu-unlimited${unlimitedActive ? " is-active" : ""}" role="menuitemradio" aria-checked="${unlimitedActive}" data-budget-option="unlimited">
+      <span class="pick-menu-copy"><span class="budget-menu-glyph" aria-hidden="true">∞</span>无限
+        <span class="pick-menu-note">真无限：不按美元止损（步数上限仍兜底）</span>
+      </span>
+      ${check(unlimitedActive)}
+    </button>`);
+  const defaultActive = current === "";
+  rows.push(`
+    <button type="button" class="pick-menu-row${defaultActive ? " is-active" : ""}" role="menuitemradio" aria-checked="${defaultActive}" data-budget-option="">
+      <span class="pick-menu-copy">全局默认
+        <span class="pick-menu-note">席位默认 ${formatBudgetUsd(fallback)}</span>
+      </span>
+      ${check(defaultActive)}
+    </button>`);
+  for (const amount of [0.25, 0.75, 1.5, 3, 5, 10]) {
+    const value = String(amount);
+    const active = current === value;
+    rows.push(`
+      <button type="button" class="pick-menu-row${active ? " is-active" : ""}" role="menuitemradio" aria-checked="${active}" data-budget-option="${value}">
+        <span class="pick-menu-copy">$${amount.toFixed(2)}</span>
+        ${check(active)}
+      </button>`);
+  }
+  const customValue = current && current !== "unlimited" ? escapeHtml(current) : "";
+  rows.push(`
+    <div class="budget-menu-editor" role="none">
+      <span class="budget-menu-editor-prefix" aria-hidden="true">$</span>
+      <input type="number" min="0.05" max="${BUDGET_NUMERIC_MAX}" step="0.05" inputmode="decimal" aria-label="自定义单轮预算（美元）" data-budget-custom-input placeholder="${(Number.isFinite(fallback) ? fallback : 10).toFixed(2)}"${customValue ? ` value="${customValue}"` : ""} />
+      <button type="button" class="button secondary budget-menu-apply" data-budget-custom-apply>应用</button>
+    </div>`);
+  menu.innerHTML = rows.join("");
+  const shown = unlimitedActive ? "∞ 无限" : current ? `$${Number(current).toFixed(2)}` : `默认 ${formatBudgetUsd(fallback)}`;
+  if (label) label.textContent = shown;
+  if (pill) {
+    pill.classList.toggle("is-unlimited", unlimitedActive);
+    pill.title = `单轮预算 ${shown}`;
+  }
+}
+
+function applyBudgetCustomInput() {
+  const input = elements["budget-menu"]?.querySelector("[data-budget-custom-input]");
+  const hidden = elements["task-budget"];
+  if (!input || !hidden) return;
+  const raw = String(input.value ?? "").trim();
+  if (!raw) {
+    toast("请输入预算金额，或选「无限」", "warning", 2600);
+    return;
+  }
+  const num = Number(raw);
+  if (!Number.isFinite(num) || num < 0.05) {
+    toast("预算至少 $0.05（不限额请选「无限」）", "error", 3200);
+    return;
+  }
+  if (num > BUDGET_NUMERIC_MAX) {
+    toast(`数字预算上限 $${BUDGET_NUMERIC_MAX}——不限额请选「无限」`, "error", 3200);
+    return;
+  }
+  hidden.value = String(num);
+  hidden.dispatchEvent(new Event("change"));
+  setComposerPickMenuOpen("budget-menu", false);
 }
 
 // 会话中权限热改白名单——与 orchestrator PERMISSION_HOT_TRANSITIONS 严格同表：
@@ -9591,7 +9703,7 @@ async function applyRunControlChange(controlId, value) {
     : controlId === "task-effort"
       ? { effort: value }
       : controlId === "task-budget"
-        ? { maxBudgetUsdPerTurn: Number(value) }
+        ? { maxBudgetUsdPerTurn: composerBudgetSubmissionValue(value) }
         : String(value).startsWith("native:")
         ? { permission: value } // 原生透传档走 override 通道（与创建同款白名单校验），不动治理位
         : { permissionMode: value };
@@ -9606,7 +9718,7 @@ async function applyRunControlChange(controlId, value) {
       : controlId === "task-effort"
         ? `Effort 已调整为 ${value || "CLI 默认"}`
       : controlId === "task-budget"
-        ? `单轮预算已调整为 $${Number(value).toFixed(2)}`
+        ? `单轮预算已调整为 ${composerBudgetSubmissionValue(value) === undefined ? "全局默认" : formatBudgetUsd(composerBudgetSubmissionValue(value))}`
         : `权限已切换为 ${permissionModeMeta(value, value).short}`;
     toast(`${patch.acknowledgeRecovery ? "恢复已确认·" : ""}${what}，下一轮生效`, "success", 2400);
     renderSelectedRun();
@@ -9838,13 +9950,14 @@ function renderComposerCliConsole() {
   elements["composer-cli-default-effort"].disabled = effortControl.supported !== true || !catalog.defaults?.quickEditable || cliBusy;
   elements["composer-cli-default-permission"].disabled = !catalog.defaults?.quickEditable || cliBusy;
   const budgetLimits = state.bootstrap?.permissions?.limits || {};
-  const hardBudget = Math.max(0.05, Number(budgetLimits.maxBudgetUsdPerTurn) || 2);
-  const defaultBudget = Math.min(hardBudget, Math.max(0.05, Number(budgetLimits.defaultBudgetUsdPerTurn) || 0.75));
-  elements["composer-cli-default-budget"].value = String(defaultBudget);
-  elements["composer-cli-default-budget"].max = String(hardBudget);
-  elements["composer-cli-max-budget"].value = String(hardBudget);
-  elements["composer-cli-default-budget"].disabled = cliBusy;
-  elements["composer-cli-max-budget"].disabled = cliBusy;
+  const defaultBudgetUnlimited = isUnlimitedBudgetValue(budgetLimits.defaultBudgetUsdPerTurn);
+  const defaultBudget = defaultBudgetUnlimited
+    ? Number.POSITIVE_INFINITY
+    : Math.min(BUDGET_NUMERIC_MAX, Math.max(0.05, Number(budgetLimits.defaultBudgetUsdPerTurn) || 0.75));
+  renderBudgetPolicyField("composer-cli-default-budget", {
+    unlimited: defaultBudgetUnlimited,
+    numeric: defaultBudget.toFixed(2),
+  }, cliBusy);
   elements["composer-cli-budget-save"].disabled = cliBusy;
   elements["composer-cli-default-save"].disabled = !catalog.defaults?.quickEditable || cliBusy;
   elements["composer-cli-command-value"].textContent = catalog.controls?.command?.value
@@ -9884,14 +9997,68 @@ function renderComposerCliConsole() {
   }
 }
 
+// 席位默认面板的预算字段：dataset.unlimited 记录"∞ 生效中"状态（输入框禁用、值由真源回填）。
+// ∞ 切换只改本地草稿，真正落盘仍走 saveComposerBudgetPolicy 的确认链。
+function renderBudgetPolicyField(inputId, { unlimited, numeric }, cliBusy = false) {
+  const input = byId(inputId);
+  const toggle = byId(`${inputId}-unlimited`);
+  if (!input) return;
+  input.dataset.unlimited = unlimited ? "true" : "false";
+  input.dataset.numericValue = numeric;
+  input.max = String(BUDGET_NUMERIC_MAX);
+  input.value = unlimited ? "" : numeric;
+  input.placeholder = unlimited ? "∞ 无限" : numeric;
+  input.disabled = unlimited || cliBusy;
+  if (toggle) {
+    toggle.classList.toggle("is-active", unlimited);
+    toggle.setAttribute("aria-pressed", String(unlimited));
+    toggle.disabled = cliBusy;
+    toggle.title = unlimited
+      ? "当前：无限（点击改回有限金额）"
+      : "设为无限：不按美元止损（步数上限仍兜底）";
+  }
+}
+
+function bindBudgetPolicyToggles() {
+  for (const toggleId of ["composer-cli-default-budget-unlimited"]) {
+    byId(toggleId)?.addEventListener("click", () => {
+      const toggle = byId(toggleId);
+      const input = byId(toggle?.dataset.budgetUnlimited);
+      if (!toggle || !input || toggle.disabled) return;
+      const nowUnlimited = input.dataset.unlimited !== "true";
+      input.dataset.unlimited = nowUnlimited ? "true" : "false";
+      if (nowUnlimited) {
+        input.value = "";
+        input.disabled = true;
+      } else {
+        input.disabled = false;
+        input.value = input.dataset.numericValue || "0.75";
+        input.focus({ preventScroll: true });
+      }
+      toggle.classList.toggle("is-active", nowUnlimited);
+      toggle.setAttribute("aria-pressed", String(nowUnlimited));
+    });
+  }
+}
+
+// 预算策略字段读取：∞ 生效 → "unlimited"；否则解析数字（非法 → NaN 交给校验拦）
+function readBudgetPolicyField(inputId) {
+  const input = byId(inputId);
+  if (!input) return Number.NaN;
+  if (input.dataset.unlimited === "true") return "unlimited";
+  return Number(input.value);
+}
+
 async function saveComposerBudgetPolicy() {
-  const defaultBudget = Number(elements["composer-cli-default-budget"]?.value);
-  const maxBudget = Number(elements["composer-cli-max-budget"]?.value);
-  if (!Number.isFinite(defaultBudget) || !Number.isFinite(maxBudget)
-    || defaultBudget < 0.05 || maxBudget < 0.05 || defaultBudget > maxBudget || maxBudget > 50) {
-    toast("预算策略无效：需满足 0.05 ≤ 默认预算 ≤ 安全上限 ≤ 50", "error", 5200);
+  const defaultBudget = readBudgetPolicyField("composer-cli-default-budget");
+  const defaultUnlimited = defaultBudget === "unlimited";
+  // 硬上限门槛已废（LO 2026-08-30）：默认预算独立成立，"无限"直接生效，数字维持 0.05..50。
+  if (!defaultUnlimited
+    && (!Number.isFinite(defaultBudget) || defaultBudget < 0.05 || defaultBudget > BUDGET_NUMERIC_MAX)) {
+    toast(`预算策略无效：默认预算需满足 0.05 ≤ 预算 ≤ ${BUDGET_NUMERIC_MAX}（不限额请设为「无限」）`, "error", 5200);
     return;
   }
+  const defaultBudgetWire = defaultUnlimited ? "unlimited" : defaultBudget;
   let source;
   try {
     source = await request("/api/config/control.permissions");
@@ -9904,9 +10071,10 @@ async function saveComposerBudgetPolicy() {
     parsed = JSON.parse(source.content);
     parsed.limits = {
       ...(parsed.limits || {}),
-      defaultBudgetUsdPerTurn: defaultBudget,
-      maxBudgetUsdPerTurn: maxBudget,
+      defaultBudgetUsdPerTurn: defaultBudgetWire,
     };
+    // 废弃的"安全硬上限"随保存一并移除：运行图与 resolve 已不读取，留着会误导后来者
+    delete parsed.limits.maxBudgetUsdPerTurn;
   } catch (error) {
     toast(`预算策略解析失败：${error.message}`, "error", 5200);
     return;
@@ -9926,11 +10094,13 @@ async function saveComposerBudgetPolicy() {
     eyebrow: "预算策略",
     title: "确认保存全局预算？",
     rows: [
-      ["默认单轮预算", `$${defaultBudget.toFixed(2)}`],
-      ["安全硬上限", `$${maxBudget.toFixed(2)}`],
-      ["影响范围", "新任务默认值；既有会话下一轮仍受硬上限约束"],
+      ["默认单轮预算", defaultUnlimited ? "∞ 无限（不按美元止损）" : `$${defaultBudget.toFixed(2)}`],
+      ["安全硬上限", "移除（预算不再受硬上限门槛）"],
+      ["影响范围", "新任务默认值；既有会话沿用各自已设预算"],
     ],
-    warning: "这是关键配置。系统会先备份再原子替换并热重载；不会自动续跑任何任务。",
+    warning: defaultUnlimited
+      ? "这是关键配置。默认无限 = 新任务不按美元止损，仅步数上限兜底；系统会先备份再原子替换并热重载。"
+      : "这是关键配置。系统会先备份再原子替换并热重载；不会自动续跑任何任务。",
     confirmLabel: "保存预算策略",
   });
   if (!confirmed) return;
@@ -10147,17 +10317,18 @@ async function syncModelPick() {
     if (!continuingRun) draft.permission = selected;
   }
   if (budgetInput) {
-    const limits = state.bootstrap?.permissions?.limits || {};
-    const hardMax = Math.max(0.05, Number(limits.maxBudgetUsdPerTurn) || 2);
-    const fallback = Math.min(hardMax, Math.max(0.05, Number(limits.defaultBudgetUsdPerTurn) || 0.75));
-    const selected = continuingRun
-      ? Number(continuingRun.maxBudgetUsdPerTurn) || fallback
-      : Number(draft.budget) || fallback;
+    const fallback = budgetDefault(state.bootstrap?.permissions?.limits || {});
+    const requested = continuingRun
+      ? (isUnlimitedBudgetValue(continuingRun.maxBudgetUsdPerTurn) ? "unlimited" : Number(continuingRun.maxBudgetUsdPerTurn) || fallback)
+      : (isUnlimitedBudgetValue(draft.budget) ? "unlimited" : Number(draft.budget) || fallback);
+    const normalized = requested === "unlimited"
+      ? "unlimited"
+      : String(Math.min(BUDGET_NUMERIC_MAX, Math.max(0.05, requested)));
     budgetInput.min = "0.05";
-    budgetInput.max = String(hardMax);
-    budgetInput.value = String(Math.min(hardMax, Math.max(0.05, selected)));
-    budgetInput.title = `单轮预算 $${budgetInput.value} · 全局默认 $${fallback} · 安全上限 $${hardMax}`;
-    if (!continuingRun) draft.budget = budgetInput.value;
+    budgetInput.max = String(BUDGET_NUMERIC_MAX);
+    budgetInput.value = normalized;
+    budgetInput.title = `单轮预算 ${formatBudgetUsd(normalized)} · 全局默认 ${formatBudgetUsd(fallback)}`;
+    if (!continuingRun) draft.budget = normalized;
   }
   syncComposerPickSurfaces();
   if (draftKey && !continuingRun) state.composerControlDrafts.set(draftKey, { ...draft });
@@ -22722,7 +22893,10 @@ function renderRunAttentionBar(run) {
     bar.innerHTML = "";
     return;
   }
-  const budget = Number(attention.maxBudgetUsdPerTurn ?? run.maxBudgetUsdPerTurn) || 0;
+  // 哨兵/Infinity 防御：预算耗尽理论上不可能在无限预算下触发，但历史 attention 可能带着旧值回放
+  const budgetRaw = attention.maxBudgetUsdPerTurn ?? run.maxBudgetUsdPerTurn;
+  const budget = Number(budgetRaw) || 0;
+  const budgetText = isUnlimitedBudgetValue(budgetRaw) ? "∞ 无限" : `$${budget.toFixed(2)}`;
   const spent = Number(attention.interactionCostUsd) || 0;
   const cap = Number(attention.maxInteractionCostUsd) || 0;
   bar.hidden = false;
@@ -22732,10 +22906,10 @@ function renderRunAttentionBar(run) {
         ${lucideIcon("circle-dollar-sign", "icon lucide")}
         <div><strong>本次交互已达到预算</strong><span>原生轮已经结束，没有提交歧义；系统不会自动重跑。</span></div>
       </div>
-      <div class="recovery-note">已知成本 $${spent.toFixed(2)} · 当前单轮预算 $${budget.toFixed(2)}${cap ? ` · 交互止损上限 $${cap.toFixed(2)}` : ""}</div>
+      <div class="recovery-note">已知成本 $${spent.toFixed(2)} · 当前单轮预算 ${budgetText}${cap ? ` · 交互止损上限 $${cap.toFixed(2)}` : ""}</div>
     </div>
     <div class="recovery-bar-actions run-attention-actions">
-      <label class="budget-action"><span>下一轮预算 $</span><input type="number" min="0.05" max="${escapeHtml(String(state.bootstrap?.permissions?.limits?.maxBudgetUsdPerTurn || 50))}" step="0.05" value="${escapeHtml(String(budget))}" data-budget-attention-input /></label>
+      <label class="budget-action"><span>下一轮预算 $</span><input type="number" min="0.05" max="${BUDGET_NUMERIC_MAX}" step="0.05" value="${escapeHtml(String(budget || ""))}" data-budget-attention-input /></label>
       <button class="button secondary" type="button" data-budget-attention-apply>应用预算</button>
       <button class="text-button" type="button" data-budget-attention-effort>降低 Effort</button>
     </div>`;
@@ -26319,9 +26493,7 @@ function captureComposerConfig({ includeRequestedAgents = true, requestedAgentId
     permissionMode: elements["task-permission"].value,
     model: elements["task-model-pick"]?.hidden ? undefined : elements["task-model"]?.value || undefined,
     effort: elements["task-effort-pick"]?.hidden ? undefined : elements["task-effort"]?.value || undefined,
-    maxBudgetUsdPerTurn: elements["task-budget"]?.value
-      ? Number(elements["task-budget"].value)
-      : undefined,
+    maxBudgetUsdPerTurn: composerBudgetSubmissionValue(elements["task-budget"]?.value),
     cwd: state.pendingRemote ? undefined : state.pendingCwd || undefined, // 远程位置与 cwd 互斥（后端同口径）
     remote: state.pendingRemote
       ? { hostId: state.pendingRemote.hostId, path: state.pendingRemote.path }
@@ -30018,6 +30190,7 @@ function bindEvents() {
   document.addEventListener("514cc:edit-message", (event) => startEditMessage(event.detail?.streamKey));
   elements["composer-cli-default-save"]?.addEventListener("click", () => void saveComposerCliDefaults());
   elements["composer-cli-budget-save"]?.addEventListener("click", () => void saveComposerBudgetPolicy());
+  bindBudgetPolicyToggles(); // 席位默认面板的 ∞ 切换钮（一次性绑定，状态在 dataset 上流转）
   elements["composer-cli-open-seat"]?.addEventListener("click", () => void openComposerCliSeat());
   elements["composer-cli-open-capabilities"]?.addEventListener("click", () => void openComposerCliCapabilities());
   elements["composer-cli-open-connection"]?.addEventListener("click", () => void openComposerCliConnection());
@@ -30095,6 +30268,26 @@ function bindEvents() {
     pillId: "effort-pill",
     selectId: "task-effort",
     optionAttr: "effort-option",
+  });
+  // 预算菜单复用同一套 pill/menu 状态链：行点击写回 hidden #task-budget 并派发 change；
+  // 自定义金额编辑器（无 data-budget-option）由下方专属监听处理。
+  bindComposerPickMenu({
+    hostId: "task-budget-pick",
+    menuId: "budget-menu",
+    pillId: "budget-pill",
+    selectId: "task-budget",
+    optionAttr: "budget-option",
+  });
+  elements["budget-menu"]?.addEventListener("click", (event) => {
+    if (!event.target.closest("[data-budget-custom-apply]")) return;
+    event.preventDefault();
+    applyBudgetCustomInput();
+  });
+  elements["budget-menu"]?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || !event.target.closest?.(".budget-menu-editor")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    applyBudgetCustomInput();
   });
   elements["save-automation-button"]?.addEventListener("click", () => void saveAutomationFromComposer());
   elements["composer-new-task"].addEventListener("click", () => {

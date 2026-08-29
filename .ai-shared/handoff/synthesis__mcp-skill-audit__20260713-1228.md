@@ -45,5 +45,5 @@
 1. **github PAT**：把 `~/.claude.json` github 的 `Bearer YOUR_GITHUB_PAT_HERE` 换真 token（https://github.com/settings/personal-access-tokens/new）+ 重启生效。
 2. **rules.md v3.2.0 §八 spec-workflow"卸载"过期声明**：是否新增 v3.4.1 勘误条（改宪法属 LO 权限，未擅动）。
 
-__DELTA__: 鉴(meta-reviewer) | 1 | 核心 4 结论零推翻全复现；补出 spec-workflow rules↔磁盘矛盾 + 7-13 未落盘 + Playwright 大小写 + drawio 未纳入 + github plugin 双禁 共 5 处，健康分 85/100
-__DELTA__: 主驾自评 | 1 | 亲验磁盘/网络订正 see 平反等 4 处文档谎言 + 外科级修 .claude.json（备份 diff 证其余 20 server 分毫未动）；盲区被鉴补 5 处，印证"同脑同盲区"需异构复核
+__DELTA__: 鉴(meta-reviewer) | 1 | governance | 核心 4 结论零推翻全复现；补出 spec-workflow rules↔磁盘矛盾 + 7-13 未落盘 + Playwright 大小写 + drawio 未纳入 + github plugin 双禁 共 5 处，健康分 85/100
+__DELTA__: 主驾自评 | 1 | observability | 亲验磁盘/网络订正 see 平反等 4 处文档谎言 + 外科级修 .claude.json（备份 diff 证其余 20 server 分毫未动）；盲区被鉴补 5 处，印证"同脑同盲区"需异构复核

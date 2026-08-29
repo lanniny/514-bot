@@ -77,4 +77,4 @@ __DELTA__: 烛(Codex) | 2 | 证据：真实 redirect push 越过仅执行环境�
 - 3 个 updater 继续 `blocked_external_trust`，没有借用上游签名材料。
 - 原环境舱 Git URL rewrite 的 `DELTA=2` 保留在上方；本节是独立的 Provider/Proxy 事务纠错记录。
 
-__DELTA__: 烛(Codex) | 2 | 证据：apps/control-center/src/providers.mjs:802 与 src/atomic-rename.mjs:68 的 retry-attempt CAS、published 提交判定和 rollback 写值验证，推翻“publish 前单次复核已经足够”的旧判断
+__DELTA__: 烛(Codex) | 2 | architecture | 证据：apps/control-center/src/providers.mjs:802 与 src/atomic-rename.mjs:68 的 retry-attempt CAS、published 提交判定和 rollback 写值验证，推翻“publish 前单次复核已经足够”的旧判断

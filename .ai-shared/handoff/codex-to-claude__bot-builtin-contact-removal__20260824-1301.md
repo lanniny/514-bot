@@ -25,4 +25,4 @@ LO 删除 Grok 时效搜索时出现 `builtin members cannot be deleted`，根�
 - 最终检查时 `51400` 无监听，`cc-desktop` PID 49360 无可见窗口句柄；未强制终止残留进程。下次正常启动会加载 `src/avatars.mjs` 的新持久化逻辑。
 - 工作区存在大量其他协作者改动；本轮未回滚、提交或推送。
 
-__DELTA__: 烛(Codex) | 2 | 证据：apps/control-center/public/app.js:14870、apps/control-center/src/avatars.mjs:56；将原本必失败的内置成员 DELETE 拆为可恢复的个人通讯录可见性，并保留运行安全边界。
+__DELTA__: 烛(Codex) | 2 | correctness | 证据：apps/control-center/public/app.js:14870、apps/control-center/src/avatars.mjs:56；将原本必失败的内置成员 DELETE 拆为可恢复的个人通讯录可见性，并保留运行安全边界。

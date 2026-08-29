@@ -52,4 +52,4 @@
 2. 未做端到端真图验收（需要真派一轮 claude CLI）。要我做请说。
 3. 未 commit / 未 push。
 
-__DELTA__: 主驾自评(无外部发火) | 1 | 证据：config/control-center/models.json + src/adapters/manifest.mjs:61 把 multimodal/document-analysis/long-context 从已禁用的 gemini 席位迁到在役主脑，修掉三个任务类型永久 NO_ROUTE；新增孤儿能力覆盖闸并红检确认 buggy 必红
+__DELTA__: 主驾自评(无外部发火) | 1 | correctness | 证据：config/control-center/models.json + src/adapters/manifest.mjs:61 把 multimodal/document-analysis/long-context 从已禁用的 gemini 席位迁到在役主脑，修掉三个任务类型永久 NO_ROUTE；新增孤儿能力覆盖闸并红检确认 buggy 必红

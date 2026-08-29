@@ -52,4 +52,4 @@
 - pipeline 首轮 `allowWorkspaceWrite: true` 未改（仍进 `turn()` 内部审批+租约闸）。
 - 进程内测试默认仍 `waitForTurn: true`，没有改成全员轮询。
 
-__DELTA__: 烛(Codex) | 1 | 证据：.ai-shared/handoff/codex-to-claude__collab-turn-state-machine__20260815-2015.md 照出 awaitBuildApproval accept 无锁；已用 withRunTransition CAS + execute() 拒绝 interrupted/withdrawn 收口
+__DELTA__: 烛(Codex) | 1 | governance | 证据：.ai-shared/handoff/codex-to-claude__collab-turn-state-machine__20260815-2015.md 照出 awaitBuildApproval accept 无锁；已用 withRunTransition CAS + execute() 拒绝 interrupted/withdrawn 收口

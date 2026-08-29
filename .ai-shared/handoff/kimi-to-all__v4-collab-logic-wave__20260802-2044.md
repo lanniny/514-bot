@@ -38,4 +38,4 @@
 - 桌面端 Ctrl+R 即可生效前端改动；未做 runtime sync / 桌面重启。
 - 回退 = 删 collab-flow.js 本波改动（health 拆轨 / sourceNames / seats 感知 / adopt 接线 / preservedQuery）+ `forge/team.css`「协作逻辑完善波（2026-08-02）」段 + tests/team-panel.test.mjs 新增 6 项。
 
-__DELTA__: Kimi | 1 | 证据：collab-flow.js:82 health 拆 12s 独立轨道修复席位永远「未核验」的系统性降级，探针实测 hero 632ms 就绪、席位 未核验→可用 补载升级
+__DELTA__: Kimi | 1 | correctness | 证据：collab-flow.js:82 health 拆 12s 独立轨道修复席位永远「未核验」的系统性降级，探针实测 hero 632ms 就绪、席位 未核验→可用 补载升级

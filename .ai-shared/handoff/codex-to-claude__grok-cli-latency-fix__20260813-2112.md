@@ -88,4 +88,4 @@
 - 已验证新会话短请求与退出链；尚未验证长任务、多轮 resume 或 Control Center adapter 端到端。
 - 两组 `grok_search_chat_compat.mjs -> grok-search-rs.exe` 是 Codex app/MCP 运行面子进程，不属于 Grok Build 会话，未终止。
 
-__DELTA__: 烛(Codex) | 2 | 证据：.scratch/grok-debug-20260813-212910.log:228-251 推翻“8.6s 来自 hook/catalog”的判断，锁定两个插件 MCP 的 prefix-ready 等待，并由 unified.jsonl:7943-7954 验证 intake 降至约 1ms
+__DELTA__: 烛(Codex) | 2 | correctness | 证据：.scratch/grok-debug-20260813-212910.log:228-251 推翻“8.6s 来自 hook/catalog”的判断，锁定两个插件 MCP 的 prefix-ready 等待，并由 unified.jsonl:7943-7954 验证 intake 降至约 1ms

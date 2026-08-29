@@ -28,4 +28,4 @@
 - 本轮没有终止或重启已有正式实例；独立启动因已有实例锁被拒绝。
 - Tauri 真壳窗口移动由源码契约 + 浏览器注入桥验证；未做物理桌面窗口坐标回读。
 
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/public/forge/codex-desktop.css:249-260 与 public/splitter.js:51-63 修复了拖柄隐藏、布局优先级和两列 overlay 结构不一致；独立探查确认了原始不可达链路。
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：apps/control-center/public/forge/codex-desktop.css:249-260 与 public/splitter.js:51-63 修复了拖柄隐藏、布局优先级和两列 overlay 结构不一致；独立探查确认了原始不可达链路。

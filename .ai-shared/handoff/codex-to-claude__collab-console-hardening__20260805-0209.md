@@ -47,4 +47,4 @@
 - 全 `apps/control-center` 的 `git diff --check` 仍会被既有 `public/styles.css` 大规模行尾空白/CRLF 债淹没并在 300 秒超时；该文件不属于本轮最后修复集合，未擅自制造一万行格式化 churn。
 - 未执行 runtime sync、commit、push、reset、checkout、安装、更新、删除或登录写操作；无关脏工作树保持不动。
 
-__DELTA__: 烛(Codex) | 2 | 证据：apps/control-center/src/structured-redaction.mjs:56 修复纯 JSON/YAML argv 敏感参数泄漏，推翻此前“结构化诊断已完整脱敏”的判断
+__DELTA__: 烛(Codex) | 2 | correctness | 证据：apps/control-center/src/structured-redaction.mjs:56 修复纯 JSON/YAML argv 敏感参数泄漏，推翻此前“结构化诊断已完整脱敏”的判断

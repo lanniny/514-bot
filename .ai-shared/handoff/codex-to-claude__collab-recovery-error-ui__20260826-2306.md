@@ -33,4 +33,4 @@
 - 正式 `127.0.0.1:51400` / Tauri 进程未 reload，真实 Claude provider 未重放；本轮不构成正式运行态激活。
 - 未执行 `git commit` / `git push`，未修改 provider 凭据、权限或正式数据。
 
-__DELTA__: 独立只读探子 | 2 | 证据：`apps/control-center/public/styles.css:5484-5495` 与 `public/modules/failure-presentation.js:25-32`；终审推翻首次“浏览器 QA 已闭环”的判断，补出确认后历史永久隐藏及普通 JSON 误分类，两项均修复并经新探子 ACCEPT。
+__DELTA__: 独立只读探子 | 2 | correctness | 证据：`apps/control-center/public/styles.css:5484-5495` 与 `public/modules/failure-presentation.js:25-32`；终审推翻首次“浏览器 QA 已闭环”的判断，补出确认后历史永久隐藏及普通 JSON 误分类，两项均修复并经新探子 ACCEPT。

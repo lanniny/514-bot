@@ -44,4 +44,4 @@
 - 交付包含 21 个已跟踪修改文件、本 handoff，以及 `.tmp/provider-config-closeout/` 下的隔离 QA 运行产物；最终必须以 `git status --short --untracked-files=all` 为准。
 - `.tmp/provider-config-closeout/` 新增的 `.claude.json`、Claude project JSONL 和 Kimi native worker 均由隔离 HOME/APPDATA 的运行时启动探测产生，不在真实用户 HOME；本轮保留现场，没有擅自删除。
 
-__DELTA__: 烛(Codex) | 2 | 证据：apps/control-center/server.mjs:1231 与 apps/control-center/src/providers.mjs:86 关闭了独立审查推翻原收口判断后发现的凭据跨来源外发、legacy Official 误冻结和 Provider ID 动作协议冲突
+__DELTA__: 烛(Codex) | 2 | architecture | 证据：apps/control-center/server.mjs:1231 与 apps/control-center/src/providers.mjs:86 关闭了独立审查推翻原收口判断后发现的凭据跨来源外发、legacy Official 误冻结和 Provider ID 动作协议冲突

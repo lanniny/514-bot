@@ -37,8 +37,8 @@ export function buildClaudeArgs({
       "--permission-mode",
       permissionMode === "workspace-write" ? "acceptEdits" : "plan",
     ]),
-    "--max-budget-usd",
-    String(maxBudgetUsd),
+    // maxBudgetUsd=null = 无限预算：省略旗标（CLI 侧不设上限），成本止损仍由 orchestrator 结算层负责
+    ...(maxBudgetUsd == null ? [] : ["--max-budget-usd", String(maxBudgetUsd)]),
   ];
   // 默认禁斜杠命令：普通提示词里的 "/" 只是文本（防提示注入触发 CLI 内部命令）。
   // 原生命令轮例外：用户显式发送 /compact 等，CLI 需要解释执行——与 Desktop 同通道。

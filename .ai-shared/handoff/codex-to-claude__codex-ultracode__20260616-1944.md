@@ -42,4 +42,4 @@ Verified:
 - Codex route-gate smoke test emits `UC=Codex Ultracode: xhigh + bounded dynamic workflow`.
 - `~/.codex/skills/ultracode/SKILL.md` hash matches repo source.
 
-__DELTA__: 烛(Codex) | 1 | Converted LO's "Codex also needs Claude ultracode" request into a real Codex-native capability: xhigh config + `$ultracode` skill + route-gate UC trigger + runtime sync, while avoiding a false claim of Claude cloud Workflow parity.
+__DELTA__: 烛(Codex) | 1 | governance | Converted LO's "Codex also needs Claude ultracode" request into a real Codex-native capability: xhigh config + `$ultracode` skill + route-gate UC trigger + runtime sync, while avoiding a false claim of Claude cloud Workflow parity.

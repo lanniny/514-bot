@@ -121,4 +121,4 @@ ultracode runtime tree hash ok: 4 files
 
 514cc 原 `$ultracode` 方向合理：xhigh + route-gate + runtime sync + DELTA 是正确骨架。但它不够完善，因为缺少上游 `ultracode-skill` 的 workflow artifacts / packet schema / eval contracts / approval gates。本轮已补齐为 Codex-safe、514cc-compatible 版本。`UltraCode-Shim` 的代理路由暂不纳入，避免把凭据/后端路由风险混进 skill 层。
 
-__DELTA__: 烛(Codex) | 2 | 推翻“现有 $ultracode 已足够完善”的判断：同步/触发是完整的，但工作流产物与契约层不足；已吸收开源 ultracode-skill 的 packet/eval/approval 机制，并明确不静默采纳 UltraCode-Shim proxy/router。
+__DELTA__: 烛(Codex) | 2 | governance | 推翻“现有 $ultracode 已足够完善”的判断：同步/触发是完整的，但工作流产物与契约层不足；已吸收开源 ultracode-skill 的 packet/eval/approval 机制，并明确不静默采纳 UltraCode-Shim proxy/router。

@@ -35,4 +35,4 @@ qa-v4-shots.mjs 暗色首截 `13-workbench-dark` 在 reload 后**视图持久化
 - 筛选行开合为持久化 toggle——探针暗/亮两次点击互抵恰证实记忆生效（非失效）。
 - 纯静态资产变更（server.mjs 未动），桌面端 Ctrl+R 即生效，无需内核重启。
 
-__DELTA__: Kimi | 1 | 证据：qa-v4/22-workbench-dark-true.png 暗色铜橙全净 + 协作台五处乱源收口（CHANGELOG v4.0 未发布节）
+__DELTA__: Kimi | 1 | observability | 证据：qa-v4/22-workbench-dark-true.png 暗色铜橙全净 + 协作台五处乱源收口（CHANGELOG v4.0 未发布节）

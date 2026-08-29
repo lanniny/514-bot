@@ -25,4 +25,4 @@
 - 桌面端 Ctrl+R 生效；预览实例 :5520 已停（桌面端占用单实例锁）。
 - 回退 = 还原 app.js 分组渲染段 + index.html 工具条 + member-library.js createNew/onMemberSaved + team.css 分组段落 + 删 scripts/qa-member-groups-probe.mjs。
 
-__DELTA__: Kimi | 1 | 证据：app.js renderTeamMemberOptions 分组重构 + applyTeamMemberFilter hidden 过滤（collectTeamForm 读 DOM 安全）+ member-library.js createNew/onMemberSaved 自动勾入，探针实证折叠不丢勾选、搜索不丢计数、新建成员自动入草稿，0 控制台错误
+__DELTA__: Kimi | 1 | architecture | 证据：app.js renderTeamMemberOptions 分组重构 + applyTeamMemberFilter hidden 过滤（collectTeamForm 读 DOM 安全）+ member-library.js createNew/onMemberSaved 自动勾入，探针实证折叠不丢勾选、搜索不丢计数、新建成员自动入草稿，0 控制台错误

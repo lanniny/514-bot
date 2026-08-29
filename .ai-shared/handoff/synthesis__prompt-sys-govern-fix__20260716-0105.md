@@ -98,6 +98,6 @@ LO 授权"按推荐推进"。
 
 **元教训**：dogfood 第三次证明主驾自写治理代码盲区，且这次是**架构决策盲区**（比代码 bug 更隐蔽）——"我做了 + 测试绿"不等于"设计对"。
 
-__DELTA__: 烛(codex-reviewer) | 2 | 推翻主驾"三处版本一致"完成判断，照出 4 致命版本入口漂移（证据 CLAUDE.md:12 停 v3.4.0）；主驾本轮逐项修复经磁盘 grep 自验
-__DELTA__: 烛(codex-reviewer)#2 | 2 | 推翻"异常按对静默跳过仍可显示健康"——故障注入 PermissionError→check_drift 返回空→渲染"一致 ✓"假绿灯（mirror-gate.py:145-152,181-182）；三态修复后 8/8 测试验证
-__DELTA__: 烛(codex-reviewer)#3 | 2 | 推翻主驾"SOUL 双地落已安全纳入"判断 + 照 2 设计盲区（哨兵诱导 -Apply 覆盖手改 SOUL / 项目域哨兵管全局）；主驾亲核 backups 无 CLAUDE.md 属实 → 回滚到安全态
+__DELTA__: 烛(codex-reviewer) | 2 | correctness | 推翻主驾"三处版本一致"完成判断，照出 4 致命版本入口漂移（证据 CLAUDE.md:12 停 v3.4.0）；主驾本轮逐项修复经磁盘 grep 自验
+__DELTA__: 烛(codex-reviewer)#2 | 2 | security | 推翻"异常按对静默跳过仍可显示健康"——故障注入 PermissionError→check_drift 返回空→渲染"一致 ✓"假绿灯（mirror-gate.py:145-152,181-182）；三态修复后 8/8 测试验证
+__DELTA__: 烛(codex-reviewer)#3 | 2 | correctness | 推翻主驾"SOUL 双地落已安全纳入"判断 + 照 2 设计盲区（哨兵诱导 -Apply 覆盖手改 SOUL / 项目域哨兵管全局）；主驾亲核 backups 无 CLAUDE.md 属实 → 回滚到安全态

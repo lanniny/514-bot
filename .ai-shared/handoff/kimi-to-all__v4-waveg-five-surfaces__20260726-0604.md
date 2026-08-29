@@ -67,4 +67,4 @@
 - 星图：摘侧栏 hero 项 + view-hero section + hero-starmap.js/hero.css。
 - vendored 补丁（xterm/highlight）：删 `public/vendor/*` 对应目录并摘除引用。
 
-__DELTA__: Kimi(主驾) | 1 | 证据：terminal-panel.js:60 SSE 帧直接 JSON.parse 修终端黑屏；src/pty/routes.mjs:86 清除多余转义；public/vendor/xterm/xterm.mjs CSP 补丁（CSSOM/adoptedStyleSheets）；server.mjs:457-463 五面板静态登记 + .mjs 白名单；forge/waveg.css:6-30 token alias 层；hero-starmap.js 星图全屏艺术面
+__DELTA__: Kimi(主驾) | 1 | security | 证据：terminal-panel.js:60 SSE 帧直接 JSON.parse 修终端黑屏；src/pty/routes.mjs:86 清除多余转义；public/vendor/xterm/xterm.mjs CSP 补丁（CSSOM/adoptedStyleSheets）；server.mjs:457-463 五面板静态登记 + .mjs 白名单；forge/waveg.css:6-30 token alias 层；hero-starmap.js 星图全屏艺术面

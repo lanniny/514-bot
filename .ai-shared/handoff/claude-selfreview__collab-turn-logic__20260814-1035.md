@@ -82,4 +82,4 @@
 3. 未处理、留作独立决策：`continue` 的 HTTP 同步等整轮（LO 那次挂 76 秒，是重复提交的诱因之一）——改成立即返回 + 走 SSE 需要动前端等待语义，不在本轮 scope。
 4. 未 commit / 未 push。
 
-__DELTA__: 主驾自评(无外部发火) | 1 | 证据：src/orchestrator.mjs continuationWriteGrant + buildApprovalMessage 锚定 approvedMaxRounds，修掉「审批/租约齐备但续轮恒 plan」与「插话 +1 自我作废审批」两层死锁；6 组红检确认反例闸 buggy 必变红
+__DELTA__: 主驾自评(无外部发火) | 1 | correctness | 证据：src/orchestrator.mjs continuationWriteGrant + buildApprovalMessage 锚定 approvedMaxRounds，修掉「审批/租约齐备但续轮恒 plan」与「插话 +1 自我作废审批」两层死锁；6 组红检确认反例闸 buggy 必变红

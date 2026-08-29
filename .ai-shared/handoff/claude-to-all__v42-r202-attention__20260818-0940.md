@@ -38,4 +38,4 @@
 
 R2-03 社会协作、R3 交付门 2.0、R4、花名册卡片改吃 `attention.seats`、正式版本升格。
 
-__DELTA__: 烛(Codex) | 2 | 证据：queued 被算进 activeJobs，推翻「队列与执行中已分桶」；收口后 R2 DELTA=0。见 codex-to-claude__v42-r202-attention__20260818-0925.md
+__DELTA__: 烛(Codex) | 2 | governance | 证据：queued 被算进 activeJobs，推翻「队列与执行中已分桶」；收口后 R2 DELTA=0。见 codex-to-claude__v42-r202-attention__20260818-0925.md

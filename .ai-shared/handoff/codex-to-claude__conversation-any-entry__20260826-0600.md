@@ -34,4 +34,4 @@
 - 独立复核新增三个缺口：缺失 Run 未稳定 404、归档附件入口绕过只读、删除墓碑右键仍暴露写操作；三项均已修复并回归。
 - 当前结论：`SOURCE_AND_ISOLATED_RUNTIME_VERIFIED / DELIVERY_BLOCKED / FORMAL_RUNTIME_UNVERIFIED`。正式版本仍为 v3.5.0。
 
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/server.mjs:2011、public/app.js:15160,18006；独立复核补出缺失 Run 404、归档附件入口和删除墓碑菜单三个边界并完成修复
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：apps/control-center/server.mjs:2011、public/app.js:15160,18006；独立复核补出缺失 Run 404、归档附件入口和删除墓碑菜单三个边界并完成修复

@@ -44,4 +44,4 @@
 - 桌面端无需重启：CSS/JS 为静态资产，窗口内刷新即生效。
 - 冒烟实例 :5520 已回收。
 
-__DELTA__: Kimi（前） | 1 | 证据：forge/tokens.css:149-220 bridge 段 + forge/shell.css nav 段重写，23 站截图亲查 0 控制台错误
+__DELTA__: Kimi（前） | 1 | security | 证据：forge/tokens.css:149-220 bridge 段 + forge/shell.css nav 段重写，23 站截图亲查 0 控制台错误

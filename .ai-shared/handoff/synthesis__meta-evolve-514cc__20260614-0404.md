@@ -84,5 +84,5 @@
 - 落 decisions：D-2026-06-14-001。
 - 余 6 项：D 安全部分（删幽灵 + 捞真金）推进中；claude-flow 标实验 / E / G2 / H / I / F 待 LO 拍板。
 
-__DELTA__: workflow(36-agent审查) | 2 | 推翻体系 v3.3 自述：stop-gate"首次真击发"被 .stop-gate-state.json 不存在证伪(rules.md:99 等四处)、外用浓度 0%(父级 handoff __DELTA__=0)、幽灵 MCP(see/web-reader 磁盘不存在)
+__DELTA__: workflow(36-agent审查) | 2 | governance | 推翻体系 v3.3 自述：stop-gate"首次真击发"被 .stop-gate-state.json 不存在证伪(rules.md:99 等四处)、外用浓度 0%(父级 handoff __DELTA__=0)、幽灵 MCP(see/web-reader 磁盘不存在)
 __DELTA__: 烛(codex终审) | 2 | 推翻主驾 2 处判断(G 假阳归因错·H 非80%重复删SOUL会挖空安全框架)+独立补出 vibetasking 误伤(claude-flow 卸载)+沙盒兑现 B；VERDICT=CHANGES_REQUESTED

@@ -38,4 +38,4 @@
 - 独立复核先发现 run-linked tombstone purge P1，已加保护与回归；另修复不存在 Run 的 diff 404 和离线 sprite 图标缺失。
 - 未 reload 正式 Control Center、未替换 Tauri、未调用真实 provider/SSH、未 commit/push；正式版本仍为 v3.5.0。
 
-__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/src/conversations.mjs:564` 防止仍有关联 Run 的删除墓碑被物理移除；`apps/control-center/src/orchestrator.mjs:3955` 持久化 pipeline delegation；`apps/control-center/public/app.js:15593,16754,17030` 将真实委派边、活动详情和发送/停止状态接入 Bot。独立复核推翻“清空墓碑可直接物理删除”的收尾判断并补齐 CAS/审计边界
+__DELTA__: 烛(Codex) | 2 | correctness | 证据：`apps/control-center/src/conversations.mjs:564` 防止仍有关联 Run 的删除墓碑被物理移除；`apps/control-center/src/orchestrator.mjs:3955` 持久化 pipeline delegation；`apps/control-center/public/app.js:15593,16754,17030` 将真实委派边、活动详情和发送/停止状态接入 Bot。独立复核推翻“清空墓碑可直接物理删除”的收尾判断并补齐 CAS/审计边界

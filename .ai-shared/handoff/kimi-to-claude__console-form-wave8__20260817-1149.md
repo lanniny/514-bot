@@ -25,4 +25,4 @@
 
 纯网页资产，重启 Control Center 即生效，无需重建桌面端。
 
-__DELTA__: Kimi(514cc-cli) | 1 | 证据：apps/control-center/public/forge/console-form.css 第八轮区块交界圆角+去发丝线，探针 4 断言+双主题截图复核
+__DELTA__: Kimi(514cc-cli) | 1 | correctness | 证据：apps/control-center/public/forge/console-form.css 第八轮区块交界圆角+去发丝线，探针 4 断言+双主题截图复核

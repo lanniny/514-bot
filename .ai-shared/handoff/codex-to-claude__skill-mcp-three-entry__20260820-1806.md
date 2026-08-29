@@ -73,4 +73,4 @@ codex_channel: subagent-direct (codex-agent MCP 本会话未注册；未伪造 C
 - `openTab(resourceTab: skills|mcps)` 静默改道，旧书签/自动化失效且无提示
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 烛(Codex) | 1 | 证据：ccswitch-panel.js:340-371 隐藏页签后 domain Skill/MCP 独有投影与 CRUD 无替代面；app.js:5402 向导走 capabilities.createSkill 而非 ccswitch domain
+__DELTA__: 烛(Codex) | 1 | governance | 证据：ccswitch-panel.js:340-371 隐藏页签后 domain Skill/MCP 独有投影与 CRUD 无替代面；app.js:5402 向导走 capabilities.createSkill 而非 ccswitch domain

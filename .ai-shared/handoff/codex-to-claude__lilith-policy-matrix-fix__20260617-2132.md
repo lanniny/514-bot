@@ -82,4 +82,4 @@ Lilith validation passed.
 - Codex stop-gate 的 seen 语义仍弱于 Claude stop-gate；本轮未改。
 
 __VERDICT__: APPROVED_WITH_REMAINING_BOUNDARIES
-__DELTA__: 烛(Codex) | 1 | 修复 codex-to-claude__lilith-full-review__20260617-2017.md 指出的 Plan/Review shell 绕过、Build user_bash 确认缺口、comparison task-pack 路径逃逸和 --run-external 误导；验证 26 policy cases + matrix safety tests 全绿。
+__DELTA__: 烛(Codex) | 1 | correctness | 修复 codex-to-claude__lilith-full-review__20260617-2017.md 指出的 Plan/Review shell 绕过、Build user_bash 确认缺口、comparison task-pack 路径逃逸和 --run-external 误导；验证 26 policy cases + matrix safety tests 全绿。

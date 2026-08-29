@@ -74,4 +74,4 @@ R2-03 的核芯焊住了：默认 pipeline，社会模拟必须 `orchestrationMo
 - composer `/social` 的回归是源码 `assert.match`，选中会话路径是盲区。
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/src/automations.mjs:412-426 触发仍传 requestedAgentIds 且不传 orchestrationMode，撞上 orchestrator.mjs:1858-1859 的 social-only 门；主驾 opt-in 主干成立，侧门未焊
+__DELTA__: 烛(Codex) | 1 | architecture | 证据：apps/control-center/src/automations.mjs:412-426 触发仍传 requestedAgentIds 且不传 orchestrationMode，撞上 orchestrator.mjs:1858-1859 的 social-only 门；主驾 opt-in 主干成立，侧门未焊

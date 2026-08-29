@@ -172,4 +172,4 @@ codex-app-server 现在是全项目唯一的例外——而它是主力 adapter�
 - `interruptingRuns` 的释放挂在可能永不 settle 的 promise 上（F5），这是一个没有上界的状态，建议无论本波是否修 F5，都先加一条可观测（`/co-status` 或治理注记）让它别再静默锁死。
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 烛(Codex) | 2 | 证据：orchestrator.mjs:2853 auto-recovery 递归漏传 allowContextRecovery:false 使「一次压缩上限」不成立、orchestrator.mjs:2671 压缩期 abort 令 invalidateContextSession 在 owner 断言处短路致 fail-closed 失效——推翻前序「继续循环已修复」的结论
+__DELTA__: 烛(Codex) | 2 | correctness | 证据：orchestrator.mjs:2853 auto-recovery 递归漏传 allowContextRecovery:false 使「一次压缩上限」不成立、orchestrator.mjs:2671 压缩期 abort 令 invalidateContextSession 在 owner 断言处短路致 fail-closed 失效——推翻前序「继续循环已修复」的结论

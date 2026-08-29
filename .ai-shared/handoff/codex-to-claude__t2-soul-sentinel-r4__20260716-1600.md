@@ -48,7 +48,7 @@
 ---
 
 __VERDICT__: NEEDS_HARDENING
-__DELTA__: t2-soul-sentinel(R4) | 2 | 推翻主驾「18 项 ALL PASS=治本完成」——治本达标但新引入 fail-closed(:274)+双写(:309-321)，主驾连撞四轮同类边界盲区（R1 假绿灯/R2 liveness/R3 送达链/R4 治本自身新边界）
+__DELTA__: t2-soul-sentinel(R4) | 2 | correctness | 推翻主驾「18 项 ALL PASS=治本完成」——治本达标但新引入 fail-closed(:274)+双写(:309-321)，主驾连撞四轮同类边界盲区（R1 假绿灯/R2 liveness/R3 送达链/R4 治本自身新边界）
 
 ---
 

@@ -74,4 +74,4 @@ explore 子代理对 run-rail 全量 read-only 审查（app.js 渲染链 / workb
 - 本轮 scratch（不交付）：`.scratch/rail-beauty-shots.mjs`、`.scratch/rail-beauty/`。
 - 注意：`public/*` 多文件同时携带其他协作者的未提交改动（diff stat 不可按行数归属到本轮）。
 
-__DELTA__: Kimi(514cc-cli) | 1 | 证据：app.js:5278 起置顶/归档区未归属兜底+M1/M2 互斥纪律 + workbench-chrome.js:227 折叠单控 + styles.css:7962 rail-footer 钉底，契约 20/20、完整回归 1306 绿、双主题截图 .scratch/rail-beauty/
+__DELTA__: Kimi(514cc-cli) | 1 | governance | 证据：app.js:5278 起置顶/归档区未归属兜底+M1/M2 互斥纪律 + workbench-chrome.js:227 折叠单控 + styles.css:7962 rail-footer 钉底，契约 20/20、完整回归 1306 绿、双主题截图 .scratch/rail-beauty/

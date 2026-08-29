@@ -24,4 +24,4 @@
 - `node --test` 139/139。
 - 遗留如实：kimi-frontend 探针报 `spawn kimi ENOENT`（该 shell PATH 无 kimi，环境事实非本轮改动）；测试套件用 `child.kill()` 强杀 server 不走 shutdown，若测试触发过 host 启动其子树依赖下次 reap 兜底（临时 dataRoot 台账随目录删除，此路径收不了——测试环境限制，生产 dataRoot 固定不受影响）。
 
-__DELTA__: 主驾自评(Cursor) | 2 | 证据：child-registry.mjs 旧台账 fail-closed 全跳过=主驾上午修复引入的收割失效回归（被 LO 报障推翻"已修好"判断）；grok-mcp.mjs health() 每 bootstrap 拉起满 MCP codex 树（v3.5 结构债坐实为爆内存大头）
+__DELTA__: 主驾自评(Cursor) | 2 | performance | 证据：child-registry.mjs 旧台账 fail-closed 全跳过=主驾上午修复引入的收割失效回归（被 LO 报障推翻"已修好"判断）；grok-mcp.mjs health() 每 bootstrap 拉起满 MCP codex 树（v3.5 结构债坐实为爆内存大头）

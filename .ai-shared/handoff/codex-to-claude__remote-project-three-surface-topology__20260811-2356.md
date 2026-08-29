@@ -32,4 +32,4 @@
 - `git diff --check` 被工作树既有整文件 CRLF 漂移污染，对 `styles.css` 全文报 trailing whitespace；本轮没有为造绿重写该文件，改以读取后的新增文件与编辑区检查收口。
 - 未执行 commit、push、runtime sync、真实远端安装/配置同步或长期凭据操作；仅用服务端一次性 bootstrap nonce 做本机鉴权路由回读，未落 token；未清理其他 agent 的脏改动。
 
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/src/ssh/remote-graph.mjs:214 将 Kimi 的远程主机三面补强为服务端台账解析、项目作用域叠加与双围栏的远程项目三面；.scratch/verify-v41w5.mjs 24/24 覆盖 latest-wins 和 390px
+__DELTA__: 烛(Codex) | 1 | observability | 证据：apps/control-center/src/ssh/remote-graph.mjs:214 将 Kimi 的远程主机三面补强为服务端台账解析、项目作用域叠加与双围栏的远程项目三面；.scratch/verify-v41w5.mjs 24/24 覆盖 latest-wins 和 390px

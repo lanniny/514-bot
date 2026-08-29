@@ -34,4 +34,4 @@
 - 截图：`apps/control-center/.qa-output/bot-p0/collaboration-inspector-1440.png`、`collaboration-inspector-1024.png`、`collaboration-inspector-820.png`、`collaboration-inspector-390.png`。
 - 未 reload 正式 Control Center、未替换 Tauri、未做真实 provider/SSH、未 commit/push；正式版本仍为 v3.5.0。
 
-__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/app.js:15385-15460,15541-15608,16206-16266,16903-16935`；独立扫描与终审补出并修复重复 Conversation、聊天主面替换、终态 Run 误标、电脑 modal 焦点缺口和 QA 活动会话证据漂移
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：`apps/control-center/public/app.js:15385-15460,15541-15608,16206-16266,16903-16935`；独立扫描与终审补出并修复重复 Conversation、聊天主面替换、终态 Run 误标、电脑 modal 焦点缺口和 QA 活动会话证据漂移

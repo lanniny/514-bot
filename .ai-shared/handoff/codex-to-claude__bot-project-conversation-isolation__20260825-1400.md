@@ -78,5 +78,5 @@ LO 复核创建表单后指出，旧版“必须填写第一条消息、至少 2
 - 未执行真实 provider、SSH 或远端项目端到端验证。
 - 未执行 `git commit` / `git push`；正式版本仍为 v3.5.0。
 
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/src/orchestrator.mjs 的 createClaims 修复同一 Conversation 并发 idempotency TOCTOU；Conversation/Project 归档与补偿失败边界补强。
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/public/app.js 将项目成员范围与单次 Run 参与者解耦；src/conversations.mjs 允许空成员项目房间；src/orchestrator.mjs 阻止空房间绕过成员快照启动 Run。
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：apps/control-center/src/orchestrator.mjs 的 createClaims 修复同一 Conversation 并发 idempotency TOCTOU；Conversation/Project 归档与补偿失败边界补强。
+__DELTA__: 烛(Codex) | 1 | performance | 证据：apps/control-center/public/app.js 将项目成员范围与单次 Run 参与者解耦；src/conversations.mjs 允许空成员项目房间；src/orchestrator.mjs 阻止空房间绕过成员快照启动 Run。

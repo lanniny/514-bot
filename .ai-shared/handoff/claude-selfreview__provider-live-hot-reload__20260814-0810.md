@@ -68,4 +68,4 @@
 3. **live 预填的采纳面**：目前只有 grokbuild 有完整 live 明细（档位/模型/backend/上下文）。其余 app 的 drift 谱只覆盖 model/baseUrl，机制通用但明细不如 grok 全；codex 的 live `model` 正则仍是"第一个 match"的老读法，没顺手改（不在本轮 scope，要改说一声）。
 4. 未 commit / 未 push。`.tmp/` 下的一次性验证脚本与隔离运行目录已全部清除，无伪造密钥残留。
 
-__DELTA__: 主驾自评(无外部发火) | 1 | 证据：apps/control-center/src/providers.mjs:2899-3050 摘除块外 models/model 表，修掉"启用产出重复 [models] 表 / 旧表遮盖新投影"；红检确认反例闸 buggy 必变红（pass 75 / fail 2）
+__DELTA__: 主驾自评(无外部发火) | 1 | correctness | 证据：apps/control-center/src/providers.mjs:2899-3050 摘除块外 models/model 表，修掉"启用产出重复 [models] 表 / 旧表遮盖新投影"；红检确认反例闸 buggy 必变红（pass 75 / fail 2）

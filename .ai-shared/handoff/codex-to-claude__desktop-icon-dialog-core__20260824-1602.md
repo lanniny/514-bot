@@ -32,4 +32,4 @@
 - Windows 已固定到任务栏的旧快捷方式若保留独立图标缓存，仍可能需要取消固定后重新固定；当前 Shell 查询已返回新图标。
 - 未执行 `git commit` / `git push`，未清理工作区其他协作者改动。
 
-__DELTA__: 烛(Codex) | 1 | 证据：`apps/desktop/src-tauri/icons/icon.svg:1`、`apps/desktop/src-tauri/icons/icon.ico`；独立复核发现并修正 16px 四角近透明抗锯齿残留，避免浅色任务栏出现极淡方角。
+__DELTA__: 烛(Codex) | 1 | observability | 证据：`apps/desktop/src-tauri/icons/icon.svg:1`、`apps/desktop/src-tauri/icons/icon.ico`；独立复核发现并修正 16px 四角近透明抗锯齿残留，避免浅色任务栏出现极淡方角。

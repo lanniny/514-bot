@@ -58,7 +58,7 @@ exit 0
 3. 全量 `npm test` 本轮出现既有 reduced-motion canvas 契约失败、workbench rail 静态契约漂移；长尾 teardown 无新输出，不能宣称 full-suite clean。本轮复跑的 Bot/附件 UI 为 47 pass / 0 fail，Conversation/HTTP/Mission 为 23 pass / 0 fail；交接前 Bot+附件+Orchestrator 组合记录为 156 pass / 0 fail。
 
 __DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/public/app.js:14983`、`:17809`、`:17221`；独立收口将旧 Bot 每条消息新 run 语义改为 Conversation 级 direct/group 拓扑，并补齐通讯录右键与附件分柜。
-__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/app.js:17768`、`:26965`；真实浏览器回读发现并修复 Bot 首屏认证竞态，三视口与 direct/group/菜单/附件交互证据已补齐。
+__DELTA__: 烛(Codex) | 1 | performance | 证据：`apps/control-center/public/app.js:17768`、`:26965`；真实浏览器回读发现并修复 Bot 首屏认证竞态，三视口与 direct/group/菜单/附件交互证据已补齐。
 
 ## 图片缩略图补强（2026-08-25）
 
@@ -88,7 +88,7 @@ node --test --test-force-exit tests/bot-shell-ui.test.mjs tests/clipboard-attach
 - 服务端 clipboard API 只返回本地存储路径，浏览器不能直接把该路径当 `img.src`；因此刷新页面或切换到没有该浏览器 File 对象的上下文时，历史附件只保留路径 fallback，不伪造预览。
 - 正式桌面实例未刷新，真实 provider 未调用；正式激活继续为 `partial`。
 
-__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/app.js:17246-17360`、`public/forge/bot-shell.css:401-438`、`tests/clipboard-attachments-ui.test.mjs:200-345`；把已验证的附件 chip 视觉升级为输入框内真实缩略图，并保留路径提交、失败可见、移除回收和三视口无溢出边界。
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：`apps/control-center/public/app.js:17246-17360`、`public/forge/bot-shell.css:401-438`、`tests/clipboard-attachments-ui.test.mjs:200-345`；把已验证的附件 chip 视觉升级为输入框内真实缩略图，并保留路径提交、失败可见、移除回收和三视口无溢出边界。
 
 ## 图片大图预览补强（2026-08-25）
 

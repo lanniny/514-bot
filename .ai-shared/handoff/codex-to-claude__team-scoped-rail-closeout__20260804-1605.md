@@ -40,4 +40,4 @@
 - 未执行 commit/push，未回滚 Kimi 或用户已有的大规模未提交改动。
 - QA 截图位于已忽略的 `apps/control-center/.qa-output/`。
 
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/public/forge/team.css:2460 修复 390px 成员分组层叠覆盖，并以正式 computed-grid Playwright 契约锁定
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：apps/control-center/public/forge/team.css:2460 修复 390px 成员分组层叠覆盖，并以正式 computed-grid Playwright 契约锁定

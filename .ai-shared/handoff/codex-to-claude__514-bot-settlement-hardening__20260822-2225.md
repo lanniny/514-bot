@@ -44,4 +44,4 @@
 - 本 handoff 记录的是最终源码与本轮证据；工作树仍包含其他协作者改动和 `.scratch` 产物，未做清理。
 - 未执行 `git commit` / `git push`。
 
-__DELTA__: 烛(Codex) | 2 | 证据：approval-snapshot.js 与 settlement-request.js；独立复核推翻了旧代际审批回包可安全依赖 epoch、settlement loading 可无限等待且 partial 可显示 ready 的判断。
+__DELTA__: 烛(Codex) | 2 | architecture | 证据：approval-snapshot.js 与 settlement-request.js；独立复核推翻了旧代际审批回包可安全依赖 epoch、settlement loading 可无限等待且 partial 可显示 ready 的判断。

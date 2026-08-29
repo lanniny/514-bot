@@ -85,7 +85,7 @@ v3.5 治理层核心设计**成立且经实证**：双 profile（review=read-onl
 - Cursor 侧只读沙箱丢失属安全语义回归（虽为次级入口），优先级高于 C/D/E。
 
 __VERDICT__ (Round 1): CHANGES_REQUESTED
-__DELTA__: v3.5治理层(profile/对话桥/路由表/roster) | 1 | 补强主驾：A 从"疑似键名非法风险"实测钉为"设计正确"（A4 banner sandbox:read-only 覆盖 base workspace-write）；B 从"待查残留"确证为致命传播缺陷（scripts/sync-cursor-rules.py:134,231 + skills/review/codex-reviewer/customize.toml:73 + .cursor/rules/514cc-constitution.mdc:70）
+__DELTA__: v3.5治理层(profile/对话桥/路由表/roster) | 1 | security | 补强主驾：A 从"疑似键名非法风险"实测钉为"设计正确"（A4 banner sandbox:read-only 覆盖 base workspace-write）；B 从"待查残留"确证为致命传播缺陷（scripts/sync-cursor-rules.py:134,231 + skills/review/codex-reviewer/customize.toml:73 + .cursor/rules/514cc-constitution.mdc:70）
 
 ---
 

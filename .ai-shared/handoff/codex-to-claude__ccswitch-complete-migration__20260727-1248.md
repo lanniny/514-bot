@@ -44,4 +44,4 @@
 
 独立 sidecar 状态：`ccswitch_app_writers / ccswitch_desktop_native / ccswitch_frontend_complete` 均因 `403 Forbidden: Insufficient account balance`（`https://514claude.xyz/v1/responses`）失败，未伪造其结果；主线程改用本地源码、测试、CDP 与 Win32 证据完成复核。
 
-__DELTA__: 烛(Codex) | 2 | 证据：原“全部能力落地”被 287-command 盘点、ProviderStore 覆盖风险与 node:vm 逃逸共同推翻
+__DELTA__: 烛(Codex) | 2 | architecture | 证据：原“全部能力落地”被 287-command 盘点、ProviderStore 覆盖风险与 node:vm 逃逸共同推翻

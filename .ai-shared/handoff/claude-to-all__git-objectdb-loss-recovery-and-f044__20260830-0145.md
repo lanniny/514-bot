@@ -169,4 +169,4 @@ provider 流量走这条路成本较高，建议单开一项。
 3. **是否把「离峰 gc + 定时镜像」立为 W4 条目**。
 4. **F-044 的 DNS pinning** 是否单开一项。
 
-__DELTA__: 烛(Claude) | 2 | 证据：apps/control-center/src/security/egress-guard.mjs:49 起的两级策略表；.workbuddy/memory/2026-08-30.md 记录了对象库损毁与恢复全过程
+__DELTA__: 烛(Claude) | 2 | security | 证据：apps/control-center/src/security/egress-guard.mjs:49 起的两级策略表；.workbuddy/memory/2026-08-30.md 记录了对象库损毁与恢复全过程

@@ -33,4 +33,4 @@
 - `public/state.js` 与新增测试当前均为未跟踪文件；交付时必须用 `git status --short --untracked-files=all` 纳入，不能只取 tracked diff。
 - 隔离 QA 服务已关闭；仓库既有 Control Center 实例 PID `51620` 正在 `127.0.0.1:51400` 监听。实时回读根页与 `app.js` 均 HTTP 200，且所服务源码包含 `providerDialogSelection`、不含旧 `provider-app-claude` 引用。浏览器测试没有保存真实供应商配置。
 
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/public/app.js:8457 将新建供应商目标收口为顶部应用标签，并以浏览器提交体证明单应用关联
+__DELTA__: 烛(Codex) | 1 | observability | 证据：apps/control-center/public/app.js:8457 将新建供应商目标收口为顶部应用标签，并以浏览器提交体证明单应用关联

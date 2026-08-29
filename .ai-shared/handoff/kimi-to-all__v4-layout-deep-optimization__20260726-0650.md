@@ -29,4 +29,4 @@
 - Playwright 21 站全量 + 星图补拍 2 站，明暗双主题亲眼走查：面包屑各组正确（协作/创建/观测/资源/系统）、footer「点 + API 已连接 / 版本号」归位、run-rail 深色块消失、暗态终端与星图协调；控制台 0 错误。
 - 桌面端静态资产免重启，Ctrl+R 刷新生效。冒烟实例 :5520 已回收。
 
-__DELTA__: Kimi（前） | 1 | 证据：app.js FORGE_VIEW_GROUPS + tokens.css bridge --sidebar 三变量 + shell.css:7020 覆盖，23 站截图亲查 0 控制台错误
+__DELTA__: Kimi（前） | 1 | security | 证据：app.js FORGE_VIEW_GROUPS + tokens.css bridge --sidebar 三变量 + shell.css:7020 覆盖，23 站截图亲查 0 控制台错误

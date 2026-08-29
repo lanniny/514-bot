@@ -65,4 +65,4 @@ Codex 全程 workspace-write 沙箱、越 §四"只读"守则自主落盘本 han
 - 致命#3 暴露体系级隐患：**所有 byte-equal 哨兵都只保证"复制一致"、不保证"源内容正确"**——SOUL 只是第一个被发现的实例，rules/output-style 同理需要语义层校验。
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: soul-double-landing | 2 | 推翻"历史备份目录证明 SOUL 备份可靠"(sync-runtime.ps1:64 vs :66-72，备份目录实测只含 rules.md)与"byte-equal 即正确权威源"(soul/CLAUDE.md:32 写 v3.3 vs rules.md:1 v3.4)；新增全局 SOUL 被 cwd 门控漏监控(mirror-gate.py:227-233)及无方向 drift 被误导为 -Apply(mirror-gate.py:153-160,196-197)
+__DELTA__: soul-double-landing | 2 | governance | 推翻"历史备份目录证明 SOUL 备份可靠"(sync-runtime.ps1:64 vs :66-72，备份目录实测只含 rules.md)与"byte-equal 即正确权威源"(soul/CLAUDE.md:32 写 v3.3 vs rules.md:1 v3.4)；新增全局 SOUL 被 cwd 门控漏监控(mirror-gate.py:227-233)及无方向 drift 被误导为 -Apply(mirror-gate.py:153-160,196-197)

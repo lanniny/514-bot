@@ -38,4 +38,4 @@
 - **编辑器 Adapter 字段配官方徽标**：select 左侧品牌 icon chip + 详情卡「执行后端」内联 logo 品牌色；renderTemplateDetails 单点同步，新建/切换/编辑全跟随（实测切 Kimi Code 图标跟随）。
 - 验证：qa-seat-wave-probe 重跑全断言通过 0 控制台错误；`.qa-v4/seat-adapter-field-light.png` 亲查；`npm test` 656 pass / 0 fail。回退 = 还原 manifest.mjs 8 条 label + renderTemplateDetails 图标段 + index.html adapter-picker 包裹 + forge/data.css 命名波段。
 
-__DELTA__: Kimi | 1 | 证据：manifest.mjs selectable:false 清出 MCP 通道 + 8 条 label 改 CLI 本体名 + runtime-seat-manager.js refreshBindings 自愈绑定旧空态与 Adapter 字段品牌徽标 + qa-team-workspace.mjs seedIsolatedPythonUserSite 修复隔离环境 schema 校验瘫痪，探针实证新建下拉 6 项纯 CLI、绑定 chip 自愈、席位保存 201，0 控制台错误
+__DELTA__: Kimi | 1 | correctness | 证据：manifest.mjs selectable:false 清出 MCP 通道 + 8 条 label 改 CLI 本体名 + runtime-seat-manager.js refreshBindings 自愈绑定旧空态与 Adapter 字段品牌徽标 + qa-team-workspace.mjs seedIsolatedPythonUserSite 修复隔离环境 schema 校验瘫痪，探针实证新建下拉 6 项纯 CLI、绑定 chip 自愈、席位保存 201，0 控制台错误

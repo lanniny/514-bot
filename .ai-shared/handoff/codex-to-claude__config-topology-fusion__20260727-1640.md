@@ -40,4 +40,4 @@
 
 边界：未 commit、push、runtime sync 或重启现有桌面进程；PTY 测试仍打印既有 `AttachConsole failed` helper 噪声，但对应测试与总退出码均为 0。
 
-__DELTA__: 烛(Codex) | 2 | 证据：独立审计两次推翻“全量绿色即可收口”，定位 public/modules/ccswitch-panel.js:286 的局部假成功与 :73 的 native 错误漏聚合，并促成真实点击/原生失败/并发加载回归
+__DELTA__: 烛(Codex) | 2 | observability | 证据：独立审计两次推翻“全量绿色即可收口”，定位 public/modules/ccswitch-panel.js:286 的局部假成功与 :73 的 native 错误漏聚合，并促成真实点击/原生失败/并发加载回归

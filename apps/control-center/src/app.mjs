@@ -9,7 +9,7 @@ import { ModelRouter } from "./router.mjs";
 import { ApprovalBroker } from "./approval-broker.mjs";
 import { createAdapters } from "./adapters/index.mjs";
 import { createTeamCatalog, resolveAdapterTemplate } from "./adapters/manifest.mjs";
-import { Orchestrator } from "./orchestrator.mjs";
+import { Orchestrator, isUnlimitedBudgetValue } from "./orchestrator.mjs";
 import { AutomationStore, seedBuiltinAutomations } from "./automations.mjs";
 import { createCapabilities } from "./capabilities.mjs";
 import { ModelDiscovery } from "./model-discovery.mjs";
@@ -117,18 +117,17 @@ export function validateRuntimeGraph({ models, routing, permissions }) {
   if (Number(permissions.limits?.maxRounds) < 3) {
     throw Object.assign(new Error("permission maxRounds must allow planner, executor and verifier"), { code: "RUNTIME_GRAPH_INVALID" });
   }
-  const maxBudgetUsdPerTurn = Number(permissions.limits?.maxBudgetUsdPerTurn);
-  const defaultBudgetUsdPerTurn = permissions.limits?.defaultBudgetUsdPerTurn == null
+  // 预算真源只看默认预算（数字 0.05..50 或 "unlimited"=真无限，LO 2026-08-30：硬上限门槛已废）。
+  // 遗留字段 maxBudgetUsdPerTurn（"安全硬上限"）不再读取、不再校验；旧文件里的残留键由 schema anyOf 容忍。
+  const defaultBudgetUnlimited = isUnlimitedBudgetValue(permissions.limits?.defaultBudgetUsdPerTurn);
+  const defaultBudgetUsdPerTurn = permissions.limits?.defaultBudgetUsdPerTurn == null || defaultBudgetUnlimited
     ? null
     : Number(permissions.limits.defaultBudgetUsdPerTurn);
-  if (!Number.isFinite(maxBudgetUsdPerTurn) || maxBudgetUsdPerTurn < 0.05 || maxBudgetUsdPerTurn > 50) {
-    throw Object.assign(new Error("permission maxBudgetUsdPerTurn must be between 0.05 and 50"), { code: "RUNTIME_GRAPH_INVALID" });
-  }
   if (defaultBudgetUsdPerTurn != null
     && (!Number.isFinite(defaultBudgetUsdPerTurn)
       || defaultBudgetUsdPerTurn < 0.05
-      || defaultBudgetUsdPerTurn > maxBudgetUsdPerTurn)) {
-    throw Object.assign(new Error("permission defaultBudgetUsdPerTurn must be between 0.05 and maxBudgetUsdPerTurn"), { code: "RUNTIME_GRAPH_INVALID" });
+      || defaultBudgetUsdPerTurn > 50)) {
+    throw Object.assign(new Error("permission defaultBudgetUsdPerTurn must be between 0.05 and 50, or \"unlimited\""), { code: "RUNTIME_GRAPH_INVALID" });
   }
 }
 

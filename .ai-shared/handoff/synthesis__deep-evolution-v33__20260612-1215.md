@@ -43,4 +43,4 @@ LO 三年反复说"强化不明显"，根因每次相同：不是缺武器，是
 - P1-A route-gate RED↔召唤对账（session_id 归属，诚实版）｜P1-B 逆向角度注入器（真发散引擎）｜P1-C 拔白发降级伪扳机标签
 - P2-A SubagentStop DELTA 哨兵（等真业务 DELTA）｜P2-B PreToolUse 危险拦截（先实测 23333 网关）
 
-__DELTA__: 42-agent深度完善workflow+烛dogfood | 2 | 收敛四维蓝图(P0四条全是激活/校准/减法非堆新)；主驾推翻红队"删Workflow幽灵"改"校正指真harness工具"；烛dogfood抓出stop-gate治理静默失效真bug主驾全修；坐实"引擎接电但灯没人开过"=本轮强化的真问题，当场开灯证伪
+__DELTA__: 42-agent深度完善workflow+烛dogfood | 2 | correctness | 收敛四维蓝图(P0四条全是激活/校准/减法非堆新)；主驾推翻红队"删Workflow幽灵"改"校正指真harness工具"；烛dogfood抓出stop-gate治理静默失效真bug主驾全修；坐实"引擎接电但灯没人开过"=本轮强化的真问题，当场开灯证伪

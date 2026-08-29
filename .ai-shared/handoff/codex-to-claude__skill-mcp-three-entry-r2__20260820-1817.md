@@ -63,4 +63,4 @@ R1 致命回退已补上：物理安装 / CLI live 投影重新落在本机运�
 - `openLocalRuntimeWorkbench` 失败无用户可见反馈
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 烛(Codex) | 1 | 证据：R1 致命已关（ccswitch-panel.js:334-371）；残留弱向导被 capability-flow-ui.test.mjs:24-25 与 config-topology-ui.test.mjs:231 锁死
+__DELTA__: 烛(Codex) | 1 | governance | 证据：R1 致命已关（ccswitch-panel.js:334-371）；残留弱向导被 capability-flow-ui.test.mjs:24-25 与 config-topology-ui.test.mjs:231 锁死

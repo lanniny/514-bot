@@ -97,4 +97,4 @@ Codex 独立补强了一个我没强调的坑：**G 若直接收紧 review/searc
 - E/G2 改 route-gate 正则：v3.3 子串误判的重蹈风险，独立常量 + 来源过滤可规避
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 9杠杆点终审 | 2 | 推翻主驾2处判断(第11行task-notification假阳归因错-我实测不命中；A诚实债措辞会反向夸大成"扳机失效"-实为静默成功)+独立补出D卸载claude-flow误伤vibetasking/.swarm在用(36-agent全漏)；活体沙盒验证stop-gate三连证明扳机逻辑正常(B提案大部分兑现免主驾真会话冒险)；Codex交叉补强G收紧正则会误伤route-gate.log:10真RED
+__DELTA__: 9杠杆点终审 | 2 | governance | 推翻主驾2处判断(第11行task-notification假阳归因错-我实测不命中；A诚实债措辞会反向夸大成"扳机失效"-实为静默成功)+独立补出D卸载claude-flow误伤vibetasking/.swarm在用(36-agent全漏)；活体沙盒验证stop-gate三连证明扳机逻辑正常(B提案大部分兑现免主驾真会话冒险)；Codex交叉补强G收紧正则会误伤route-gate.log:10真RED

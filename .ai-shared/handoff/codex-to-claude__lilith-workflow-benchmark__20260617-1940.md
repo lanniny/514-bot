@@ -54,4 +54,4 @@ LO 要求继续完善莉莉丝，使其逐步接近 Codex CLI / OpenCode 一类�
 - workflow case 目前是 deterministic harness，不是完整 LLM-agent end-to-end coding task。
 - 后续应把同一任务包导出为可由 Codex CLI、OpenCode、Lilith 分别执行的 comparison matrix。
 
-__DELTA__: 烛(Codex) | 1 | 将 Lilith benchmark 从纯 evaluator policy/memory 扩展到 disposable workspace 文件编辑/测试修复/拒绝落盘流，且报告显式保留 parityClaim=false 边界。
+__DELTA__: 烛(Codex) | 1 | correctness | 将 Lilith benchmark 从纯 evaluator policy/memory 扩展到 disposable workspace 文件编辑/测试修复/拒绝落盘流，且报告显式保留 parityClaim=false 边界。

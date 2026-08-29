@@ -20,4 +20,4 @@
 - 独立复核结论 APPROVED，无认证绕过。Windows 顶层窗口枚举已读到 PID 40444、标题 `514cc Console`；内核 PID 9332，`127.0.0.1:51400` 持续监听且 HTTP 根页为 200。
 - 当前桌面端已启动。未 commit、未 push、未 runtime sync。
 
-__DELTA__: 烛(Codex) | 1 | 证据：apps/desktop/src-tauri/src/main.rs:95 补强空旧 token、缺失显式端口与 authority 混淆回归测试
+__DELTA__: 烛(Codex) | 1 | security | 证据：apps/desktop/src-tauri/src/main.rs:95 补强空旧 token、缺失显式端口与 authority 混淆回归测试

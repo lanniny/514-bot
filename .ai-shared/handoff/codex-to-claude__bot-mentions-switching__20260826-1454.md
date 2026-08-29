@@ -36,4 +36,4 @@
 - 隔离预览：`127.0.0.1:51404`，root 与鉴权 bootstrap 均 HTTP 200，projectRoot 回读 `I:\514claude\514cc`；使用独立 data/home，不触碰正式 `51400`。
 - 未 reload 正式实例、未替换 Tauri、未调用真实 provider/SSH、未 commit/push；正式版本仍为 v3.5.0。
 
-__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/public/app.js:16860` 独立复核推翻“全量活动提前聚合”并改为有序协作时间线；`apps/control-center/public/app.js:18595` 补齐同名成员可区分 token；`apps/control-center/src/orchestrator.mjs:264` 将 @ 收件人下沉为服务端 Conversation 成员校验
+__DELTA__: 烛(Codex) | 2 | security | 证据：`apps/control-center/public/app.js:16860` 独立复核推翻“全量活动提前聚合”并改为有序协作时间线；`apps/control-center/public/app.js:18595` 补齐同名成员可区分 token；`apps/control-center/src/orchestrator.mjs:264` 将 @ 收件人下沉为服务端 Conversation 成员校验

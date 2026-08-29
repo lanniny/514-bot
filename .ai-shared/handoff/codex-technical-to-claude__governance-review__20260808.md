@@ -53,4 +53,4 @@
 - 独立 `codex-reviewer` 复核确认两个竞态和截断诚实性问题；没有修改源码。
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 烛(Codex) | 2 | 证据：apps/control-center/public/modules/rail-panels.js:248 行为探针推翻“右栏工具页已完整收口”判断，旧目录响应可覆盖用户后选目录
+__DELTA__: 烛(Codex) | 2 | governance | 证据：apps/control-center/public/modules/rail-panels.js:248 行为探针推翻“右栏工具页已完整收口”判断，旧目录响应可覆盖用户后选目录

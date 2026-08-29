@@ -40,4 +40,4 @@
 - 当前结论：`SOURCE_HARDENED / DELIVERY_BLOCKED / LIVE_UNVERIFIED`。
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/public/app.js:14826、:16462、:16581 与 public/modules/conversation-run-ownership.js:8 补强跨 Conversation 迟到响应、Run 队列和 legacy 所有权边界
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：apps/control-center/public/app.js:14826、:16462、:16581 与 public/modules/conversation-run-ownership.js:8 补强跨 Conversation 迟到响应、Run 队列和 legacy 所有权边界

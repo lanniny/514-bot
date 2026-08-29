@@ -34,4 +34,4 @@ LO 反馈新建群聊只出现少数成员。根因是 `botGroupCandidateMembers
 - 当前 `cc-desktop` 进程没有可见窗口句柄，未执行桌面窗口刷新；重新打开窗口会加载正式 `51400` 当前资源。
 - 未执行 commit/push。
 
-__DELTA__: 烛(Codex) | 2 | 证据：apps/control-center/public/app.js:16029、apps/control-center/src/teams.mjs:427、apps/control-center/src/orchestrator.mjs:1870；独立审查推翻持久化临时团队再回收的旧判断，改为从不写 TeamStore 的服务端校验 run 快照。
+__DELTA__: 烛(Codex) | 2 | correctness | 证据：apps/control-center/public/app.js:16029、apps/control-center/src/teams.mjs:427、apps/control-center/src/orchestrator.mjs:1870；独立审查推翻持久化临时团队再回收的旧判断，改为从不写 TeamStore 的服务端校验 run 快照。

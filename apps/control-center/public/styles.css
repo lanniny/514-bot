@@ -3128,7 +3128,6 @@ pre,
   outline: none;
 }
 
-.budget-pick input,
 .budget-action input {
   width: 4.8rem;
   min-width: 0;
@@ -3140,7 +3139,6 @@ pre,
   text-align: right;
 }
 
-.budget-pick input:focus,
 .budget-action input:focus {
   outline: 2px solid color-mix(in srgb, var(--amber) 45%, transparent);
   outline-offset: 2px;

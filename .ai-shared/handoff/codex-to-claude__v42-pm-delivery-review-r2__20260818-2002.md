@@ -96,5 +96,5 @@ Prompt transport 已能在审计持久化失败或超过 1000ms 时 fail-closed�
 ---
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 烛(Codex) | 2 | 证据：推翻原“R0-R3 实现任务已经做完/工程门 ready 材料已齐”的判断；`apps/control-center/src/release-record.mjs:61` 证明 operator-attested 不能打开工程门，strict gate 仍有 29 个未声明源码/测试且正式实例未 reload/readback。
+__DELTA__: 烛(Codex) | 2 | correctness | 证据：推翻原“R0-R3 实现任务已经做完/工程门 ready 材料已齐”的判断；`apps/control-center/src/release-record.mjs:61` 证明 operator-attested 不能打开工程门，strict gate 仍有 29 个未声明源码/测试且正式实例未 reload/readback。
 __DELTA__: Codex独立探子 | 1 | 证据：`apps/control-center/src/ssh/remote-run.mjs:169` 发现 `|| true` 会伪造远程终止成功；同时补出旧 health 解锁 readiness 与路径字符串抬高 evidence rate，两者已分别在 `first-run-readiness.mjs:33`、`ops-metrics.mjs:106` 收口。

@@ -38,4 +38,4 @@
 
 **APPROVED。** 协作台现在能直接粘贴图片，并能把 PNG/JPEG 发送给已实证支持识图的 Grok Build；原报错链路已从 UI、服务端事实推导、能力路由、执行 owner、续聊附件和持久化原子性六层闭环。WebP/GIF/video 保持保守拒绝，避免把未实证能力包装成已支持。
 
-__DELTA__: 烛(Codex) | 2 | 证据：apps/control-center/src/router.mjs:54、src/orchestrator.mjs:1461/1485/3707 与 src/run-sources.mjs:49 关闭了 taskType 绕过、route/owner 分裂、续聊附件绕过和去重前计数误拒四条原判断未覆盖的路径
+__DELTA__: 烛(Codex) | 2 | architecture | 证据：apps/control-center/src/router.mjs:54、src/orchestrator.mjs:1461/1485/3707 与 src/run-sources.mjs:49 关闭了 taskType 绕过、route/owner 分裂、续聊附件绕过和去重前计数误拒四条原判断未覆盖的路径

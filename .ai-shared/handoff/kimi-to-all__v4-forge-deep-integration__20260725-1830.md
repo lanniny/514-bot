@@ -59,4 +59,4 @@
 - 写 markup 禁用内联 style（CSP）：品牌色走 `data-brand` + team.css 映射，几何量走 CSSOM `el.style.setProperty`。
 - 新增 Lucide 图标：`scripts/vendor-lucide.mjs` 的 names 清单加名后 `node scripts/vendor-lucide.mjs` 重新生成（勿手改 sprite）。
 
-__DELTA__: Kimi(主驾) | 1 | 证据：v4.0 蜂群 9/10 工位交付后，主驾集成收口修掉 5 处断裂（静态白名单/token 竞态/CSP 1313→0/NUL 字节/契约测试），447 测试 0 fail、validate 12/12、11 视图截图 0 控制台错误，CHANGELOG/context 已同步
+__DELTA__: Kimi(主驾) | 1 | security | 证据：v4.0 蜂群 9/10 工位交付后，主驾集成收口修掉 5 处断裂（静态白名单/token 竞态/CSP 1313→0/NUL 字节/契约测试），447 测试 0 fail、validate 12/12、11 视图截图 0 控制台错误，CHANGELOG/context 已同步

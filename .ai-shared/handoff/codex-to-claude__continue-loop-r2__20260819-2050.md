@@ -101,4 +101,4 @@
 残留全是建议级：started 窗口的 abort-safety、假成功绑定口、timeout 后台 interrupt 竞态、前端测试偏字符串、普通轮死锁仍靠取消。这些不阻止本轮合入，但不要把 174/174 绿读成「压缩协议层已有 buggy-must-fail」。
 
 __VERDICT__: APPROVED
-__DELTA__: 烛(Codex) | 1 | 证据：orchestrator.mjs:2687-2901 与 app.js:15700-18186 核过 F1–F5 已修；补强残留见建议 1–4（started 非 abort-safe、turn/started 任意绑定、thread/compacted 无 turnId、timeout interrupt 不等待）
+__DELTA__: 烛(Codex) | 1 | architecture | 证据：orchestrator.mjs:2687-2901 与 app.js:15700-18186 核过 F1–F5 已修；补强残留见建议 1–4（started 非 abort-safe、turn/started 任意绑定、thread/compacted 无 turnId、timeout interrupt 不等待）

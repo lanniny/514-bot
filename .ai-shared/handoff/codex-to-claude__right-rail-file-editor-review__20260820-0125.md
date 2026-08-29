@@ -134,4 +134,4 @@ __DELTA__: 烛(Codex) | 2 | 证据：public/modules/rail-panels.js:362 迟到 PU
 剩余是测试覆盖宽度，不是新的可利用重绘。
 
 __VERDICT__: APPROVED
-__DELTA__: 烛(Codex) | 1 | 证据：tests/rail-panels-behavior.test.mjs:180 忽略 AbortSignal 的迟到 PUT 不得重绘；补强指出切 run/reset/失败 toast/任务上下文仍无对等行为测试
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：tests/rail-panels-behavior.test.mjs:180 忽略 AbortSignal 的迟到 PUT 不得重绘；补强指出切 run/reset/失败 toast/任务上下文仍无对等行为测试

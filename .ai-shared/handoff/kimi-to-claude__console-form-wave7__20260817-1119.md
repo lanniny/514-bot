@@ -35,4 +35,4 @@
 
 LO 反馈"桌面端没看到改动"——静态资源 no-store + 每请求读盘，服务端无缓存；唯一滞后层是 WebView 里已加载的旧页面，而壳没有刷新键。查实登录态兑换后存 sessionStorage，reload 安全。`initializeWindowChrome` 新增壳内 Ctrl+R → `location.reload()`（浏览器模式不受影响），探针 `.scratch/verify-wave7-reload.mjs` 实证重载后 badge 回 is-ok、壳形态与窗口钮恢复。**此后网页资产迭代，壳内 Ctrl+R 即生效**；本轮 LO 需从托盘退出重开一次（内核会被杀，进行中的会话走恢复流程接续）。
 
-__DELTA__: Kimi(514cc-cli) | 1 | 证据：apps/control-center/public/app.js:1140 initializeWindowChrome 手动拖拽语义补齐窗口框合一，探针 12 断言全绿
+__DELTA__: Kimi(514cc-cli) | 1 | correctness | 证据：apps/control-center/public/app.js:1140 initializeWindowChrome 手动拖拽语义补齐窗口框合一，探针 12 断言全绿

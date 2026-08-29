@@ -32,15 +32,44 @@ function markPromptTransportFailure(run, error) {
   run.failureClass = "provider_error";
 }
 
+// 预算"无限"哨兵：run 持久化与 wire 上只允许这个字符串（JSON 存不了 Infinity）。
+// 语义 = 该轮不按美元止损，只受步数/压缩/超时等既定上限兜底（LO 2026-08-30：硬上限门槛已废）。
+export const UNLIMITED_BUDGET = "unlimited";
+
+// 数字预算的防手滑天花板（"无限"不受它管）。遗留真源字段 maxBudgetUsdPerTurn（"安全硬上限"）
+// 已废弃不再读取：resolve 不钳制、运行图不校验，schema 仅容忍旧配置文件里的残留键。
+const BUDGET_NUMERIC_CEILING = 50;
+
+export function isUnlimitedBudgetValue(value) {
+  if (value === null || value === undefined) return false;
+  const raw = String(value).trim().toLowerCase();
+  return raw === UNLIMITED_BUDGET || raw === "∞" || raw === "inf" || raw === "infinity";
+}
+
 export function resolveBudgetUsdPerTurn(value, policy = {}, { legacyDefault = 0.75 } = {}) {
   const limits = policy?.limits || policy || {};
-  const max = Number(limits.maxBudgetUsdPerTurn);
-  const hardMax = Number.isFinite(max) && max >= 0.05 ? Math.min(max, 50) : 2;
+  // "无限"就是无限——不再有硬上限钳制。
+  if (isUnlimitedBudgetValue(value)) return Number.POSITIVE_INFINITY;
+  const defaultRequested = isUnlimitedBudgetValue(limits.defaultBudgetUsdPerTurn)
+    ? Number.POSITIVE_INFINITY
+    : Number(limits.defaultBudgetUsdPerTurn ?? legacyDefault);
   const requested = value !== undefined && value !== null && String(value).trim() !== ""
     ? Number(value)
-    : Number(limits.defaultBudgetUsdPerTurn ?? legacyDefault);
-  const fallback = Number.isFinite(requested) && requested >= 0.05 ? requested : Math.min(legacyDefault, hardMax);
-  return Math.max(0.05, Math.min(fallback, hardMax));
+    : defaultRequested;
+  // +Infinity（无限默认/无限请求）必须原样通过：Number.isFinite 守卫会把它误杀回 legacy 默认
+  const fallback = requested === Number.POSITIVE_INFINITY
+    ? Number.POSITIVE_INFINITY
+    : Number.isFinite(requested) && requested >= 0.05
+      ? requested
+      : Math.min(legacyDefault, BUDGET_NUMERIC_CEILING);
+  if (fallback === Number.POSITIVE_INFINITY) return Number.POSITIVE_INFINITY;
+  return Math.max(0.05, Math.min(fallback, BUDGET_NUMERIC_CEILING));
+}
+
+// adapter 透传用：无限预算 → null（调用方省略 CLI 预算旗标），有限 → 数字。
+function turnBudgetUsdPerTurn(run, policy) {
+  const resolved = resolveBudgetUsdPerTurn(run?.maxBudgetUsdPerTurn, policy);
+  return Number.isFinite(resolved) ? resolved : null;
 }
 
 const MAX_REQUESTED_AGENTS = 4;
@@ -2581,12 +2610,17 @@ export class Orchestrator {
         })))
       : [];
     const maxStepsPerInteraction = Math.max(minimumRounds, Math.min(explicitSteps || effectiveDefault, effectiveCap));
-    const maxBudgetUsdPerTurn = resolveBudgetUsdPerTurn(input.maxBudgetUsdPerTurn, this.policy);
+    // "unlimited" 原样落 run（JSON 可持久化、UI 可回显）；结算与 social 契约用解析值——
+    // 解析出 Infinity 时 social 契约会拒绝（social 协作必须有限预算），普通模式自然永不触发美元止损。
+    const budgetUnlimited = isUnlimitedBudgetValue(input.maxBudgetUsdPerTurn);
+    const maxBudgetUsdPerTurn = budgetUnlimited
+      ? UNLIMITED_BUDGET
+      : resolveBudgetUsdPerTurn(input.maxBudgetUsdPerTurn, this.policy);
     const socialContract = projectSocialContract({
       orchestrationMode,
       maxRounds: maxStepsPerInteraction,
       delegationDepthLimit,
-      maxBudgetUsdPerTurn,
+      maxBudgetUsdPerTurn: budgetUnlimited ? Number.POSITIVE_INFINITY : maxBudgetUsdPerTurn,
     });
     const contextPlan = this.conversationContextPlan({
       conversation,
@@ -3248,7 +3282,8 @@ export class Orchestrator {
       runId: run.id,
       signal: controller.signal,
       permissionMode: effectivePermissionMode,
-      maxBudgetUsd: resolveBudgetUsdPerTurn(run.maxBudgetUsdPerTurn, this.policy),
+      // 无限预算不下发数字上限（adapter 侧 null=省略 --max-budget-usd）；止损仍在 orchestrator 结算层
+      maxBudgetUsd: turnBudgetUsdPerTurn(run, this.policy),
       timeoutMs: this.policy.limits.turnTimeoutMs,
       idleTimeoutMs: this.policy.limits.turnIdleTimeoutMs,
       model: this.effectiveModelFor(run, agentId),
@@ -3826,7 +3861,8 @@ export class Orchestrator {
     await this.emitEvent(run, "run.write_degraded", { agentId, reason }, { runId: run.id, agentId });
   }
 
-  /** 当前交互已知成本止损：只覆盖会回传 costUsd 的 adapter，不冒充所有 provider 的货币硬顶。 */
+  /** 当前交互已知成本止损：只覆盖会回传 costUsd 的 adapter，不冒充所有 provider 的货币硬顶。
+   *  无限预算 → cap=Infinity，`spent >= Infinity` 恒假——美元止损自然关闭，步数上限仍兜底。 */
   budgetExhausted(run) {
     const cap = resolveBudgetUsdPerTurn(run.maxBudgetUsdPerTurn, this.policy) * this.maxStepsForInteraction(run);
     return cap > 0 && Number(run.interactionCostUsd || 0) >= cap;
@@ -3834,6 +3870,8 @@ export class Orchestrator {
 
   markBudgetAttention(run, error, { attemptId = null } = {}) {
     const budget = resolveBudgetUsdPerTurn(run.maxBudgetUsdPerTurn, this.policy);
+    // Infinity 无法 JSON 序列化（会静默变 null）：非有限值显式落 null，事件里不撒谎
+    const budgetForWire = Number.isFinite(budget) ? budget : null;
     const at = new Date().toISOString();
     run.status = "waiting_agent";
     run.failureKind = "budget_exhausted";
@@ -3849,9 +3887,9 @@ export class Orchestrator {
     run.attention = {
       type: "budget_exhausted",
       severity: "warning",
-      maxBudgetUsdPerTurn: budget,
+      maxBudgetUsdPerTurn: budgetForWire,
       interactionCostUsd: Math.max(0, Number(run.interactionCostUsd) || 0),
-      maxInteractionCostUsd: budget * this.maxStepsForInteraction(run),
+      maxInteractionCostUsd: Number.isFinite(budget) ? budget * this.maxStepsForInteraction(run) : null,
       autoResume: false,
       actions: ["adjust_budget", "lower_effort", "send_message"],
     };
@@ -5853,15 +5891,17 @@ ${rosterLine}
           || Object.keys(run.inflightTurns || {}).length) {
           throw Object.assign(new Error("budget cannot change while a provider turn is active"), { code: "RUN_ACTIVE" });
         }
+        // "unlimited" 合法热改：落哨兵原样存储；数字路径维持既有钳制（≥0.05，硬上限内）
+        const unlimitedRequested = isUnlimitedBudgetValue(patch.maxBudgetUsdPerTurn);
         const requested = Number(patch.maxBudgetUsdPerTurn);
-        if (!Number.isFinite(requested) || requested < 0.05) {
-          throw Object.assign(new Error("maxBudgetUsdPerTurn must be at least 0.05"), { code: "VALIDATION_FAILED" });
+        if (!unlimitedRequested && (!Number.isFinite(requested) || requested < 0.05)) {
+          throw Object.assign(new Error("maxBudgetUsdPerTurn must be at least 0.05 or \"unlimited\""), { code: "VALIDATION_FAILED" });
         }
-        const next = resolveBudgetUsdPerTurn(requested, this.policy);
-        const current = resolveBudgetUsdPerTurn(run.maxBudgetUsdPerTurn, this.policy);
+        const next = unlimitedRequested ? UNLIMITED_BUDGET : resolveBudgetUsdPerTurn(requested, this.policy);
+        const current = run.maxBudgetUsdPerTurn;
         if (next !== current) {
           run.maxBudgetUsdPerTurn = next;
-          changes.push({ field: "maxBudgetUsdPerTurn", from: current, to: next });
+          changes.push({ field: "maxBudgetUsdPerTurn", from: resolveBudgetUsdPerTurn(current, this.policy), to: resolveBudgetUsdPerTurn(next, this.policy) });
         }
       }
 

@@ -84,4 +84,4 @@ SSH 三份宿主副本已统一；research 与 Vivado frontmatter 已修；陈�
 
 烛先后发现三个主线自审遗漏：marker 根键静默删除、Apply 部分同步、允许命名空间下点号键绕过。主线修复并补回归后，独立定向复核结论为 `APPROVED`，无剩余致命问题或建议。
 
-__DELTA__: 烛(Codex) | 2 | 发现并推动修复 managed-block 根键/点号键静默删除与 Apply 部分同步；最终定向复核 APPROVED（merge_codex_config.py:347/354，test_merge_codex_config.py:126/134）。
+__DELTA__: 烛(Codex) | 2 | correctness | 发现并推动修复 managed-block 根键/点号键静默删除与 Apply 部分同步；最终定向复核 APPROVED（merge_codex_config.py:347/354，test_merge_codex_config.py:126/134）。

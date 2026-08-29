@@ -42,4 +42,4 @@ LO 截图中的“移出通讯录”确认框仍继承旧 Claude/Forge 暖纸弹
 - 正式资源激活与桌面窗口可见性分层记录；HTTP 静态资源命中不能替代正式窗口截图。
 - 工作区有大量并发改动；未 reset/checkout/clean，未 commit/push。
 
-__DELTA__: 烛(Codex) | 2 | 证据：apps/control-center/public/app.js:2306、apps/control-center/public/app.js:2357、apps/control-center/.qa-output/bot-communications-qa.mjs:605；独立复核连续推翻强制 close、席位工作区直关和 stale route 三项判断，最终形成可验证的弹窗与脏草稿路由生命周期。
+__DELTA__: 烛(Codex) | 2 | observability | 证据：apps/control-center/public/app.js:2306、apps/control-center/public/app.js:2357、apps/control-center/.qa-output/bot-communications-qa.mjs:605；独立复核连续推翻强制 close、席位工作区直关和 stale route 三项判断，最终形成可验证的弹窗与脏草稿路由生命周期。

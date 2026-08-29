@@ -572,8 +572,7 @@
             "turnTimeoutMs",
             "maxRounds",
             "maxDepth",
-            "maxParallelAgents",
-            "maxBudgetUsdPerTurn"
+            "maxParallelAgents"
           ],
           "properties": {
             "turnTimeoutMs": {
@@ -602,14 +601,28 @@
               "maximum": 16
             },
             "defaultBudgetUsdPerTurn": {
-              "type": "number",
-              "minimum": 0.05,
-              "maximum": 50
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.05,
+                  "maximum": 50
+                },
+                {
+                  "const": "unlimited"
+                }
+              ]
             },
             "maxBudgetUsdPerTurn": {
-              "type": "number",
-              "minimum": 0.05,
-              "maximum": 50
+              "anyOf": [
+                {
+                  "type": "number",
+                  "minimum": 0.05,
+                  "maximum": 50
+                },
+                {
+                  "const": "unlimited"
+                }
+              ]
             }
           },
           "additionalProperties": false

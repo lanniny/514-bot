@@ -34,4 +34,4 @@
 
 「waiting_agent」一态两用（轮中瞬态 + 挂起恒态）是观测面陷阱：状态机写入方与观测方必须以所有权/权威字段为准，不能靠状态对的配对时序。Cursor 的"flaky 待时序加固"判断被测试 dump + 探针轨迹推翻——**全量并发才红的测试优先怀疑真竞态，不要先归因测试**。
 
-__DELTA__: 主驾(Kimi) | 2 | 证据：orchestrator.mjs execute 收尾 pausedForInput 被 resumePendingAsk 清掉后误判收敛写 succeeded（探针轨迹 ec1d145b：run.completed 替代 run.waiting_input、execute entry status=succeeded 早退），推翻"测试 flaky 待时序加固"的定性
+__DELTA__: 主驾(Kimi) | 2 | correctness | 证据：orchestrator.mjs execute 收尾 pausedForInput 被 resumePendingAsk 清掉后误判收敛写 succeeded（探针轨迹 ec1d145b：run.completed 替代 run.waiting_input、execute entry status=succeeded 早退），推翻"测试 flaky 待时序加固"的定性

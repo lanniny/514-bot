@@ -61,4 +61,4 @@ Lilith validation passed.
 2. Add competitor comparison report fields once Codex/OpenCode cases are run.
 3. Add runtime sync script and install gates for Pi/Codex/Claude/Cursor.
 
-__DELTA__: 烛(Codex) | 1 | Lilith 达到 20-case 本地 regression 门槛，并补上 skill_candidate 反思候选；但仍把 Codex/OpenCode parity 标为未验证边界。
+__DELTA__: 烛(Codex) | 1 | security | Lilith 达到 20-case 本地 regression 门槛，并补上 skill_candidate 反思候选；但仍把 Codex/OpenCode parity 标为未验证边界。

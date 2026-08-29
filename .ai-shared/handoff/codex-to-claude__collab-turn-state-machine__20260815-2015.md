@@ -96,4 +96,4 @@ social 全量卡住更像既有测试闸 + `close()` 无超时排空，不能扣
 - 前端停止成功 toast 在批准抢赢时会撒谎。
 
 __VERDICT__: CHANGES_REQUESTED
-__DELTA__: 烛(Codex) | 1 | 证据：orchestrator.mjs:2048-2071 accept 无锁 + execute():2708 不认 interrupted，补强「只调 deny 顺序就安全」——Approve∥Stop 仍能在撤回后开跑
+__DELTA__: 烛(Codex) | 1 | architecture | 证据：orchestrator.mjs:2048-2071 accept 无锁 + execute():2708 不认 interrupted，补强「只调 deny 顺序就安全」——Approve∥Stop 仍能在撤回后开跑

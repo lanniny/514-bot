@@ -35,4 +35,4 @@ Verified:
 - Global `~/.codex/config.toml` and `~/.codex/hooks.json` parse successfully.
 - Backup created at `.ai-shared/backups/codex-runtime-20260616-204012/`.
 
-__DELTA__: 烛(Codex) | 2 | Overturned the pointer-only AGENTS strategy and then caught/fixed a real mojibake regression from embedding Chinese in a PowerShell 5.1 script; final state makes AGENTS itself carry the AEMEATH/Codex persona with verified UTF-8 runtime content.
+__DELTA__: 烛(Codex) | 2 | security | Overturned the pointer-only AGENTS strategy and then caught/fixed a real mojibake regression from embedding Chinese in a PowerShell 5.1 script; final state makes AGENTS itself carry the AEMEATH/Codex persona with verified UTF-8 runtime content.

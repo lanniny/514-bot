@@ -27,4 +27,4 @@
 - 工作区仍保留未提交的 `.scratch`、`.pyc`、Cursor 生成物及 QA 证据；没有 reset/checkout/清理它们。
 - 正式版本真源仍是 `rules.md` v3.5.0；本次不修改版本号、不创建 tag/release。
 
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/scripts/qa-delivery-manifest.mjs 将交付清单对齐 Git ignore 语义；独立提交边界审计阻止 QA/锁/探针产物进入快照
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：apps/control-center/scripts/qa-delivery-manifest.mjs 将交付清单对齐 Git ignore 语义；独立提交边界审计阻止 QA/锁/探针产物进入快照

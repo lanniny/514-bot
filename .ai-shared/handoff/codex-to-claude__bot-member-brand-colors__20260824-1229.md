@@ -26,4 +26,4 @@
 - 当前 `cc-desktop` 无可见窗口句柄，未执行桌面刷新；重新打开窗口会从正式实例读取当前资源。
 - 未执行 commit/push。
 
-__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/public/modules/avatars.js:18、apps/control-center/public/styles.css:6485、apps/control-center/public/forge/bot-shell.css:161；统一修复官方 SVG 品牌标记、fill 与头像底色。
+__DELTA__: 烛(Codex) | 1 | correctness | 证据：apps/control-center/public/modules/avatars.js:18、apps/control-center/public/styles.css:6485、apps/control-center/public/forge/bot-shell.css:161；统一修复官方 SVG 品牌标记、fill 与头像底色。

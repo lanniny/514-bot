@@ -35,4 +35,4 @@ session: 本轮无 route-gate session marker，不编造
 - PTY：磁盘 `remote-gates.grants.json` **已有 pty grant**（2026-07-25）；无 revocation。未再写授权、未重启内核——等 LO 确认后拉起再浏览器回验
 - Claude Forge：只清了 `#e11d48` / `#b4234d` 玫瑰红 fallback；Lucide-only / 零表情 / 多视口验收未完成本轮
 
-__DELTA__: 主驾 | 1 | 证据：codex-app-server.mjs finalizeActive 异常终态改 partial_message；app.js GOVERNANCE_EVENTS 登记 context_compaction_*；orchestrator 压缩窗口 abort 作废线程测试已绿
+__DELTA__: 主驾 | 1 | governance | 证据：codex-app-server.mjs finalizeActive 异常终态改 partial_message；app.js GOVERNANCE_EVENTS 登记 context_compaction_*；orchestrator 压缩窗口 abort 作废线程测试已绿

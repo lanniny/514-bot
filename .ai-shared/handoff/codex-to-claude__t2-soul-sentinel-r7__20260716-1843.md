@@ -82,4 +82,4 @@
 - 建议A 的元验收缺口若长期不补，未来若有人误删/改坏 json_valid 逻辑，meta baseline 不会报警（只有 contract 的正向用例会红）——记一笔，非急件。
 
 __VERDICT__: SECURE
-__DELTA__: 烛R7(主审确定性脚本验证,未调Codex) | 1 | 补强主驾——把 4 环加固从"主驾自评 21/21+4/4+单点"提升到机械证明：注入失败真 exit=1（R6 `baseline_forced_failure` 原始发现验回，test_mirror_gate_contract.py:201 / test_meta_baseline.py:188）+ AST 全模块 stdout.write 恰[373]单点（建议3 改 main 未引第二 write，mirror-gate.py:373）+ 6 畸形返回全 fail-open 不冒泡 + wrap 抛降级 SOUL 不丢；另提建议A（INV4a/b/c 新守卫缺元验收，改进级）
+__DELTA__: 烛R7(主审确定性脚本验证,未调Codex) | 1 | security | 补强主驾——把 4 环加固从"主驾自评 21/21+4/4+单点"提升到机械证明：注入失败真 exit=1（R6 `baseline_forced_failure` 原始发现验回，test_mirror_gate_contract.py:201 / test_meta_baseline.py:188）+ AST 全模块 stdout.write 恰[373]单点（建议3 改 main 未引第二 write，mirror-gate.py:373）+ 6 畸形返回全 fail-open 不冒泡 + wrap 抛降级 SOUL 不丢；另提建议A（INV4a/b/c 新守卫缺元验收，改进级）
