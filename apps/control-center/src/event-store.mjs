@@ -185,6 +185,134 @@ function throwIfAborted(signal) {
   if (signal?.aborted) throw abortError(signal.reason);
 }
 
+// --- 追加式哈希链（F-048）---------------------------------------------------
+//
+// 每条事件携带两个字段：
+//   prev = 前一条事件的链哈希（首条为 CHAIN_GENESIS）
+//   hash = sha256(prev + "\n" + <本行 JSON，其中 hash 值为空占位>)
+//
+// 为什么用"先留空占位、算完再回填"的两步写：哈希要覆盖整行原文，但哈希值本身
+// 又必须写在这一行里。占位回填只需一次 lastIndexOf + 切片，比"二次序列化整对象"
+// 便宜一个数量级，且验证时同样对**原始行文本**操作——不经过 JSON 往返，因此不受
+// 外部工具重排版（缩进/键序）影响，也就不存在"文件被重排就误报篡改"的假阳性。
+//
+// 占位字段恒为对象的最后一个键，故 lastIndexOf 定位不会被 data 内的同名文本干扰。
+
+export const CHAIN_ALGO = "sha256";
+export const CHAIN_GENESIS = "genesis";
+const CHAIN_HASH_KEY = '"hash":"';
+const CHAIN_PREV_KEY = '"prev":"';
+const CHAIN_HASH_PLACEHOLDER = `${CHAIN_HASH_KEY}"`;
+
+function chainHashOf(prevHash, rawLine) {
+  return createHash(CHAIN_ALGO).update(prevHash, "utf8").update("\n").update(rawLine, "utf8").digest("base64url");
+}
+
+// 从原始行里取出某个键的字符串值。before 用于限定只在该位置之前搜索，
+// 使得 prev（倒数第二个键）不会被 data 内的同名文本误命中。
+function readChainField(rawLine, key, before = rawLine.length) {
+  const at = rawLine.lastIndexOf(key, before);
+  if (at === -1) return null;
+  const start = at + key.length;
+  const end = rawLine.indexOf('"', start);
+  if (end === -1) return null;
+  return { value: rawLine.slice(start, end), start, end };
+}
+
+/**
+ * 校验一行在链上的位置。
+ *  - { legacy: true }      无 hash 字段（F-048 之前写入的历史行），不参与校验
+ *  - { malformed: true }   有 hash 键但结构不完整（缺闭引号）
+ *  - { ok, hashOk, prevOk, stored, computed, prev }
+ */
+function inspectChainLine(rawLine, prevHash) {
+  const hashField = readChainField(rawLine, CHAIN_HASH_KEY);
+  if (!hashField) return { legacy: true };
+  const prevField = readChainField(rawLine, CHAIN_PREV_KEY, hashField.start);
+  if (prevField === undefined) return { malformed: true };
+  // 把 hash 值清空，还原成写入哈希时的形态
+  const stripped = `${rawLine.slice(0, hashField.start)}${rawLine.slice(hashField.end)}`;
+  const computed = chainHashOf(prevHash, stripped);
+  const prev = prevField?.value ?? null;
+  const hashOk = computed === hashField.value;
+  const prevOk = (prev ?? CHAIN_GENESIS) === prevHash;
+  return {
+    ok: hashOk && prevOk,
+    // 分开判定，让断裂原因可诊断：hash 依赖 prev，所以"删掉一条"会同时让两者
+    // 都不匹配，但根因是前驱缺失。先判 prev 才能报出真正的原因。
+    hashOk,
+    prevOk,
+    stored: hashField.value,
+    computed,
+    prev,
+  };
+}
+
+/** 把空占位回填为真实哈希，得到最终落盘行。 */
+function finalizeChainLine(rawLine, hash) {
+  const at = rawLine.lastIndexOf(CHAIN_HASH_PLACEHOLDER);
+  if (at === -1) return rawLine;
+  const start = at + CHAIN_HASH_KEY.length;
+  return `${rawLine.slice(0, start)}${hash}${rawLine.slice(start)}`;
+}
+
+/**
+ * 累积式链校验器：喂原始行，输出链状态。
+ * 遗留段（无 hash 的行）会把链切断并从 CHAIN_GENESIS 重新起链，
+ * 这样 F-048 之前的历史文件可以平滑升级，而不是整体判为不可信。
+ */
+function createChainInspector() {
+  let prev = CHAIN_GENESIS;
+  const status = {
+    ok: true,
+    checked: 0,
+    legacy: 0,
+    malformed: 0,
+    segments: 1,
+    breaks: [],
+    tip: CHAIN_GENESIS,
+  };
+  return {
+    status,
+    onLine(rawLine, lineNo) {
+      if (!rawLine.trim()) return;
+      const result = inspectChainLine(rawLine, prev);
+      if (result.legacy) {
+        status.legacy += 1;
+        if (status.checked > 0 || prev !== CHAIN_GENESIS) status.segments += 1;
+        prev = CHAIN_GENESIS;
+        status.tip = CHAIN_GENESIS;
+        return;
+      }
+      if (result.malformed) {
+        status.malformed += 1;
+        status.ok = false;
+        status.breaks.push({ line: lineNo, reason: "malformed-hash-field" });
+        // 结构已损坏，无法得知它本该的哈希。重新起链，让后续至少内部自洽，
+        // 断裂本身已记入 breaks，不会被掩盖。
+        if (status.checked > 0) status.segments += 1;
+        prev = CHAIN_GENESIS;
+        status.tip = CHAIN_GENESIS;
+        return;
+      }
+      status.checked += 1;
+      if (!result.ok) {
+        status.ok = false;
+        status.breaks.push({
+          line: lineNo,
+          reason: result.prevOk === false ? "prev-mismatch" : "hash-mismatch",
+          expectedPrev: prev,
+          actualPrev: result.prev,
+        });
+      }
+      // 以文件里存的值继续向后链接：即便这一条已被改坏，
+      // 也能继续定位后续断裂，而不是一次性放弃整条链。
+      prev = result.stored || result.computed;
+      status.tip = prev;
+    },
+  };
+}
+
 async function* boundedLfLines(input, maxLineBytes) {
   const decoder = new TextDecoder("utf-8", { fatal: true });
   let parts = [];
@@ -243,6 +371,7 @@ export class EventStore {
     maxHistoricalEventBytes = DEFAULT_MAX_HISTORICAL_EVENT_BYTES,
     maxPendingRunLoads = DEFAULT_MAX_PENDING_RUN_LOADS,
     onRunIndexScan = null,
+    verifyChain = true,
   } = {}) {
     this.path = path;
     this.sequence = 0;
@@ -286,6 +415,13 @@ export class EventStore {
     this.readTasks = new Set();
     this.lifecycleAbort = new AbortController();
     this.accepting = true;
+    // 注意：字段名不能叫 verifyChain —— 会遮蔽原型上的同名方法。
+    this.verifyChainOnLoad = verifyChain !== false;
+    // 链状态（F-048）。chainTip 是下一条事件要引用的 prev；
+    // chainFault 记录"已落盘失败"的写入——此时链必然断裂，必须显式可见。
+    this.chainTip = CHAIN_GENESIS;
+    this.chainStatus = null;
+    this.chainFault = null;
   }
 
   #closedError() {
@@ -400,12 +536,20 @@ export class EventStore {
     this.runIndexInflight.clear();
     this.pendingRunLoadBatch = null;
     this.initializing = true;
+    const inspector = this.verifyChainOnLoad ? createChainInspector() : null;
     try {
-      for await (const event of this.iterate()) {
+      // 索引与链校验共用一次顺序扫描：onRawLine 拿原文做哈希，
+      // yield 出来的对象照旧用于建索引。多出的成本只有 lastIndexOf + 比较。
+      const options = inspector ? { onRawLine: (line, lineNo) => inspector.onLine(line, lineNo) } : undefined;
+      for await (const event of this.iterate(options)) {
         this.sequence = Math.max(this.sequence, eventSequence(event));
         this.#index(event);
       }
       this.#throwIfClosed();
+      if (inspector) {
+        this.chainTip = inspector.status.tip;
+        this.chainStatus = inspector.status;
+      }
       for (const key of this.byRun.keys()) {
         if (!this.initIncompleteRunFilter.has(key)) this.completeRunIndexes.add(key);
       }
@@ -444,10 +588,27 @@ export class EventStore {
       ...(sourceRefs.length ? { sourceRefs } : {}),
       data,
     });
-    const line = `${JSON.stringify(event)}\n`;
+    // 哈希链（F-048）：prev/hash 必须在 sanitize 之后附加，否则可能被脱敏改写。
+    // 整段计算保持在第一个 await 之前，使并发 emit 各自拿到不同的 prev。
+    const prevTip = this.chainTip;
+    event.prev = prevTip;
+    event.hash = "";
+    const stubLine = JSON.stringify(event);
+    const hash = chainHashOf(prevTip, stubLine);
+    const finalized = finalizeChainLine(stubLine, hash);
+    if (finalized === stubLine) {
+      // 占位丢失意味着这条事件落盘后没有哈希，链会静默断裂。不该发生，
+      // 但宁可显式标出故障，也不能让一条无哈希的事件混进 append-only 日志。
+      this.chainFault = { sequence: this.sequence, reason: "chain-placeholder-missing" };
+    }
+    event.hash = hash;
+    this.chainTip = hash;
+
+    const line = `${finalized}\n`;
     const lineBytes = Buffer.byteLength(line, "utf8");
     if (lineBytes > this.maxEventBytes) {
       this.sequence -= 1;
+      this.chainTip = prevTip;
       throw Object.assign(new Error(`event exceeds ${this.maxEventBytes} byte persistence limit`), {
         code: "EVENT_TOO_LARGE",
         bytes: lineBytes,
@@ -456,7 +617,18 @@ export class EventStore {
     }
     const write = this.writeChain.catch(() => {}).then(() => appendFile(this.path, line, "utf8"));
     this.writeChain = write;
-    await write;
+    try {
+      await write;
+    } catch (error) {
+      // 未落盘但 tip 已推进：后续事件的 prev 会指向一个文件中不存在的哈希，
+      // verifyChain 必然报 prev-mismatch —— 故障不会悄悄消失。
+      this.chainFault = {
+        sequence: this.sequence,
+        reason: "append-failed",
+        message: String(error?.message ?? error),
+      };
+      throw error;
+    }
     this.#index(event, lineBytes);
     for (const subscriber of this.subscribers) {
       try {
@@ -813,15 +985,42 @@ export class EventStore {
   }
 
   // 顺序流式扫描历史日志。signal 用于 SSE 断连时立即销毁底层句柄，避免后台继续扫大文件。
-  async *iterate({ afterSequence = 0, signal } = {}) {
+  /**
+   * 全量重扫并校验哈希链（F-048）。init 时已随索引扫描做过一次，结果留在
+   * `chainStatus`；这里供运行期按需复核——导出审计报告、或怀疑文件被外部改动时。
+   * 只读：不改动 chainTip，也不因校验失败抛错（断裂体现在返回值的 breaks 里）。
+   */
+  async verifyChain({ signal } = {}) {
+    this.#throwIfClosed();
+    const inspector = createChainInspector();
+    return this.#trackRead((async () => {
+      // 只关心原始行；解析结果无用，但仍需驱动 generator 走完整个扫描。
+      const scan = this.iterate({
+        signal,
+        onRawLine: (line, lineNo) => inspector.onLine(line, lineNo),
+      });
+      for (;;) {
+        const step = await scan.next();
+        if (step.done) break;
+      }
+      return { ...inspector.status, fault: this.chainFault };
+    })());
+  }
+
+  // onRawLine 在 JSON 解析**之前**拿到原始行，供哈希链校验使用（F-048）。
+  // 走同一套 boundedLfLines，保证验证与索引看到完全相同的行切分。
+  async *iterate({ afterSequence = 0, signal, onRawLine = null } = {}) {
     const effectiveSignal = signal
       ? AbortSignal.any([signal, this.lifecycleAbort.signal])
       : this.lifecycleAbort.signal;
     if (effectiveSignal.aborted) return;
     const input = createReadStream(this.path, { signal: effectiveSignal });
+    let lineNo = 0;
     try {
       for await (const line of boundedLfLines(input, this.maxHistoricalEventBytes)) {
         if (effectiveSignal.aborted) break;
+        lineNo += 1;
+        if (onRawLine) onRawLine(line, lineNo);
         if (!line.trim()) continue;
         try {
           const event = JSON.parse(line);
