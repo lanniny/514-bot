@@ -1,1 +1,0 @@
-{"schemaVersion":1,"eventId":"aa21c070-50ad-4853-87c8-a890435b7ab7","sequence":1,"timestamp":"2026-07-27T11:21:19.987Z","type":"automation.created","runId":null,"sessionId":null,"parentSessionId":null,"agentId":"control-plane","correlationId":null,"causationId":null,"sensitivity":"internal","data":{"id":"cbe4ebb6-912e-4c7b-96ba-7ce96b7d3064","name":"体系体检","schedule":"manual"}}

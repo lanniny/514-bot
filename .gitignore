@@ -18,6 +18,7 @@ apps/desktop/dist/
 
 # 运行时备份与测试残留
 .ai-shared/backups/
+.qa-output/
 apps/control-center/.qa-output/
 apps/control-center/.test-*/
 *.log
@@ -25,13 +26,78 @@ apps/desktop/src-tauri/.cargo-test-diagnostic.*
 
 # 根级临时验证截图
 /*.png
+/*.jpg
+/*.jpeg
+/*.webp
 .ai-shared/tmp/
+
+# 含凭证的运行时产物（F-003：ccswitch-proxy.json 内含代理 token）
+.ai-shared/control-center-preview/data/ccswitch-proxy.json
+.ai-shared/control-center-preview/data/control-center.lock
+.ai-shared/control-center-preview/data/events.jsonl
+
+# 运行时复现数据（体积大且可再生，见 F-011）
+apps/control-center/.repro-data/
+apps/control-center/.repro2-data/
+apps/control-center/.scratch-*
+apps/control-center/.dbg-data/
+apps/control-center/debug-provider-*/
+.repro-*
 __pycache__/
 apps/control-center/.scratch/
 
 # 临时 QA 数据与调试产物（不纳入版本库）
 .tmp/
 apps/control-center/.tmp/
-.scratch/grok-image-route-qa-data/
-.scratch/multimodal-live-qa/
-.scratch/grok-image-route-qa-input.png
+
+# .scratch 整体：QA 数据 / 第三方源码副本 / 调试日志，一律不入库
+# （366MB / 1802 文件，曾误入库，见 F-011）
+# 如需保留个别脚本，用 `git add -f` 显式加入
+.scratch/
+
+# Auto-generated entries
+# Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build outputs
+dist/
+build/
+*.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Sensitive files (auto-detected)
+.tmp
+debug.log
+
+
+# QA 视觉回归与调试产物（e2e 截图 / 调试转储 / 临时脚本）
+apps/control-center/.dbg-*
+apps/control-center/.test-*
+apps/control-center/e2e-*.png
+apps/control-center/debug-provider-*/
+
+# 第三方 AI 工具的项目内状态目录
+.qoder/
+.qoder-cn/

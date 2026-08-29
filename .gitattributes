@@ -1,0 +1,17 @@
+# 钩子脚本必须保持 LF：CRLF 会破坏 shebang，使钩子静默失效
+.githooks/* text eol=lf
+
+# 脚本类文件统一 LF，避免跨平台的解释器/换行问题
+*.sh text eol=lf
+scripts/**/*.mjs text eol=lf
+
+# 显式声明二进制，避免 Git 尝试做文本差异与换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.webp binary
+*.zip binary
+*.pdf binary

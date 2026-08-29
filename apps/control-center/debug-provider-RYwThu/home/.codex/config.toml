@@ -1,5 +1,0 @@
-sandbox_mode = "workspace-write"
-ANTHROPIC_AUTH_TOKEN = "sk-live-oldtoken123456"
-
-[projects.'I:\\x']
-trust_level = "trusted"

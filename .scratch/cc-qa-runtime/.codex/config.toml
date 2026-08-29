@@ -1,9 +1,0 @@
-model_provider = "forge"
-model = "gpt-5-codex"
-model_reasoning_effort = "high"
-
-# >>> 514-forge-provider (provider-10b7029b-f333-4d20-aa33-20c111fdc162) >>>
-[model_providers.forge]
-base_url = "https://api.packycode.com/v1"
-wire_api = "responses"
-# <<< 514-forge-provider <<<

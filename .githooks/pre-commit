@@ -1,0 +1,67 @@
+#!/bin/sh
+# ---------------------------------------------------------------------------
+# F-004  pre-commit 密钥拦截
+#
+# 514cc 的远程 lanniny/514-bot 是 GitHub **公开**仓库。一旦密钥进入提交并推送，
+# 即视为永久公开。本钩子是"提交前闸门"，在密钥离开本机之前拦住它。
+#
+# 启用方式（仓库根执行，只需一次）：
+#     git config core.hooksPath .githooks
+#
+# 临时豁免（仅在确认是测试数据时使用，且必须写明理由）：
+#     在命中行的行尾加注释：  # gitleaks:allow
+# ---------------------------------------------------------------------------
+
+set -e
+
+# 高置信度密钥特征。故意只保留误报率极低的模式——
+# 钩子天天误报就会被绕过，那比没有钩子更糟。
+PATTERN='sk-[A-Za-z0-9]{28,}|ghp_[A-Za-z0-9]{30,}|gho_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{40,}|xox[baprs]-[A-Za-z0-9-]{20,}|AIza[0-9A-Za-z_-]{30,}|AKIA[0-9A-Z]{16}|tEP1_[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+
+# 已知占位符 / 官方文档示例值，不算泄露
+PLACEHOLDER='AKIAIOSFODNN7EXAMPLE|YOUR_GITHUB_PAT_HERE|sk-1234567890|sk-codex|abcdefghijklmn|EXAMPLE'
+
+# 只检查本次提交新增的行（-U0 去掉上下文，避免把既有代码误判为本次新增）
+staged_added=$(git diff --cached --diff-filter=ACM -U0 2>/dev/null | grep -E '^\+' || true)
+[ -z "$staged_added" ] && exit 0
+
+# 行内豁免：# gitleaks:allow
+filtered=$(printf '%s\n' "$staged_added" | grep -vE 'gitleaks:allow' || true)
+[ -z "$filtered" ] && exit 0
+
+hits=$(printf '%s\n' "$filtered" \
+  | grep -oE "$PATTERN" \
+  | grep -vE "$PLACEHOLDER" \
+  | sort -u || true)
+
+if [ -n "$hits" ]; then
+  cat >&2 <<'EOF'
+
+===========================================================================
+ [F-004] 提交已阻断：暂存区疑似包含密钥
+===========================================================================
+ 远程 lanniny/514-bot 是公开仓库。密钥一旦推送即永久公开，
+ 且从历史中清除需要 filter-repo 重写 + 强制推送。
+EOF
+
+  # 逐个显示命中（脱敏：只给前缀和长度，不让完整值再次落到终端/日志）
+  printf '%s\n' "$hits" | while IFS= read -r h; do
+    printf '   - %s...  (长度 %s)\n' "$(printf '%s' "$h" | cut -c1-8)" "${#h}" >&2
+  done
+
+  cat >&2 <<'EOF'
+
+ 处理顺序：
+   1. 确认它是真实凭证 → 立即到服务商后台轮换，不要只删文件
+   2. 从暂存区移除含密文件：git restore --staged <file>
+   3. 把该文件加入 .gitignore，或改为读取环境变量
+   4. 确属测试夹具（fixture）→ 在行尾加  # gitleaks:allow  并写明理由
+
+ 绕过闸门（不推荐，后果自负）：git commit --no-verify
+===========================================================================
+
+EOF
+  exit 1
+fi
+
+exit 0
