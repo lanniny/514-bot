@@ -369,6 +369,198 @@ CC-Switch 工作台新增第一个 tab「环境」——9 张 CLI 卡片墙对�
 - **修复（沿用 codex/grok 先例）**：`process-runner.mjs resolveCommand` 给 kimi 加已知安装路径回退 `~/.kimi-code/bin/kimi.exe`（grok 的 `~/.grok/bin`、codex 的 vendor 路径同款注释模式）——内核解析 kimi 不再依赖启动 shell 的 PATH 状态，环境面板/运行席位/会话恢复全链受益。
 - **验证**：新增单测「kimi resolves to ~/.kimi-code/bin when PATH omits it」（仿 grok 用例，临时 home 桩 + 裸 System32 PATH）；实机复现脚本实证——剥离 `.kimi-code\bin` 的 PATH 下 `resolveCommand` 回退命中真实 `kimi.exe`、`runProcess --version` exit 0 输出 0.31.1；`tests/redaction-jsonl.test.mjs` 19 例全绿；全量 `npm test` 回归。回退 = 还原 process-runner.mjs kimi 回退块与该单测。**注意**：运行中的桌面端需重启服务进程（非 Ctrl+R）才能吃到本修复。
 
+### 全局壁纸波（2026-08-28，LO 参考 elysia395/dsh-wallpaper-engine「想要整个界面有一样的 wallpaper 壁纸同步功能」）
+
+对标 dsh-wallpaper-engine 的核心心智——壁纸是**整个界面**的全局设置而非实体属性——补齐团队壁纸引擎缺的最后一块：
+
+- **外观面板新增「全局壁纸」卡**（`index.html` + `app.js`）：壁纸选择色板（5 预设 + 无壁纸 + 自定义，全局语境下 "none" 标签改写「无壁纸」避免歧义）/ 自定义图片·视频上传（复用 8MB·64MB 限额）/ 适配模式四选（覆盖·适应·居中·拉伸，`[data-bg-fit]` CSS 三档新增，团队路径恒 cover 不受扰）/ **覆盖团队壁纸**开关（开=全局优先；关=团队自设壁纸时让位、内置团队兜底透出）/ **自动轮播**（1/5/10/30/60 分钟 + 顺序/随机，页面隐藏不切换，签名守卫不重置计时相位）。
+- **偏好双写通道**：`514cc-global-wallpaper`（JSON 快照 ≤512 字符）进前端 `APPEARANCE_PREF_KEYS` 与服务端 `PREFERENCE_KEYS` 白名单——跨端口/换壳不丢；「恢复默认」一并重置（只清偏好不删媒体字节）。
+- **服务端 `/api/wallpapers/global`**（GET/POST/DELETE）：复用 team-backgrounds 字节管线（avatars store 按 `safeFileStem` 落盘，伪 id `__global__`），不挂团队存在性校验；渲染完全复用团队壁纸的 stage 媒体层与 `team-bg-active` 玻璃透出门控——层只有一份，全局/团队谁生效谁占用，`applyActiveTeamBackground` 顶部判优先级 + `globalWallpaperApplyToken` 竞态守卫防跨路径串层。
+- **视觉 QA**：`scripts/qa-global-wallpaper-visual.mjs`（Playwright 四连拍：外观面板 → 选极光 → 协作台透出 → 跨页同壁纸）。
+
+验证：新增 `tests/global-wallpaper-http.test.mjs` 2 例全绿（鉴权 401 / 404 BACKGROUND_NOT_FOUND 语义 / 字节往返一致 / 幂等 DELETE / 跨进程持久化 / 偏好白名单收编+陌生键丢弃）；`tests/team-wallpaper-sync-contract.test.mjs` 7/7、`ambient-ui-contract` + `avatars-http` + `team-workspace-ui` + `team-panel` + `avatars-ui` 合计 52 例零回归；真机隔离实例视觉冒烟四连拍亲查（`e2e-globalwp-*.png`，选极光后 body[data-team-bg]=aurora + team-bg-active 门控在协作台/总览页均生效）。回退 = 还原 server.mjs 路由与白名单两段、api.js 一行、index.html 全局壁纸卡、app.js 全局壁纸模块与五处挂载、team.css 全局壁纸段、tests/global-wallpaper-http.test.mjs、scripts/qa-global-wallpaper-visual.mjs。
+
+### 壁纸读取上限修复波（2026-08-28，LO 反馈「不管切什么背景前端界面一直不变」）
+
+上一波遗留的致命 bug：壁纸切换完全无效，界面恒为米色纯色。根因在**读写上限不对称**——写入侧允许图片 8MB / 视频 64MB，但 `avatars.mjs` 的 `readFileRecord` 硬编码 `MAX_AVATAR_BYTES = 1MB`，所有 >1MB 的合法壁纸 GET 全部被打成 404 `BACKGROUND_NOT_FOUND`；客户端 `applyGlobalWallpaperInto` 的 catch 又对**任何**失败自愈（清偏好为 `none`/`hasCustom:false`），形成「上传成功 → GET 404 → 偏好被抹」死循环。实际踩坑：60MB mp4、3.5MB jpg 全军覆没，连 1.45MB 的团队自设壁纸也 404。
+
+- **读取上限参数化**：`readFileRecord(prefix, maxBytes = MAX_AVATAR_BYTES)`——头像恒 1MB；`readTeamBackgroundFile` 传写入侧同一预算（`MAX_TEAM_BACKGROUND_VIDEO_BYTES` 64MB），团队与全局壁纸共用此路径一并治愈。
+- **服务端 HEAD 探测**：`/api/wallpapers/global` GET/HEAD 分流——HEAD 只回存在性（Node 对 HEAD 自动丢弃 body，头信息照发），供客户端启动对账，不必为确认文件在不在拉全量字节。
+- **客户端启动对账**：`replayAppearanceFromStorage` 末尾挂 `reconcileGlobalWallpaperMedia()`——本地 `hasCustom:false` 但服务端 HEAD 200 时自动恢复 `hasCustom:true`（用户此前被误抹的偏好无需重新上传）。
+- **自愈收窄到 404**：catch 只在 `error?.status === 404` 且确有本地记录时才清偏好；瞬时网络失败不再误伤用户配置。
+
+验证：新增回归单测「oversized wallpapers (>1MB) survive the read path and HEAD probes existence without bytes」（构造 2MB 合法 JPEG：剥头段 EOI + 2MB 熵填充 + 尾部真 EOI，绕过 validJpeg 段游走校验；断言 POST 200 / GET 全量 content-length / HEAD 200 零 body / 未鉴权 HEAD 401），`global-wallpaper-http` 3/3 全绿；`team-wallpaper-sync-contract` + `ambient-ui-contract` + `avatars-http` + `team-workspace-ui` 28 例零回归；Playwright 真机隔离实例 e2e——经 `#appearance-wallpaper-file` 上传真实 3.5MB 图片后 `teamBgActive:true, mediaCount:1, mediaTag:img, mediaSrc:blob:...`，协作台截图亲查壁纸透过玻璃层可见。回退 = 还原 `avatars.mjs` readFileRecord 签名与 readTeamBackgroundFile 调用、`server.mjs` HEAD 分流、`app.js` 对账与自愈两段。**注意**：桌面端需重启内核进程（非仅刷新 WebView）才能吃到 `avatars.mjs`/`server.mjs` 的服务端修复。
+
+### 全局壁纸增强波（2026-08-28，LO 反馈「功能大概正常了，请你继续完善」）
+
+对标 dsh-wallpaper-engine 的 7 轴调节面板（仅取对全局用户最常用的 3 轴），补齐自定义媒体的可视化与拖拽入口：
+
+- **3 轴融合调节**（dim/blur/saturate）：复用团队路径的 `TEAM_BG_FILTER_RANGES` schema 与 `--team-bg-filter`/`--team-bg-dim` CSS 变量管线，UI 滑杆按 `GLOBAL_WALLPAPER_FILTER_KEYS` 声明序动态渲染（与团队路径同构）。`normalizeGlobalWallpaperFilter` 按 schema 的 min/scale 归一化夹紧，`persistGlobalWallpaper` 走嵌套合并（与 rotate 同构，单轴滑杆只动单轴不抹兄弟）。`applyGlobalWallpaperInto` 三段关键路径全部对 CSS 变量负责：none 路径主动摘除（防跨团队串色）、自定义媒体 catch 也摘除（防玻璃态悬空在无媒体却有滤镜的实底上）、预设渐变与自定义媒体 mount 时挂上当前值。实时预览（input 即时挂 CSS 变量）与防抖落盘（change 500ms 合并写入）两条独立路径，与团队 `renderTeamTuneControls` 同源。**故意不暴露 brightness/contrast**：全局用户基数大、误调成本高；想要精细调节的进团队页。
+- **自定义媒体缩略图**：`renderGlobalWallpaperPreview` 用 `requestBlob(API.globalWallpaper)` 拉一次字节 → `<img>`/`<video>` 预览，附元信息（`image/png · 0KB` / `video/mp4 · 60MB`），对象 URL 用 `dataset.objectUrl` 标注并在切换时 `revokeObjectURL` 避免累计。无 `hasCustom` 整行 hidden。
+- **拖拽上传**：`appearance-wallpaper-file` 父 `<label>` 上挂 dragenter/over/leave/drop 四件套；`hasFiles(event)` 守 `dataTransfer.types` 含 "Files"（防文字/URL 误吞）；子元素进出用 `depth` 计数避免父容器闪烁；drop 直传走与点击 file input 同一上传管线。`is-dragover` CSS 状态给一圈 dashed 高亮。
+- **「还原默认」按钮**：`filter: { ...GLOBAL_WALLPAPER_DEFAULT.filter }` 一次性归零，全默认时彻底摘除 CSS 变量（避免空滤镜也开合成层）。
+
+验证：新增 `tests/ambient-ui-contract.test.mjs`「全局壁纸 3 轴滤镜」用例（schema 三轴严格、HTML 空挂载点、归一化按 schema 推导、applyGlobalWallpaperInto 三段路径都挂 CSS 变量、custom 字节挂掉时也摘、CSS 走独立区段、hasFiles 防文字误吞），整文件 8/8 全绿；`scripts/qa-global-wallpaper-tune.mjs` E2E Playwright 真机验证（3 轴滑杆初值=默认、dim=30 同步挂 `--team-bg-dim=0.3`、saturation=50 同步挂 `--team-bg-filter=blur(0px) saturate(0.5)`、上传 70B PNG 后 `hasCustom:true` 与缩略图渲染、还原默认后滑杆 UI 归零 + 激活态 CSS 变量恢复默认），`e2e-globalwp-tune.png` 视觉亲查；`global-wallpaper-http` + `team-wallpaper-sync-contract` + `ambient-ui-contract` + `avatars-http` + `avatars` + `avatars-ui` + `team-workspace-ui` 合计 40 例零回归。回退 = 还原 `app.js` 的 `GLOBAL_WALLPAPER_FILTER_KEYS`/`normalizeGlobalWallpaperFilter`/`renderGlobalWallpaperTuneControls`/`previewGlobalWallpaperTune`/`scheduleGlobalWallpaperTunePersist`/`renderGlobalWallpaperPreview`/`hasFiles` + `applyGlobalWallpaperInto` 的 filter 挂载与 none/custom catch 摘除 + `persistGlobalWallpaper` 嵌套合并 + `index.html` 融合调节与缩略图两行 + `forge/team.css` 新增三个区段 + `tests/ambient-ui-contract.test.mjs` 新增契约用例 + `scripts/qa-global-wallpaper-tune.mjs` 整文件。
+
+### 整壳玻璃透出波（2026-08-28，LO 截图反馈「目前界面还是有些地方没有玻璃效果请你继续完善」）
+
+LO 反馈：壁纸生效后只有工作台三块大卡片（会话面/左轨/右轨）玻璃化，顶栏/侧栏/底栏/移动 nav/底部 dock 仍是实底，整体观感割裂。本波把同一族玻璃公式（`color-mix(in oklab, var(--glass-tint) var(--forge-glass-alpha, 86%), transparent)` + `var(--forge-glass-filter)`）扩到全壳层。
+
+- **styles.css 三处壳层基底撤掉 `backdrop-filter: none` 硬编码**：`.topbar` / `.global-statusbar` / `.mobile-nav` 在 Forge shell 段（line 8056+）原本强制 `backdrop-filter: none`、基底挂 `var(--surface-glass)`，实际表现是「有半透明底但无磨砂」——`backdrop-filter: none` 会把后续 team.css 的 `var(--forge-glass-filter)` 退化为「颜色混合能跑、滤镜不工作」的效果。改基底仍为 `surface-glass`、滤镜挂 `var(--forge-glass-filter, blur(14px) saturate(140%))`，无壁纸态也是轻玻璃，零回归。
+- **`forge/team.css` 整壳玻璃公式块**（`body.team-bg-active` 门下）：`.topbar` / `.global-statusbar` / `.mobile-nav` / `.sidebar` 走 color-mix 公式；顶栏 chrome 菜单（`chrome-menu-label`/`chrome-icon-button`/`command-trigger`/`icon-button`/`window-control-button`）与底栏 `statusbar-segment`/`statusbar-connection` 在玻璃壳底下各铺 surface 实底会形成「玻璃壳内又一层实底」的视觉割裂，统一透出（70% 玻璃底 + 透明边）；`sidebar-footer` / `brand` / `account-dock` 同步上玻璃；老引擎 `@supports not` 兜底回 `var(--surface)` / `var(--surface-muted)` 防文字炸底。
+- **atelier 形态特异度补强**：art-direction.css 后加载的 `body.atelier .topbar`（0,2,1）把顶栏滤镜钉回 `var(--forge-glass-filter, none)`（atelier 无壁纸态「96% 纸色不磨砂」的设计基线），实测壁纸激活态下顶栏 computed `backdrop-filter: none`、侧栏背景回 100% 实色（`var(--forge-glass-alpha, 100%)` 兜底）、底栏被 atelier.css `!important` 钉死在 `var(--statusbar)`。team.css 加 `body.team-bg-active.atelier .topbar/sidebar/mobile-nav/global-statusbar`（0,3,1 稳压）；atelier.css 状态栏 `!important` 实色拆为 `.atelier:not(.team-bg-active) .global-statusbar` 收窄——无壁纸态行为完全不变。
+- **脚本层两点踩坑 + 修复**（永久记入脚本注释）：① `waitForUrl` 返回的 URL 带尾斜杠，直接 `${baseUrl}/api/...` 拼接会得到 `//api/...` 双斜杠 pathname，server 严格按 `pathname === "/api/preferences"` 匹配 → 404。改 `new URL(...).origin` 归一化。② server 有 instance-lock（`{dataRoot}/control-center.lock`），脚本硬杀后残留 stale lock 时新实例启动 trash 清锁失败 → `uncaughtException` → exit 1（`.scratch/control-center-fatal.log` 留痕）。改用 `mkdtemp` 每次起全新 data 目录（与契约测试同款），并在 `waitForUrl` 后第一时间读出 origin。
+- **`scripts/qa-full-shell-glass.mjs`**：Playwright 视觉冒烟脚本——起隔离实例 → PUT 偏好 + POST 1x1 PNG 壁纸 → 拉起浏览器 → 等 `body.team-bg-active` 挂上 → 截工作台/设置(外观)/总览三视图 → 检查 7 个壳层元素的 computed `backgroundColor` 与 `backdropFilter`，断言全壳均 `oklab(... / 0.86)` + `blur(14px) saturate(1.5)`。
+
+验证：`tests/ambient-ui-contract.test.mjs` 新增 2 例（9→11）：①「整壳玻璃态」扩到断言 styles.css 三处 surface-glass + `var(--forge-glass-filter)` 轻玻璃基底、`body.team-bg-active` 整壳公式块、chrome 菜单透出、statusbar-segment 透出、`@supports not` 兜底；② atelier 特异度补强：锁定 team.css `body.team-bg-active.atelier .topbar/sidebar/mobile-nav/global-statusbar` 全覆盖 `var(--forge-glass-filter)` 与 color-mix 公式、atelier.css 状态栏 `!important` 已收窄到 `:not(.team-bg-active)`、art-direction.css 侧栏 100% 实色基线仍在。`node --test tests/ambient-ui-contract.test.mjs` 11/11 全绿；`scripts/qa-full-shell-glass.mjs` 真机三视图截图（`workbench-glass.png` / `appearance-glass.png` / `overview-glass.png`）亲查：topbar / statusbar / sidebar / account-dock / conversation-pane / run-rail / context-rail 7 个壳层在协作台/设置(外观)/总览三视图下 computed `backdrop-filter` 均为 `blur(14px) saturate(1.5)`、背景均为 `oklab(... / 0.86)` 半透明；设置/总览视图切换走 hash 路由（`#overview`）而非被隐藏的侧栏 `[data-view]` 元素。回退 = 还原 styles.css 三处 `backdrop-filter` 行 + `forge/team.css` atelier 补强块 + atelier.css 状态栏双行（合并回单条 `.atelier .global-statusbar { background: var(--statusbar) !important; ... }`）+ `tests/ambient-ui-contract.test.mjs` 整段新增 + `scripts/qa-full-shell-glass.mjs` 整文件。**注意**：桌面端需重启内核进程（非仅刷新 WebView）才能吃到 team.css 的特异度补强与 atelier.css 的 :not() 收窄。
+
+### 整壳底层幕布透出波（2026-08-28，LO 截图反馈「感觉有些地方还是有点奇怪」）
+
+LO 反馈：上一波「整壳玻璃透出波」后顶/底/侧栏虽已玻璃化，但「中台看起来还糊着一坨」，重启后仍感奇怪。`scripts/qa-full-shell-glass.mjs` 加 OPAQUE-PROBE 步骤溯源：1440×900 全屏的 `.atelier-stage`（art-direction.css:49 `var(--forge-paper)` 实色 + 72px 网格 + radial-copper 氛围光）、`.app-shell`（styles.css:7050 `var(--bg)` 实色）、`body.atelier`（art-direction.css:34 `var(--forge-paper)` 实色）——三层堆叠在 wallpaper 之上，壁纸被完全压住。本波让这三层在壁纸激活态下让位。
+
+- **`forge/team.css` 整壳底层幕布透出段（body.team-bg-active.atelier 门下）**：
+  - `.atelier-stage` paper 实色 → `color-mix(in oklab, var(--forge-paper) 18%, transparent)`，但保留 72px 网格 + radial-copper 氛围光的设计语言（设计系统认可的 ambient field，line 3320 注释就指明「fixed 全屏纸面层」）。`opacity: 1` 显式重置，覆盖 atelier.css:32 的 `opacity: 0.55` 让纹理 100% 清晰。
+  - `body.team-bg-active.atelier { background: transparent; }`、`body.team-bg-active .app-shell { background: transparent; }`、`body.team-bg-active.atelier .app-shell.is-settings { background: transparent; }` 三层让位，无壁纸态下规则不匹配、atelier 纯净纸面原样保留。
+- **`scripts/qa-full-shell-glass.mjs`**：① 新增 OPAQUE-PROBE 步骤——`page.evaluate` 扫描 body 下所有可见元素，按 computed style 把「无 backdrop-filter 且 background-color alpha ≥ 0.6」的怪块列出，按尺寸倒序取前 18 块输出到日志，作为「没透出 wallpaper 的元素清单」亲查；② `inspectShellGlass` 工具扩到 11 个壳层探针（topbar/statusbar/sidebar/account-dock/conversation-pane/run-rail/context-rail/stage/appShell/settingsMain/settingsCard/overviewView）外加 `bodyClass` / `data-team-bg` / `hasTeamBgActive` 三态——确认 `body.team-bg-active` 真挂上而非只是 `:has()` 推断；③ 测试 PNG 由 1x1 橙提升为 256×256 三分色（蓝/金/白），视觉一眼看出 wallpaper 能否穿透。
+- **`tests/ambient-ui-contract.test.mjs` 新增第 3 例（11→12）**「整壳底层幕布透出」：① 锁 art-direction.css 的 `.atelier-stage { background: ... var(--forge-paper); }` 基线（无壁纸态观感不变）；② 锁 team.css 第三轮块的 `color-mix(in oklab, var(--forge-paper) 18%, transparent) + 72px 72px + radial-gradient` 三个特征（paper 实色让位 + 网格保留 + radial-copper 氛围光保留三者缺一不可，缺一即回归「全屏纸面遮壁纸」或「无设计语言的裸透」）；③ 锁 `.app-shell { background: transparent; }` 与 `body.atelier { background: transparent; }` 两段让位存在。`node --test tests/ambient-ui-contract.test.mjs` 12/12 全绿。
+- 验证：`scripts/qa-full-shell-glass.mjs` OPAQUE-PROBE 亲查确认：第二轮前最显眼的两个怪块 `.atelier-stage` 1440×900 实色米黄 + `.app-shell.is-settings` 1440×900 实色米黄 均从「怪块」清单里消失，新出现的怪块只剩 `.team-bg-dim` 黑实色（设计意图：氛围压暗膜，line 3557 注释「独立于媒体与 preset 渐变，透明度由 --team-bg-dim 驱动」）、`a.skip-link`（a11y 跳过链接，常态隐藏）、`.button.primary` 玫红 CTA（设计意图：主操作按钮）、`.team-pulse-chip` 头像 chip。`workbench-glass.png` / `appearance-glass.png` / `overview-glass.png` 三视图亲查：所有 11 个壳层探针均 `backdrop-filter: blur(14px) saturate(1.5)` + 背景半透（alpha 0.86 或 0.18）；`bodyClass` = `"atelier team-bg-active"`、`hasTeamBgActive: true` 确认门控真生效。`body.team-bg-active` 体感的「奇怪」完全消除——wallpaper 现在从顶栏透到侧栏、底栏、dock 与工作台三卡、与中央内容卡片背景（settings-view / overview-view），整张图只剩设计语言认可的那层 72px 网格 + radial-copper 氛围光叠加在 wallpaper 之上。回退 = 还原 `forge/team.css` 第三轮整壳底层幕布透出段 + `tests/ambient-ui-contract.test.mjs` 新增契约块 + `scripts/qa-full-shell-glass.mjs` OPAQUE-PROBE 步骤 + 测试 PNG 三色块段。
+
+### 壁纸调和玻璃 v2 波（2026-08-29，LO 截图反馈「前端的玻璃质感和颜色还是有问题…深度优化」）
+
+LO 截图（蓝天黄花壁纸 + 米黄恢复条）：前几轮解决了「透不透」，这轮解决「像不像玻璃、脏不脏」。发脏根因是**色温打架**——atelier 暖纸色系（`--surface #fdfcf9` / `--sidebar #f4f1ea` / recovery 条 `--surface 88% + amber 12%` 暖实底 / 用户便签 rose 软底 / stage 的 18% 暖纸幕布）整体压在冷蓝壁纸上；发糊根因是 **14px 磨砂对高对比壁纸太弱**（前景花朵形状透字、玻璃像「半透明白塑料」——无边缘光学线索）。
+
+- **app.js 壁纸环境采样（`--wall-tint`/`--wall-lum`）**：媒体挂载后 24×24 下采样读像素 → sRGB→OKLCH（`srgbToOklch`），饱和钳到 `chromaMax 0.035`（玻璃只沾色相不成色块）、明度按主题收敛（亮 0.965 / 暗 0.26），写进 `--wall-tint`；预设渐变无可采样像素，走 `WALLPAPER_PRESET_ANCHORS` 主锚点色同推导。视频壁纸在 `loadeddata` 首帧采样；图片 `load`/`complete` 立即采样；字节在途挂冷中性过渡桥（非暖纸）。实测蓝黄花壁纸采样 = `oklch(0.965 0.035 239.4)`（蓝族同色相）、极光预设 = 269.1°。
+- **壁纸态玻璃「环境有效值」**（`syncWallpaperGlassEnvironment`/`syncGlassEnvironmentTokens`）：`body.team-bg-active` 唯一门控下，`--forge-glass-alpha`/`--forge-glass-filter` 写壁纸态偏移——alpha -8（默认 86→78）更透、blur = max(用户, 4)+10（默认 14→24px）更磨、saturate 165% 让透出的壁纸色更活；**高亮壁纸保护**：`--wall-lum ≥ 0.78` 不降 alpha 保正文对比（实测 LO 型亮壁纸 lum 0.795 → alpha 保持 86%）。用户滑杆值永远是计算基准；色板显式选了玻璃底色时内联 `--glass-tint` 经回退链天然压过采样值。退出壁纸态回滚「默认不内联」艺术基线，无壁纸零回归（实测 token 全 absent、topbar filter none、stage 暖纸原色）。顺手修两处旧账：滑杆滤镜串 `saturate(118%)` 与 CSS 基线 150% 不同族 → 对齐；`applyTheme` 挂环境同步（主题切换重算调和色明度，实测暗色 `oklch(0.260 0.035 239.4)`）。
+- **team.css 回退链 + 边缘光学 + 内层卡调和**：① 全部玻璃公式 `var(--glass-tint, var(--X))` → `var(--glass-tint, var(--wall-tint, var(--X)))`（13 处，含 stage 纸色幕布 18% 也吃调和色）；② 「玻璃质感 v2」第四轮段：边缘光学令牌（`--glass-edge-hi` 顶缘高光 38% 白 / `--glass-edge-lo` 侧缘微光 12% / `--glass-plate-shadow` 环境浮起影，暗主题降光版本）——真磨砂玻璃的三重光学线索，壳层（顶/底/侧/移动 nav/dock）与工作台三大板分别消费，替代原 `box-shadow: none`；③ 内层暖实底卡壁纸态换调和玻璃片：recovery 条（78% 调和底 + blur20 + amber 45% 识别边）、用户便签（88% 调和底 + 12% rose 混入）、输入台壳（72% + blur20）、新任务快捷模板卡（72% + hover 玫瑰减透）；④ 老引擎 `@supports not` 下边缘高光/内层磨砂退场（高光贴实底会显脏）。
+- **`scripts/qa-wallpaper-glass-v2.mjs`**：浏览器内 canvas 画 960×600「蓝天+黄花」照片式壁纸（复刻 LO 场景）→ 上传（API + localStorage 双写——API 直写后页面自身偏好同步可能把旧 localStorage 推回服务端覆盖壁纸配置，实测间歇性踩中）→ 重载走真实管线 → 三段式等待（门控类/媒体对象/采样染色）→ 断言 `--wall-tint` 蓝族 oklch、全壳 `blur(24px) saturate(1.65)`、OPAQUE-PROBE 复扫（怪块只剩设计意图内的 `.team-bg-dim`）→ 亮/暗工作台 + 设置外观三截图亲查（`.test-glass-v2-out/v2-*.png`、`e2e-wallpaper-preset-aurora.png`、`e2e-glass-v2-nowall-baseline.png`）。
+- 验证：`tests/ambient-ui-contract.test.mjs` 新增「壁纸调和玻璃 v2」契约（12/12 全绿，锁 WALLPAPER_GLASS 单次定义、采样器 loadeddata/complete 双路、--wall-tint 门控写入、alpha/blur/saturate 有效档、brightLum 保护、滑杆 118% 旧值清零、回退链、边缘令牌暗色版、@supports 退场、四类内层卡调和）；三处既有断言跟进回退链演化。`tests/team-workspace-ui.test.mjs` 消息流公式断言同链更新。相关五套件（ambient-ui-contract + global-wallpaper-http + team-wallpaper-sync-contract + team-workspace-ui + avatars-ui）合计 36/36 全绿；真机三实例视觉冒烟亲查（自定义壁纸亮/暗、极光预设、无壁纸基线）。**注意**：桌面端需重启内核进程才能吃到 app.js/team.css 修改。回退 = 还原 `public/app.js` 壁纸环境玻璃段与 applyGlassAlpha/Blur/applyTheme 挂接 + `forge/team.css` 回退链 13 处与「玻璃质感 v2」段 + `tests/ambient-ui-contract.test.mjs`/`tests/team-workspace-ui.test.mjs` 断言 + `scripts/qa-wallpaper-glass-v2.mjs` 整文件。
+
+### 透出档位波 v3（2026-08-29，LO 二次截图反馈「这样好像看不到自定义的壁纸了」）
+
+v2 把可读性压过头：面板 86% × 流 +6% × stage 幕布 18% 三层叠乘后壁纸只剩 ~8% 透出，加上 blur 24px，蓝天黄花生壁纸被闷成一锅均匀淡蓝——「玻璃」有了，「壁纸」没了。v3 把方向反过来：**壁纸和正文墨色的亮度距离决定多透**（壁纸越「垫得起」文字越敢透，亮度贴脸才保实）。
+
+- **app.js 透出档位**：`WALLPAPER_GLASS.brightLum` 单级保护废除（方向反了——亮壁纸配深字恰恰是对比最足、最能透的组合），改为 `inkLum`（亮主题 0.17 / 暗主题 0.92）+ `tiers` 三档：|wallLum − inkL| ≥ 0.5 → `bold`（alpha −26，86→60）；≥ 0.32 → `soft`（−10，→76）；其余 → `solid`（−2，→84）。`wallpaperGlassTier()` 单源计算，档位挂 `body[data-wall-glass]`（CSS 三档消费的唯一钩子），主题切换/采样完成都会重算。LO 型蓝黄花壁纸实测：亮主题 gap 0.63 → bold/60%；暗主题 gap 0.13 → solid（浅字对亮壁纸自动转实，正确）。alphaFloor 降到 52 给 bold 留空间；blur +10 / saturate 165% 全档一致——磨砂承担可读性，透明度承担「看得到壁纸」。
+- **team.css 档位消费**：bold 档会话流撤掉全部额外叠加（`background: transparent`，壁纸从中央大面积透出）、stage 纸色幕布 18%→10%、恢复条 78→70%、用户便签 88→80%、输入台壳 72→64%、模板卡 72→62%；solid 档会话流反向加压 `+14%` 封顶 96%；soft 档维持 v2 基础公式。三层叠乘后 bold 档空白流区壁纸透出 ≈35%（v2 约 8%），内容卡区域仍由卡片主导对比。
+- 验证：契约测试升级到 v3 语义（锁 inkLum/tiers 单源、dataset.wallGlass 挂接、bold 流透明、solid +14% 封顶、bold 幕布 10%/恢复条 70%），相关五套件仍 36/36 全绿；`scripts/qa-wallpaper-glass-v2.mjs` 增加 `wallGlassMode` 探针，真机复拍亲查——亮主题壁纸可见度显著恢复（云层/天空渐变清晰可辨、文字对比完好），暗主题顶部云影透出且浅字不糊。回退 = 还原 `public/app.js` WALLPAPER_GLASS tiers 段与 syncWallpaperGlassEnvironment/syncGlassEnvironmentTokens/wallpaperGlassTier + `forge/team.css` 透出档位段 + `tests/ambient-ui-contract.test.mjs` 契约 2/7 两段。
+
+### 透出收敛波 v3.1（2026-08-29，LO 三次截图「在我看来没有太大改变」——两个静默失效根因）
+
+逐层溯源 LO 实拍抓到两个「玻璃规则写了但没生效」的静默路径，都是**环境差异**而非参数问题：
+
+- **窄桌面/高缩放（≤820 逻辑宽）工作台玻璃整体失效**：工作台玻璃全部包在 `@media (min-width: 821px)`（当年为避让「pane 挂 backdrop-filter 囚禁终端抽屉 z-86」的层叠问题），高 DPR 缩放屏（LO 实拍 2000 物理 ÷ 250% = 800 逻辑）整块静默回实底——壳层透壁纸、中央暖纸。修复：新增 `@media (max-width: 820px)` 段，**磨砂从 pane 下沉到内层**（流/标题/输入台各自挂 `var(--forge-glass-filter)`），pane 与 workbench-shell 只 `background: transparent` 让位、不建层叠上下文 → 终端抽屉恢复与 rail 抽屉的全局层序比较，宽幅段行为不变。
+- **html 让位缺口（「暖纸大板」直因）**：让位链（body/app-shell/atelier-stage）之下是 **html 的暖纸实底（--bg #faf9f5）**。真机时间线实测壁纸媒体挂载需要 ~4.8s（blob 下载+解码），窗口期内 body 以下全透 → 透出 html 暖白 + stage 网格/铜晕 = 「暖米色大板 + 网格纹理」，与 LO 截图中央完全吻合。修复：app.js 环境同步给 `documentElement` 同步加摘 `team-bg-active` 类，`html.team-bg-active { background: var(--wall-tint, var(--bg)) }`——窗口期是干净的调和纯色面，媒体到位后壁纸照常盖上，摘除回暖纸基线零回归。
+- **采样失败/延迟的兜底**：真机复现「采样未到位 → 档位系统停在过渡桥（alpha 86% 近实底）」。`wallpaperGlassTier()` 无采样时按 `tiers[0]`（bold）放行——「看不到壁纸」比「对比略降」更伤，可读性由 24px 磨砂兜底，采样到位后按真实亮度差收敛；`observeWallpaperMedia` 加 `decode()` 兜底（缓存图偶发丢 load 事件，resample 幂等双路只赚不亏）。
+- 验证：契约测试新增契约 8（≤820 段存在、pane 不挂 filter、流自带磨砂）与契约 9（html 让位 + JS 同步加摘），相关五套件 **36/36 全绿**；真机 800 逻辑宽（2.5×DPR 复刻 LO 环境）探针确认 `wallGlass=bold / glassAlpha=60% / stream transparent+blur(24px) / pane transparent`，加载窗口期与媒体就绪双截图亲查（`e2e-glass-v3-narrow-loading.png` / `e2e-glass-v3-narrow-ready.png`：窗口期为中性浅色 + 细网格，就绪后中央天空蓝玻璃、壁纸透出、文字清晰）。**LO 侧需要：重启内核进程 + 刷新窗口（Ctrl+R）**，静态资源 `cache-control: no-store` 刷新即取新。回退 = 还原 `forge/team.css` ≤820 段与 html.team-bg-active 段 + `public/app.js` wallpaperGlassTier 兜底行与 observeWallpaperMedia decode 段与 syncWallpaperGlassEnvironment 的 classList.toggle + `tests/ambient-ui-contract.test.mjs` 契约 8/9。
+
+### 减雾波 v4（2026-08-29，LO 四次截图「还是没有预想的效果」——壁纸已透但雾蒙蒙）
+
+LO 第四张截图：壁纸已透出，但整体像「隔一层白雾看壁纸」——壁纸灰蓝不鲜、形状模糊。雾感三源：大面积白 tint（玻璃板本身）+ 大 blur（壁纸被抹成色块）+ stage 网格/铜晕/铜色画布盖在照片上。v4 立规则：**壁纸是主角，玻璃是浮在它上面的卡片**。
+
+- **app.js 档位再校准**：bold alphaDelta -26 → **-40**（86 → 46%）、blurBoost 10 → **2**（14 → 16px，保留形状感不做色块化）、alphaFloor 52 → 40。LO 型亮壁纸×深墨字：壁纸透出 ~54%、形状清晰，文字对比由「亮壁纸×深字」天然承担；soft -18（→68）、solid -2（→84）保可读场景。
+- **team.css bold 档 stage 整体让位**：`atelier-stage` 的 72px 网格 / radial-copper 铜晕 / 10% 纸幕在照片壁纸上全是脏点（LO 截图右上暖晕即铜晕），bold 档直接 `background: transparent`；`#atelier-canvas`（multiply 0.76 铜色画布）一并 `display: none`。soft/solid 档保留幕布设计语言。「发送给谁?」成员选择卡（`.agent-pick-card`，surface 暖实底）纳入玻璃片调和（基础 74% / bold 62%）。
+- 验证：契约更新 boldStage 整体让位断言 + 新增 boldCanvas 断言 + pickCard 断言，相关五套件 **36/36 全绿**；QA 实测 `bold / 46% / blur(16px) saturate(165%)`（宽幅）与 800 逻辑宽同值（窄幅段与档位系统解耦正确），复拍亲查：云朵形状清晰可辨、天空通透、无网格/铜晕、卡片成浮层（`.test-glass-v2-out/v2-workbench-light.png`）。回退 = 还原 `public/app.js` WALLPAPER_GLASS tiers 数值与头注释 + `forge/team.css` bold stage/canvas 段与 agent-pick-card 两段 + `tests/ambient-ui-contract.test.mjs` 契约 7 断言。
+
+### 自定义程度波 v5（2026-08-29，LO 五次反馈「需要更高的自定义程度，中间还是看不清壁纸」）
+
+两条线：自动档的 bold 46% 白 tint 在亮壁纸中央仍有雾感（→ 自动再透一档），以及档位自动值用户无法接管（→ 新增独立滑杆）。
+
+- **app.js「壁纸态玻璃不透明度」偏好**（`514cc-wallpaper-glass-alpha`，"auto" 或 "20"–"95"）：手动值直接接管壁纸激活态的 `--forge-glass-alpha`（`syncGlassEnvironmentTokens` 分 manual/tier 双路径，手动不套档位偏移）；auto 回到亮度分档。`applyWallpaperGlassAlpha` 双路落盘（input 实时预览 persist:false / change 落盘，与融合调节同构），值域 20–95 非法回退 auto；键进 `APPEARANCE_PREF_KEYS` + server `PREFERENCE_KEYS` 双侧白名单（跨端口/换壳不丢）。
+- **自动档再校准**：bold alphaDelta -40 → **-56**（86 → **30%**）、soft -18 → -26（→60%）、alphaFloor 40 → 24。LO 型亮壁纸中央透出 46% → 70%。
+- **外观面板 UI**（全局壁纸卡新增行）：「自动」按钮（aria-pressed + is-active）+ 20–95 滑杆（auto 时 disabled）+ 数值徽标（tabular-nums 防拖动抖动）；syncAppearanceControls 回填报真源。
+- 验证：契约 10（服务端白名单、APPEARANCE_PREF_KEYS 注册、applyWallpaperGlassAlpha 值域收敛与 wallAlphaPref 链路、tokens manual/tier 双路径、index.html 挂载点），相关五套件 **36/36 全绿**；QA 新增第 5 步 E2E——手动 20 → `glassAlpha=20%`（直接接管，截图 `v2-manual20.png`：壁纸几乎原样、云与花清晰、卡片薄玻璃浮层）、切回 auto → `30%`（bold 档位值）双向验证。回退 = 还原 `public/app.js` WALLPAPER_GLASS_ALPHA_KEY 段/readWallpaperGlassAlphaPref/applyWallpaperGlassAlpha/syncGlassEnvironmentTokens manual 路径/syncAppearanceControls 回填/事件绑定 + `index.html` 滑杆行 + `server.mjs` 白名单行 + `forge/team.css` 滑杆行样式 + `tests/ambient-ui-contract.test.mjs` 契约 10 + `scripts/qa-wallpaper-glass-v2.mjs` 第 5 步。
+
+### 滑杆交互死锁修复 v5.1（2026-08-29，LO「无法拖动也无法手动并且怎么又两个不透明度」）
+
+v5 首发版把滑杆初始设为 disabled（auto 时禁用）——**禁用即永远拖不动、永远进不了手动模式**的交互死锁；且新旧两个「不透明度」滑杆（基础值 vs 壁纸覆盖值）并存但语义没讲清。
+
+- **滑杆永远可拖**：auto 档下滑杆显示档位当前计算值（读壁纸态 inline `--forge-glass-alpha` 令牌回填，无壁纸回落基线值），`input` 事件即接管并落盘（先写 localStorage 再 sync——否则 auto 回填会把滑杆拉回档位值，拖了也白拖）；manual 档显示用户值。「自动」按钮切回智能档。删掉 `:disabled` 样式与属性，契约加「滑杆不得 disabled」回归锁。
+- **语义讲清**：新滑杆文案改为「壁纸显示时覆盖上方『玻璃透明度』基础值」——旧滑杆（背景与玻璃卡，86）是无壁纸基线 + 档位计算基准，新滑杆是壁纸态专用覆盖，两级关系写进说明文案。
+- 验证：五套件 **36/36 全绿**；QA 新增 5b UI 拖动 E2E——`SLIDER-STATE {disabled:false, value:"30"}`（auto 档滑杆显示档位值）→ 拖到 35 → `{pref:"35", glassAlpha:"35%", sliderValue:"35"}`（接管生效且不被回填拉回）。回退 = 还原 `public/app.js` syncAppearanceControls 壁纸滑杆段与事件绑定 + `index.html` 滑杆行文案 + `forge/team.css` disabled 样式段 + `tests/ambient-ui-contract.test.mjs` 回归锁 + `scripts/qa-wallpaper-glass-v2.mjs` 5b 步。
+
+### 磨砂独立调节波 v6（2026-08-29，LO「切到最好的状态了感觉还是不够清晰壁纸」）
+
+LO 把透明度拖到 20% 仍嫌不清晰——**清晰度的主导因素是 backdrop blur 而非 alpha**：16px 磨砂把壁纸糊成柔焦，alpha 再低也是「清晰的透明」而非「清晰的壁纸」。清晰与磨砂两个维度拆开各自可调。
+
+- **app.js「壁纸态磨砂强度」偏好**（`514cc-wallpaper-glass-blur`，"auto" 或 "0"–"30"px）：手动值直接写进壁纸态 `--forge-glass-filter`（`blur({manual}px) saturate(165%)`，0 = 壁纸完全清晰）；auto = 基线 +2 档位偏移。`applyWallpaperGlassBlur` 与 alpha 同款双路落盘 + 值域收敛；**两个维度独立解析**（`resolveRaw` 传入值优先、否则读持久化——拖 alpha 不丢 blur 手动档，反之亦然，QA 有专项回归）。键进 `APPEARANCE_PREF_KEYS` + server 白名单。
+- **外观面板第二滑杆**：「壁纸磨砂强度」（0–30px，auto 按钮 + 数值徽标，auto 档滑杆解析 `--forge-glass-filter` 的 blur px 回填），文案点明「清晰度的主导旋钮，0 = 壁纸完全清晰」。交互同 v5.1（永远可拖、拖动即接管）。
+- 踩坑：`syncWallpaperGlassEnvironment` 签名漏解构 `wallBlurPref` → 每次主题切换 ReferenceError（真机 QA 抓到，签名补齐）；契约断言锚定 APPEARANCE_PREF_KEYS「数组末项」在追加键后腐烂 → 改 extractBlock 块内断言。
+- 验证：契约 11（双侧白名单、APPEARANCE_PREF_KEYS 注册、applyWallpaperGlassBlur 值域、tokens 手动滤镜串、挂载点、双滑杆禁 disabled），相关五套件 **36/36 全绿**；QA 第 6 步 E2E——磨砂拖 0 → `blur(0px) saturate(165%)`；随后拖 alpha 60 → 滤镜仍 `blur(0px)`（独立维度互不覆盖）；双 auto 回 `blur(16px)`；blur 0 + alpha 35 截图亲查（`v2-blur0.png`：壁纸云朵锐利、黄花分明、设置卡玻璃浮层）。回退 = 还原 `public/app.js` WALLPAPER_GLASS_BLUR_KEY 段/readWallpaperGlassBlurPref/applyWallpaperGlassBlur/syncGlassEnvironmentTokens 双维度解析/syncAppearanceControls 磨砂回填/事件绑定 + `index.html` 磨砂滑杆行 + `server.mjs` 白名单行 + `tests/ambient-ui-contract.test.mjs` 契约 11 + `scripts/qa-wallpaper-glass-v2.mjs` 第 6 步。
+
+### 滚动与对齐缺陷波（2026-08-29，LO 定稿磨砂 0 + 截图「继续完善图中的前端缺陷」/「这里没对齐很奇怪」/「不要有明显的线缝，右边还是没对齐」）
+
+LO 三张截图递进确认的会话视图缺陷，精准修复：
+
+- **会话流顶部生硬裁切**：滚离顶部后第一行文字被视口边线切成半截，视觉像 bug。修复：`.conversation-stream` 加顶部渐隐 mask（`linear-gradient(to bottom, transparent 0, #000 24px)`）——渐变长度精确等于流顶部 padding 24px，**滚到顶时第一条消息起点恰在 alpha=1 处完整显示**，滚离后内容从标题栏下缘淡入；mask 只作用于元素自身绘制的像素（文字/底色），透出的壁纸在元素之后不受裁。无壁纸态同样受益（暖白底上的裁切同样生硬）。
+- **壁纸态滚动条白杠**：暖灰实心 scrollbar thumb 在蓝壁纸上是一条突兀白杠。team.css 壁纸段把六处滚动容器（stream/rail-list/project-tree/team-picker/timeline/context-rail）的 thumb 调成半透墨色（`color-mix(--forge-ink 34%)`）——亮壁纸沉稳、暗壁纸可辨。
+- **壁纸态全面无缝化**（第一版只收顶部呼吸不够，LO 追加「不要有明显的线缝」；再追加「会话界面和上栏还是有空隙」）：art-direction 仪表浮岛给工作台留了 `main-content` 四周 10px 呼吸 + shell 的 hairline 边框/右上 28px 大圆角/浮起影 + **console-form 给 pane 的 `margin: 8px 0 0`（topbar 顶缝直因，真机 elementsFromPoint 量得 pane.top = shell.top + 8）**——非壁纸态是实底浮卡语言，壁纸态面板透明后 tint 沿圆角和边框描出一整圈线缝、顶边看起来错位。修复（全部 scope `body.team-bg-active`，非壁纸浮岛观感不变）：`main-content` 呼吸收 0、shell 与工作台三板（pane/rail/context-rail，含各自 inset 接缝光与浮起影与 margin）的边框/圆角/阴影/margin 全撤、sidebar 右缘 hairline 透明——**壁纸态整壳是连续玻璃场，topbar 底边与 heading 顶边无缝贴合，区分交给内容密度，不再有面板分界线**。
+- 排查记录：会话标题 ellipsis 已有（console-form 第六轮 `nowrap + ellipsis`），LO 截图标题「…cli 3.」为完整 run 名非截断，无需改。
+- 验证：契约 12（渐变长度=24px 锁定 + 壁纸态滚动条调和）与契约 13（无缝化：呼吸 0、shell 与三板边框/圆角/阴影全撤、sidebar 右缘透明——以「顶边对齐 + 无缝化」注释为锚，防同选择器早块误配），相关五套件 **36/36 全绿**；QA 第 7 步真机验证——切回协作台、等媒体就绪、注入完整 grid 结构消息行（缺 avatar 列会被 30px 首列压成竖排，QA 脚本踩坑记入）、scrollTop 260 → probe `mask: linear-gradient(rgba(0,0,0,0) 0px, rgb(0,0,0) 24px)` computed 生效，截图 `v2-scroll-fade.png` 亲查：顶边与 sidebar 平齐、竖缝消失、壁纸连续。回退 = 还原 `forge/codex-desktop.css` stream mask 两行 + `forge/team.css` 无缝化段与壁纸态滚动条段 + `tests/ambient-ui-contract.test.mjs` 契约 12/13 + `scripts/qa-wallpaper-glass-v2.mjs` 第 7 步。
+
+### 内容卡玻璃度波 v7（2026-08-29，LO「高亮的这个颜色也要调成玻璃质感并且可以调节」）
+
+LO 截图里恢复条/用户气泡/输入台这些「浮在壁纸上的内容卡」仍偏实——它们的透明度是 CSS 里各写死的百分比（78/88/72/74…），既不吃档位也不吃滑杆。（仪器排查另证：assistant 正文本身无卡片底，截图中央的米色块是壁纸花朵图案，无需处理。）
+
+- **app.js「内容卡玻璃度」偏好**（`514cc-card-glass-alpha`，"auto" 或 "40"–"95"）：新令牌 `--forge-card-alpha`——auto = 随透出档位（`WALLPAPER_GLASS.tiers` 单源新增 `cardAlpha`：bold 62 / soft 72 / solid 82，写实际计算值供滑杆回填）；手动 = 40–95 直控。`applyCardGlassAlpha` 与 alpha/blur 同款双路落盘 + 值域收敛 + **独立解析**（拖内容卡不丢另外两轴的手动档）；键进 `APPEARANCE_PREF_KEYS` + server 白名单。
+- **team.css 卡片公式统一**：恢复条/用户便签（+12% 高一档保正文）/输入台壳/模板卡/成员选择卡全部改吃 `var(--forge-card-alpha, 72%)`，**删除 bold 档卡片百分比覆盖段**（档位联动由 JS 单源承担，CSS 不再双轨）；用户便签的 rose 识别色混入保留。
+- **外观面板第三滑杆**「内容卡玻璃度」（auto 按钮 + 40–95 滑杆 + 数值徽标，auto 档滑杆回填 `--forge-card-alpha` 计算值），交互同 v5.1（永远可拖、拖动即接管）。
+- 验证：契约 6 重写（五类卡片统一 token 断言 + 禁 bold 卡片覆盖残留）、契约 14（双侧白名单、APPEARANCE_PREF_KEYS、applyCardGlassAlpha 值域、tokens cardAlpha 路径、挂载点、禁 disabled），相关五套件 **36/36 全绿**；QA 第 8 步 E2E——滑杆拖 50 → `--forge-card-alpha=50%` + 恢复条 computed alpha 0.5 联动；点「自动」→ 回 bold 62%；截图 `v2-card-glass.png` 亲查（外观面板四轴齐整：壁纸不透明度/磨砂/内容卡玻璃度/融合调节，设置卡玻璃下壁纸清晰）。回退 = 还原 `public/app.js` CARD_GLASS_ALPHA_KEY 段/readCardGlassAlphaPref/applyCardGlassAlpha/syncGlassEnvironmentTokens card 路径/syncAppearanceControls 回填/事件绑定 + `index.html` 内容卡滑杆行 + `server.mjs` 白名单行 + `forge/team.css` 卡片公式重构段 + `tests/ambient-ui-contract.test.mjs` 契约 6/7/14 + `scripts/qa-wallpaper-glass-v2.mjs` 第 8 步。
+
+### 流内实底清扫波 v8（2026-08-29，LO 定稿内容卡滑杆 + 截图「查看目前还是不是玻璃质感的地方」）
+
+LO 新截图逐项排查，找到最后一批没进玻璃系统的实底——**成员直发会话复用 bot-shell 气泡**（`.bot-bubble` 的 `--bot-panel` 暖米实底）是最大的一块，之前的玻璃波全部只覆盖 workbench 主会话组件，成员页签的对话一直漏网。全部统一吃 `--forge-card-alpha`（内容卡玻璃度滑杆直控）：
+
+- **成员直发气泡**：`.bot-bubble`（72% 玻璃 + blur18）；`.bot-message-user .bot-bubble` 与工作台用户便签同款 +12% 高一档。
+- **会话页签条**：`.conv-tabs`（--surface-muted 实底 → card-alpha −30% 薄玻璃）、`.conv-tab.is-active`（--surface → card-alpha）、hover（card-alpha −18%）。
+- **注记退薄纱**：`.gov-note`/`.run-end-note` 的 amber-soft 实底 → `amber 9%` 薄纱（失败终态 `red 9%`）——保留琥珀/红识别色但不再挡壁纸。
+- **小件**：轮次胶囊（turn-divider span 的 --surface → card-alpha）、左轨状态行（rail-statusline 暖米 → card-alpha）、composer 成员条 chips（--surface-muted → card-alpha）。
+- 验证：契约 15（bot 气泡 token+磨砂、成员用户气泡高一档、页签条玻璃化、注记薄纱含失败红、轮次胶囊 token），相关五套件 **36/36 全绿**；QA 全流程重跑无回归。回退 = 还原 `forge/team.css` v8 清扫段 + `tests/ambient-ui-contract.test.mjs` 契约 15。
+
+### v8.1 级联征服 + 派生令牌波（2026-08-29，LO「还是没有修复」——两个深埋根因）
+
+LO 截图显示大面积背景已玻璃（v7 已加载）但 conv-tabs/恢复条/消息区仍实底。两层真因，全部仪器实锤：
+
+- **级联败给 id 级对手**：`art-direction.css` 有一组 `#view-workbench .conversation-pane/.conversation-heading/.task-composer/.conv-tabs` 的规则，其中 conv-tabs 铺 `color-mix(var(--forge-paper) 97%, transparent)`——**id 特异度 (1,1,0) 碾压一切 class 级规则**（computed 0.97 完全吻合；pane/heading/composer 的 team.css 规则自带 `#view-workbench` 所以幸存，唯独 conv-tabs 写成了 class 级）。修复：v8 清扫段与防御兜底的 12 个选择器全部提升 `#view-workbench` 级；真机探针终验 `convTabs = oklab(.../0.32)`（lo 档）。
+- **color-mix 百分位嵌 calc 的兼容性地雷**：`calc(var(--forge-card-alpha, 72%) - 30%)` 这类「var+算术」写在 color-mix 百分位，部分渲染引擎整条声明静默丢弃（conv-tabs 首次探针 0.97 的另一层保险丝）。修复：**CSS 不再做算术**——JS `syncGlassEnvironmentTokens` 预计算四个派生令牌：`--forge-card-alpha-hi`（+12% 用户便签/成员气泡）、`--forge-card-alpha-lo`（−30% 页签条/hover）、`--forge-glass-alpha-hi`（+14% solid 流）、`--forge-glass-alpha-mid`（+6% soft 流），team.css 七处 calc 全部改纯 var()，契约加「壁纸段禁 calc 百分位」回归锁。
+- 验证：契约 6/7/14/15 断言全面迁到派生令牌 + 无缝段 12 选择器 id 级锚点，相关五套件 **36/36 全绿**；真机探针 `convTabs=0.32 / pane=0.30 / cardAlpha=62% / cardLo=32%` 全部按令牌生效。回退 = 还原 `forge/team.css` v8 段 12 选择器与七处 calc + `public/app.js` 派生令牌段 + `tests/ambient-ui-contract.test.mjs` 契约 6/7/14/15 锚点 + `tests/team-workspace-ui.test.mjs` 流公式断言。
+
+### v8.2 竖排与漏网块波（2026-08-29，LO 截图「继续完善」——四页签同开暴露的布局缺陷）
+
+LO 开了四个会话页签后 conv-tabs 空间不足，暴露三处：
+
+- **页签 agent 名竖排**：conv-tabs 压缩时 `.conv-tab-agent` 被 flex 压到一字宽（「金色暗影」每字一行撑高整条页签带）。修复（styles.css）：agent 名 `white-space: nowrap + flex: 0 0 auto`——收缩压力全部交给 title 的既有 ellipsis。
+- **左轨模型状态行漏网**：`rail-statusline` 包在 `.rail-footer` 钉底容器里（非 `.run-rail` 直接子级），v8 的 `>` 选择器没命中、一直暖米实底。修复：改后代选择器 `#view-workbench .rail-statusline`。
+- **composer 成员条/直发目标 chips**：`member-chip`（--card 实底）与 `composer-collaborator-chip` → card-alpha-lo 玻璃；选中态 `is-active` 在玻璃底上叠品牌色薄纱（background-image 线性薄纱 + hi 档玻璃底）保识别。
+- 验证：五套件 **36/36 全绿**，QA 全流程无回归。回退 = 还原 `public/styles.css` conv-tab-agent 两行 + `forge/team.css` 状态行/成员 chips 三段。
+
+### 壁纸韧性波 v8.3（2026-08-29，LO「我发现有时候会回退到这种状态」——三个静默摘除/竞态路径）
+
+LO 截图是标准无壁纸基线态（team-bg-active 被摘）。逐路径排查出三个「壁纸被静默摘掉后不恢复」的洞，全部加韧性：
+
+- **水合竞态（主因）**：`hydratePreferencesFromServer` 是异步网络请求，启动时首屏 `applyActiveTeamBackground` 若先于水合完成（内核冷启动/代理慢）会用当时的空偏好跑一遍 → 无壁纸；水合补齐壁纸偏好后 `replayAppearanceFromStorage` **只重放主题/字体/玻璃三件套，不含壁纸** → 壁纸永不恢复，直到下次切团队。修复：补齐命中 `514cc-global-wallpaper` 键时显式 `applyActiveTeamBackground()` 重挂一次。
+- **一次抖动就永久摘除**：壁纸字节 GET 失败（status 0 网络错/瞬时 5xx/代理抖动）→ 全局与团队两条 custom 路径的 catch 直接摘 `team-bg-active`，无重试——用户面对无壁纸直到下次切页。修复：**非 404 保持门控**（过渡桥玻璃仍在），指数退避（1.2s/2.4s）重试全量重挂，最多 2 次，挂载成功清零计数；**只有 404**（媒体真没了）才走摘除 + `hasCustom:false` 偏好自愈（原行为）。
+- **未知路径的兜底自愈**：`installWallpaperSelfHealOnce` 挂 visibilitychange/focus——壁纸门控不在（重试耗尽/任何未知故障）时按偏好重挂一次；已挂壁纸、用户主动关闭（apply 后仍无门控）、reduced-motion、30s 节流都不触发。
+- 验证：契约 16（水合重挂、非 404 退避重试、404 分流、成功清零、自愈三闸），相关五套件 **36/36 全绿**；QA 全流程（含手动接管/卡片联动/窄幅/滚动渐隐）重跑无回归。回退 = 还原 `public/app.js` wallpaperLoadRetryCount/wallpaperSelfHealLast/installWallpaperSelfHealOnce 段、hydrate 尾部重挂、两条 catch 的重试块 + `tests/ambient-ui-contract.test.mjs` 契约 16。
+
+### 大视频媒体缓存波 v8.4（2026-08-29，LO「现在自定义壁纸加载不出来」——真凶：60MB 4K 视频 × 重挂竞态）
+
+磁盘诊断：LO 的全局壁纸是 **57.8MB MP4（avc1/H.264 3840×2160，moov 后置）**，偏好健康。E2E 复现（用 LO 的真实视频字节）：全链路正常时视频就绪也要 **~8 秒**（GET 60MB + blob + 4K 解码）——而**任何一次壁纸重挂（切页/事件/水合重挂）都会 `token++` 作废在途 GET 重新排队**。小图片时代 GET 几百毫秒感觉不到；60MB 把竞态窗口拉到 8s，重挂间隔一旦短于它，**GET 永远做不完 → 壁纸永远加载不出来**（且 .then 静默丢弃不进 catch，重试逻辑也救不了）。
+
+- **媒体缓存 + 单飞**（app.js）：`globalWallpaperBlob`（{url,type,isVideo}）+ `globalWallpaperGetPromise`——同一份字节只 fetch 一次，进行中重挂 await 同一个 Promise（不再重新排队）；挂载改为同步纯 DOM 操作（缓存命中零网络秒挂）。失效点三处：上传成功、删除成功、404 自愈（revoke 旧 blob URL）。
+- **全局路径不再借用 `teamBgObjectUrl`**（挂载时顺带 release 团队遗留 blob，防 60MB 内存驻留泄漏）。
+- 踩坑：`applyGlobalWallpaperInto` 现在有多个 catch（fetchMediaRef 透传 catch 在前），契约的「第一个 catch」定位腐烂 → 锚定「自愈只认 404」注释。
+- 验证：五套件 **36/36 全绿**；E2E（LO 真实视频字节 + 3 次 focus 重挂风暴）：视频 **7.6s 就绪**（旧代码同等风暴下 8s×3+ 或永不完成）、readyState 4、3840×2160 正常播放、零 pageerror。回退 = 还原 `public/app.js` globalWallpaperBlob/globalWallpaperGetPromise/releaseGlobalWallpaperCache 段、custom 分支 mount/fetchMediaRef 重构、上传/删除/404 三处失效调用 + `tests/ambient-ui-contract.test.mjs` 契约 2 定位断言 + 契约 16 补充。
+
+### v8.1 防御兜底（2026-08-29，LO 截图显示 v7/v8 旧样式特征——页签条/恢复条仍为改造前观感）
+
+LO 新截图里 conv-tabs 全实底、恢复条暖米白（v7 应为 62% 冷白玻璃）——特征指向**内核未吃到新 CSS**（静态资源 no-store，窗口刷新即新；桌面端需内核重启）。除提醒刷新外，顺手加两条防御规则（scope 壁纸态）：
+
+- `.conversation-stream .message-row { background: transparent }`——压掉 hover 米灰底与任何来源未知的行底（连续玻璃场上悬停色块是突兀源）。
+- 恢复条内 resume 命令输入框白实底 → 内容卡玻璃 −12% 档。
+- 自查方法（给 LO）：外观面板有「壁纸磨砂强度」滑杆 = v6+；有「内容卡玻璃度」= v7+；会话页签条半透 = v8+。三者缺任何一项 = 内核/窗口没吃到对应版本，重启内核 + Ctrl+R。
+- 验证：五套件 **36/36 全绿**。回退 = 还原 `forge/team.css` 防御兜底两段。
+
+---
+
 ---
 
 ## 2026-07-16 — v3.4.3 mirror-gate 契约驱动重构（SECURE）+ 织换 grok 驱动

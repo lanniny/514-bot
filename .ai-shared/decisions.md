@@ -5,6 +5,54 @@
 > **v1.2 结构化格式**：每条决策用 markdown 子标题（`### D-<date>-<n>`）开头 + 字段化元数据 + 自然语言正文。
 > 字段化元数据用于 `/co-status` 统计采纳率、token 消耗等指标。
 
+### D-2026-08-22-001 · 514 Bot Grok-style 产品重塑基线
+
+- **date**: 2026-08-22
+- **topic**: 514-bot-product-reframe
+- **triggered_by**: user（以 Grok Bot 的通讯式代理体验重塑 514 Bot，参考 Codex/DeepSeek harness、Codeg、LiveAgent）
+- **decision_maker**: LO + Codex discovery pass
+- **verdict**: baseline-proposed
+- **adopted**: false
+- **source_handoff**: codex-to-claude__514-bot-product-reframe__20260822-0001.md
+- **tags**: 514-bot, grok-inspired, desktop, tauri, chat-first, agent-computer, codeg, liveagent
+
+#### 决策
+
+将产品目标收敛为“代理通讯录 + 持续对话 + 每名代理自己的电脑”，采用现有 Node/SSE control-center + Tauri 2 薄壳的渐进重塑路线。现有编排、审批、bus/inbox、worktree、replay、artifact、delivery gate 继续作为唯一运行真源；目标是改变默认桌面表面，而不是复制第二套 runtime。
+
+外部 Grok Bot 的独立桌面、Team/电脑、weekly usage 等描述在本轮没有拿到稳定官方回读，保留为 LO 的设计输入，不升级为项目事实。Codeg/LiveAgent 只吸收本地快照中可核对的能力类别与布局机制，不整体 fork，也不引入第二个 Gateway。
+
+第一条实现切片暂定为 Bot Shell v0：代理切换、持续聊天、question/approval/connector/computer/artifact 卡片、代理信息面板、电脑三态、五 tab 设置与三主题；未授权前不改变默认入口。
+
+#### 边界
+
+这是 discovery baseline，不是已批准 release，也不是代码实现完成。默认入口是否切为 `bot`、旧 `#/workbench` 是否作为高级入口，需 LO 明确拍板后再进入代码波次。当前未启动应用、未运行测试、未做真实 provider/SSH/Tauri 验收。
+
+__DELTA__: 烛(Codex) | 1 | 证据：proposals/v43-514-bot-product-reframe.md 将 Grok Bot 的体验隐喻翻译为可验证 IA 和三态电脑模型，同时拒绝把未核实的云端能力写成事实。
+
+---
+
+### D-2026-08-22-002 · 514 Bot 默认入口确认
+
+- **date**: 2026-08-22
+- **topic**: 514-bot-product-reframe
+- **triggered_by**: user（明确回复“是”，确认进入实现波次）
+- **decision_maker**: LO
+- **verdict**: adopted
+- **adopted**: true
+- **source_handoff**: codex-to-claude__514-bot-product-reframe__20260822-0001.md
+- **tags**: 514-bot, default-route, workbench-compatibility
+
+#### 决策
+
+确认 Bot Shell v0 进入实现：桌面默认入口切为 `bot`，旧 `#/workbench` 保留为高级控制台兼容入口。实现继续复用现有 Node/SSE control-center 内核、run/message/agent/provider/settings 与持久化真源，不引入第二套运行链。
+
+#### 边界
+
+本决策只批准产品入口与实现波次，不等于源码、浏览器运行态、Tauri、真实 provider/SSH 或远程电脑已经验收。未验证能力必须继续标为 `partial` / `not-run`。
+
+__DELTA__: 烛(Codex) | 1 | 证据：LO 在 2026-08-22 明确确认默认入口为 bot、`#/workbench` 保留；旧 baseline 条目保持不可删除并继续记录未批准前的边界。
+
 ---
 
 ### D-2026-06-17-001 · Lilith governed resident persona profile 初始集成
@@ -3651,3 +3699,1039 @@ __DELTA__: 主驾 | 2 | 证据：LO 锁定 ink-field + seat-rail；`.ai-shared/h
 - 下一高影响步骤仍需单独授权：正式实例 reload/readback、正式 runner 执行、真实 provider 与 SSH 验收。
 
 __DELTA__: 烛(Codex) | 1 | 证据：独立敏感残留审计定位 `.scratch/cc-appearance-audit/ccswitch-proxy.json:4` 的运行 token 与多份真实 provider 回包，促使交付使用显式闭包并加入禁入路径断言；`git ls-remote origin refs/heads/main` 完成远端 SHA 回读。
+
+### D-2026-08-19-001 · NO_ROUTE 错误必须自带席位排除原因并落盘账本
+
+- **date**: 2026-08-19
+- **decider**: LO（"帮我修复"）+ 烛(Codex)根因复盘
+- **verdict**: OBSERVABILITY FIXED / ROUTING POLICY UNCHANGED
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__no-route-observability__20260819-1513.md`
+- **tags**: control-center, router, no-route, observability, events-ledger, current-research
+
+#### 决定
+
+1. 根因定性：2026-08-19 06:36 的 60 连发 `NO_ROUTE current-research` 是 `current-grok` 硬约束（`allowedProviders: ["grok-search"]`）+ grok-search 健康不可用的正确 fail-closed 行为；三凭据为用户级环境变量、服务进程必然继承，当时故障在宿主清单探针（offline）档而非缺凭据档。
+2. 修复只做可观测性，不改路由策略：`NO_ROUTE`/`NO_INDEPENDENT_ROUTE` 文案过滤结构性排除后附带真实卡路原因（上限 3 席位）；`server.error` 事件在 `error.candidates` 存在时以 `{id, excluded, reasons}` 紧凑落盘。降级开关属策略变更，须 LO 单独拍板，本次不做。
+3. 前端零改动：`applyFailedRoutePreview` 已渲染 candidates，toast 直接受益于更详细的 message。
+
+#### 验证
+
+- `tests/router.test.mjs` 20/20；`tests/no-route-ledger-http.test.mjs`（新增，隔离仓 + 置空三凭据钉死 unconfigured 档）1/1，断言 422 文案、HTTP candidates、账本 `server.error.data.candidates` 三处齐全。
+- 回归 `orchestrator / grok-image-routing-http / automations / team-members-http / api-request-body` 共 124/124 pass。
+- 全仓 grep 确认无别处断言旧裸文案。
+
+#### 边界
+
+- 未追查 06:36 当时 grok-search 宿主 offline 的深层原因（需正式实例运行态复现）；本次保证下次发生时原因在 toast 与账本中直接可见。
+- 变更未提交（工作区另有本轮之前的未提交改动，未触碰）。
+
+__DELTA__: 烛(Codex) | 1 | 证据：apps/control-center/src/router.mjs routeBlockers() 把排除原因带入 NO_ROUTE/NO_INDEPENDENT_ROUTE 文案；server.mjs server.error 事件补落 candidates 明细；tests/no-route-ledger-http.test.mjs 三处断言全过（20+1+124 pass）
+
+### D-2026-08-20-001 · 协作台原生命令合同 + PTY 运行时 PATH + 配置图谱列表/脊柱
+
+- **date**: 2026-08-20
+- **decider**: LO（计划三件事）+ 主驾落地 + 烛(Codex) 独立复审
+- **verdict**: LANDED / FORMAL RELOAD PENDING
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__native-cli-path-config__20260820-0315.md`
+- **tags**: control-center, composer, pty, path, providers, native-commands
+
+#### 决定
+
+1. Composer 仍是统一协作台：登记过的原生命令走 adapter hook / passthrough；未知 slash fail-closed；完整 TUI 用 `/cli` 附着。
+2. PTY 与 process-runner 共享 `withRuntimeExecutablePath`：仅前置真实存在的 `~/.grok/bin`、`~/.kimi-code/bin`。Windows 浅拷贝补 `COMSPEC`/`ComSpec`。`defaultShell` 不走合成 PATH。
+3. 配置图谱侧栏改称「供应商」；列表可搜；右侧关系脊柱 Provider → 应用 → 席位 → 成员。搜索/选中不写 live。
+
+#### 验证
+
+- 全量 `npm test`：1541 pass / 0 fail / 2 skipped（焊回 hook/args/catalog 前）。
+- 焊回后聚焦：native/composer/orchestrator/remote-run 137 pass。
+- `npm run validate`：13/13 valid。
+- 烛：无致命；PATH 阴影面为显式权衡。未跑 Playwright 真窗口、未 reload 正式实例。
+
+#### 边界
+
+- 正式实例 / 真终端 `grok` 体感需 LO 确认 reload 后再验。
+- 未 `git commit` / `git push`。
+
+__DELTA__: 烛(Codex) | 1 | 证据：runtime-executable-dirs.mjs PATH 目录级前置；native-commands.mjs compact 额外参数与未知 hook fail-closed；app.js catalogNative 要求 memberId
+
+### D-2026-08-22-003 · 514 Bot Shell v0 实现与本地浏览器闭环
+
+- **date**: 2026-08-22
+- **topic**: 514-bot-product-reframe
+- **triggered_by**: LO 确认默认入口进入实现波次
+- **decision_maker**: LO + Codex
+- **verdict**: implemented-with-followups
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__514-bot-product-reframe__20260822-0001.md`
+- **tags**: 514-bot, bot-shell, browser-proof, lucide, partial
+
+#### 决定
+
+Bot Shell v0 已接入现有 Control Center：默认入口为 `bot`，`#/workbench` 保留兼容。产品表面采用代理通讯录 + 持续聊天 + 代理信息面板 + 电脑三态占位 + 五页设置；发送、question 确认和主题/插件控件复用既有运行真源，不引入第二套 runtime。
+
+#### 验证
+
+- `npm run validate`：13/13 通过。
+- Bot/Lucide 聚焦测试：6/6 通过。
+- 全量 `npm test`：1550 pass / 0 fail / 2 skipped。
+- Playwright 真实浏览器覆盖 1440x900、1024x768、390x844，关键交互与零横向溢出通过。
+
+#### 边界
+
+Tauri、真实 provider、SSH/远程电脑、插件安装/认证、Update/Reset 和 question/running 的后端实时状态映射仍未验收。电脑状态保持 `not-provisioned`。未执行 `git commit` / `git push`。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/index.html`、`public/app.js`、`public/forge/bot-shell.css`、`tests/bot-shell-ui.test.mjs`、`apps/control-center/.scratch/bot-shell-live-48024`；将 discovery baseline 推进为可运行的 chat-first 表面，同时保留远程能力的 partial 边界。
+
+### D-2026-08-22-004 · 514 Bot 默认表面视觉闭环
+
+- **date**: 2026-08-22
+- **topic**: 514-bot-product-reframe
+- **triggered_by**: LO 指出前端仍未按通讯录 + 对话 + 代理电脑要求收敛；独立视觉审查确认
+- **decision_maker**: LO + Codex
+- **verdict**: implemented-with-followups
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__514-bot-product-reframe__20260822-0001.md`
+- **tags**: 514-bot, visual-closure, chat-first, computer-view, context-menu
+
+#### 决定
+
+Bot 默认表面必须退出 Forge 控制台 chrome：隐藏顶部主导航、旧侧栏、移动底栏和全局状态栏；默认只展示 260px 代理通讯录、持续聊天和可开关代理信息面板。首屏仅保留短消息与 question 卡，其他状态卡保留为后续真实状态接线结构。代理电脑预览进入独立全屏电脑视图，仍显示 `not-provisioned`，并提供用户交接提示与「交还给代理」按钮。代理行右键提供删除确认，删除调用既有 `/api/team-members/:id`，不绕过服务端内置成员保护。
+
+#### 验证
+
+- Bot/Lucide 聚焦测试：6/6 通过。
+- 全量 `npm test`：1550 pass / 0 fail / 2 skipped。
+- `npm run validate`：13/13 通过。
+- Playwright 三视口（1440x900、1024x768、390x844）通过默认路由、代理切换、发送桥、question、面板焦点、电脑视图打开/交还、五页设置、Plugins、主题与零横向溢出；console/pageerror 为空。证据：`apps/control-center/.scratch/bot-shell-live-52652`。
+
+#### 边界
+
+真实远程桌面、Tauri、provider/SSH、Plugins 安装认证、Update/Reset 和实时状态映射仍未验收；内置示例代理的删除会由服务端 `FROZEN_BLOCK` 拒绝，不能伪称已删除。
+
+__DELTA__: 烛(Codex) | 2 | 证据：独立审查推翻上一轮“Bot 表面足够贴合”的判断，指出 `index.html:99-156,281-318,2668-2695` 的额外导航与状态 chrome；本轮已在 `bot-shell.css` / `app.js` / `index.html` 收口并通过真实浏览器复验。
+
+### D-2026-08-22-005 · Bot 最终艺术层与电脑视图焦点生命周期
+
+- **date**: 2026-08-22
+- **topic**: 514-bot-product-reframe
+- **triggered_by**: 三视口真实回归发现最终 art-direction 层重新引入页面留白，以及电脑视图交还时隐藏祖先阻断焦点
+- **decision_maker**: LO + Codex
+- **verdict**: FIXED / FOLLOW-UPS UNCHANGED
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__514-bot-product-reframe__20260822-0001.md`
+- **tags**: 514-bot, visual-closure, focus-management, browser-proof
+
+#### 决定
+
+1. `art-direction.css` 作为最终加载层必须对 `html.is-bot-surface` 强制清除 `.main-content` editorial inset，并让 `#view-bot` 铺满窗口；其它 Forge 表面保持原规则。
+2. 电脑视图从代理信息面板打开时，关闭或“交还给代理”必须恢复信息面板后再把焦点还给预览按钮；恢复后的面板还要登记顶栏信息按钮作为关闭返回目标，避免按钮仍在 `hidden/inert` 祖先内导致焦点落到文档。
+
+#### 验证
+
+- Bot/Lucide/art-direction 聚焦测试：10/10。
+- 全量 `npm test`：1550 pass / 0 fail / 2 skipped。
+- `npm run validate`：13/13。
+- Playwright 真实浏览器：1440x900、1024x768、390x844 全部通过；截图目录 `apps/control-center/.scratch/bot-shell-live-25444`，console/pageerror 为空，零横向溢出，并验证电脑交还后关闭面板焦点回到信息按钮。
+
+#### 边界
+
+- Tauri、真实 provider、SSH/远程电脑、Plugins 安装认证、Update/Reset 和实时状态映射仍未闭环；电脑保持 `not-provisioned`。
+- 未执行 `git commit` / `git push`。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/forge/art-direction.css` 的 Bot 全屏覆盖与 `apps/control-center/public/app.js` 的 `computerReturnPanel` 生命周期修复，经静态契约和三视口浏览器回归确认。
+
+### D-2026-08-22-006 · Bot 运行归属、代理级设置与插件诚实边界
+
+- **date**: 2026-08-22
+- **topic**: 514-bot-product-reframe
+- **triggered_by**: 继续完善后的三视口交互回归与迟到回包审查
+- **decision_maker**: LO + Codex
+- **verdict**: FIXED / ADOPTED
+- **adopted**: true
+- **source_handoff**: codex-to-claude__514-bot-shell-followup__20260822-1641.md
+- **tags**: 514-bot, run-ownership, event-history, agent-settings, plugins, truthful-ui
+
+#### 决定
+
+1. Bot 每条消息继续创建独立 run；`#/workbench` 保留原有续聊/steer 语义，两个表面不能互相偷换收件人。
+2. Bot 历史复用既有 run 事件历史真源，不创建第二套消息或 runtime；客户端只持久化有界的 run -> agent 归属索引和短期 optimistic 快照。
+3. 代理子设置属于 Bot 内部代理层，不并入全局五个设置 tab。保存后必须同步通讯录行、聊天顶栏和输入目标；路由离开 Bot 时统一收拢覆盖层，防止隐藏 dialog 截获返回操作。
+4. Plugins 安装、认证、Update、Reset 继续由既有后端负责；Bot 当前只提供市场/Installed/Private skills 的结构化诚实壳层，不伪造成功或独立 OAuth 状态。破坏性 Private skill 删除仍需确认卡。
+
+#### 验证
+
+- `node --check public/app.js` 通过。
+- `npm test -- tests/bot-shell-ui.test.mjs`：11 pass / 0 fail。
+- `node .scratch/bot-shell-live-qa-v3.mjs`：1440x900、1024x768、390x844 全部通过；实际点击代理齿轮并保存名称、Cursor 入口往返、五个设置页、Plugins 搜索/Installed/市场返回、Private skill 编辑/保存/危险删除确认、电脑视图、刷新后队列/历史与零横向溢出；console/pageerror 为空。截图与 JSON 证据：`apps/control-center/.scratch/bot-shell-live-v3-43068`。
+- 探针将 POST body 记录移到 `route.fulfill()` 之后，并等待队列 DOM 出现，避免把拦截器写入时刻误报成产品绑定完成。
+
+#### 边界
+
+真实远程代理电脑、Tauri 正式桌面壳、provider/SSH、插件安装/认证、Update/Reset、ask/answer 完整事件生命周期和后端 run 归属协议仍未闭环，保持 `partial`。
+
+__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/public/app.js` 补上 fallback 通讯录行同步与离开 Bot 的覆盖层收拢；`apps/control-center/.scratch/bot-shell-live-qa-v3.mjs` 通过三视口真实交互回归并修正了过早队列断言。
+
+### D-2026-08-22-007 · Bot 聊天内嵌审批卡与刷新一致性
+
+- **date**: 2026-08-22
+- **topic**: 514-bot-product-reframe
+- **triggered_by**: 继续完善：已有 ApprovalBroker 真源尚未进入 Bot 主对话
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / PARTIAL BOUNDARIES RETAINED
+- **adopted**: true
+- **source_handoff**: codex-to-claude__514-bot-approval-card__20260822-1915.md
+- **tags**: 514-bot, approval-card, approval-broker, sse, latest-wins, truthful-ui
+
+#### 决定
+
+1. Bot 对当前 run 的 pending approval 采用嵌入式聊天卡表达，继续复用既有 `ApprovalBroker` 与 `/api/approvals/:id/resolve`，不创建新的审批或租约运行链。
+2. 卡片必须展示脱敏参数、动作哈希和作用域；`item/permissions/requestApproval` 保持前端禁批与后端 fail-closed 双重约束。
+3. `approval.resolved/expired` 只在当前页面观察到事件时形成轻量结果行；`GET /api/approvals` 删除终态的事实不被包装成完整历史审计。
+4. 审批刷新采用 generation latest-wins，Bot 在接受最新快照后重同步当前聊天；connector/cloud-agent/远程电脑仍不得由静态 UI 冒充真实后端能力。
+
+#### 验证
+
+- `node --check public/app.js` 通过。
+- Bot 聚焦测试：17 pass / 0 fail；审批/轨道契约测试：23 pass / 0 fail。
+- `npm run validate`：13/13 通过。
+- `npm test`：1562 pass / 0 fail / 2 skipped。
+- Playwright 三视口 Bot 回归通过；审批专项真实浏览器探针通过，拒绝请求保留 `actionSha256`，未创建新 run。
+
+#### 边界
+
+真实远程代理电脑、Tauri、provider/SSH、connector/cloud-agent、插件安装认证、Update/Reset、正式后端 Bot run 归属和审批终态历史投影仍为 `partial`；未执行 `git commit` / `git push`。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/app.js` 的 `botApprovalCardMarkup`、`rememberApprovalEventOutcome`、`approvalsLoadGeneration` 与 `apps/control-center/.scratch/bot-approval-live-qa.mjs`；将既有审批真源接入聊天并补上迟到快照保护。
+
+### D-2026-08-22-008 · 514 Bot 审批代际与 settlement 状态硬化
+
+- **date**: 2026-08-22
+- **topic**: 514-bot-product-reframe
+- **triggered_by**: 独立审查发现 runtime reload 旧审批回包、无限 settlement loading 与 `partial` ready 视觉风险
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / PARTIAL BOUNDARIES RETAINED
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__514-bot-settlement-hardening__20260822-2225.md`
+- **tags**: 514-bot, approval-snapshot, settlement, fail-closed, latest-wins, partial
+
+#### 决定
+
+1. 审批快照的 `epoch` 只代表 broker 身份；跨 runtime reload 的接受顺序必须由非负安全整数 `runtimeGeneration` 严格单调约束。低代际、缺失代际或同代际换 epoch 的响应一律拒绝覆盖当前状态。
+2. Bot 与 Workbench 的 settlement 读取统一经过有界 requester：12 秒超时、AbortController 取消、`surface + runId` 作用域和 retry latest-wins。取消不渲染成故障，迟到响应仍由调用方 generation 丢弃。
+3. `partial` 不再复用 ready 语义；交付卡显示“交付尚未确认”并保持警告状态。未知、blocked、remote-unsupported 继续阻断；错误/invalid 提供显式重新读取入口。
+
+#### 验证
+
+- 审批快照、settlement requester 与 Bot UI 聚焦测试：30 pass / 0 fail。
+- `npm run validate`：13/13 valid。
+- 第二次全量 `npm test`：1581 pass / 0 fail / 2 skipped，exit 0；第一次全量唯一失败为既有 channels 限流测试的时间边界，单独复跑 12/0。
+- 最终源码三组 Playwright live QA 均通过：Bot 三视口、审批拒绝、reviewable settlement + diff。
+
+#### 边界
+
+真实远程电脑、Tauri、provider/SSH、connector/cloud-agent、插件安装认证、Update/Reset、正式后端 Bot run ownership、question/ask options 完整生命周期、长期 settlement 审计历史和 approvals/leases 共同版本快照仍为 `partial`；未执行 `git commit` / `git push`。
+
+__DELTA__: 烛(Codex) | 2 | 证据：approval-snapshot.js 与 settlement-request.js；独立复核推翻了旧代际审批回包可安全依赖 epoch、settlement loading 可无限等待且 partial 可显示 ready 的判断。
+
+### D-2026-08-24-001 · Bot 普通入口统一为内部工作区
+
+- **date**: 2026-08-24
+- **topic**: 514-bot-product-reframe
+- **triggered_by**: LO 指出连接频道、查看全部自动化等入口仍返回旧 Forge UI
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / LEGACY COMPATIBILITY RETAINED
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__bot-surface-workspace-routing__20260824-0015.md`
+- **tags**: 514-bot, workspace, routing, channels, automations, partial
+
+#### 决定
+
+1. Bot 的频道、自动化、成员、插件认证/安装、Team Setup 等普通入口不得再通过 `setView()` 把用户送到旧 Forge 主视图。
+2. Bot 内新增工作区 dialog，频道和自动化节点按需移动到 Bot 挂载点；业务模块继续使用既有 API、状态和真实写入逻辑，关闭后恢复原 DOM 位置。
+3. 旧 `#/workbench`、`#/channels`、`#/automations` 保留为兼容入口；新 Bot 入口不改变主路由，自动化编辑器仅在 Bot 工作区内使用 `#bot/automations/...` 子路径。
+
+#### 验证
+
+- Bot 契约：`node --test tests/bot-shell-ui.test.mjs`，`26 pass / 0 fail`。
+- `node --check`：`app.js`、`channels-panel.js`、`automations-page.js` 均通过。
+- `npm run validate`：`13/13 valid`。
+- Playwright：1440x900 实测 routines/channels/close；Bot 可见，旧 workbench/channels 不可见，关闭回到 Bot。
+
+#### 边界
+
+本轮未声称全量测试 clean exit；筛选命令触发的三个自动化运行时测试因 Windows `mkdtemp` `EPERM` 失败，属于环境/既有测试运行面问题。真实渠道凭据和自动化后端写入未在浏览器中执行，只验证挂载、路由和现有模块保留。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/app.js`、`public/index.html`、`public/channels-panel.js`、`public/modules/automations-page.js`；将 Bot 普通入口从旧 Forge 路由改为内部工作区，并以 Playwright 回读确认旧主界面不再出现。
+
+### D-2026-08-24-002 · Bot 成员身份与运行席位设置收回聊天表面
+
+- **date**: 2026-08-24
+- **topic**: 514-bot-member-settings
+- **triggered_by**: LO 要求不再把团队成员称为“代理”，并恢复运行席位等真实成员设置
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / FORMAL DESKTOP ACTIVATION PARTIAL
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__bot-member-settings__20260824-0132.md`
+- **tags**: 514-bot, members, runtime-seats, team-member-store, chat-first, desktop
+
+#### 决定
+
+1. Bot 可见产品语言统一使用“成员 / 对话 / 成员资料 / 成员电脑”；技术 ID（如 `bot-agent-*`）保留为兼容实现细节。Provider 代理服务器、远程代理等不同语义不随之改名。
+2. supersede `D-2026-08-22-006` 的“代理子设置保存本机展示覆盖”部分：姓名、简称、职责、简介、提示词、运行席位、默认模型、推理强度和主脑许可直接保存到 `TeamMemberStore`；本地覆盖只保留通知偏好。
+3. Bot 设置内的成员页直接渲染 `state.memberCatalog`，成员详情继续保持 `memberId -> runtimeProfileId -> adapter.id`，运行席位只展示 `teamMemberEligible === true` 的选项，当前失效绑定仅为恢复所需保留。
+4. 成员列表、成员详情和保存后刷新全部留在 `#view-bot`；不得通过 `setView("team")` 或 `setView("config")` 返回旧 Forge 主界面。
+
+#### 验证
+
+- `node --check public/app.js` 通过；Bot 静态契约 `27 pass / 0 fail`，但 Node TAP 在汇总后未干净退出，已终止本轮自有测试会话，不把它记录为 clean exit。
+- `npm run validate`：`13/13 valid`；`git diff --check` 通过，仅有工作树既有 LF/CRLF 提示。
+- 隔离 Playwright：1440x900 与 390x844 均留在 `#view-bot`，旧 `#view-team` 不可见；真实 `PUT /api/team-members/:id` 返回 200，body 包含运行席位、模型、effort、提示词和主脑许可；保存后聊天职责刷新；移动端无横向溢出；console/pageerror 为空；测试服务优雅退出。
+- 截图：`%TEMP%/514cc-bot-member-settings-qa/{bot-member-settings-desktop.png,bot-members-desktop.png,bot-member-settings-mobile.png}`。
+
+#### 边界
+
+- 正式 `51400` 实例启动被 `.ai-shared/control-center/control-center.lock` 的陈旧 PID `24904` 阻塞；已确认 PID 不存在且端口原为空，但未越权删除锁。当前 `51400` 为临时数据根预览实例，真实正式数据激活仍为 `partial`。
+- 未执行 `git commit` / `git push`，未修改正式成员数据。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/app.js:14797` 将成员详情接到真实运行席位与主脑资格，`apps/control-center/public/app.js:14947` 用 PUT 保存并刷新目录；浏览器回归同时发现并修复 shortLabel 被错误截短为 8 字符的数据损失风险。
+
+### D-2026-08-24-003 · Bot 成员设置正式桌面激活
+
+- **date**: 2026-08-24
+- **topic**: 514-bot-member-settings-live-activation
+- **triggered_by**: LO 确认归档陈旧锁、停止临时预览并切换正式桌面实例
+- **decision_maker**: LO + Codex
+- **verdict**: ACTIVATED / LIVE VERIFIED
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__bot-member-settings-live-activation__20260824-0201.md`
+- **tags**: 514-bot, members, desktop, instance-lock, live-qa, formal-data-root
+
+#### 决定
+
+1. 陈旧 `control-center.lock` 只归档到 `.ai-shared/backups/control-center-stale-lock-*`，不直接删除；临时预览 PID `2488` 已停止。
+2. 当前 Tauri 桌面壳必须自行拥有正式 Control Center 内核；不得在已有手工 Node 占用 `51400` 时再启动桌面壳。源码契约不支持 attach/reuse 已有内核。
+3. 正式运行态由桌面 PID `26164` 托管，Node、监听和锁 PID 均为 `10396`，锁的 `dataRoot` 为 `I:\514claude\514cc\.ai-shared\control-center`。
+
+#### 验证
+
+- 正式数据根浏览器读回：`GET /api/team-members` 返回 `200`，9 位成员；成员设置显示 8 个运行席位选项，始终留在 `#view-bot`，旧 `#view-team` 不可见，console/pageerror 为空。
+- 桌面自管内核 HTTP 返回 `200`，页面包含 `bot-member-runtime-profile`、`bot-settings-member-list` 和“成员设置”，不包含可见“代理设置”。
+- `PrintWindow` 真实桌面截图显示 9 位成员和新 Bot 对话壳：`%TEMP%/514cc-bot-member-settings-qa/desktop-live-printwindow.png`。
+- 未修改正式 `team-members.json`，未执行 `git commit` / `git push`。
+
+#### 边界
+
+全屏前台应用会遮挡普通屏幕截图并抢占坐标点击；因此桌面设置面板的坐标点击结果未计入验收。成员设置交互由同一正式数据根的 Playwright 浏览器会话完成验证，桌面壳由动态 9 人目录与目标窗口直出截图完成验证。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/desktop/src-tauri/src/main.rs:397`、`apps/desktop/src-tauri/src/main.rs:954` 证明桌面壳无条件自启内核且不支持 attach；据此从手工 Node 切换为桌面自管实例，避免再次触发实例锁和端口冲突。
+
+### D-2026-08-24-004 · 运行席位设置改为桌面常驻入口
+
+- **date**: 2026-08-24
+- **topic**: 514-bot-member-seat-discoverability
+- **triggered_by**: LO 在正式桌面端没有看到设置席位的地方
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / DESKTOP RELOADED
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__bot-seat-entry-discoverability__20260824-0216.md`
+- **tags**: 514-bot, runtime-seat, discoverability, desktop, member-settings
+
+#### 决定
+
+1. “席位字段已经存在”不等于用户能找到入口；不再要求用户先打开账号设置、切换成员页、再猜测无文字齿轮。
+2. 当前对话标题栏增加常驻“席位设置”按钮，直接打开当前成员的真实成员设置表单。
+3. “设置 -> 成员”列表中的无文字齿轮改为明确的“设置席位”按钮；两处入口继续复用 `botOpenAgentSettings()` 和既有真实 PUT 保存链。
+
+#### 验证
+
+- `node --check public/app.js`：exit 0。
+- `node --test --test-force-exit --test-isolation=none tests/bot-shell-ui.test.mjs`：27 pass / 0 fail，exit 0。
+- `npm run validate`：13/13 valid，exit 0。
+- 正式桌面 WebView 已执行 `Ctrl+R`；目标窗口直出截图显示“运行席位”、席位、默认模型、推理强度、Provider、Adapter 与主脑资格：`%TEMP%/514cc-bot-member-settings-qa/desktop-seat-entry-live.png`。
+- 正式 HTTP `200`，包含 `bot-member-seat-button`、可见“席位设置”和 `bot-member-runtime-profile`。
+
+#### 边界
+
+未修改正式成员数据，未执行 `git commit` / `git push`。工作区原有大范围未提交改动继续保留，本轮只增补席位入口、样式和聚焦契约。
+
+__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/public/index.html:562` 与 `apps/control-center/public/app.js:14656`；LO 的桌面反馈推翻“表单存在即可视为席位设置已可用”的判断，改为主界面常驻入口和成员行文字入口。
+
+### D-2026-08-24-005 · Bot 内开放完整自定义运行席位
+
+- **date**: 2026-08-24
+- **topic**: 514-bot-custom-runtime-seats
+- **triggered_by**: LO 澄清“设置成员”仍只能选择固定席位，要求席位本身可新增和编辑
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / LIVE DESKTOP VERIFIED
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__bot-custom-runtime-seats__20260824-0329.md`
+- **tags**: 514-bot, runtime-seats, custom-seat, member-binding, desktop, playwright
+
+#### 决定
+
+1. supersede `D-2026-08-24-004` 中“成员可选择固定席位即可视为席位设置完成”的产品判断；成员配置与席位定义是两个实体，Bot 必须同时开放席位目录的创建和完整编辑。
+2. Bot 不复制第二套席位表单或保存协议；把既有 `#config-surface-sources` 和 `runtimeSeatManager` 临时挂载进 Bot 运行席位工作区，继续复用 `/api/runtime-seats` 的 POST/PUT/DELETE 与事务激活链。
+3. 当前成员设置提供“编辑当前席位 / 新建自定义席位”，工作区提供“绑定到当前成员”；新草稿未保存、席位不可执行或成员仍被团队引用时保持 fail-closed，服务端引用保护不被前端绕过。
+4. 席位编辑、绑定成员 chip、关闭与返回均留在 `#view-bot`；未保存席位草稿在关闭前要求确认，不再跳回旧团队或配置主界面。
+
+#### 验证
+
+- `node --check`：`public/app.js`、`public/modules/runtime-seat-manager.js`、`.qa-output/bot-member-settings-qa.mjs` 均 exit 0。
+- Bot + 席位管理器聚焦断言 `28 pass / 0 fail`；Bot 单套 `27 pass / 0 fail`；运行席位 HTTP 合同 `1 pass / 0 fail`。三次 Node TAP 均在汇总后残留句柄并由本轮终止，不记录为 clean exit。
+- `npm run validate`：13/13 valid，exit 0；目标文件 `git diff --check` 通过，仅有既有 LF/CRLF 提示。
+- 隔离 Playwright：空白自定义席位 `POST /api/runtime-seats = 201`；复制可执行席位再次 `POST = 201`；未引用成员绑定 `PUT /api/team-members/:id = 200`；1440x900 与 390x844 均保留 Bot 表面、移动端无横向溢出、console/pageerror 为空，测试服务优雅退出。
+- 正式桌面旧 WebView 硬刷新后白屏，未将空白像素误记为成功；受控重启后桌面 PID `37860`、Node/锁 PID `9520`、`51400` HTTP 200。正式窗口像素已显示“新建自定义席位”及完整“新建运行席位”表单。
+
+#### 边界
+
+- 正式桌面只打开未保存草稿，没有点击“保存并启用”；正式数据文件内容扫描因运行态 ACL `Access denied` 未完成，因此不把内容回读记为已验证。
+- 未执行 `git commit` / `git push`；工作区原有大范围未知改动全部保留。
+
+__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/public/app.js` 的 `botOpenSeatWorkspace` 与 `botBindSelectedSeat`、正式桌面 `%TEMP%/514cc-bot-member-settings-qa/desktop-seat-editor-live.png`；LO 的澄清推翻“固定席位下拉可视为席位可配置”的旧判断，并落地为可创建、可完整编辑、可验证绑定的席位实体。
+
+### D-2026-08-24-006 · Bot 通讯录、群聊与个人身份统一为聊天主界面
+
+- **date**: 2026-08-24
+- **topic**: 514-bot-communications-ui
+- **triggered_by**: LO 要求参考微信桌面端补齐对话/通讯录、成员 CRUD、群聊、官方成员图标与个人资料
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / FULL-SUITE ENVIRONMENT GATE PARTIAL
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__bot-communications-ui__20260824-0506.md`
+- **tags**: 514-bot, chat, contacts, groups, avatars, operator-profile, mobile, accessibility
+
+#### 决定
+
+1. Bot 左栏采用“对话 / 通讯录”两个主标签，使用现有 `#view-bot`、成员目录与 run 投影；成员、群聊和个人设置入口不得跳回旧 Forge 主视图。
+2. 成员新增、编辑和删除继续以 `TeamMemberStore` 为真源；成员头像顺序固定为“自定义上传 -> 模型/CLI 官方图标 -> 姓名缩写”，不允许任意外链头像绕过既有同源 API、图片签名校验与 CSP。
+3. 新建群聊继续创建 `orchestrationMode: social` 的真实 run；后续消息必须复用同一 `runId` 并走 `/api/runs/:id/messages`，不建立第二套本地聊天存储或伪群聊协议。
+4. 个人昵称与头像保存到当前 Control Center 数据根的 operator profile；头像上传与恢复继续复用 `/api/avatars/operator`。
+5. 移动端通讯录的编辑、删除操作必须始终可达，不能依赖桌面 hover；完整自定义运行席位编辑继续复用 `D-2026-08-24-005` 的 `runtimeSeatManager` 工作区。
+
+#### 验证
+
+- `node --check`：`public/app.js`、`src/avatars.mjs`、`server.mjs`、`.qa-output/bot-communications-qa.mjs` 均通过。
+- Bot/头像/席位聚焦测试：36 pass / 0 fail；头像 HTTP：1 pass / 0 fail；social contract/team kit：6 pass / 0 fail。
+- `npm run validate`：13/13 valid，exit 0；成员 HTTP 串行：1 pass / 0 fail；social orchestration 串行：78 pass / 0 fail。
+- 隔离 Playwright 在 1440x900、1024x768、390x844 验证了键盘标签切换、官方 Codex 图标、成员 POST/PUT/DELETE、成员与个人头像上传、social 群聊首发及同一 run 续发、旧视图不可见、移动端操作按钮尺寸、无横向溢出和零 console/pageerror/HTTP 异常；服务优雅退出。
+- 截图位于 `%TEMP%/514cc-bot-communications-qa/` 的 `bot-contacts-desktop.png`、`bot-group-desktop.png`、`bot-contacts-tablet.png`、`bot-contacts-mobile.png`。
+
+#### 边界
+
+- 全量 `npm test` 仍受 Windows 并发临时目录 `mkdtemp EPERM` 成片失败影响；相关成员与 social 套件改为串行后通过，因此当前只证明聚焦功能，不把 full-suite 门禁记为通过。
+- Node TAP 个别命令在通过汇总后残留既有句柄，只终止本轮自有测试会话，不记录为 clean exit。
+- 本轮没有重启或重新激活正式桌面实例；未修改正式成员数据，未执行 `git commit` / `git push`。
+- 独立审查记录的全局 `unhandledRejection` 继续运行风险，以及头像清除/成员删除文件清理非原子问题，属于后端一致性债，不在本轮通讯 UI 范围内。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/forge/bot-shell.css:901` 与 `%TEMP%/514cc-bot-communications-qa/bot-contacts-mobile.png`；浏览器复核发现并修复移动端通讯录编辑/删除操作原先不可达的问题。
+
+### D-2026-08-24-007 · 群聊成员选择使用完整通讯录与只读运行快照
+
+- **date**: 2026-08-24
+- **topic**: 514-bot-group-full-contacts
+- **triggered_by**: LO 指出新建群聊只显示当前团队中的少数成员
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / FORMAL SOURCE VERIFIED
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__bot-group-full-contacts__20260824-1112.md`
+- **tags**: 514-bot, contacts, group-chat, ephemeral-team, team-roster, fail-closed
+
+#### 决定
+
+1. 群聊成员选择器以完整 `TeamMemberStore` 通讯录为候选源，不再按 `selectedTeamId/defaultTeamId` 过滤；没有可执行运行席位的成员仍显示，但保持禁用并提示先配置席位。
+2. 群聊不能为了满足既有 team 白名单而先写入持久化 `teams.json`。前端随 `POST /api/runs` 提交 `ephemeralTeam` 描述，Orchestrator 通过 TeamStore 的同一成员、主脑、secret 与目录校验器生成只存在于 run 内的团队快照。
+3. run 固化 `teamId/teamBrief/teamMembers/teamRoster/teamSkills/teamMcp/coordinatorId/teamEphemeral`；续聊、恢复、审批与结算继续按 run 身份运行，不新增第二套聊天协议，也不依赖一个随后删除的 TeamStore 记录。
+4. `teamId` 与 `ephemeralTeam` 同时提交必须服务端拒绝；未知成员、无资格主脑、敏感团队配置和未认证请求继续 fail-closed。
+
+#### 验证
+
+- `node --check`：`public/app.js`、`src/teams.mjs`、`src/orchestrator.mjs`、`.qa-output/bot-communications-qa.mjs` 全部通过。
+- 聚焦测试：Bot UI、TeamStore、成员 HTTP 串行 `48 pass / 0 fail`；真实 HTTP 覆盖未认证、双团队来源冲突、未知成员、secret-like 提示词、TeamStore 不变、成员删除后 run 快照回读和跨重启恢复。
+- `npm run validate`：13/13 valid；`git diff --check` 通过，仅有工作区既有 LF/CRLF 提示。
+- 隔离 Playwright：完整 8 位通讯录投影、跨当前团队成员可选、social run 只创建一次、同 run 续发一次、成员随后可删除；1440x900、1024x768、390x844 无横向溢出，`diagnostics=[]`，测试服务优雅退出。
+- 正式 `51400/app.js` HTTP 回读命中完整通讯录候选与 ephemeralTeam 提交代码；当前桌面进程无可见窗口句柄，未伪报窗口刷新。
+
+#### 边界
+
+- 群聊的团队级 Inbox/Attention 投影仍不适用于 ephemeral team；Bot 使用 run 级问题卡、审批与 settlement 合约。
+- 多个完全相同 prompt 的并行 pending 主要由同步捕获的 submission token 隔离，现有 QA 覆盖单群聊首发与续发，未增加双群聊同 prompt 的浏览器压力用例。
+- 未修改正式成员或团队数据，未执行 `git commit` / `git push`。
+
+__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/public/app.js:16029`、`apps/control-center/src/teams.mjs:427`、`apps/control-center/src/orchestrator.mjs:1870`；独立审查推翻“先持久化团队、run 创建后再删除即可安全回收”的判断，改为从不写 TeamStore 的服务端校验运行快照。
+
+### D-2026-08-24-008 · 官方成员头像恢复品牌识别色
+
+- **date**: 2026-08-24
+- **topic**: 514-bot-member-brand-colors
+- **triggered_by**: LO 指出桌面通讯录中的 Claude 等官方图标被统一渲染成黑白
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / FORMAL SOURCE VERIFIED
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__bot-member-brand-colors__20260824-1229.md`
+- **tags**: 514-bot, avatars, brand-colors, claude, codex, gemini, dark-theme
+
+#### 决定
+
+1. 官方 CLI SVG 继续复用同一 sprite 几何，不复制位图或引入外链；统一 `officialCliIconMarkup()` 为 SVG 增加受限 `cli-brand-*` 类和 `data-cli-brand`。
+2. Claude 使用珊瑚橙识别色，Codex 使用绿色识别色，Gemini 使用紫蓝识别色；官方本身为单色的 Grok、Kimi、Pi、OpenCode 保留单色轮廓，但通过独立头像底色和明暗主题反转保证辨识度。
+3. Bot 成员 tone 从三档硬编码改为基于成员 `provider/runtimeProfileId/id` 的统一品牌推导；自定义上传头像仍高于官方图标，未知品牌仍回退姓名缩写。
+4. 品牌色必须同时作用于 SVG `fill`，不能只改父容器 `color`；浏览器 QA 直接回读 Claude 的 computed `color/fill`，防止 `<use>` 仍落默认黑色。
+
+#### 验证
+
+- `node --check`：`public/app.js`、`public/modules/avatars.js`、`.qa-output/bot-communications-qa.mjs` 均通过。
+- 头像与 Bot UI 聚焦测试：31 pass / 0 fail，exit 0。
+- 隔离 Playwright：Claude SVG 的 `data-cli-brand=claude`，computed `color` 与 `fill` 均为 `rgb(217, 119, 87)`，头像背景不再为旧 `rgb(40, 40, 40)`；群聊、通讯录 CRUD、三视口布局继续通过，`diagnostics=[]`，服务优雅退出。
+- 正式 `51400` 的 `avatars.js/styles.css/bot-shell.css/app.js` 均返回 200 并包含新品牌渲染链；当前桌面进程仍无可见窗口句柄，未伪报窗口刷新。
+
+#### 边界
+
+- Grok、Kimi 等官方图形本身是单色标志，不伪造多色版本；本轮改善的是对比度、头像底色与跨主题辨识度。
+- 未修改自定义头像文件或正式成员数据，未执行 `git commit` / `git push`。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/modules/avatars.js:18`、`apps/control-center/public/styles.css:6485`、`apps/control-center/public/forge/bot-shell.css:161`；将散落的黑白 `currentColor` 渲染收敛为统一品牌标记、品牌色和主题头像底。
+
+### D-2026-08-24-009 · 内置运行成员改为可恢复的通讯录移出
+
+- **date**: 2026-08-24
+- **topic**: 514-bot-builtin-contact-removal
+- **triggered_by**: LO 删除 Grok 时效搜索时看到 `builtin members cannot be deleted`
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / BROWSER VERIFIED
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__bot-builtin-contact-removal__20260824-1301.md`
+- **tags**: 514-bot, contacts, builtin-members, operator-profile, reversible-removal
+
+#### 决定
+
+1. `TeamMemberStore` 的内置运行席位保护继续生效：Bot 不对内置成员发送物理 `DELETE`，避免破坏团队绑定、历史运行和底层 CLI 席位。
+2. Bot 把内置成员的“删除”解释为“移出个人通讯录”，将成员 ID 持久化到 operator profile 的 `hiddenMemberIds`；对话列表、通讯录、成员概览和新建群聊候选统一过滤这些 ID。
+3. 自定义成员继续走 `/api/team-members/:id DELETE`，保持原有引用完整性门；内置与自定义两种行为在确认文案和成功/失败提示中明确区分，不再透传英文 `FROZEN_BLOCK`。
+4. 设置的成员页保留已移出成员，并提供“恢复”动作；个人昵称和头像更新必须保留 `hiddenMemberIds`，隐藏列表须限制数量、校验 ID 并去重。
+
+#### 验证
+
+- `node --check`：`public/app.js`、`src/avatars.mjs`、`.qa-output/bot-communications-qa.mjs` 通过。
+- 头像存储与 Bot UI 聚焦测试：`34 pass / 0 fail`；头像 HTTP 跨重启持久化：`1 pass / 0 fail`。两条 Node TAP 命令均在通过汇总后残留既有句柄，本轮主动终止，不记为 clean exit。
+- 隔离 Playwright：真实执行 Grok 内置成员移出、设置页恢复和自定义成员 DELETE；1440x900、1024x768、390x844 无横向溢出，`diagnostics=[]`，测试服务优雅退出。
+- 截图：`%TEMP%/514cc-bot-communications-qa/bot-builtin-member-removed.png`。
+
+#### 边界
+
+- “移出通讯录”只改变当前 Control Center 数据根下 operator profile 的个人可见性，不删除运行席位、不修改团队、不清除历史 run。
+- 最终运行态检查时 `51400` 无监听；`cc-desktop` PID 49360 的 `MainWindowHandle=0`。本轮未强杀残留进程或伪报正式窗口已刷新，下次正常启动会加载新的后端模块。
+- 未修改正式成员或 operator profile 数据，未执行 `git commit` / `git push`。
+
+__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/public/app.js:14870`、`apps/control-center/src/avatars.mjs:56`、`%TEMP%/514cc-bot-communications-qa/bot-builtin-member-removed.png`；推翻“内置成员只需保留失败保护”的旧 UI 判断，将联系人移除与运行席位删除拆成可恢复且可验证的两层语义。
+
+### D-2026-08-24-010 · Bot 全局弹窗统一为中性聊天表面
+
+- **date**: 2026-08-24
+- **topic**: 514-bot-dialog-surface-unification
+- **triggered_by**: LO 截图指出“移出通讯录”等弹窗仍保留旧 Claude/Forge 暖纸风格
+- **decision_maker**: LO + Codex + 独立只读复核
+- **verdict**: IMPLEMENTED / BROWSER VERIFIED / FORMAL RESOURCE VERIFIED
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__bot-dialog-surface-unification__20260824-1455.md`
+- **tags**: 514-bot, dialogs, neutral-im, route-lifecycle, dirty-guard, provider-warning
+
+#### 决定
+
+1. Bot 表面打开的 9 个全局 `<dialog>` 统一使用中性聊天视觉：白色/深灰表面、6px 圆角、无 backdrop blur、同色操作栏、克制红色危险态；作用域固定在 `html.is-bot-surface body > dialog.action-dialog`，不改写非 Bot 工作台的 Forge 风格。
+2. `common-config-dialog` 与 `provider-deeplink-dialog` 在进入 Bot 时动态获得 `action-dialog/dialog-heading`，离开时撤销；其余 7 个弹窗继续复用 HTML 真源已有 class，不复制第二套 DOM。
+3. Provider 普通说明条在 Bot 中中性化，但 `provider-live-drift` 继续继承真实 amber warning；禁止为追求统一外观把 `--amber/--amber-soft` 整体灰化。
+4. 离开 Bot 前按登记表派发可取消 `cancel` 事件并关闭仍开放的全局弹窗；若自动化未保存守卫阻止取消，则视图切换中止、hash 恢复 `#bot`，不得强制关闭或丢草稿。
+5. 运行席位工作区的未保存草稿也进入路由门：取消放弃时保留 Bot、工作区和原草稿；确认放弃后自动继续最新目标。等待确认期间的新路由 latest-wins，重新选择 Bot 会清空 pending target，深链接 hash 与视图保持一致。
+
+#### 验证
+
+- `node --check public/app.js`、`node --check .qa-output/bot-communications-qa.mjs`、`git diff --check` 通过。
+- Bot 静态聚焦套件：31 pass / 0 fail；TAP 汇总后残留既有句柄，本轮主动终止，不记为 clean exit。
+- `npm run validate`：13/13 valid。
+- 隔离 Playwright：1440x900、1024x768、390x844，浅色/深色 8 类复杂弹窗 + 联系人危险确认；无横向溢出，`diagnostics=[]`，服务优雅退出。
+- 路由回归：common-config 切出/切回动态 class；自动化 dirty 取消保持 `#bot`；运行席位 dirty 取消保留草稿，确认期间 Workbench -> Team 改选后最终进入最新 `#team`。
+- Provider 语义回读：普通 hint 为中性灰；live drift 浅色 `rgb(138, 91, 0)`、深色 `rgb(224, 168, 77)`。
+
+#### 边界
+
+- 浏览器 QA 使用隔离数据根，不修改正式成员、团队、席位或 operator profile。
+- 正式桌面窗口是否已重新可见仍以本轮最终运行态回读为准；静态资源 HTTP 命中不等于桌面窗口截图已完成。
+- 未执行 `git commit` / `git push`，未清理工作区其他协作者改动。
+
+__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/public/app.js:2306`、`apps/control-center/public/app.js:2357`、`apps/control-center/.qa-output/bot-communications-qa.mjs:605`；独立复核连续推翻“cancel 后可无条件 close”与“离开 Bot 可直接关闭席位工作区”两项判断，最终补为尊重脏草稿、latest-wins 且 hash 一致的路由生命周期。
+
+### D-2026-08-24-011 · 桌面端图标切换为 514 对话核
+
+- **date**: 2026-08-24
+- **topic**: desktop-icon-dialog-core
+- **triggered_by**: LO 从四个桌面图标候选中选定 01「对话核」并要求先做出实物查看
+- **decision_maker**: LO + Codex + 独立只读视觉复核
+- **verdict**: IMPLEMENTED / ISOLATED RELEASE VERIFIED / LIVE ACTIVATED
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__desktop-icon-dialog-core__20260824-1602.md`
+- **tags**: desktop, tauri, icon, 514-bot, dialog-core, windows
+
+#### 决定
+
+1. 桌面端使用「对话核」作为新图标：深墨底、白色对话框、珊瑚橙/成员绿/Gemini 紫三色成员点和绿色在线状态点，不再沿用旧 `514 console` 文字徽章。
+2. `icon.svg` 是可维护矢量真源；Tauri bundle 继续使用现有 `icon.ico` 与 `icon.png` 配置，不引入外部品牌资产或生成式位图。
+3. Windows ICO 固定包含 16 / 24 / 32 / 48 / 64 / 128 / 256px 七档 RGBA PNG；16px 近透明角像素归零，避免浅色任务栏方角光晕。
+
+#### 验证
+
+- Chromium 透明光栅化和 512/32/16px 视觉回读通过；正式 PNG 尺寸与透明通道回读通过。
+- `ffprobe` 确认正式 ICO 含 7 个预期尺寸；隔离 `cargo build --release` 成功。
+- 从隔离 EXE 提取出的 32x32 关联图标与正式 32px 资源视觉一致，四角 alpha 为 0。
+- `git diff --check -- apps/desktop/src-tauri/icons` 通过。
+- LO 确认后，旧正式 EXE 先备份再替换；正式文件与隔离产物 SHA-256 均为 `AA5BDC6368A52201AB8BCD15BF2DFBCC23F67860554C3968A2248BDE1B464D11`。
+- 新正式桌面 PID `23180`、内核 PID `41992`；HTTP `200`、标题 `514 Bot`。single-instance 唤醒后，主窗口句柄 `48958432` 在 20 秒、250ms 间隔采样中全程可见且非最小化。
+- 可见窗口未暴露 `WM_GETICON` / class icon handle；Windows Shell `SHGetFileInfo` 从正在运行的正式 EXE 路径回读到 32x32 新图标，四角 alpha 为 0。
+- 最终收尾时窗口处于托盘隐藏态，但正式主进程、内核监听和 HTTP `200` 均保持正常，符合既有 close-to-tray 契约。
+
+#### 边界
+
+- 未取得物理任务栏截图；实时图标证据为正式 EXE 提取、运行路径 hash、Shell 图标回读与可见窗口状态。固定快捷方式若仍持有旧缓存，需要取消固定后重新固定。
+- 未执行 `git commit` / `git push`，未清理工作区其他改动。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/desktop/src-tauri/icons/icon.svg:1`、`apps/desktop/src-tauri/icons/icon.ico`；独立复核发现并修正 16px 四角近透明抗锯齿残留，补强 Windows 小尺寸显示质量。
+
+### D-2026-08-24-012 · Bot direct/group 对话身份与附件上下文收口
+
+- **date**: 2026-08-24
+- **topic**: 514-bot-conversation-direct-group-attachments
+- **triggered_by**: LO 要求直接完成单独对话、工作区群聊、右键菜单和图片粘贴链路
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / FULL RUNTIME VERIFICATION PARTIAL
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__conversation-direct-group-attachments__20260824-*.md`
+- **tags**: 514-bot, direct-conversation, workspace-group, context-menu, clipboard-attachments
+
+#### 决定
+
+1. supersede `D-2026-08-22-006` 的“Bot 每条消息继续创建独立 run”条目：direct Conversation 持有一个 `activeRunId`，非终态续聊复用该 run；terminal run 后创建新的 run，但仍挂在同一 Conversation。
+2. 工作区群聊以规范化工作目录作为唯一身份；群成员快照变化清空 `activeRunId`，下一条消息创建新 social run，旧 run 只读保留。Workbench 既有 pipeline/续聊行为不改变。
+3. direct 永远使用明确的目标成员和非-social topology，跳过 coordinator/verifier/final synthesis；workspace group 才允许 social orchestration，成员快照只在 run 内 materialize，不写入持久化 TeamStore。
+4. Bot 对话行与通讯录成员统一使用同一组右键菜单：置顶、移至、标为未读、编辑资料、创建副本、复制对话 ID、从侧边栏隐藏、删除。删除写入墓碑，不删除工作目录、run 或原生 CLI session。
+5. Bot 图片粘贴、拖放和文件选择按 `bot:conversation:<id>` 分柜；图片-only 消息使用内部中性 prompt，UI 保留图片数量；上传中禁止发送，失败附件保留可见并可移除。
+
+#### 验证
+
+- `node --test --test-force-exit tests/bot-shell-ui.test.mjs tests/clipboard-attachments-ui.test.mjs tests/orchestrator.test.mjs`：156 pass / 0 fail。
+- `node --test --test-force-exit tests/conversations.test.mjs tests/conversations-http.test.mjs tests/mission-control.test.mjs tests/mission-control-http.test.mjs`：23 pass / 0 fail。
+- `npm run validate`：13/13 valid。
+- `node --check public/app.js tests/bot-shell-ui.test.mjs tests/clipboard-attachments-ui.test.mjs`：exit 0。
+- 本轮复跑 Bot/附件 UI：47 pass / 0 fail；Conversation/HTTP/Mission：23 pass / 0 fail；新增认证顺序契约通过。
+- 隔离 Playwright 真实验收：1440x900、1024x768、390x844 均无横向溢出或 pageerror；认证后无 Conversation 401；通讯录右键实际创建 direct，菜单八项、置顶/未读 PATCH、workspace_group 的 cwd/memberIds POST 均回读通过；真实 1x1 PNG paste 生成 1 个附件 chip，drop/file 监听同时挂载。
+- 隔离数据根回读 `conversations.json`：direct 与 workspace_group 分开持久化；同一规范化 cwd 的第二群聊返回 `409 WORKSPACE_CONVERSATION_CONFLICT`。
+
+#### 边界
+
+- 正式桌面未刷新、真实 provider 未调用；目标功能已完成隔离运行态验证，但正式激活仍为 `partial`，不能用服务启动或静态契约替代。
+- 隔离浏览器会让 Channels/Office/Market/SSH 等非本轮面返回 501；不属于 direct/group/附件链路失败，需由环境 QA 另行收口。
+- 未执行 `git commit` / `git push`，未修改正式成员、团队或席位数据。
+
+__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/public/app.js:14983`、`:17809`、`:17221`、`:17717`；推翻旧的“Bot 每条消息新建 run”与“通讯录只能点击进入对话”判断，补为 Conversation 级身份、完整右键菜单和按对话隔离的图片附件链。
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/app.js:17768`、`:26965`；独立浏览器验收发现并修复首屏认证竞态，补齐三视口和真实交互回读。
+
+### D-2026-08-25-001 · Bot 输入框内图片缩略图渲染
+
+- **date**: 2026-08-25
+- **topic**: 514-bot-inline-image-preview
+- **triggered_by**: LO 提供参考图并要求图片直接渲染在对话输入框内
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / ISOLATED RUNTIME VERIFIED
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__conversation-direct-group-attachments__20260824-1900.md`
+- **tags**: 514-bot, composer, clipboard, image-preview, blob-url, responsive
+
+#### 决定
+
+Bot composer 的附件区域采用“提交路径与显示预览分离”模型：服务端返回的本地路径继续作为唯一提交值；浏览器在当前 File 生命周期内使用受控 `blob:` URL 渲染缩略图。每个 Conversation context 维护已保存路径预览 Map 和上传中预览 Map，避免 direct/group 之间串图；上传失败保持缩略图与错误态可见；移除、提交消费和上下文迁移回收对象 URL。
+
+预览卡片固定方形、`object-fit: cover`、圆角、右上角圆形移除按钮；桌面 116px、移动端 88px，附件栏只在自身横向滚动，不允许撑破 composer。刷新后无法恢复原始 File 时只显示路径 fallback，不伪造历史缩略图。
+
+#### 验证
+
+- `npm run validate`：13/13 valid。
+- `node --test --test-force-exit tests/bot-shell-ui.test.mjs tests/clipboard-attachments-ui.test.mjs tests/orchestrator.test.mjs`：158 pass / 0 fail。
+- 隔离 Playwright 粘贴有效 PNG：1440x900、1024x768、390x844 均有可见 `<img src="blob:...">`、自然尺寸 1x1、固定预览框、圆形移除按钮、零横向溢出、无 console/pageerror。
+
+#### 边界
+
+正式桌面/provider 未刷新或调用；本条只证明源码、聚焦测试和隔离 Control Center 运行态，正式激活仍为 `partial`。未执行 commit/push。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/app.js:17246-17360`、`apps/control-center/public/forge/bot-shell.css:401-438`、`apps/control-center/tests/clipboard-attachments-ui.test.mjs:200-345`；将文字附件 chip 补强为输入框内真实缩略图，同时保留附件路径协议和对象 URL 生命周期边界。
+
+### D-2026-08-25-002 · Bot 图片大图预览与焦点恢复
+
+- **date**: 2026-08-25
+- **topic**: 514-bot-image-dialog-preview
+- **triggered_by**: LO 要求点击对话框内图片后可打开大图预览
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / ISOLATED RUNTIME VERIFIED
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__conversation-direct-group-attachments__20260824-1900.md`
+- **tags**: 514-bot, image-preview, dialog, focus, accessibility, responsive
+
+#### 决定
+
+Bot 图片预览使用原生 `<dialog>` modal：缩略图和上传中/失败图片均可点击或键盘 Enter/Space 打开；仅允许当前浏览器受控 `blob:` 或图片 data URL；关闭按钮、Esc 和遮罩关闭统一走 `close()`。关闭后优先恢复原 opener，若上传状态重绘替换节点，则按预览 URL 找回当前触发器，并通过下一任务队列再次恢复焦点。
+
+#### 验证
+
+- `node --check public/app.js`：通过。
+- `node --test --test-force-exit tests/clipboard-attachments-ui.test.mjs tests/bot-shell-ui.test.mjs`：49 pass / 0 fail。
+- `npm run validate`：13/13 valid。
+- 隔离 Playwright（1440x900、390x844）：dialog 打开、同 blob URL、关闭按钮/Escape/遮罩/主体点击语义、焦点恢复、0 横向溢出均通过；pageerror 为空。隔离环境非本轮接口返回的 501 已明确排除。
+
+#### 边界
+
+- 刷新后的历史附件没有原始 File，不能直接恢复大图，只保留路径 fallback。
+- 正式桌面/provider 未刷新或调用；正式激活仍为 `partial`；未执行 commit/push。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/app.js:17283-17295`、`:18029-18044`、`apps/control-center/public/index.html:658-663`；独立运行态发现并修复原生 dialog 关闭后焦点恢复的重绘/时序竞态。
+
+### D-2026-08-25-003 · 514 Bot 项目与会话隔离模型
+
+- **date**: 2026-08-25
+- **topic**: 514-bot-project-conversation-isolation
+- **triggered_by**: LO 要求参考项目/会话树并按推荐方案融合 514 Bot
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / ISOLATED RUNTIME VERIFIED
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__bot-project-conversation-isolation__20260825-1400.md`
+- **tags**: 514-bot, project, conversation, run, session-isolation, archive, idempotency, fail-closed
+
+#### 决定
+
+514 Bot 使用两级隔离边界：全局范围只承载成员单聊；项目范围由唯一规范化 cwd 标识，每个 Project 最多一个默认协作室，并允许多个项目任务会话。执行链固定为 `Project -> Conversation -> Run -> 原生 CLI session`；Conversation 是用户可见的长期语义边界，Run 是一次可恢复执行，原生 CLI session 只作为 provider 续轮句柄，不能反向充当项目或会话身份。
+
+同一规范化 cwd 只能归属一个 Project，归属与默认协作室唯一性由服务端 ProjectRegistry/ConversationStore 持久化约束，浏览器树只负责投影。Project 归档采用“只读封存”：不删除目录、Conversation、Run 或原生 session；归档后拒绝新会话、新 Run 和旧 Run 续轮，恢复后才重新开放协作。
+
+Run 创建与恢复必须同时验证 Conversation、Project、cwd 和成员快照。成员变化后的旧 Run 不得继续使用旧拓扑；创建幂等键按 `(conversationId, idempotencyKey)` 隔离，同一键的并发请求由 `createClaims` 单飞。跨 Project/Conversation/Run store 的补偿失败不得吞错，相关 store 进入 `TRANSACTION_INCONSISTENT` fail-closed 状态并要求恢复。
+
+批量归档以 `projectId` 为精确真源；cwd 仅保留历史兼容入口，并先做 realpath/平台正确比较。归档项目已存在的 Conversation 链接允许幂等读取，但不允许新增挂接。
+
+#### 独立复核取舍
+
+独立复核发现同一 Conversation 并发创建存在 idempotency TOCTOU，已用 `createClaims` 修复并增加 `Promise.all` 回归。复核建议“store 文件 ENOENT 一律 fail-closed”未采纳：首次安装本就没有 store 文件，直接拒绝会破坏首次启动；若以后要区分首次缺失和历史文件被删除，应增加持久化存在标记或关联证据，不能把全部 ENOENT 视为损坏。
+
+#### 验证
+
+- 聚焦会话/项目/Bot Shell/Orchestrator 测试：162 pass / 0 fail。
+- `npm run validate`：13/13 valid。
+- 全量 `npm test`：1619 pass / 0 fail / 2 skipped。
+- 隔离 Playwright：桌面项目树、归档区、右键“恢复项目”、恢复后重新入树均通过；390px 横向溢出为 0，`pageErrors=[]`、`consoleErrors=[]`。
+
+#### 边界
+
+- 本轮证据覆盖源码、自动测试和隔离 Control Center 浏览器实例；未替换或重启正式 Tauri 桌面实例，未执行真实 provider/SSH 端到端调用。
+- 未执行 `git commit` / `git push`，正式版本仍为 v3.5.0。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/src/orchestrator.mjs:371`、`:1893-1900` 修复同一 Conversation 并发 idempotency TOCTOU；`apps/control-center/src/conversations.mjs:183-192`、`:339-433` 补强归档与跨 store 补偿失败边界。
+
+### D-2026-08-25-004 · 项目容器与 Run 启动解耦
+
+- **date**: 2026-08-25
+- **topic**: 514-bot-draft-project-lifecycle
+- **triggered_by**: LO 质疑新项目为何强制第一条消息，以及为何限制至少 2 位、最多 5 位成员
+- **decision_maker**: LO + Codex
+- **verdict**: IMPLEMENTED / ISOLATED RUNTIME VERIFIED
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__bot-project-conversation-isolation__20260825-1400.md`
+- **tags**: 514-bot, project, draft, conversation, member-roster, run, fan-out
+
+#### 决定
+
+Project 是可先建立、后配置的长期容器，不再要求创建时同时启动 Run。新项目和项目任务允许零成员、零启动消息创建；成员和消息均可进入 Conversation 后再补。只有用户填写启动消息并选择“创建并发送”时，才要求至少 1 位具备可协调运行席位的成员。
+
+旧“至少 2 位”来自把社会协作误设为“主成员 + 至少 1 位协作者”的表单假设，删除该约束。旧“最多 5 位”来自单次 social Run 的首轮 fan-out 保护：1 位主成员 + 最多 4 位显式协作者；它不再限制 Project/Conversation 的长期成员名单。项目保存全部已选成员，超过 5 位时首轮只调度前 5 位，其余成员继续留在 roster 中。
+
+ConversationStore 允许空成员的 `workspace_group` 持久化和后续成员调整，并保留每个房间最多 40 个成员 ID 的存储防滥用上限。Orchestrator 创建 Run 时仍要求持久化 Conversation 成员与 Run team 完全一致；空项目不能绕过成员校验直接启动运行。
+
+#### 验证
+
+- 语法检查通过。
+- 聚焦项目/会话/Bot Shell/Orchestrator 测试：159 pass / 0 fail。
+- `npm run validate`：13/13 valid。
+- 全量 `npm test`：1622 tests / 1620 pass / 0 fail / 2 skipped。
+- 隔离 Playwright 真实创建零成员、零消息项目：Project、默认协作室均持久化，`conversations.json` 回读 `memberIds=[]`；390px 横向溢出为 0，`pageErrors=[]`、`consoleErrors=[]`。
+
+#### 边界
+
+- 5 位仍是单次 Run 的当前首轮参与上限，不是项目容量；如果以后要提升 fan-out，应单独评估成本、上下文污染、并发与路由可解释性。
+- 正式 Tauri 桌面、真实 provider 与 SSH 未激活或验收；未执行 commit/push，正式版本仍为 v3.5.0。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/app.js:16806-16986` 将项目成员范围与单次 Run 参与者解耦；`apps/control-center/src/conversations.mjs:313-418` 允许空成员项目房间；`apps/control-center/src/orchestrator.mjs:2130-2134` 保持 Run team 与 Conversation roster 完全一致。
+
+### D-2026-08-26-001 · Conversation 服务端准入与 Context Epoch 跨 Run 连续性
+
+- **date**: 2026-08-26
+- **topic**: 514-bot-conversation-context-epoch
+- **triggered_by**: LO 要求继续 `codex://threads/01a03836-0628-7882-9876-eaf08ae5664c` 的推荐完善工作
+- **decision_maker**: LO + Codex
+- **verdict**: SOURCE_HARDENED / DELIVERY_BLOCKED / FORMAL_RUNTIME_UNVERIFIED
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__conversation-workspace-context-epoch__20260826-0331.md`
+- **tags**: 514-bot, conversation-workspace, context-epoch, native-session, concurrency, cancellation, browser-qa
+
+#### 决定
+
+1. Bot 普通消息统一进入 `POST /api/conversations/:id/messages`；由服务端持久化 Conversation 身份和串行准入决定续 active Run 或创建新 Run，前端不再自行判定 Run 生命周期。
+2. Conversation Context Epoch 只跨 Run 继承经过 topology、runtime profile、adapter、provider binding、cwd 和可恢复性验证的 native session。Run 的 permission、approval、lease、budget、remote target 与写权限每次重新建立，绝不随 session 继承。
+3. native session binding 采用独占 claim：未完成 `save()` 的 Run 也通过 in-flight owner 集合占位；同一 binding 不得被两个并发 Run 同时继承。
+4. context publication 在 store 串行事务内前后复验 lifecycle owner。取消或 controller 替换发生在持久化窗口时，binding 必须在释放 store 队列前按精确 owner/session 回滚；旧 Run 的 invalidate 不得删除已经转交新 Run 的 binding。
+5. remote 和 legacy pipeline 暂不进入 Context Epoch。成员、profile、adapter、provider、cwd 或拓扑变化轮换 epoch；原始 Conversation/Run 历史保持只读可追溯。
+
+#### 验证
+
+- focused：253/253 pass。
+- full：1648 total / 1646 pass / 0 fail / 2 skipped；resource/exit/childexit clean-exit 均为 ok，进程退出 0。
+- `npm run validate`：13/13 valid。
+- `npm run qa:bot-p0`：Bot 点击发送真实命中 Conversation endpoint 并返回 202；plan/remote reset、迟到响应隔离、桌面/390px、零横向溢出与零非预期浏览器错误通过。
+- 独立复核先发现 cancellation/publication 阻断竞态，修复后复扫无 blocking issue。
+
+#### 边界
+
+strict delivery 当前因 25 个未跟踪 must-ship 源码或测试失败；未做暂存、commit、push、版本升格、正式实例 reload、Tauri 替换、真实 provider 或 SSH 验收。一次中间浏览器轮捕获 `EVENT_INDEX_BUSY`，后续复跑通过但仍作为独立间歇风险保留。
+
+__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/src/conversation-contexts.mjs:278-355` 与 `src/orchestrator.mjs:1407,3675-3685` 修复取消后的 stale session publication；独立复核推翻原收尾判断并补齐事务级回滚和无自死锁测试
+
+### D-2026-08-26-002 · 任意 Conversation 可发现与历史 Run 精确访问
+
+- **date**: 2026-08-26
+- **topic**: 514-bot-conversation-any-entry
+- **triggered_by**: LO 询问如何进入任意已有会话，并要求制定计划继续完善
+- **decision_maker**: LO + Codex
+- **verdict**: SOURCE_AND_ISOLATED_RUNTIME_VERIFIED / DELIVERY_BLOCKED / FORMAL_RUNTIME_UNVERIFIED
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__conversation-any-entry__20260826-0600.md`
+- **tags**: 514-bot, conversation-navigation, deep-link, short-id, run-history, archive, accessibility
+
+#### 决定
+
+1. Conversation 树以服务端持久化 Conversation 为唯一身份真源，每行显示会话标题、成员或项目、8 位短 ID、活动时间和独立状态；同成员多条 direct 不再合并或静默选第一条。
+2. 通讯录点击成员时：0 条创建 direct、1 条直接进入、多条显示 Conversation 选择菜单。树行始终按 `conversation.id` 精确进入。
+3. `#conversation=<id>` 成为稳定会话深链；隐藏链接会先恢复再进入，删除墓碑链接只提示不可进入。旧 run/project/session 深链保持兼容。
+4. 增加 `GET /api/runs/:id` 和 `API.run(id)`，只读取仍存在的 Run 公共投影；已清理 Run 只保留引用，不自动重建、续跑或从 localStorage 恢复。
+5. 项目归档继续是只读封存：页面文本、附件按钮、粘贴、拖放和发送均拒绝；删除墓碑上下文菜单只允许复制身份信息。
+
+#### 验证
+
+- focused：39/39 pass。
+- full：1649 total / 1647 pass / 0 fail / 2 skipped；clean-exit 三项均 ok。
+- validate：13/13 valid。
+- 隔离 Playwright：短 ID 搜索、同成员多会话选择、键盘 Enter 精确进入、历史 Run 单条加载、隐藏恢复、消息入口、迟到响应隔离和 390px 均通过，非预期浏览器错误为 0。
+
+#### 边界
+
+strict delivery 仍因 25 个未跟踪 must-ship 源码或测试失败；未做 commit/push、版本升格、正式实例 reload、Tauri 替换或真实 provider/SSH 验收。Conversation 超大规模搜索/分页仍是后续数据层工作。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/server.mjs:2011`、`public/app.js:14997,15160,18006`；独立复核补强单 Run 404、归档附件只读和删除墓碑操作边界
+
+### D-2026-08-26-003 · Conversation-first 稳定工作面与协作上下文检查器
+
+- **date**: 2026-08-26
+- **topic**: 514-bot-conversation-workspace-ux
+- **triggered_by**: LO 指出会话 UI 混乱、界面跳转频繁、协同对话和协作逻辑缺少清晰条理，并要求先深度分析后完善
+- **decision_maker**: LO + Codex
+- **verdict**: SOURCE_AND_ISOLATED_RUNTIME_VERIFIED / DELIVERY_BLOCKED / FORMAL_RUNTIME_UNVERIFIED
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__conversation-workspace-ux__20260826-0730.md`
+- **tags**: 514-bot, conversation-first, inspector, information-architecture, collaboration, accessibility
+
+#### 决定
+
+1. 中央 Conversation 是稳定主工作面：消息流与 composer 不因查看任务、成员席位、证据或 Run 历史而隐藏。协作页签与运行历史迁入右侧会话检查器，检查器采用 overlay，不改变消息列宽或滚动位置。
+2. 左栏每个 Conversation 只渲染一次。“需要你处理”从重复会话副本改为同源排序与计数；隐藏、归档和删除墓碑合并为“其他”分区，状态继续由每行唯一状态 chip 表达。
+3. 右侧检查器按 Conversation 投影当前范围、持久化会话 ID、Run 状态、任务、成员席位、证据与运行历史。直接对话继续提供成员资料；项目协作室不再伪装为某一成员资料。
+4. `activeRunId` 继续作为服务端 Conversation 关联指针，不改变持久化契约；UI 只有在 Run 非终态时显示“当前执行”，终态只显示“最近运行”。成员变化导致 active 清空时明确显示新消息将创建新 Run。
+5. 项目树补 `aria-level/aria-controls`，小屏保留空态；成员电脑视图补真实 modal 的 inert、焦点循环、`aria-hidden` 与回焦。四层身份、服务端准入、Context Epoch、审批与 settlement 契约不变。
+
+#### 验收
+
+- focused Bot shell / Conversation 测试和 `npm run validate` 通过。
+- 浏览器覆盖 1440、1024、820、390：中央消息流在协作页签切换时保持可见；右侧检查器开关不改变中央列宽；无重叠、横向溢出、pageerror 或 console error。
+- Conversation 树不存在重复 ID；终态 Run 不显示“当前执行”；电脑视图 Tab/Shift+Tab 不逃逸并在关闭后恢复焦点。
+
+#### 边界
+
+不 commit/push，不替换正式 Tauri，不触碰真实 provider/SSH；正式版本仍由 v3.5.0 真源决定。
+
+#### 验证结果
+
+- focused：145/145 pass（Bot Shell、Conversation、Context Epoch、Run ownership、HTTP 与 social orchestration）。
+- full：1651 total / 1649 pass / 0 fail / 2 skipped；resource/exit/childexit clean-exit 均为 ok。
+- `npm run validate`：13/13 valid。
+- 隔离 Playwright：Conversation 行唯一；电脑视图焦点隔离；1440/1024/820/390 检查器开启前后中央列宽分别保持 1180/764/600/390，横向溢出均为 0；`pageErrors=[] / consoleErrors=[] / failedResponses=[]`。
+- 独立复审结论 `ACCEPT`；补出 QA 最终活动会话字段仍指向中间场景的问题，已改为 DOM 回读并复跑通过。
+
+#### 最终边界
+
+strict delivery、commit/push、正式实例 reload、Tauri 替换、真实 provider/SSH 均未执行；正式版本仍为 v3.5.0。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/public/app.js:15385-15460,15541-15608,16903-16935` 与 `public/forge/bot-shell.css:73-80,521-526`；四路扫描定位重复会话、主聊天替换、终态 Run 误标和列宽跳变，终审再补强 QA 活动会话证据语义
+
+### D-2026-08-26-004 · 514 Bot 协作对话可观测性与安全清理
+
+- **date**: 2026-08-26
+- **topic**: 514-bot-collab-dialog-observability
+- **triggered_by**: LO 指出前端消息刷屏、工具命令细节缺失、团队委派不可见、Bot 输入控件错误和“其他”无清理入口
+- **decision_maker**: LO + Codex
+- **verdict**: SOURCE_AND_ISOLATED_RUNTIME_VERIFIED / DELIVERY_BLOCKED / FORMAL_RUNTIME_UNVERIFIED
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__bot-collab-dialog-deep-polish__20260826-1042.md`
+- **tags**: 514-bot, markdown, tool-observability, pipeline-delegation, composer-stop, tombstone-purge, mobile-ux
+
+#### 决定
+
+1. Bot assistant 正文采用现有安全 Markdown renderer；不再按句子拆气泡。活动过程只在显示投影层按相邻事件聚合，原始 EventStore 历史保持追加与可回放。
+2. provider-side Codex `item/started` 工具保留有界 input；completed 事件负责 output/result。输入、输出、路径继续经过现有脱敏和预算限制。
+3. pipeline 的跨成员真实 turn 写入 `taskGraph.delegations`，带稳定 operation ID、source/target attempt 和边状态；direct Run 不虚构委派。Bot 任务检查器只渲染服务端边。
+4. Bot composer 使用 arrow-up send 与空输入 stop 双态；stop 仅中断当前 provider turn，继续仍走同一 Conversation/Run ownership 合同。
+5. “其他”清理使用 `DELETE /api/conversations/deleted` + store revision CAS。只物理移除无 `activeRunId` 且无 `runIds` 的 deleted tombstone；仍关联活动或历史 Run 的记录保留并回报原因。隐藏、归档、项目文件、Run、EventStore、原生 session 不受影响。
+
+#### 验证
+
+- focused：189/189 pass。
+- full：1655 total / 1653 pass / 0 fail / 2 skipped；resource/exit/childexit clean-exit 均 ok。
+- validate：13/13 valid。
+- `npm run qa:bot-collab-dialog`：Markdown table、单消息组、活动详情、stop、tombstone 清理、隐藏保留、两条 delegation edge、桌面/移动/协作移动溢出 0 通过；预期门闸单独记录。
+
+#### 边界
+
+- strict delivery 当前 `clean=false / strictFailure=true`，存在 26 个未跟踪 must-ship 源码或测试；未暂存、commit、push。
+- 未 reload 正式实例、未替换 Tauri、未做真实 provider/SSH 或外层 FastCtx runtime bridge 验收；正式版本仍为 v3.5.0。
+
+__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/src/conversations.mjs:564`、`apps/control-center/src/orchestrator.mjs:3955`、`apps/control-center/public/app.js:15593,16754,17030`；独立复核推翻 run-linked tombstone 可直接清空的判断并补齐审计保护、真实 pipeline 委派边和 Bot 可观测工作面
+
+### D-2026-08-26-005 · 514 Bot 会话选择所有权、协作时间线与结构化 @成员
+
+- **date**: 2026-08-26
+- **topic**: 514-bot-mentions-switching
+- **triggered_by**: LO 提供正式界面截图，指出同一 Run 出现两个“工作活动”、切换会话内容可能不变，并要求按协作对话参考图拓展与支持 @成员
+- **decision_maker**: LO + Codex
+- **verdict**: SOURCE_AND_ISOLATED_RUNTIME_VERIFIED / DELIVERY_BLOCKED / FORMAL_RUNTIME_UNVERIFIED
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__bot-mentions-switching__20260826-1454.md`
+- **tags**: 514-bot, conversation-selection, async-epoch, activity-timeline, mentions, recipient-validation, accessibility
+
+#### 决定
+
+1. 可见 Conversation 切换由单一 `selectionEpoch` 拥有；异步 direct 创建、索引 focus 和历史 Run 加载只有 token 仍为当前值时才能改写 header/messages/composer/inspector。
+2. 一个 Run 只显示一个“协作过程”外层；内部活动段与成员回复按原始事件顺序交错，工具详情可折叠，EventStore 不删除、不重排。
+3. Bot `@成员` 使用 Conversation roster 范围 combobox，选择状态保存完整 `memberId`，显示名只负责文本；同名标签带可区分短 ID，切换目标精确移除旧 token。
+4. `recipientMemberIds` 只是一条消息的期望收件人，不是 roster 真源。服务端从 Conversation 校验：direct 只能绑定成员；workspace group 可定向一位 roster 成员；无字段保持原团队/主脑行为。
+5. 参考图只吸收“成员、过程、工具、结果在同一对话时间线可读”的信息架构，不照抄装饰性气泡或引入第二套消息系统。
+
+#### 验证
+
+- focused：164/164 pass。
+- full：1658 total / 1656 pass / 0 fail / 2 skipped；clean-exit launch/resource/exit/childexit 均 ok。
+- validate：13/13 valid。
+- Playwright：延迟会话创建不回盖最新选择；单 Run 只有一个协作过程且 DOM 顺序为 `activity/message/activity`；真实 POST 只携带 `codex-technical`；同名成员目标切换无残留；桌面/移动 overflow 0；无非预期浏览器错误。
+- 第一轮独立复核推翻活动前置聚合并补出同名 token；修复后第二轮复审 `ACCEPT`。
+
+#### 边界
+
+- 未 reload 正式实例、未替换 Tauri、未调用真实 provider/SSH、未 commit/push；正式版本仍为 v3.5.0。
+- strict delivery 最终读回 `tracked=379 / physical=405 / undeclared=26 / strict fail`；未跟踪 source/test 仍阻断交付，不把源码/浏览器证据夸大为正式激活。
+- 隔离预览在 `127.0.0.1:51404` 使用独立 data/home 启动，root 与鉴权 bootstrap 均 HTTP 200；正式 `51400` 与 Tauri 未触碰。
+
+__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/public/app.js:16860` 独立复核推翻错误的活动前置聚合；`apps/control-center/public/app.js:18595` 补齐同名成员可区分 token；`apps/control-center/src/orchestrator.mjs:264` 将 @ 收件人约束下沉服务端
+
+### D-2026-08-26-006 · Claude Fable 原生 Windows 席位优先
+
+- **date**: 2026-08-26
+- **topic**: claude-fable-native-seat
+- **triggered_by**: LO（Claude Fable 中文轮次失败：`PROMPT_TRANSPORT_UNSAFE`）
+- **decision_maker**: LO + Codex
+- **verdict**: implemented-source-live-partial
+- **adopted**: true
+- **source_handoff**: `.ai-shared/handoff/codex-to-claude__claude-fable-native-seat__20260826-1605.md`
+- **tags**: claude-fable, windows, utf8, prompt-transport, native-exe, powershell-shim
+
+#### 决定
+
+Windows 上裸 `claude` 命令在解析 PATH 时优先选择任一目录中的原生 `claude.exe/.com`，只有不存在原生 peer 时才回落到 `claude.ps1`。保留其他命令的首目录所有权语义；显式 `.ps1` 不改写，中文 prompt 继续由 `PROMPT_TRANSPORT_UNSAFE` fail-closed。
+
+#### 验证与边界
+
+- 当前机器 `resolveCommand("claude")` 已回读为 `C:\\Users\\16643\\.local\\bin\\claude.exe`；原生 `claude --version` 返回 `2.1.226 (Claude Code)`。
+- 聚焦 transport/runner、adapter/orchestrator 测试通过；全量 `npm test` 为 1659 total / 1657 pass / 0 fail / 2 skip，`npm run validate` 13/13 valid；未执行真实付费 provider 中文 turn。
+- 当前 PID `9384` 的 Control Center dev 进程未 reload；源码修复在下一次受控重启后生效，不声称已激活。
+
+__DELTA__: 烛(Codex) | 1 | 证据：`apps/control-center/src/process-runner.mjs:271-307` 新增 Claude 原生席位优先；`apps/control-center/tests/redaction-jsonl.test.mjs:165-181` 锁定早期 shim/后续 exe 回归，并保留 Codex 首目录所有权测试。
+
+### D-2026-08-26-007 · 514 Bot 恢复 514cc 控制台视觉壳
+
+- **date**: 2026-08-26
+- **topic**: 514-bot-forge-shell-restoration
+- **triggered_by**: LO（“界面 UI 回到 514cc 的时候的样子，但是名字还是叫 514 Bot，并继续优化完善”）
+- **decision_maker**: LO + Codex technical executor
+- **verdict**: adopted-in-progress
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__514-bot-forge-shell-restoration__20260826-1647.md`
+- **tags**: 514-bot, forge-shell, warm-paper, topbar, statusbar, accessibility, superseding
+
+#### 决定
+
+保留 `514 Bot` 品牌、`#bot` 默认入口，以及 Project -> Conversation -> Run、@成员、协作时间线、审批/结算和设置等现有功能；撤销 2026-08-22 方案中“Bot 默认表面必须移除 514cc 全局控制台 chrome、使用黑白中性 IM 视觉”的部分。
+
+恢复范围以 LO 最近实际使用的 514cc 单界面控制台为准：顶部控制栏、底部运行状态栏、暖纸/深墨/铜橙 Forge 材料体系重新成为可见壳层；Bot 的项目/对话树继续作为工作面内左栏，不恢复会与其重叠的第二条全局侧栏。移动端继续使用 Bot 自身的项目树/对话切换，不叠加第二套底部导航。
+
+#### 边界
+
+本决策是视觉壳与交互层级 supersession，不回滚近期服务端身份、会话、运行、消息与协作协议。源码、浏览器、全量回归、正式 Tauri 和真实 provider 是否完成，必须分别按当轮证据报告。
+
+__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/public/app.js:2336-2367` 与 `public/forge/bot-shell.css:824-881` 证明视觉变化来自显式隐藏 topbar/statusbar 和覆盖 Forge token；本轮推翻“恢复旧观感需要回滚 Bot 功能”的前提，改为只恢复 514cc 单界面控制台壳。
+
+### D-2026-08-26-008 · 514 Bot 启动首屏恢复为 514cc 协作台
+
+- **date**: 2026-08-26
+- **topic**: 514-bot-default-workbench
+- **triggered_by**: LO 提供正式启动截图，指出启动后仍进入项目与对话空页面
+- **decision_maker**: LO + Codex technical executor
+- **verdict**: adopted-in-progress
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__514-bot-forge-shell-restoration__20260826-1647.md`
+- **tags**: 514-bot, startup-route, workbench, first-frame, superseding
+
+#### 决定
+
+进一步 supersede `D-2026-08-22-002` 与 `D-2026-08-26-007` 中“`#bot` 作为默认启动入口”的部分：产品名称继续是 `514 Bot`，但无 hash、空 hash、未知路由和桌面 bootstrap 片段清除后的启动首屏统一回到原 514cc `workbench` 协作台。`#bot` 继续作为显式的“项目与对话”管理面；Conversation deep link 仍优先进入其所属 Bot 会话。
+
+HTML 首帧与 JavaScript 初始化必须使用同一默认路由，禁止先渲染 Bot 空聊天再切换协作台造成闪屏或错误截图。
+
+#### 边界
+
+本决策只改变默认入口与首帧；不删除 Bot 项目树、Conversation/Run、@成员、协作时间线或设置能力。正式 Tauri 当前进程是否已加载新源码，仍需受控重启或下一次正常启动后单独回读。
+
+__DELTA__: 烛(Codex) | 2 | 证据：`apps/control-center/public/app.js:206-233,28821-28837` 与 `public/index.html:529,715`；LO 的正式启动截图推翻“恢复壳层即等于恢复启动界面”的判断，根因是空路由回退和 HTML 首帧仍共同锁定 `bot`。
+
+### D-2026-08-26-009 · 协作台 provider 错误与恢复确认分层呈现
+
+- **date**: 2026-08-26
+- **topic**: collaboration-recovery-error-presentation
+- **triggered_by**: LO 提供 Claude Fable Cloudflare 524 与恢复卡挤压截图，要求继续完善协作台报错
+- **decision_maker**: LO + Codex technical executor + independent read-only review
+- **verdict**: SOURCE_AND_ISOLATED_RUNTIME_VERIFIED / FORMAL_RUNTIME_UNVERIFIED
+- **adopted**: true
+- **source_handoff**: `codex-to-claude__collab-recovery-error-ui__20260826-2306.md`
+- **tags**: control-center, provider-error, cloudflare-524, recovery-required, responsive, accessibility, fail-closed
+
+#### 决定
+
+1. provider 原始错误不再直接作为整屏 assistant 正文或恢复条主文案；行首明确 `API Error: NNN` 信封映射为有界中文摘要，完整脱敏原文进入折叠技术详情。普通 assistant JSON/代码示例不参与分类。
+2. 524 不升级为自动重试信号。只要原生提交状态未确认，继续使用 `recovery_required`、阻止自动重放并要求 LO 显式确认，避免重复 durable work。
+3. 恢复条采用稳定 grid 分区。中小视口未确认时优先展示完整证据；确认后收成紧凑状态、恢复消息流与 Composer，并用 `role=alert` 通知辅助技术。
+
+#### 验证与边界
+
+- Focused `31/31 pass`；Playwright 1440/1024/390 overflow/overlap 均为 0，确认后 1024 消息流和输入框可见；full `1664 total / 1662 pass / 0 fail / 2 skipped`，clean-exit 三项 ok；validate `13/13 valid`。
+- 正式 `127.0.0.1:51400` / Tauri 未 reload，真实 provider 未重放；未 commit/push。用户指定的 `.zcode-session` 文件在当前可访问路径中不存在，连续性来自截图、仓库治理记录与当前 diff。
+
+__DELTA__: 独立只读探子 | 2 | 证据：`apps/control-center/public/styles.css:5484-5495`、`public/modules/failure-presentation.js:25-32`；独立审查推翻首次完成判断并推动确认后历史恢复、误分类收紧和恢复 alert 接线。

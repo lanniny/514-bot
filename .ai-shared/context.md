@@ -1,8 +1,13 @@
 # 当前任务上下文（活跃状态）
 
 > 协作体系的"短期记忆"。每个 Agent 接入时**先读这里**。
-> 由 Claude 主驾维护。最后更新：2026-08-18（v42 Git 产品闭包已推送；正式实例 runner、真实 provider/SSH 与版本升格仍未闭环）。
+> 由 Claude 主驾维护。最后更新：**2026-08-30**（Git 证据链已接回 `origin/main`；2026-08-19~29 波次已入版本库；仓库为 GitHub **公开**仓库且存在已泄露凭证，见「当前风险」）。
 > 本文件只存稳定事实和当前风险；逐轮实现史、测试计数与运行时快照分别进入 `decisions.md`、handoff 和当轮验证输出。
+>
+> **⚠️ 2026-08-30 更正**：此前若有人认为"远程证据链断裂"或"快照 `2b1892c` 不存在"，该判断**已证伪**。
+> 远程 `origin/main` 历史完好（20 个提交，`2b1892c` 确在其中）。真实故障是**本地 `.git` 被重新 init 过**：
+> 历史被压成单提交 `603056d`、未配置 remote、且把 1491 个运行时产物误纳入追踪。
+> 现已通过 `reset --mixed 6bb3691` + 两笔提交接回，本地领先远程 2 笔、落后 0 笔。
 
 ## 主人信息
 
@@ -14,6 +19,8 @@
 
 - **项目名**：514cc
 - **工作目录**：`I:\514claude\514cc`
+- **远程仓库**：`origin` → `git@github.com:lanniny/514-bot.git`（GitHub，**公开仓库**，默认分支 `main`）
+- **推送前置检查**：任何 push 前必须确认「无含凭证文件进入暂存区」且「工作树干净」；公开仓库一旦推送即视为永久公开
 - **项目类型**：Skill 驱动的 AI 能力放大系统
 - **技术栈**：Markdown SKILL.md + TOML customize + YAML module.yaml + Node.js Console + Python 配置校验
 - **正式版本真源**：`rules.md` §八 + `CHANGELOG.md` 最新条目；其他入口必须由 `npm run validate` 做一致性检查
@@ -115,11 +122,43 @@ Console 另有 Grok Build、Kimi 前端和 Pi resident 等执行 profile；它�
 - **R3-01 server-observed QA runner 加固**：`src/release-command-runner.mjs` 与 `GET/POST /api/release-record/runner(/run)` 保持固定命令目录、无 shell。两轮独立复审先推翻客户端 `sourceCommit` 替代服务端 HEAD、脏工作树可产 passed、选择放大和 runner 脱离关闭图，又推翻“四条 evidence 已能驱动 live releaseTruth”的错误可达性判断。现在每条证据同时绑定当前 `pid + startedAt + generation + HEAD + diffDigest`；live truth 只聚合同一当前实例、同提交/工作树且四类全通过的证据，旧实例/旧 generation 自动失效。空/重复/未知命令、工作树/HEAD/实例变化均 fail-closed；runner 纳入 app close，活动时阻止 reload。源码、聚焦、HTTP 装配、全量、validate 与四视口环境舱已有本地证据，但**未在正式实例对不可变提交真实执行**，R3-01 仍为 `partial`。证据见 `claude-to-all__v42-r301-server-observed-runner__20260818-2115.md`、`codex-to-claude__v42-r301-runner-r2__20260818-2147.md`、`D-2026-08-18-011`。
 - **v42 Git 产品快照闭包**：LO 明确授权后，以显式 pathspec 暂存 Control Center 产品、严格交付 CI、治理真源与 2026-08-18 handoff 链；`.scratch`、运行 token、真实 provider 回包、锁/事件日志、QA 输出、缓存与历史原始材料均未进入提交。产品快照 `2b1892c73a7d38da9ab735cf20bae763a5e4c359` 已推送 `origin/main` 并经 `ls-remote` 回读；`qa:delivery --strict` 为 tracked=379 / physical=379 / pass。此处只完成 Git 层，不构成正式版本发布或运行态激活。证据见 `codex-to-claude__v42-git-delivery-closure__20260818-2351.md`、`D-2026-08-18-013`。
 
+### 2026-08-19 ~ 08-29 活跃波次（本段为补齐，共 45 份 handoff）
+
+> 归纳依据：`.ai-shared/handoff/` 下该区间的 45 份文件名 + `proposals/v43-514-bot-product-reframe.md`。
+> **未逐份精读**，故此处只记主题与产物坐标，不声称实现细节与通过率；细节以各 handoff 原文为准。
+
+- **514 bot 产品重定义（v43）**：`proposals/v43-514-bot-product-reframe.md` 确立 bot 作为产品入口的重构方向。证据 `codex-to-claude__514-bot-product-reframe__20260822-0001.md`。
+- **bot shell 与视觉语言**：Forge shell 恢复、窗口 chrome 跟进、拖拽表面修复、对话框表面统一、桌面图标对话框核心。证据 `...__514-bot-forge-shell-restoration__20260826-1647`、`...__bot-window-chrome-followup__20260823-2255`、`...__drag-surface-fix__20260823-2135`、`...__bot-dialog-surface-unification__20260824-1455`、`...__desktop-icon-dialog-core__20260824-1602`。
+- **bot 通信与协作对话**：通信 UI、审批卡、提问卡、collab 对话深度打磨、collab 恢复错误 UI、composer 胶囊。证据 `...__bot-communications-ui__20260824-0506`、`...__514-bot-approval-card__20260822-1915`、`...__514-bot-question-card__20260822-1823`、`...__bot-collab-dialog-deep-polish__20260826-1042`、`...__collab-recovery-error-ui__20260826-2306`、`...__bot-composer-capsule__20260823-2317`。
+- **bot 成员、席位与联系人**：成员设置与实时生效、品牌色、自定义运行席位、席位入口可发现性、内置联系人移除、群聊完整联系人、Claude Fable 原生席位。证据 `...__bot-member-settings__20260824-0132`、`...__bot-member-settings-live-activation__20260824-0201`、`...__bot-member-brand-colors__20260824-1229`、`...__bot-custom-runtime-seats__20260824-0329`、`...__bot-seat-entry-discoverability__20260824-0216`、`...__bot-builtin-contact-removal__20260824-1301`、`...__bot-group-full-contacts__20260824-1112`、`...__claude-fable-native-seat__20260826-1605`。
+- **对话与工作区**：项目会话隔离、任意入口进入对话、工作区 UX、workspace context epoch、直聊/群聊附件、surface 工作区路由。证据 `...__bot-project-conversation-isolation__20260825-1400`、`...__conversation-any-entry__20260826-0600`、`...__conversation-workspace-ux__20260826-0730`、`...__conversation-workspace-context-epoch__20260826-0331`、`...__conversation-direct-group-attachments__20260824-1900`、`...__bot-surface-workspace-routing__20260824-0015`。
+- **结算与 P0 加固**：`...__514-bot-settlement-hardening__20260822-2225`、`...__bot-p0-hardening__20260825-2001`、`...__514-bot-shell-followup__20260822-1641`。
+- **运行时与工具链**：fastctx 传输修复、原生 CLI 路径配置、live MCP 采纳评审、无路由可观测性、配置总线 UI 评审、Forge 艺术指导评审。证据 `...__fastctx-transport-repair__20260824-1552`、`...__native-cli-path-config__20260820-0315`、`...__live-mcp-adopt-review__20260821-0252`、`...__no-route-observability__20260819-1513`、`...__config-bus-ui-review__20260820-1518`、`...__forge-art-direction-review__20260819-2121`。
+- **continue-loop 三轮**：`...__continue-loop-independent-review__20260819-1650`、`...__continue-loop-r2__20260819-2050`、`claude-to-all__continue-loop-followup__20260819-2055`。
+- **项目经理全项目审查**：`codex-to-claude__project-manager-review__20260829-2240.md`（DELTA=1），点出 Git 断链、记忆过期、账本膨胀、版本悬置四条，本轮已复核并落地 Git 部分。
+
+### 2026-08-30 治理收口（本轮）
+
+- **Git 证据链重建**：本地 `.git` 曾重新 init（单提交 `603056d`、无 remote、1491 个运行时产物误入库）。以 `reset --mixed 6bb3691` 接回远程历史，分两笔提交：
+  - `bcf4347 chore(repo)`：移出 1491 个误入库路径（`.scratch`、`.qa-output`、`.repro-*`、`debug-provider-*`、含凭证的 `providers.json` / `ccswitch-proxy.json` 副本），并收紧 `.gitignore`。
+  - `254a973 feat(control-center)`：2026-08-19~29 波次的 256 个文件变更。
+  - 结果：tracked 961，工作树干净，本地领先远程 2 笔 / 落后 0 笔。**尚未推送，待 LO 授权。**
+- **密钥扫描（F-003）**：`.ai-shared/audit/secret-scan-20260829.md`（值已脱敏）。结论：工作树内 10+ 个真实 `sk-` 云 API key 均**未入库**（`.gitignore` 挡住）；但远程公开仓库历史中存在 1 个真实凭证（详见「当前风险」）。
+- **完善蓝图**：`proposals/v44-completion-blueprint.md`，92 条完善点 + 35 条拓展点，六波次执行计划。
+- **操作前备份**：`I:/514claude/_git-backup/514cc-git-20260829-2339`（65MB，操作前 `.git` 完整副本）。
+
 ## 当前风险
 
+- **🔴 P0-2026-08-30 凭证泄露（公开仓库）**：`lanniny/514-bot` 是 **GitHub 公开仓库**（`private=false`）。远程历史 `6bb3691` 及之前的提交树中存在 **1 个真实凭证**：`.ai-shared/control-center-preview/data/ccswitch-proxy.json` 内的 CC-Switch 本地代理 token（`tEP1_` 前缀，监听 `127.0.0.1:15721`）。该 token 自 2026-08-18 起暴露已 11 天，**必须视为已泄露并立即轮换**。另有 16 个同文件副本散落在 `.qa-output/` 与 `.scratch/`（已在本轮移出追踪，但历史仍在）。其余 `sk-` 类云 API key **未进入远程历史**，属于运气好而非机制保障——见下条。
+- ~~**P0-F-004 缺 pre-commit 密钥拦截**~~ **→ 2026-08-30 已关闭**：新增 `.githooks/pre-commit`，只扫本次新增行、排除官方占位符、命中时脱敏输出、支持 `# gitleaks:allow` 行内豁免；已验证真实形态密钥被拦截且占位符不误报。
+  - **启用方式（每台机器一次）**：`git config core.hooksPath .githooks`。在没执行这条命令的机器上，闸门等于不存在——**新环境首次 clone 后必须执行**。
+  - 仍需警惕：本机工作树有 10+ 个真实 `sk-` API key（集中在 `.ai-shared/control-center/providers.json` 与 `.ai-shared/backups/`），目前靠 `.gitignore` 第 2/20 行挡住。钩子是第二道防线，不是免死金牌。
+- **P0-F-044/F-046 安全边界未补**：`remote-projects`、ssh、webhook 的目标地址**无白名单**（SSRF 风险）；workspace-explorer 与附件下载**未做路径穿越审计**。这两条不依赖地基波，应即刻处理。
+- **版本库体积与历史净化**：远程历史中残留 1491 个运行时产物（本轮已在新提交中移出追踪，但历史对象仍在，仓库 59MB）。若要彻底清除含 token 的历史对象，需 `git filter-repo` 重写 + 强制推送，**这会改写公开历史**，须 LO 明确授权后再做。
 - 正式 framework release 仍以真源记录为准；工作记录里的 v3.6/v3.7/v4.0 仅是**未发布功能波次**，不得作为已发布版本传播。`rules.md` 仍为 v3.5.0，但 v4.0 功能（Forge 设计系统、CC-Switch 迁移、团队工作区融合、配置图谱、工具标签栏、终端修复等）已深度落地到 Console。版本升格/正式发布待 LO 决策。
 - 仓库源、用户运行时和正在运行的进程是三个状态面；未做当轮 readback/端到端调用时，不得声称已部署或已激活。
-- v42 R0-R3 的 31 项 must-ship 漂移已在产品快照 `2b1892c73a7d38da9ab735cf20bae763a5e4c359` 中闭包并推送；`qa:delivery --strict` 当前为 `tracked=379 / physical=379 / undeclared=0 / pass`。Git 层已交付，但 `formalRelease=false`，不等于版本升格、GitHub Release 或正式实例激活。
+- v42 R0-R3 的 31 项 must-ship 漂移已在产品快照 `2b1892c73a7d38da9ab735cf20bae763a5e4c359` 中闭包并推送；`qa:delivery --strict` 当时为 `tracked=379 / physical=379 / undeclared=0 / pass`。
+（2026-08-30 注：tracked 口径已变化——`6bb3691` 为 2342，本轮清理后 `254a973` 为 **961**；379 属 v42 快照当时的显式 pathspec 范围，不代表当前全库。）Git 层已交付，但 `formalRelease=false`，不等于版本升格、GitHub Release 或正式实例激活。
 - `PUT /api/release-record/commands` 是 `operator-attested` 审计申报，不是独立命令执行证据。剩余发布顺序是“从已交付提交 reload 正式实例并读回 PID/cwd/generation/sourceCommit -> 执行 runner -> 回读 release record”；正式实例操作、真实 provider/SSH 验收仍需独立授权，R3-01 保持 `partial`。
 - R0-01 只完成已知不安全路径封堵与本地子进程 fixture；真实启用 provider 中文/ASCII 接收回读、真实 SSH UTF-8 echo 均未执行，不得称 Unicode 主路径端到端完成。
 - Console 与治理面持续演进，固定测试总数会迅速腐烂；只记录验证命令和当轮输出，不在本文件固化“全绿 N/N”。
