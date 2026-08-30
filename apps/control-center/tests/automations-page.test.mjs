@@ -67,7 +67,9 @@ test("automations is a first-class create view, not a dialog-only leftover", asy
   assert.match(html, /id="automations-workbench"/);
   assert.match(html, /href="\.\/forge\/automations\.css"/);
   const settingsRail = html.match(/<aside class="settings-rail" id="settings-rail"[\s\S]*?<\/aside>/)?.[0] || "";
-  assert.doesNotMatch(settingsRail, /data-view="automations"/);
+  // 2026-08-30 IA 对齐：自动化升为设置轨「治理」条目（与主导航一致）；协作台左栏
+  // 的 rail-automations-row 快捷入口仍是第一现场。
+  assert.match(settingsRail, /data-view="automations"/);
   assert.doesNotMatch(html, /rail-block-automations|id="automations-list"|id="automations-manage-button"/);
   assert.match(state, /automations:\s*"自动化"/);
   assert.match(app, /mountAutomationsPage\(/);

@@ -629,7 +629,7 @@ pre,
   align-items: center;
   gap: 7px;
   margin-bottom: 7px;
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-family: var(--mono);
 }
 
@@ -683,7 +683,7 @@ pre,
 }
 
 .button.primary:hover:not(:disabled) {
-  border-color: var(--accent)
+  border-color: var(--accent);
   background: var(--rose-deep); /* hover 加深而非提亮——白字对比 6.43（烛 R8） */
 }
 
@@ -715,7 +715,7 @@ pre,
 
 .text-button {
   padding: 4px 0;
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-size: var(--text-xs);
   font-weight: 650;
 }
@@ -764,7 +764,7 @@ pre,
 }
 
 .metric-label {
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-family: var(--mono);
   font-size: var(--text-xs);
   font-weight: 600;
@@ -1284,7 +1284,7 @@ pre,
 }
 
 .md-body a {
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -1303,7 +1303,7 @@ pre,
 }
 
 .tool-call .tool-dot {
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-size: var(--text-xs);
 }
 
@@ -2135,7 +2135,7 @@ pre,
     linear-gradient(90deg, transparent 31px, color-mix(in oklab, var(--primary) 10%, transparent) 32px, transparent 33px),
     var(--surface);
   color: var(--text);
-  caret-color: var(--primary)
+  caret-color: var(--primary);
   font-family: var(--mono);
   font-size: var(--text-xs);
   line-height: 1.65;
@@ -2812,7 +2812,7 @@ pre,
 }
 
 .composer-shell:focus-within {
-  border-color: var(--accent)
+  border-color: var(--accent);
   box-shadow: 0 8px 28px rgba(31, 27, 22, 0.1), 0 0 0 3px var(--rose-soft);
 }
 
@@ -2856,7 +2856,7 @@ pre,
 }
 
 .composer-cwd:hover {
-  border-color: var(--accent)
+  border-color: var(--accent);
   color: var(--accent-ink)
 }
 
@@ -3077,12 +3077,12 @@ pre,
 
 /* 发送/停止双态（LO 2026-08-10）：停止态加深填充与发送态区分，图标换 circle-stop */
 .send-button.is-stop {
-  border-color: var(--accent)
+  border-color: var(--accent);
   background: var(--rose-deep);
 }
 
 .send-button.is-stop:hover {
-  border-color: var(--accent)
+  border-color: var(--accent);
   background: var(--rose);
 }
 
@@ -3116,7 +3116,7 @@ pre,
 
 .attach-button:hover {
   border-color: var(--rose-line);
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   transform: translateY(-1px);
 }
 
@@ -3255,7 +3255,7 @@ select:hover:not(:disabled) {
 textarea:focus,
 input[type="search"]:focus,
 select:focus {
-  border-color: var(--accent)
+  border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--rose-soft);
 }
 
@@ -5198,7 +5198,7 @@ input::placeholder {
 }
 
 .gov-note.is-rose {
-  border-left-color: var(--rose)
+  border-left-color: var(--rose);
   background: var(--rose-soft);
 }
 
@@ -5464,7 +5464,7 @@ input::placeholder {
 }
 
 .approval-inline-method {
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-family: var(--mono);
   font-size: var(--text-xs);
 }
@@ -6230,7 +6230,7 @@ input::placeholder {
   width: 11px;
   height: 11px;
   margin-right: 5px;
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   vertical-align: -1px;
   fill: none;
   stroke: currentColor;
@@ -6296,7 +6296,7 @@ input::placeholder {
 }
 
 .input-dialog input:focus {
-  border-color: var(--accent)
+  border-color: var(--accent);
   outline: none;
   box-shadow: 0 0 0 3px var(--rose-soft);
 }
@@ -6506,7 +6506,7 @@ input::placeholder {
 }
 
 .route-model::before {
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   content: "◆ ";
   font-size: var(--text-xs);
 }
@@ -6583,12 +6583,14 @@ input::placeholder {
   transform: rotate(90deg);
 }
 
-/* —— 会话空态图标：sprite 引用在该处渲不出，换赤陶 ◆ 装饰点（纯 CSS 零依赖） —— */
+/* —— 会话空态图标：sprite 引用在该处渲不出，换赤陶 ◆ 装饰点（纯 CSS 零依赖） ——
+   仅对「没有自带图标宿主」的裸空态生效；welcome-state（picker/模板卡/星图）自带
+   logo 与图标，再叠一枚悬浮 ◆ 读起来像未完成的占位符（PM 走查 2026-08-30）。 */
 .conversation-stream .empty-state .empty-icon {
   display: none;
 }
 
-.conversation-stream .empty-state strong::before {
+.conversation-stream .empty-state:not(.welcome-state) strong::before {
   display: block;
   margin: 0 auto 10px;
   color: var(--rose-line);
@@ -7197,7 +7199,7 @@ input::placeholder {
 }
 
 .code-copy:hover {
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   border-color: var(--rose-line);
 }
 
@@ -7519,7 +7521,7 @@ input::placeholder {
 }
 
 .welcome-hero .hero-accent {
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-style: italic; /* 衬线斜体点睛——人文手写感 */
 }
 
@@ -7599,7 +7601,7 @@ input::placeholder {
 }
 
 .conv-tab-room {
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-size: var(--text-xs);
 }
 
@@ -7697,7 +7699,7 @@ input::placeholder {
 .member-chip.is-active {
   border-color: var(--rose-line);
   background: var(--rose-soft);
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-weight: 640;
 }
 
@@ -8058,7 +8060,7 @@ button.topology-node {
 .cap-cell input[type="checkbox"] {
   width: 14px;
   height: 14px;
-  accent-color: var(--rose)
+  accent-color: var(--rose);
   cursor: pointer;
 }
 
@@ -8506,7 +8508,7 @@ h2 {
 
 .page-heading .eyebrow {
   margin-bottom: 5px;
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-family: var(--sans);
   font-size: var(--text-xs);
 }
@@ -8657,7 +8659,7 @@ h2 {
 }
 
 .newtask-button:hover {
-  border-color: var(--accent)
+  border-color: var(--accent);
   background: var(--rose-deep);
   color: var(--on-accent);
 }
@@ -8788,7 +8790,7 @@ h2 {
 }
 
 .composer-shell:focus-within {
-  border-color: var(--accent)
+  border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--rose-soft);
 }
 
@@ -8904,7 +8906,7 @@ h2 {
 
 .conversation-stream .empty-state .welcome-hero .hero-accent {
   display: inline;
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font: inherit;
   line-height: inherit;
   font-style: normal;
@@ -9200,7 +9202,7 @@ h2 {
   }
 
   .mobile-nav-item.is-active {
-    color: var(--accent-ink)
+    color: var(--accent-ink);
     box-shadow: inset 0 2px 0 var(--rose);
   }
 
@@ -9366,7 +9368,7 @@ h2 {
 
 .command-trigger:hover {
   border-color: var(--rose-line);
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   background: var(--rose-soft);
 }
 
@@ -9559,7 +9561,7 @@ h2 {
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--rose-soft);
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -9695,7 +9697,7 @@ h2 {
   height: 28px;
   border-radius: 8px;
   background: var(--surface-strong);
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-size: var(--text-base);
   font-weight: 700;
 }
@@ -10037,7 +10039,7 @@ h2 {
 .welcome-cat.is-active {
   border-color: var(--rose-line);
   background: var(--rose-soft);
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-weight: 650;
 }
 
@@ -10110,7 +10112,7 @@ h2 {
   opacity: 1;
   border-color: var(--rose-line);
   background: var(--rose-soft);
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   box-shadow: 0 0 0 1px var(--rose-glow);
 }
 .team-pulse-chip.is-warn { opacity: 1; border-color: rgba(138, 91, 0, 0.35); color: var(--amber); }
@@ -10251,7 +10253,7 @@ h2 {
 .conversation-agent-chip.is-leader {
   border-color: var(--rose-line);
   background: var(--rose-soft);
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-weight: 650;
 }
 
@@ -10514,7 +10516,7 @@ h2 {
 .workbench-heading .eyebrow {
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   font-size: var(--text-xs);
   font-weight: 700;
 }
@@ -10908,7 +10910,7 @@ h2 {
   font-size: var(--text-xs);
   padding: 2px 8px;
   background: var(--rose-soft);
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   border-radius: 10px;
   font-weight: 500;
 }
@@ -11571,7 +11573,7 @@ h2 {
 
 .boot-input:focus {
   outline: none;
-  border-color: var(--accent)
+  border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--rose-soft);
 }
 
@@ -11604,7 +11606,7 @@ h2 {
 }
 
 .boot-option.is-selected {
-  border-color: var(--accent)
+  border-color: var(--accent);
   background: var(--rose-soft);
   box-shadow: 0 0 0 1px var(--rose);
 }
@@ -11638,7 +11640,7 @@ h2 {
   padding: 1px 5px;
   font-size: var(--text-xs);
   font-weight: 600;
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   background: var(--rose-soft);
   border-radius: 3px;
   text-transform: uppercase;
@@ -11715,7 +11717,7 @@ h2 {
   font-size: var(--text-xs);
   padding: 2px 6px;
   background: var(--rose-soft);
-  color: var(--accent-ink)
+  color: var(--accent-ink);
   border-radius: 3px;
 }
 
@@ -14454,7 +14456,7 @@ h2 {
 }
 
 .sshconn-toggle.is-on {
-  border-color: var(--accent)
+  border-color: var(--accent);
   background: var(--accent);
 }
 
@@ -14693,7 +14695,7 @@ h2 {
 
 .sshconn-check:checked {
   position: relative;
-  border-color: var(--accent)
+  border-color: var(--accent);
   background: var(--accent);
 }
 
@@ -15045,7 +15047,7 @@ h2 {
 }
 
 .config-host-chip.is-active {
-  border-color: var(--accent)
+  border-color: var(--accent);
   background: var(--accent-soft);
   font-weight: 600;
 }
@@ -15299,7 +15301,7 @@ h2 {
 }
 
 .config-remote-resource-tabs .button.is-active {
-  border-color: var(--accent)
+  border-color: var(--accent);
   background: var(--accent-soft);
   color: var(--accent-ink)
 }
@@ -15483,7 +15485,7 @@ h2 {
 }
 
 .config-cap-chip.is-project {
-  border-color: var(--accent)
+  border-color: var(--accent);
   background: var(--accent-soft);
 }
 

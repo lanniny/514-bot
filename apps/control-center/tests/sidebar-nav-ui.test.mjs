@@ -38,17 +38,24 @@ test("settings rail owns every entry and a return to workbench", async () => {
   }
   assert.doesNotMatch(rail[0], /data-view="hero"/, "协作星图已并入团队页，设置侧栏不再单列");
   assert.doesNotMatch(rail[0], /data-view="router"|模型路由/, "模型路由已并入团队页，设置侧栏不再单列");
-  assert.doesNotMatch(rail[0], /data-view="automations"/, "自动化在协作台左栏，不进设置侧栏");
+  // 2026-08-30 IA 对齐：设置轨分组与主导航 NAV_GROUPS 同 taxonomy（观测/资源/治理），
+  // 自动化升为设置轨「治理」条目；「插件/市场」同目的地只留一个名字。
+  assert.match(rail[0], /data-view="automations"/, "治理组应有自动化入口");
   assert.match(rail[0], />基础设置</);
+  assert.match(rail[0], />协作</);
+  assert.match(rail[0], />创建</);
+  assert.match(rail[0], />观测</);
+  assert.match(rail[0], />资源</);
+  assert.match(rail[0], />治理</);
   assert.match(rail[0], />Agent 能力</);
-  assert.match(rail[0], />数据与统计</);
-  assert.match(rail[0], />进阶</);
+  assert.doesNotMatch(rail[0], />数据与统计</);
+  assert.doesNotMatch(rail[0], />进阶</);
+  assert.doesNotMatch(rail[0], />插件</, "插件与市场同目的地，只保留「市场」一个名字");
   assert.match(rail[0], /data-config-surface-jump="sources"/);
   assert.match(rail[0], /data-config-surface-jump="capabilities"[^>]+data-cap-workspace="skills"/);
   assert.match(rail[0], /data-config-surface-jump="capabilities"[^>]+data-cap-workspace="mcp"/);
   assert.match(rail[0], /data-config-surface-jump="hooks"/);
   assert.match(rail[0], /data-settings-focus="memory"/);
-  assert.match(rail[0], />插件</);
   assert.match(rail[0], />团队协作</);
   assert.doesNotMatch(rail[0], /命令文件|\.md 命令|索引库|Browser Use|开启内置浏览器控制/);
 });

@@ -51,4 +51,15 @@
 
 __DELTA__: 烛(Claude) | 1 | 证据：forge/experience-polish.css:427 无条件 !important 隐藏块把汉堡/抽屉/背板全域休眠，14 视图桌面端唯一全局入口只剩 Ctrl+K——「视图」菜单里甚至没有视图；W2.5 建好的全尺寸抽屉机制是死的
 __DELTA__: 烛(Claude) | 2 | 证据：team.css v7/v8 玻璃配方（body.team-bg-active .task-composer .composer-shell 等）运行时静默失效——规则命中、公式同级实测有效、computed 却是全不透明实底（CDP 取色 + 变量作用域探针在案），静态源码契约测试全部绿但用户看到的是实底；「契约绿」与「运行时生效」之间缺一层 computed 验证，qa-glass-audit.mjs 补上这一环
-__DELTA__: 烛(Claude) | 1 | 证据：设置族大面被 :is(#view-*)/.#config-surface-sources 类 ID 级实底规则压住，v8 类级玻璃规则无论怎么写都输——玻璃缺失不是「漏写规则」而是「特异性战争」，补齐必须按对手口径镜像选择器
+## 六、续篇（同日傍晚，LO「继续」授权按判断落地遗留项）
+
+1. **44 处丢分号静默吞声明**：styles.css 内 `color: var(--accent-ink)` / `border-color: var(--accent)` 等声明行缺分号——CSS 解析错误恢复会把**下一条声明一起吞掉**（88 条规则半残），赤陶点睛色/强调边框从未生效。机械修复 44 处（扫描器：声明行以 `)` 结尾且下一行是属性声明）。欢迎语「晚上好」点睛色、卡片强调边框自此真实生效。`.route-model::before` 同款一并修。
+2. **◆ 菱形占位符**：`.empty-state strong::before` 的 ◆ 本是 sprite 渲不出的兜底装饰，但 welcome-state（picker/模板卡）自带图标宿主，再叠 ◆ 像未完成占位符——收窄为 `:not(.welcome-state)` 只对裸空态生效。
+3. **协作星图黑板 → 深色玻璃（v9c）**：art-direction 96% 墨色实底在亮色页面+壁纸态是死黑板；壁纸态改墨色 78% 透明 + 磨砂（夜空身份保留，壁纸从星空后透出），非壁纸态维持原基线。
+4. **设置轨 IA 对齐**：分组从「基础设置/Agent 能力/协作/创建/数据与统计/进阶」两套分类学，重构为与主导航 NAV_GROUPS 同构（基础设置/协作/创建/观测/资源/治理/Agent 能力）；自动化升入设置轨治理组；「插件/市场」同目的地只留「市场」一个名字。rail 搜索过滤动态适配分组，契约断言同步改写。
+5. **observability 面包屑特例**：forgeViewGroup 的 observability 分支在 NAV_GROUPS 单源化后仍返回「数据与统计」，删除特例跟导航组走（观测）。
+
+验证：qa-pm-walk 端到端 + 零页面错误；契约 85/85；ui-lint 无新增；全量套件 1891/1902（9 失败均为既有/波动族，与上轮同分布轮换）。
+
+__DELTA__: 烛(Claude) | 1 | 证据：设置族大面被 :is(#view-*)/#config-surface-sources 类 ID 级实底规则压住，v8 类级玻璃规则无论怎么写都输——玻璃缺失不是「漏写规则」而是「特异性战争」，补齐必须按对手口径镜像选择器
+__DELTA__: 烛(Claude) | 2 | 证据：styles.css 44 处声明行丢分号——CSS 解析错误恢复吞掉下一条声明，赤陶点睛色/强调边框从未生效过（欢迎语 hero-accent、route-model 同款）；此前所有视觉走查都在「半残样式」上进行，这类解析级静默缺陷应进 qa 探针（声明级解析校验）

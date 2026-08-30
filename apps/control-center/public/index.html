@@ -131,33 +131,14 @@
             <span>浏览器</span>
           </button>
 
-          <p class="settings-rail-label">Agent 能力</p>
-          <button class="settings-rail-item" type="button" data-view="observability" data-settings-focus="memory" title="记忆" aria-label="记忆">
-            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-brain"></use></svg>
-            <span>记忆</span>
-          </button>
-          <button class="settings-rail-item" type="button" data-view="market" title="插件" aria-label="插件">
-            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-puzzle"></use></svg>
-            <span>插件</span>
-          </button>
-          <button class="settings-rail-item" type="button" data-view="config" data-config-surface-jump="capabilities" data-cap-workspace="skills" title="技能" aria-label="技能">
-            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-wand-sparkles"></use></svg>
-            <span>技能</span>
-          </button>
+          <!-- 设置轨分组与主导航 NAV_GROUPS 同 taxonomy（PM 走查 2026-08-30：此前
+               「Agent 能力/协作/数据与统计/进阶」两套分类学并存，产品视图散落设置轨；
+               config 深链类条目收进「Agent 能力」，产品视图按导航组归位） -->
+          <p class="settings-rail-label">协作</p>
           <button class="settings-rail-item" type="button" data-view="team" title="团队协作" aria-label="团队协作">
             <svg aria-hidden="true" class="icon lucide"><use href="#lucide-users"></use></svg>
             <span>团队协作</span>
           </button>
-          <button class="settings-rail-item" type="button" data-view="config" data-config-surface-jump="capabilities" data-cap-workspace="mcp" title="MCP 服务器" aria-label="MCP 服务器">
-            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-plug-zap"></use></svg>
-            <span>MCP 服务器</span>
-          </button>
-          <button class="settings-rail-item" type="button" data-view="config" data-config-surface-jump="hooks" title="钩子" aria-label="钩子">
-            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-webhook"></use></svg>
-            <span>钩子</span>
-          </button>
-
-          <p class="settings-rail-label">协作</p>
           <button class="settings-rail-item" type="button" data-view="channels" title="渠道" aria-label="渠道">
             <svg aria-hidden="true" class="icon lucide"><use href="#lucide-satellite-dish"></use></svg>
             <span>渠道</span>
@@ -173,7 +154,7 @@
             <span>文档工坊</span>
           </button>
 
-          <p class="settings-rail-label">数据与统计</p>
+          <p class="settings-rail-label">观测</p>
           <button class="settings-rail-item" type="button" data-view="overview" title="系统总览" aria-label="系统总览">
             <svg aria-hidden="true" class="icon lucide"><use href="#lucide-chart-column"></use></svg>
             <span>系统总览</span>
@@ -187,7 +168,15 @@
             <span>会话聚合</span>
           </button>
 
-          <p class="settings-rail-label">进阶</p>
+          <p class="settings-rail-label">资源</p>
+          <button class="settings-rail-item" type="button" data-view="market" title="市场" aria-label="市场">
+            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-store"></use></svg>
+            <span>市场</span>
+          </button>
+          <button class="settings-rail-item" type="button" data-view="hosts" title="远程主机" aria-label="远程主机">
+            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-server"></use></svg>
+            <span>远程主机</span>
+          </button>
           <button class="settings-rail-item" type="button" data-view="config" data-config-surface-jump="local-runtime" title="本机运行时" aria-label="本机运行时">
             <svg aria-hidden="true" class="icon lucide"><use href="#lucide-terminal"></use></svg>
             <span>本机运行时</span>
@@ -196,13 +185,33 @@
             <svg aria-hidden="true" class="icon lucide"><use href="#lucide-file-text"></use></svg>
             <span>运行席位</span>
           </button>
-          <button class="settings-rail-item" type="button" data-view="hosts" title="远程主机" aria-label="远程主机">
-            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-server"></use></svg>
-            <span>远程主机</span>
+
+          <p class="settings-rail-label">治理</p>
+          <button class="settings-rail-item" type="button" data-view="automations" title="自动化" aria-label="自动化">
+            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-timer"></use></svg>
+            <span>自动化</span>
           </button>
           <button class="settings-rail-item" type="button" data-view="security" title="安全诊断" aria-label="安全诊断">
             <svg aria-hidden="true" class="icon lucide"><use href="#lucide-shield"></use></svg>
             <span>安全诊断</span>
+          </button>
+
+          <p class="settings-rail-label">Agent 能力</p>
+          <button class="settings-rail-item" type="button" data-view="observability" data-settings-focus="memory" title="记忆" aria-label="记忆">
+            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-brain"></use></svg>
+            <span>记忆</span>
+          </button>
+          <button class="settings-rail-item" type="button" data-view="config" data-config-surface-jump="capabilities" data-cap-workspace="skills" title="技能" aria-label="技能">
+            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-wand-sparkles"></use></svg>
+            <span>技能</span>
+          </button>
+          <button class="settings-rail-item" type="button" data-view="config" data-config-surface-jump="capabilities" data-cap-workspace="mcp" title="MCP 服务器" aria-label="MCP 服务器">
+            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-plug-zap"></use></svg>
+            <span>MCP 服务器</span>
+          </button>
+          <button class="settings-rail-item" type="button" data-view="config" data-config-surface-jump="hooks" title="钩子" aria-label="钩子">
+            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-webhook"></use></svg>
+            <span>钩子</span>
           </button>
         </nav>
         <div class="settings-rail-account">
