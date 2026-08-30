@@ -6345,7 +6345,7 @@ function renderCapabilities() {
                   ${skill.version ? `<span class="cap-skill-badge" title="SKILL.md frontmatter version">v${escapeHtml(skill.version)}</span>` : ""}
                   ${skill.registered ? "" : '<span class="cap-skill-badge">未注册</span>'}
                 </div>
-                ${desc ? `<span class="cap-skill-desc">${escapeHtml(desc)}</span>` : ""}
+                ${desc ? `<span class="cap-skill-desc" title="${escapeHtml(desc)}">${escapeHtml(desc)}</span>` : ""}
               </div>
               <div class="cap-skill-actions">
                 ${capabilitySourceButton(skill.sourceId, skill.code)}
@@ -6428,9 +6428,11 @@ function renderCapabilities() {
     : `<p class="cap-empty">${mcp.servers.length ? `没有匹配「${escapeHtml(mcpQuery || mcpFilter)}」的 MCP` : "未扫描到 MCP 声明"}</p>`;
   elements["cap-mcp-map"].innerHTML = (mcp.capabilityMap ?? []).length
     ? `<p class="subtle">514cc 能力映射（module.yaml 策展层）：</p>` +
+      `<div class="cap-map-grid">` +
       mcp.capabilityMap
-        .map((entry) => `<span class="cap-map-entry">${escapeHtml(entry.capability)} → ${escapeHtml(Array.isArray(entry.servers) ? entry.servers.join("、") : String(entry.servers))}</span>`)
-        .join("")
+        .map((entry) => `<span class="cap-map-entry"><strong>${escapeHtml(entry.capability)}</strong><span class="cap-map-servers">${escapeHtml(Array.isArray(entry.servers) ? entry.servers.join("、") : String(entry.servers))}</span></span>`)
+        .join("") +
+      `</div>`
     : "";
 }
 
@@ -11899,6 +11901,33 @@ function restartGlobalWallpaperRotation() {
     前置：调用方已完成层复位（filter/dim 清零、门控类摘除）。
     同步挂上全局 filter（dim 走压暗膜、blur+saturate 走 CSS 滤镜链），与团队路径复用同一组
     CSS 变量；preset "none" 路径要主动摘除 CSS 变量，否则团队切回会被全局值串色。 */
+// v9.1 单飞提级：字节获取从 applyGlobalWallpaperInto 的闭包提为模块级——
+// 壁纸预览缩略图（renderGlobalWallpaperPreview）与挂载共用同一份字节。
+// 悬案修复（2026-08-30 LO「启动时自定义壁纸失效」）：冷启动水合重放全部外观
+// apply → 每次触发 syncAppearanceControls → renderGlobalWallpaperPreview 各自
+// requestBlob 全量拉字节，60MB 视频 × 14 个并发 GET ≈ 900MB 瞬时流量，真机
+// 冷盘+杀软下必然超时触发摘除路径。单飞+缓存后全页面（挂载+预览）最多一次网络。
+function fetchGlobalWallpaperMediaRef() {
+  if (globalWallpaperBlob) return Promise.resolve(globalWallpaperBlob);
+  if (!globalWallpaperGetPromise) {
+    globalWallpaperGetPromise = requestBlob(API.globalWallpaper).then((blob) => {
+      releaseGlobalWallpaperCache(); // 换新字节前失效旧缓存
+      globalWallpaperBlob = {
+        url: URL.createObjectURL(blob),
+        type: blob.type,
+        size: blob.size,
+        isVideo: blob.type.startsWith("video/"),
+      };
+      wallpaperLoadRetryCount = 0;
+      return globalWallpaperBlob;
+    }).catch((error) => {
+      globalWallpaperGetPromise = null; // 允许退避重试再次发起
+      throw error;
+    });
+  }
+  return globalWallpaperGetPromise;
+}
+
 function applyGlobalWallpaperInto(layers, pref) {
   const body = document.body;
   delete layers.container.dataset.bgFit; // 先清团队路径残留的 fit 标记
@@ -11962,25 +11991,7 @@ function applyGlobalWallpaperInto(layers, pref) {
       observeWallpaperMedia(node); // 采样壁纸均值 → --wall-tint + 玻璃有效令牌
       wallpaperLoadRetryCount = 0; // 挂载成功：重试计数归零
     };
-    const fetchMediaRef = () => {
-      if (globalWallpaperBlob) return Promise.resolve(globalWallpaperBlob);
-      if (!globalWallpaperGetPromise) {
-        globalWallpaperGetPromise = requestBlob(API.globalWallpaper).then((blob) => {
-          releaseGlobalWallpaperCache(); // 换新字节前失效旧缓存
-          globalWallpaperBlob = {
-            url: URL.createObjectURL(blob),
-            type: blob.type,
-            isVideo: blob.type.startsWith("video/"),
-          };
-          wallpaperLoadRetryCount = 0;
-          return globalWallpaperBlob;
-        }).catch((error) => {
-          globalWallpaperGetPromise = null; // 允许退避重试再次发起
-          throw error;
-        });
-      }
-      return globalWallpaperGetPromise;
-    };
+    const fetchMediaRef = fetchGlobalWallpaperMediaRef;
     void fetchMediaRef().then((mediaRef) => {
       mount(mediaRef);
     }).catch((error) => {
@@ -12167,11 +12178,17 @@ function renderGlobalWallpaperPreview(pref) {
     video.removeAttribute("src");
     return;
   }
-  void requestBlob(API.globalWallpaper).then((blob) => {
+  // v9.1：预览与挂载共享单飞字节缓存——此前这里每次 requestBlob 全量拉字节，
+  // 冷启动水合重放 14 个外观 apply = 14 个并发 60MB GET（「启动时壁纸失效」真因）。
+  // 附带幂等：签名（hasCustom×对象URL）未变时直接跳过重绘。
+  const signature = `custom:${pref.hasCustom}:${globalWallpaperBlob?.url ?? "pending"}`;
+  if (signature === (img.dataset.previewSignature ?? "")) return;
+  img.dataset.previewSignature = signature;
+  void fetchGlobalWallpaperMediaRef().then((mediaRef) => {
     if (!readGlobalWallpaper().hasCustom) return; // 异步回来时已移除：丢弃
-    const url = URL.createObjectURL(blob);
+    const url = mediaRef.url;
     img.dataset.objectUrl = url;
-    if (blob.type.startsWith("video/")) {
+    if (mediaRef.isVideo) {
       img.hidden = true;
       img.removeAttribute("src");
       video.src = url;
@@ -12189,10 +12206,10 @@ function renderGlobalWallpaperPreview(pref) {
       img.hidden = false;
     }
     row.hidden = false;
-    const sizeLabel = blob.size >= 1024 * 1024
-      ? `${(blob.size / (1024 * 1024)).toFixed(1)}MB`
-      : `${Math.round(blob.size / 1024)}KB`;
-    meta.textContent = `${blob.type} · ${sizeLabel}`;
+    const sizeLabel = mediaRef.size >= 1024 * 1024
+      ? `${(mediaRef.size / (1024 * 1024)).toFixed(1)}MB`
+      : `${Math.round(mediaRef.size / 1024)}KB`;
+    meta.textContent = `${mediaRef.type} · ${sizeLabel}`;
   }).catch(() => {
     row.hidden = true;
   });

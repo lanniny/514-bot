@@ -4451,3 +4451,11 @@ body.team-bg-active .team-starmap-shell {
     inset 0 0 0 1px color-mix(in oklab, white 14%, transparent),
     0 30px 80px color-mix(in oklab, var(--forge-ink) 24%, transparent);
 }
+
+/* 能力矩阵 sticky 首列/表头：实底白（面积小于审计阈值逃过扫描），壁纸态同步玻璃 */
+html body.team-bg-active #config-surface-capabilities .cap-matrix tbody td:first-child,
+html body.team-bg-active #config-surface-capabilities .cap-matrix thead th {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-hi, 84%), transparent);
+  -webkit-backdrop-filter: blur(14px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(150%);
+}
