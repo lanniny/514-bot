@@ -127,7 +127,7 @@ body.atelier .sidebar {
 
 .atelier .brand-copy strong {
   font-family: var(--forge-display);
-  font-size: 16px;
+  font-size: var(--text-lg);
   font-weight: 650;
 }
 
@@ -137,9 +137,9 @@ body.atelier .sidebar {
   min-height: 36px;
   border-radius: 4px 16px 16px 4px;
   transition:
-    background-color 240ms var(--forge-physical),
-    color 240ms var(--forge-physical),
-    transform 320ms var(--forge-physical);
+    background-color var(--dur-base) var(--forge-physical),
+    color var(--dur-base) var(--forge-physical),
+    transform var(--dur-slow) var(--forge-physical);
 }
 
 .atelier .nav-item:hover,
@@ -221,7 +221,7 @@ body.atelier .topbar {
 .view:not(#view-workbench) .page-heading .eyebrow {
   color: var(--forge-copper-ink);
   font-family: var(--forge-utility);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: .22em;
   text-transform: uppercase;
 }
@@ -278,8 +278,8 @@ body.atelier .topbar {
   border-radius: 0;
   box-shadow: none;
   transition:
-    transform 380ms var(--forge-physical),
-    background-color 260ms ease;
+    transform var(--dur-slow) var(--forge-physical),
+    background-color var(--dur-base) ease;
 }
 
 .view .metric-card:hover {
@@ -332,7 +332,7 @@ body.atelier .topbar {
 #view-team .team-hero-eyebrow {
   color: var(--forge-copper-ink);
   font-family: var(--forge-utility);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: .28em;
   text-transform: uppercase;
 }
@@ -350,7 +350,7 @@ body.atelier .topbar {
   max-width: 34ch;
   margin: 18px 0 0;
   color: var(--forge-ink-soft);
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 #view-team .team-control-workspace {
@@ -406,7 +406,7 @@ body.atelier .topbar {
 }
 
 .conversation-stream .message-row {
-  transition: transform 360ms var(--forge-physical);
+  transition: transform var(--dur-slow) var(--forge-physical);
 }
 
 .conversation-stream .message-row:hover {
@@ -419,7 +419,7 @@ body.atelier .topbar {
   box-shadow:
     0 16px 42px color-mix(in oklab, var(--forge-ink) 8%, transparent),
     0 0 0 1px color-mix(in oklab, var(--forge-copper) 5%, transparent);
-  transition: box-shadow 360ms var(--forge-physical), transform 360ms var(--forge-physical);
+  transition: box-shadow var(--dur-slow) var(--forge-physical), transform var(--dur-slow) var(--forge-physical);
 }
 
 .task-composer .composer-shell:focus-within {
@@ -477,7 +477,7 @@ body.atelier .topbar {
 .atelier .registry-dock .rail-tab-main {
   padding: 6px 4px 6px 11px;
   font-family: var(--forge-utility);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   letter-spacing: .04em;
 }
 
@@ -496,7 +496,7 @@ body.atelier .topbar {
 .atelier .registry-dock .registry-dock-kicker {
   color: var(--forge-copper-ink);
   font-family: var(--forge-utility);
-  font-size: 9.5px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: .24em;
   text-transform: uppercase;
@@ -505,7 +505,7 @@ body.atelier .topbar {
 .atelier .registry-dock .registry-dock-header strong {
   margin-top: 5px;
   font-family: var(--forge-display);
-  font-size: 17px;
+  font-size: var(--text-lg);
   font-weight: 560;
   letter-spacing: -.02em;
   line-height: 1.15;
@@ -519,7 +519,7 @@ body.atelier .topbar {
   background: color-mix(in oklab, var(--forge-paper-deep) 55%, transparent);
   color: var(--forge-ink-soft);
   font-family: var(--forge-utility);
-  font-size: 9.5px;
+  font-size: var(--text-xs);
   letter-spacing: .04em;
 }
 
@@ -545,8 +545,8 @@ body.atelier .topbar {
   gap: 10px;
   grid-template-columns: 22px minmax(0, 1fr) auto;
   transition:
-    background-color 220ms var(--forge-physical),
-    transform 280ms var(--forge-physical);
+    background-color var(--dur-base) var(--forge-physical),
+    transform var(--dur-base) var(--forge-physical);
 }
 
 .atelier .registry-dock .environment-row.is-action:not(:disabled):hover {
@@ -563,7 +563,7 @@ body.atelier .topbar {
 }
 
 .atelier .registry-dock .environment-row-main strong {
-  font-size: 12px;
+  font-size: var(--text-xs);
   letter-spacing: -.004em;
 }
 
@@ -573,7 +573,7 @@ body.atelier .topbar {
   display: -webkit-box;
   overflow: hidden;
   color: var(--forge-ink-soft);
-  font-size: 10px;
+  font-size: var(--text-xs);
   line-height: 1.4;
   white-space: normal;
   -webkit-box-orient: vertical;
@@ -589,16 +589,16 @@ body.atelier .topbar {
 
 .atelier .registry-dock .environment-detail dt {
   font-family: var(--forge-utility);
-  font-size: 9.5px;
+  font-size: var(--text-xs);
   letter-spacing: .06em;
 }
 
 .atelier .registry-dock .environment-detail dd {
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .atelier .registry-dock .environment-diff-count {
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .atelier .registry-dock .environment-group {
@@ -610,13 +610,13 @@ body.atelier .topbar {
   padding: 8px 14px;
   color: var(--forge-ink-soft);
   font-family: var(--forge-utility);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: .14em;
   text-transform: uppercase;
 }
 
 .atelier .registry-dock .environment-group summary small {
-  font-size: 9.5px;
+  font-size: var(--text-xs);
   letter-spacing: 0;
   text-transform: none;
 }
@@ -631,13 +631,13 @@ body.atelier .topbar {
 }
 
 .atelier .registry-dock .environment-compact-list strong {
-  font-size: 10.5px;
+  font-size: var(--text-xs);
 }
 
 .atelier .registry-dock .environment-compact-list small,
 .atelier .registry-dock .environment-compact-list p {
   color: var(--forge-ink-soft);
-  font-size: 9.5px;
+  font-size: var(--text-xs);
 }
 
 /* Registry views become a segmented control: no hairline cage, one copper pill. */
@@ -659,9 +659,9 @@ body.atelier .topbar {
   border-radius: 999px;
   color: var(--forge-ink-soft);
   font-family: var(--forge-utility);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   letter-spacing: .04em;
-  transition: background-color 200ms ease, color 200ms ease;
+  transition: background-color var(--dur-base) ease, color var(--dur-base) ease;
 }
 
 .atelier .registry-dock .registry-tab:hover {
@@ -695,7 +695,7 @@ body.atelier .topbar {
   padding: 30px 20px;
   margin-inline: auto;
   color: var(--forge-ink-soft);
-  font-size: 11.5px;
+  font-size: var(--text-xs);
   gap: 14px;
   line-height: 1.75;
 }
@@ -716,9 +716,9 @@ body.atelier .topbar {
 .text-button,
 .newtask-button {
   transition:
-    transform 280ms var(--forge-physical),
-    box-shadow 280ms var(--forge-physical),
-    background-color 180ms ease;
+    transform var(--dur-base) var(--forge-physical),
+    box-shadow var(--dur-base) var(--forge-physical),
+    background-color var(--dur-fast) ease;
 }
 
 .button:hover:not(:disabled),
@@ -805,7 +805,7 @@ body.atelier .topbar {
   }
 
   .atelier .registry-dock .registry-dock-header strong {
-    font-size: 15px;
+    font-size: var(--text-md);
   }
 
   .atelier .registry-dock .mission-environment-panel {
@@ -816,7 +816,7 @@ body.atelier .topbar {
 @media (max-width: 520px) {
   .view:not(#view-workbench) .page-heading h1,
   #view-team .team-hero-title {
-    font-size: 44px;
+    font-size: var(--text-5xl);
   }
 
   .view .metric-grid {
@@ -829,7 +829,7 @@ body.atelier .topbar {
   }
 
   .view .metric-value {
-    font-size: 36px;
+    font-size: var(--text-4xl);
   }
 
   .content-section,
@@ -891,7 +891,7 @@ body.atelier .topbar {
 .app-shell.is-settings #view-config.view .page-heading.compact-heading > div:first-child > p:last-of-type {
   max-width: 60ch;
   margin-top: 8px;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   line-height: 1.5;
 }
 
@@ -907,7 +907,7 @@ body.atelier .topbar {
   }
 
   .app-shell.is-settings #view-config.view .page-heading.compact-heading h1 {
-    font-size: 28px;
+    font-size: var(--text-3xl);
   }
 
   .app-shell.is-settings #view-config.view .page-heading.compact-heading > div:first-child > p:last-of-type {
@@ -917,3 +917,13 @@ body.atelier .topbar {
 
 /* Bot 重新嵌入 514cc 单界面控制台；具体 inset 与工作面边界由最后加载的
    bot-shell.css 独占，艺术指导层不再隐藏 topbar/statusbar 或覆盖 Forge token。 */
+
+/* ── 文本型指标值降级（PM 走查 2026-08-30）──
+   metric-value 的 display 大字只配 numerical 短值；「未知/无日志/未检查/比率串」
+   一类词值走 metric-word 中号——否则三行「未知」在卡片里挤爆版面。本文件最后加载，
+   由它 Own 这个例外（data.css 的同口径规则会被这里的 (0,2,0) 同权重源序压回）。 */
+.view .metric-value.metric-word {
+  font-size: clamp(20px, 2vw, 30px);
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+}

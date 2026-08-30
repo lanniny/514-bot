@@ -127,13 +127,20 @@ async function refresh(root) {
     state.events = events?.events ?? [];
   } catch (error) {
     if (seq !== refreshSeq) return;
-    if (/REMOTE_GATE/.test(error.message || "")) {
+    // 门闸拦截的判定不能只看 message 文本（服务端 reason 是人话，code 在 payload 里）——
+    // 否则落到下面的红色「读取失败」分支，用户看到一句「已落地」却还blocked的技术文案
+    // 且没有任何放行入口（PM 走查 2026-08-30）。
+    if (error?.code === "REMOTE_GATE_BLOCKED" || error?.status === 501 || /REMOTE_GATE/.test(error.message || "")) {
       root.innerHTML = `
         <div class="channel-empty">
           ${lucideIcon("lock", "icon lucide")}
           <h2>渠道门闸未开放</h2>
           <p>${esc(error.message)}</p>
-          <button type="button" class="button secondary" id="channel-retry">${lucideIcon("rotate-ccw", "icon lucide")} 授权后重试</button>
+          <p class="subtle">这是「还没开」而不是「坏了」：渠道涉及出网凭据与 webhook 攻击面，默认 fail-closed。到 安全诊断 → 远程门闸 为 chat-channels 授权后即可使用。</p>
+          <div class="channel-empty-actions">
+            <button type="button" class="button primary" data-view="security">${lucideIcon("shield", "icon lucide")} 到安全诊断放行</button>
+            <button type="button" class="button secondary" id="channel-retry">${lucideIcon("rotate-ccw", "icon lucide")} 授权后重试</button>
+          </div>
         </div>`;
       root.querySelector("#channel-retry")?.addEventListener("click", () => void refresh(root));
       return;

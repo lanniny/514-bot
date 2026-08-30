@@ -55,18 +55,18 @@
 
 .team-inbox-stat-icon {
   grid-row: span 2;
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 .team-inbox-stat strong {
   color: var(--foreground);
-  font-size: 18px;
+  font-size: var(--text-xl);
   line-height: 1;
 }
 
 .team-inbox-stat > span:last-child {
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .team-inbox-list {
@@ -99,7 +99,7 @@
 .team-inbox-row-head time {
   margin-left: auto;
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 
@@ -108,7 +108,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -116,7 +116,7 @@
 .team-inbox-text {
   margin: 8px 0;
   color: var(--foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
@@ -129,7 +129,7 @@
   flex: 0 0 auto;
   min-height: 28px;
   padding: 4px 8px;
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .team-inbox-answer-form {
@@ -159,7 +159,7 @@
   grid-column: 1 / -1;
   min-height: 14px;
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .team-inbox-diagnostic {
@@ -168,7 +168,7 @@
   gap: 6px;
   margin-top: 10px;
   color: var(--warning, var(--primary));
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 @media (max-width: 640px) {
@@ -207,7 +207,7 @@
 }
 
 #view-team .team-hero-title {
-  font-size: 28px;
+  font-size: var(--text-3xl);
   letter-spacing: 0;
 }
 
@@ -317,7 +317,7 @@
 
 .team-switch-field > span {
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -330,7 +330,7 @@
   padding: 0 12px;
   border-radius: 999px;
   background: color-mix(in oklab, var(--background) 86%, var(--card));
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 650;
 }
 
@@ -340,7 +340,7 @@
 
 .team-preset-field .team-switch-select {
   min-height: 34px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 550;
 }
 
@@ -364,7 +364,7 @@
   cursor: default;
   border-color: color-mix(in oklab, var(--primary) 34%, var(--border));
   background: color-mix(in oklab, var(--primary) 12%, var(--card));
-  color: var(--primary);
+  color: var(--accent-ink);
   box-shadow: none;
 }
 
@@ -500,7 +500,7 @@
   min-width: 0;
   cursor: default;
   background: color-mix(in oklab, var(--card) 96%, var(--muted));
-  transition: border-color 120ms ease, background-color 120ms ease, opacity 120ms ease;
+  transition: border-color var(--dur-instant) ease, background-color var(--dur-instant) ease, opacity var(--dur-instant) ease;
 }
 
 .team-settings-form .team-member-option.is-selected {
@@ -541,7 +541,7 @@
   border: 1px dashed var(--border);
   border-radius: var(--radius-small);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
   text-align: center;
 }
 
@@ -646,7 +646,7 @@
 .team-runtime-block > h3 .icon {
   width: 16px;
   height: 16px;
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 .team-starmap-block {
@@ -722,7 +722,7 @@
 .team-router-section-label {
   margin-bottom: 8px;
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -776,7 +776,7 @@
   border-radius: 999px;
   background: var(--card);
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   cursor: pointer;
 }
@@ -801,7 +801,7 @@
 
 .team-router-fields span {
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
 }
 
@@ -835,7 +835,7 @@
 
 .team-router-layout .decision-facts dt {
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -911,7 +911,7 @@
 .team-router-model footer {
   align-items: center;
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .team-router-candidate footer p,
@@ -1502,7 +1502,7 @@
   border-radius: 999px;
   background: color-mix(in oklab, var(--muted) 55%, var(--card));
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 650;
   line-height: 1.5;
   white-space: nowrap;
@@ -1525,7 +1525,7 @@
   width: 15px;
   height: 15px;
   color: var(--muted-foreground);
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-fast) ease;
 }
 
 .member-seat-picker-trigger[aria-expanded="true"] .member-seat-picker-chevron {
@@ -1614,7 +1614,7 @@
 
 .member-seat-picker-group-header span {
   margin-left: auto;
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .member-seat-picker-option {
@@ -1643,7 +1643,7 @@
 }
 
 .member-seat-picker-option.is-selected .member-seat-picker-copy strong {
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 .member-seat-picker-option.is-disabled {
@@ -1732,7 +1732,7 @@
   }
 
   #view-team .team-hero-title {
-    font-size: 25px;
+    font-size: var(--text-2xl);
   }
 
   .team-control-workspace {
@@ -2210,7 +2210,7 @@
 .tp-topo-name {
   max-width: 92px;
   color: var(--foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.2;
@@ -2278,7 +2278,7 @@
 
 .dt-score-0-text { color: var(--muted-foreground); }
 .dt-score-1-text { color: var(--success); }
-.dt-score-2-text { color: var(--primary); }
+.dt-score-2-text { color: var(--accent-ink); }
 
 .dt-list {
   position: relative;
@@ -2328,7 +2328,7 @@
 
 .dt-marker.dt-score-0 { color: var(--muted-foreground); }
 .dt-marker.dt-score-1 { color: var(--success); border-color: color-mix(in oklab, var(--success) 45%, var(--border)); background: var(--success-soft, var(--card)); }
-.dt-marker.dt-score-2 { color: var(--primary); border-color: color-mix(in oklab, var(--primary) 45%, var(--border)); background: color-mix(in oklab, var(--primary) 10%, var(--card)); }
+.dt-marker.dt-score-2 { color: var(--accent-ink); border-color: color-mix(in oklab, var(--primary) 45%, var(--border)); background: color-mix(in oklab, var(--primary) 10%, var(--card)); }
 .dt-marker.dt-score-null { color: var(--muted-foreground); }
 
 .dt-content {
@@ -2371,7 +2371,7 @@
 
 .dt-score.dt-score-0 { color: var(--muted-foreground); background: var(--muted); }
 .dt-score.dt-score-1 { color: var(--success); background: var(--success-soft, var(--muted)); }
-.dt-score.dt-score-2 { color: var(--primary); background: color-mix(in oklab, var(--primary) 12%, transparent); }
+.dt-score.dt-score-2 { color: var(--accent-ink); background: color-mix(in oklab, var(--primary) 12%, transparent); }
 .dt-score.dt-score-null { color: var(--muted-foreground); background: var(--muted); }
 
 .dt-time {
@@ -2477,7 +2477,7 @@
   flex: none;
   border-radius: var(--radius-xl);
   background: color-mix(in oklab, var(--primary) 10%, transparent);
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 .cf-stat-icon .icon { width: 20px; height: 20px; }
@@ -2536,7 +2536,7 @@
 .cf-edge.is-hot { opacity: 1; }
 
 .cf-edge-count {
-  font-size: 10px;
+  font-size: var(--text-xs);
   fill: var(--muted-foreground);
   paint-order: stroke;
   stroke: var(--card);
@@ -2559,7 +2559,7 @@
 .cf-node.is-busy .cf-node-ring { stroke-dasharray: 3 3; }
 
 .cf-node-glyph {
-  font-size: 15px;
+  font-size: var(--text-md);
   font-weight: 600;
   pointer-events: none;
 }
@@ -2603,7 +2603,7 @@
   white-space: nowrap;
 }
 
-.cf-chip.is-primary { color: var(--primary); background: color-mix(in oklab, var(--primary) 12%, transparent); border-color: color-mix(in oklab, var(--primary) 30%, var(--border)); }
+.cf-chip.is-primary { color: var(--accent-ink); background: color-mix(in oklab, var(--primary) 12%, transparent); border-color: color-mix(in oklab, var(--primary) 30%, var(--border)); }
 .cf-chip.is-success { color: var(--success); background: var(--success-soft, var(--muted)); border-color: color-mix(in oklab, var(--success) 30%, var(--border)); }
 .cf-chip.is-danger { color: var(--danger); background: var(--danger-soft, var(--muted)); border-color: color-mix(in oklab, var(--danger) 30%, var(--border)); }
 .cf-chip.is-muted { color: var(--muted-foreground); }
@@ -2759,7 +2759,7 @@
   padding: 2px 8px;
   border-radius: var(--radius-sm);
   background: color-mix(in oklab, var(--primary) 12%, transparent);
-  color: var(--primary);
+  color: var(--accent-ink);
   font-size: var(--text-xs);
   font-weight: 600;
 }
@@ -2816,7 +2816,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-xl, 12px);
   cursor: pointer;
-  transition: border-color var(--dur-fast, 100ms) var(--ease-out, ease), background var(--dur-fast, 100ms) var(--ease-out, ease);
+  transition: border-color var(--dur-fast, var(--dur-instant)) var(--ease-out, ease), background var(--dur-fast, var(--dur-instant)) var(--ease-out, ease);
 }
 
 .cf-suggest-pick[role="button"]:hover,
@@ -3048,7 +3048,7 @@
   border-radius: 999px;
   background: color-mix(in oklab, var(--agent-accent, var(--muted)) 9%, var(--card));
   color: var(--agent-accent, var(--muted-foreground));
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 650;
   line-height: 1.5;
   white-space: nowrap;
@@ -3068,7 +3068,7 @@
 .member-char-count {
   float: right;
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 500;
   opacity: 0.85;
 }
@@ -3194,7 +3194,7 @@
 .tm-group-chevron {
   width: 12px;
   height: 12px;
-  transition: transform 120ms ease;
+  transition: transform var(--dur-instant) ease;
 }
 
 .tm-group-header[aria-expanded="false"] .tm-group-chevron {
@@ -3204,7 +3204,7 @@
 .tm-group-count {
   margin-left: auto;
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 
@@ -3221,7 +3221,7 @@
   border: 1px dashed var(--border);
   border-radius: var(--radius-small);
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-xs);
   text-align: center;
 }
 
@@ -3267,10 +3267,10 @@
   background:
     linear-gradient(140deg, var(--swatch-a), var(--swatch-b));
   color: var(--text, inherit);
-  font-size: 12px;
+  font-size: var(--text-xs);
   cursor: pointer;
   overflow: hidden;
-  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+  transition: border-color var(--dur-instant) ease, box-shadow var(--dur-instant) ease, transform var(--dur-instant) ease;
 }
 
 .team-bg-swatch:hover:not(:disabled) {
@@ -3278,8 +3278,8 @@
 }
 
 .team-bg-swatch.is-active {
-  border-color: var(--accent, #b85c3e);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #b85c3e) 35%, transparent);
+  border-color: var(--accent, var(--rose-deep));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, var(--rose-deep)) 35%, transparent);
 }
 
 .team-bg-swatch:disabled {
@@ -3596,7 +3596,7 @@ body.team-bg-active.atelier .app-shell.is-settings {
 }
 
 /* html 让位（2026-08-29 透出档位波补）：让位链（body/app-shell/stage）之下是 html 的
-   暖纸实底（--bg #faf9f5），壁纸媒体挂载的几秒窗口期里整个界面透出的就是它——
+   暖纸实底（--bg var(--bg)），壁纸媒体挂载的几秒窗口期里整个界面透出的就是它——
    暖米色 + stage 网格纹理。html 挂同类（app.js syncWallpaperGlassEnvironment 同步
    加摘）把底色换成调和色：窗口期是干净的「蒙玻璃纯色面」，媒体到位后壁纸盖上来；
    摘除时类撤、回暖纸基线零回归。 */
@@ -3606,7 +3606,7 @@ html.team-bg-active {
 
 /* ─── 玻璃质感 v2：边缘光学 + 内层卡调和（2026-08-29 第四轮）───   LO 反馈「玻璃质感和颜色还是有问题」。前几轮解决了「透不透」，这轮解决
    「像不像玻璃、脏不脏」：
-   1. 发脏的根因是暖纸色系（--surface #fdfcf9 / --sidebar #f4f1ea / recovery 条的
+   1. 发脏的根因是暖纸色系（--surface var(--surface) / --sidebar var(--sidebar) / recovery 条的
       amber 混底 / 用户便签的 rose 软底）在冷色壁纸上整体偏暖发灰。app.js 的壁纸
       环境采样（--wall-tint）已让玻璃底色与壁纸同族，这里把 stage 纸色幕布与内容层
       暖实底也接到同一调和链上。
@@ -3872,7 +3872,7 @@ body.team-bg-active .context-rail::-webkit-scrollbar-thumb {
   pointer-events: none;
   background: rgba(6, 8, 12, 1);
   opacity: 0;
-  transition: opacity 160ms ease;
+  transition: opacity var(--dur-fast) ease;
   z-index: 2;
 }
 
@@ -4019,7 +4019,7 @@ body.team-bg-active #main-content .view .settings-card {
   grid-template-columns: 34px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
@@ -4043,7 +4043,7 @@ body.team-bg-active #main-content .view .settings-card {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   cursor: pointer;
 }
@@ -4113,7 +4113,7 @@ body.team-bg-active #main-content .view .settings-card {
   color: inherit;
   overflow: hidden;
   cursor: pointer;
-  transition: border-color var(--dur-fast, 120ms) var(--ease-out, ease), transform var(--dur-fast, 120ms) var(--ease-out, ease);
+  transition: border-color var(--dur-fast, var(--dur-instant)) var(--ease-out, ease), transform var(--dur-fast, var(--dur-instant)) var(--ease-out, ease);
 }
 
 .wallpaper-picker-card:hover:not(:disabled) {
@@ -4147,7 +4147,7 @@ body.team-bg-active #main-content .view .settings-card {
   display: grid;
   place-items: center;
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .wp-thumb.is-custom.is-loading::after {
@@ -4158,7 +4158,7 @@ body.team-bg-active #main-content .view .settings-card {
   display: grid;
   place-items: center;
   color: var(--danger);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .wp-thumb.is-custom.is-error::after {
@@ -4175,7 +4175,7 @@ body.team-bg-active #main-content .view .settings-card {
 
 .wallpaper-picker-card-name {
   padding: 0 8px 8px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4183,7 +4183,7 @@ body.team-bg-active #main-content .view .settings-card {
 }
 
 .wallpaper-picker-tip {
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .wallpaper-picker-empty {
@@ -4202,7 +4202,7 @@ body.team-bg-active #main-content .view .settings-card {
 .wallpaper-picker-grid.is-compact .wallpaper-picker-card {
   break-inside: avoid;
   margin-bottom: -22px;
-  transition: transform var(--dur-fast, 120ms) var(--ease-out, ease), z-index 0s;
+  transition: transform var(--dur-fast, var(--dur-instant)) var(--ease-out, ease), z-index 0s;
 }
 
 .wallpaper-picker-grid.is-compact .wallpaper-picker-card:hover {
@@ -4269,7 +4269,7 @@ body.team-bg-active #main-content .view .settings-card {
   grid-template-columns: 44px minmax(0, 1fr);
   align-items: center;
   gap: 10px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
@@ -4287,9 +4287,9 @@ body.team-bg-active #main-content .view .settings-card {
    滑杆永远可拖（auto 档显示档位计算值、拖动即接管），不得加 disabled——
    禁用滑杆 = 永远进不了手动模式（交互死锁，v5.1 已修）。 */
 .appearance-wallpaper-tune-row #appearance-wallpaper-glass-auto.is-active {
-  border-color: color-mix(in srgb, var(--accent, #b85c3e) 55%, transparent);
-  background: color-mix(in srgb, var(--accent, #b85c3e) 12%, transparent);
-  color: var(--accent, #b85c3e);
+  border-color: color-mix(in srgb, var(--accent, var(--rose-deep)) 55%, transparent);
+  background: color-mix(in srgb, var(--accent, var(--rose-deep)) 12%, transparent);
+  color: var(--accent, var(--rose-deep));
 }
 
 .appearance-wallpaper-glass-value {
@@ -4298,7 +4298,7 @@ body.team-bg-active #main-content .view .settings-card {
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 /* 拖拽上传：拖入文件时给 label 一圈高亮，让用户知道落点正确 */
@@ -4329,4 +4329,110 @@ body.team-bg-active #main-content .view .settings-card {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+
+/* ─── 玻璃补全 v9（2026-08-30 PM 走查波；权威清单 = scripts/qa-glass-audit.mjs）───
+   走查实证：设置族页面（team/overview/observability/sessions/hosts/config/security/
+   channels/market/automations）的大面内容板在壁纸态下仍是 oklch 近白实底，壁纸只在
+   页头缝隙露出；页头铜线（page-heading::after）不透明浮在壁纸上像碎屑；composer
+   底座与 bot 会话头同为实底。本节统一吃内容卡玻璃度令牌（与 v8 同配方），选择器
+   用 html body.team-bg-active 双元素抬一档优先级，稳压后加载层的 (0,2,0) 实底规则。
+   输入类（textarea/输入框）用 hi 档保文字可读性；页头铜线退成薄纱。 */
+html body.team-bg-active .content-section,
+html body.team-bg-active .team-panel,
+html body.team-bg-active #overview-usage,
+html body.team-bg-active #team-router-workbench,
+html body.team-bg-active .cf-flow-wrap,
+html body.team-bg-active .cf-heat,
+html body.team-bg-active .team-runtime-overview,
+html body.team-bg-active .channel-deck,
+html body.team-bg-active .memory-browser,
+html body.team-bg-active .grt,
+html body.team-bg-active .sshconn-list,
+html body.team-bg-active .runtime-seat-layout,
+html body.team-bg-active .runtime-seat-index,
+html body.team-bg-active #security-posture,
+html body.team-bg-active .auto-card,
+html body.team-bg-active .delta-timeline,
+html body.team-bg-active .tp-topology,
+html body.team-bg-active .market-shell,
+html body.team-bg-active .bot-conversation-header {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+
+/* 内嵌子卡：在玻璃大面上再垫一层，用 lo 档保持层次（大面 72% / 子卡 42%） */
+html body.team-bg-active .tp-card,
+html body.team-bg-active .cf-stat,
+html body.team-bg-active .route-result,
+html body.team-bg-active .remote-gate-card,
+html body.team-bg-active .team-router-model {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-lo, 42%), transparent);
+}
+
+/* 输入类：hi 档（84%）——文字可读性优先于透出 */
+html body.team-bg-active #view-team #router-prompt,
+html body.team-bg-active .runtime-seat-form-section textarea,
+html body.team-bg-active .runtime-seat-form-section input,
+html body.team-bg-active .settings-rail-search input {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-hi, 84%), transparent);
+}
+
+/* 指标卡的白板画在 ::before 上（大字号指标的底座） */
+html body.team-bg-active .metric-card::before {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+
+/* 页头铜线：不透明铜条浮在壁纸上像碎屑，壁纸态退成薄纱保留点睛 */
+html body.team-bg-active .view:not(#view-workbench) .page-heading::after {
+  background: color-mix(in srgb, var(--forge-copper) 55%, transparent);
+}
+
+/* composer 底座：走查实测 team-bg-active 配方被后层同名规则回退成实底（悬案记录于
+   handoff），这里以双元素选择器重申一次玻璃（等价配方 + 更高优先级） */
+html body.team-bg-active .task-composer .composer-shell {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* ─── 玻璃补全 v9b：镜像对手选择器口径（ID 级 / :is 视图级规则压住类级 v9 的四处）───
+   走查+审计定位：experience-polish 的 :is(#view-*) .content-section、overview 的
+   #view-overview #* 双 ID 规则、data.css 的 #config-surface-sources *——特异性 (1,x,x)/(2,1,0)
+   稳压类级玻璃。本节按同口径重申， wallpaper 态统一吃回内容卡玻璃令牌。 */
+html body.team-bg-active :is(#view-overview, #view-observability, #view-security, #view-sessions) .content-section,
+html body.team-bg-active #view-overview #team-panel-container .team-panel,
+html body.team-bg-active #view-overview #delta-timeline-container .delta-timeline,
+html body.team-bg-active #config-surface-sources .runtime-seat-layout,
+html body.team-bg-active #config-surface-sources .runtime-seat-index,
+html body.team-bg-active #config-surface-sources .runtime-seat-adapter-details,
+html body.team-bg-active #config-surface-sources .runtime-seat-toggle,
+html body.team-bg-active #config-surface-sources .runtime-seat-form-actions,
+html body.team-bg-active .provider-bus .provider-global-empty {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+}
+
+/* 路由主决策卡是 JS 内联实底（collab-flow 渲染注入），CSS 端以 !important 接管壁纸态 */
+html body.team-bg-active #router-primary-decision {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-lo, 42%), transparent) !important;
+}
+
+/* composer 底座：多文件 (0,2,0) 实底规则在加载序上互相纠缠（悬案详见 handoff CDP 证据），
+   壁纸态是明确的状态覆盖层，用 !important 一次性收口，不再参与逐文件优先级拉锯 */
+html body.team-bg-active .task-composer .composer-shell {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  backdrop-filter: blur(20px) saturate(150%);
+}
+
+/* automations 卡对手口径：#automations-workbench .auto-card（1,1,0） */
+html body.team-bg-active #automations-workbench .auto-card {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
 }

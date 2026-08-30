@@ -473,10 +473,12 @@ pre,
   }
 }
 
-/* 汉堡菜单：仅移动端可见（桌面隐藏），打开侧栏抽屉。
-   用 .topbar 前缀提升特异性(0,2,0)，稳压 .icon-button(0,1,0)——否则源序靠后的 .icon-button 会让它在桌面误显 */
+/* 汉堡菜单：主导航抽屉的唯一触发钮。历史版本仅移动端可见（桌面隐藏），但抽屉里的
+   14 视图全局导航在桌面就没有任何入口（topbar-nav 在窄屏/bot 表面隐藏，面包屑是静态
+   文本）——2026-08-30 PM 走查定为大缺陷，改为全尺寸常显；bot 表面维持无 chrome 设计
+   （bot-shell.css 以 !important 隐藏）。 */
 .topbar .mobile-menu-button {
-  display: none;
+  display: inline-grid;
 }
 
 .nav-backdrop {

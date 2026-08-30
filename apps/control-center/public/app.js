@@ -18,7 +18,7 @@ import { createArtifactCard } from "./modules/artifact-card.js";
 import { createRunReplayScrubber } from "./modules/run-replay-scrubber.js";
 import { createNativeNotifications } from "./modules/native-notifications.js";
 import { createRailPanels } from "./modules/rail-panels.js";
-import { renderNavigation } from "./modules/nav-config.js";
+import { renderNavigation, NAV_GROUPS, NAV_ITEMS } from "./modules/nav-config.js";
 import { normalizePathKey } from "./path-key.js";
 import { lucideIcon, mountLucideSprite, remapLegacyIconUses } from "./lucide.js";
 import {
@@ -138,25 +138,16 @@ let runReplayScrubberMounted = false;
 const FORGE_VIEW_TITLES = Object.freeze({ ...VIEW_TITLES, team: "团队协作" });
 
 // 面包屑分组：与设置侧栏 IA 对齐（基础设置 / Agent 能力 / 协作 / 创建 / 数据与统计 / 进阶）
+// 面包屑分组单一真源化（PM 走查 2026-08-30）：此前手写映射与 nav-config 的 NAV_GROUPS
+// 漂移——team 在导航属「协作」组、面包屑却显示「Agent 能力」，automations/security/market/
+// hosts 同样错位。现在由 NAV_GROUPS 反推，导航里在哪个组、面包屑就是哪个组；
+// 不在主导航的工具视图（appearance/browser/hero/router）保留手工条目。
 const FORGE_VIEW_GROUPS = Object.freeze({
-  bot: "协作",
-  workbench: "协作",
-  team: "Agent 能力",
-  channels: "协作",
-  bootstrapper: "创建",
-  office: "创建",
-  automations: "协作",
-  overview: "数据与统计",
-  observability: "数据与统计",
-  sessions: "数据与统计",
-  hero: "观测",
-  market: "Agent 能力",
-  hosts: "进阶",
-  config: "基础设置",
-  router: "设置",
-  security: "进阶",
+  ...Object.fromEntries(NAV_GROUPS.flatMap((group) => group.views.map((view) => [view, group.label]))),
   appearance: "基础设置",
   browser: "基础设置",
+  hero: "观测",
+  router: "设置",
 });
 
 function forgeViewGroup(view = state.view, surface = state.configSurface, focus = state.settingsFocus) {
@@ -165,7 +156,8 @@ function forgeViewGroup(view = state.view, surface = state.configSurface, focus 
     if (surface === "capabilities" || surface === "hooks") return "Agent 能力";
     return "进阶";
   }
-  if (view === "observability") return focus === "memory" ? "Agent 能力" : "数据与统计";
+  // observability 曾在此特例返回「数据与统计」，与 NAV_GROUPS 单源化后冲突——
+  // 面包屑跟导航组走（观测），记忆焦点只影响标题不分组（PM 走查 2026-08-30）
   return FORGE_VIEW_GROUPS[view] ?? "";
 }
 
@@ -2109,6 +2101,19 @@ function initializeChromeMenus() {
     { icon: "selectAll", label: "全选（Ctrl+A）", action: () => editMenuAction("selectAll") },
   ]);
   bindMenu("chrome-menu-view", () => [
+    // 视图导航（PM 走查修复：桌面端此前唯一的全局视图入口只有 Ctrl+K 面板；
+    // 名为「视图」的菜单里却没有视图，14 视图大半不可发现）。单一真源 nav-config，
+    // 与抽屉/命令面板同源，新视图自动进菜单。当前视图标 check，其余用 plus 占位
+    // （菜单图标集是固定小集合，见 MENU_ICONS）。
+    ...NAV_GROUPS.flatMap((group, index) => [
+      ...(index > 0 ? ["---"] : []),
+      ...group.views.map((view) => ({
+        icon: state.view === view ? "check" : "plus",
+        label: `${NAV_ITEMS[view]?.label ?? view}（${group.label}）`,
+        action: () => setView(view),
+      })),
+    ]),
+    "---",
     { icon: "panelLeft", label: railCollapsed() ? "展开左栏" : "收起左栏", action: () => applyRailCollapsed(!railCollapsed()) },
     "---",
     { icon: "moon", label: "切换主题（亮/暗）", action: () => elements["theme-toggle"]?.click() },
@@ -2593,6 +2598,9 @@ function normalizeRoute(payload) {
 }
 
 function describePermissionFlag(label, value) {
+  // 缺省字段（schema 未标注 shell/network 等）不进详情行——渲染 "shell undefined"
+  // 是把内部缺省漏给用户的真缺陷（2026-08-30 PM 走查）
+  if (value === undefined || value === null || value === "") return null;
   if (value === false) return `禁止${label}`;
   if (value === true) return `允许${label}`;
   return `${label} ${value}`;
@@ -2617,7 +2625,7 @@ function policiesFromPermissions(permissions) {
         describePermissionFlag("写入", mode.write),
         describePermissionFlag("shell", mode.shell),
         describePermissionFlag("网络", mode.network),
-      ].join(" · "),
+      ].filter(Boolean).join(" · ") || "未标注",
       value: mode.approvalRequired ? "按动作审批" : "直接执行",
       status: mode.approvalRequired ? "warning" : "ok",
     });
@@ -5812,6 +5820,17 @@ function formatOpsUsd(value) {
   return `$${value.toFixed(4)}`;
 }
 
+// 指标大字位统一入口（PM 走查修复）：数值/短符号保留 display 级 serif，
+// 文本值（未知/无日志/比率串）自动降级 metric-word（text-2xl）——否则
+// 「未知 / 未知 / 未知」在卡片里三行换行挤爆版面（2026-08-30 走查实拍）。
+function setMetricValue(id, value) {
+  const node = elements[id];
+  if (!node) return;
+  node.textContent = value;
+  const shortNumeric = /^[-—\d./% ]*$/.test(String(value).trim()) && String(value).trim().length <= 8;
+  node.classList.toggle("metric-word", !shortNumeric);
+}
+
 function renderOpsMetrics(ops) {
   if (!ops || !elements["obs-ops-body"]) return;
   const first = ops.firstUsefulResponse || {};
@@ -5822,26 +5841,26 @@ function renderOpsMetrics(ops) {
   const fallback = ops.routeFallback || {};
   const evidence = ops.evidence || {};
   const transport = ops.promptTransport || {};
-  elements["obs-ops-first"].textContent = formatOpsUnknown(first.p50Ms, " ms");
+  setMetricValue("obs-ops-first", formatOpsUnknown(first.p50Ms, " ms"));
   elements["obs-ops-first-detail"].textContent = first.samples
     ? `${first.samples} 个样本 · ${first.unknown || 0} 个未知时钟`
     : "无样本时不填 0";
-  elements["obs-ops-outcomes"].textContent = [
+  setMetricValue("obs-ops-outcomes", [
     formatOpsRate(outcomes.successRate),
     formatOpsRate(outcomes.failureRate),
     formatOpsRate(outcomes.recoveryRate),
-  ].join(" / ");
+  ].join(" / "));
   elements["obs-ops-outcomes-detail"].textContent = outcomes.total
     ? `成功 ${outcomes.succeeded || 0} · 失败 ${outcomes.failed || 0} · 恢复 ${outcomes.recoveryRequired || 0}`
     : "空窗口比率保持未知";
-  elements["obs-ops-cost"].textContent = cost.receiptTurns
+  setMetricValue("obs-ops-cost", cost.receiptTurns
     ? `${cost.known || 0}/${cost.receiptTurns} 已知`
-    : "未知";
+    : "未知");
   const knownMean = formatOpsUsd(cost.knownMeanUsd);
   elements["obs-ops-cost-detail"].textContent = cost.unknown
     ? `${cost.unknown} 次回执无成本，不计入均值（已知均值 ${knownMean}）`
     : `缺失成本不当 $0 · 已知均值 ${knownMean}`;
-  elements["obs-ops-stale"].textContent = formatOpsUnknown(stale.total);
+  setMetricValue("obs-ops-stale", formatOpsUnknown(stale.total));
   elements["obs-ops-stale-detail"].textContent = stale.healthCacheStale
     ? `健康缓存过期 · 在途 stale ${stale.staleRunCount || 0}`
     : `健康缓存有效 · 在途 stale ${stale.staleRunCount || 0}`;
@@ -5865,7 +5884,7 @@ function renderOpsMetrics(ops) {
 function renderObservability() {
   const gate = state.obsRouteGate;
   if (gate) {
-    elements["obs-routegate-count"].textContent = gate.available ? String(gate.total) : "无日志";
+    setMetricValue("obs-routegate-count", gate.available ? String(gate.total) : "无日志");
     elements["obs-routegate-detail"].textContent = gate.available
       ? `${gate.red} RED / ${gate.gray} gray`
       : "route-gate.log 不存在";
@@ -5882,7 +5901,7 @@ function renderObservability() {
   }
   const delta = state.obsDelta;
   if (delta) {
-    elements["obs-delta-count"].textContent = String(delta.total);
+    setMetricValue("obs-delta-count", String(delta.total));
     elements["obs-delta-detail"].textContent = `白发 ${delta.byScore[0]} · 补强 ${delta.byScore[1]} · 推翻 ${delta.byScore[2]}`;
     elements["obs-delta-body"].innerHTML = (delta.recent ?? [])
       .map(
@@ -5896,15 +5915,15 @@ function renderObservability() {
   }
   const summary = state.obsSummary;
   if (summary) {
-    elements["obs-fire-days"].textContent =
-      summary.handoffs.daysSinceLastFire === null ? "无记录" : `${summary.handoffs.daysSinceLastFire} 天`;
+    setMetricValue("obs-fire-days",
+      summary.handoffs.daysSinceLastFire === null ? "无记录" : `${summary.handoffs.daysSinceLastFire} 天`);
     elements["obs-fire-detail"].textContent = summary.handoffs.lastFire ?? "尚无外部发火 handoff";
   }
   const drift = state.obsDrift;
   if (drift) {
     // 空对账不冒充"全部一致"——0 对解析结果只可能是脚本/解析异常，如实标出
     const pairCount = (drift.pairs ?? []).length;
-    elements["obs-drift-status"].textContent = drift.drifted ? `${drift.drifted} 对不一致` : pairCount ? "全部一致" : "无对账数据";
+    setMetricValue("obs-drift-status", drift.drifted ? `${drift.drifted} 对不一致` : pairCount ? "全部一致" : "无对账数据");
     elements["obs-drift-status"].classList.toggle("is-error", drift.drifted > 0 || !pairCount);
     // 漂移 pairs 明细三态（consistent/drift/missing，与 sync-runtime 同口径），异常行置顶
     const pairs = [...(drift.pairs ?? [])].sort((a, b) => (a.status !== "consistent" ? -1 : 0) - (b.status !== "consistent" ? -1 : 0));
@@ -18466,8 +18485,17 @@ function botRenderRoster() {
     : "会话导航";
   const rosterEmpty = byId("bot-roster-empty");
   const contactEmpty = byId("bot-contact-empty");
-  if (rosterEmpty) rosterEmpty.hidden = Boolean(tree.querySelector("[data-bot-tree-row], [data-bot-project-node]"));
-  if (contactEmpty) contactEmpty.hidden = catalog.length > 0;
+  if (rosterEmpty) {
+    // 空态文案跟随语义：有搜索词才是「没有匹配」，否则是「还没有」（PM 走查 2026-08-30）
+    const searching = Boolean(String(botState.conversationSearchQuery ?? "").trim());
+    rosterEmpty.textContent = searching ? "没有匹配的对话" : "还没有对话——点左上角 + 开始";
+    rosterEmpty.hidden = Boolean(tree.querySelector("[data-bot-tree-row], [data-bot-project-node]"));
+  }
+  if (contactEmpty) {
+    const searchingContacts = Boolean(String(botState.conversationSearchQuery ?? "").trim());
+    contactEmpty.textContent = searchingContacts ? "没有匹配的成员" : "通讯录是空的";
+    contactEmpty.hidden = catalog.length > 0;
+  }
   contacts.innerHTML = catalog.map((member) => {
     const id = String(member.id);
     const meta = botMemberPresentation(member, id);

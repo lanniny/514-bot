@@ -68,7 +68,7 @@ body.atelier .topbar,
 
 #view-workbench .welcome-state[data-stream-key="empty:welcome"] .welcome-hero {
   font-family: var(--sans);
-  font-size: 18px;
+  font-size: var(--text-xl);
   font-weight: 650;
   letter-spacing: -0.02em;
 }
@@ -77,7 +77,7 @@ body.atelier .topbar,
   display: block;
   max-width: 46ch;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.6;
 }
 
@@ -102,13 +102,13 @@ body.atelier .topbar,
 .view:not(#view-workbench) .page-heading.compact-heading .eyebrow {
   margin: 0 0 2px;
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 650;
 }
 
 .view:not(#view-workbench) .page-heading.compact-heading h1 {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--text-xl);
   line-height: 1.2;
 }
 
@@ -116,7 +116,7 @@ body.atelier .topbar,
   max-width: 62ch;
   margin: 4px 0 0;
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 .view:not(#view-workbench) .page-heading .heading-actions {
@@ -167,7 +167,7 @@ body.atelier .topbar,
 }
 
 #view-team .team-control-heading h2 {
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 #view-team .team-control-actions {
@@ -203,7 +203,7 @@ body.atelier .topbar,
 
 .view .metric-value {
   margin: 4px 0 2px;
-  font-size: 24px;
+  font-size: var(--text-2xl);
 }
 
 .main-content:not(:has(#view-workbench.is-active)) {
@@ -231,7 +231,7 @@ body.atelier .topbar,
   padding: 9px 10px;
   background: var(--surface);
   box-shadow: var(--shadow-lg);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.45;
 }
 
@@ -265,7 +265,7 @@ body.atelier .sidebar .brand-mark {
   border-radius: 8px;
   background: color-mix(in oklab, var(--primary) 14%, var(--surface));
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 26%, var(--border));
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 body.atelier .sidebar .brand-copy {
@@ -277,7 +277,7 @@ body.atelier .sidebar .brand-copy strong {
   display: block;
   overflow: hidden;
   color: var(--foreground, var(--text-strong));
-  font-size: 13.5px;
+  font-size: var(--text-base);
   font-weight: 700;
   letter-spacing: -0.02em;
   text-overflow: ellipsis;
@@ -288,7 +288,7 @@ body.atelier .sidebar .brand-copy span {
   display: block;
   margin-top: 1px;
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 9.5px;
+  font-size: var(--text-xs);
   font-weight: 650;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -318,7 +318,7 @@ body.atelier .sidebar .nav-group-label {
   display: block;
   margin: 10px 8px 3px;
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 650;
   letter-spacing: 0.04em;
   opacity: 0.72;
@@ -343,7 +343,7 @@ body.atelier .sidebar .nav-item.nav-primary {
   border-radius: 7px;
   background: transparent;
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   font-weight: 500;
   text-align: left;
 }
@@ -377,13 +377,13 @@ body.atelier .sidebar .nav-item.is-active,
 body.atelier .sidebar .nav-item.nav-primary.is-active {
   background: color-mix(in oklab, var(--primary) 13%, transparent);
   box-shadow: none;
-  color: var(--primary);
+  color: var(--accent-ink);
   font-weight: 620;
 }
 
 body.atelier .sidebar .nav-item.is-active .icon,
 body.atelier .sidebar .nav-item.nav-primary.is-active .icon {
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 body.atelier .sidebar .nav-item.is-active::before,
@@ -413,7 +413,7 @@ body.atelier .sidebar .runtime-indicator > div {
 body.atelier .sidebar .runtime-indicator strong {
   overflow: hidden;
   color: var(--foreground, var(--text-strong));
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 620;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -421,18 +421,21 @@ body.atelier .sidebar .runtime-indicator strong {
 
 body.atelier .sidebar .runtime-indicator span {
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
-/* 协作台不放左侧入口：汉堡/旧抽屉/底栏全部让位；头像进设置后才出现完整导航。 */
+/* 协作台不放常驻左侧栏：旧抽屉默认收起、底栏让位。
+   2026-08-30 PM 走查修正：此前的无条件隐藏把汉堡/背板/抽屉全域休眠——14 视图的
+   全局导航在桌面端只剩 Ctrl+K 一个入口（名为「视图」的菜单里也没有视图），是
+   最大可用性缺陷。现改为：汉堡（.topbar .mobile-menu-button）全尺寸可见作为
+   全局导航抽屉的触发钮；侧栏仅在抽屉关闭态隐藏（nav-open 时由 codex-desktop
+   的 fixed + translateX(0) 滑出）；背板交还 [hidden] 语义。bot 表面仍由
+   bot-shell.css 以 !important 单独全隐（无 chrome 聊天面，视图入口走菜单）。 */
 .statusbar-connection,
 .sidebar-footer,
-body.atelier #sidebar,
-body.atelier .sidebar,
-.nav-backdrop,
-.nav-backdrop:not([hidden]),
-.topbar .mobile-menu-button,
-.mobile-nav {
+.mobile-nav,
+body.atelier .app-shell:not(.nav-open) #sidebar,
+body.atelier .app-shell:not(.nav-open) .sidebar {
   display: none !important;
 }
 
@@ -485,7 +488,7 @@ body.atelier .sidebar,
 .account-dock-copy strong {
   overflow: hidden;
   color: var(--foreground, var(--text-strong));
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -493,7 +496,7 @@ body.atelier .sidebar,
 
 .account-dock-copy span {
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .account-dock-chevron {
@@ -504,7 +507,7 @@ body.atelier .sidebar,
 }
 
 .account-dock:hover .account-dock-chevron {
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 .account-heading-chip {
@@ -567,7 +570,7 @@ body.atelier .sidebar,
   /* 壁纸态下，设置视图主内容区 + 侧栏全部玻璃化，透出壁纸 */
   body.team-bg-active .app-shell.is-settings .main-content,
   body.team-bg-active .app-shell.is-settings .main-content:not(:has(#view-workbench.is-active)) {
-    background: color-mix(in oklab, var(--glass-tint, var(--surface, #ffffff)) var(--forge-glass-alpha, 86%), transparent);
+    background: color-mix(in oklab, var(--glass-tint, var(--surface, var(--on-accent))) var(--forge-glass-alpha, 86%), transparent);
     -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
     backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
   }
@@ -640,7 +643,7 @@ body.atelier .sidebar,
 .settings-avatar-copy strong {
   overflow: hidden;
   color: var(--foreground, var(--text-strong));
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 650;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -648,7 +651,7 @@ body.atelier .sidebar,
 
 .settings-avatar-copy span {
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .settings-rail-toolbar {
@@ -683,7 +686,7 @@ body.atelier .sidebar,
   border: 0;
   background: transparent;
   color: var(--foreground, var(--text-strong));
-  font: 500 12.5px/1.2 var(--sans);
+  font: 500 var(--text-sm)/1.2 var(--sans);
   outline: none;
 }
 
@@ -704,7 +707,7 @@ body.atelier .sidebar,
 .settings-rail-label {
   margin: 4px 8px 4px;
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 650;
   opacity: 0.72;
 }
@@ -723,7 +726,7 @@ body.atelier .sidebar,
   border-radius: 7px;
   background: transparent;
   color: var(--muted-foreground, var(--text-muted));
-  font: 500 12.5px/1.2 var(--sans) !important;
+  font: 500 var(--text-sm)/1.2 var(--sans) !important;
   text-align: left;
   white-space: nowrap !important;
   cursor: pointer;
@@ -776,7 +779,7 @@ body.atelier .sidebar,
 }
 
 .app-shell.is-settings .view:not(#view-workbench) .page-heading.compact-heading h1 {
-  font-size: 26px;
+  font-size: var(--text-2xl);
   letter-spacing: -0.45px;
 }
 
@@ -812,7 +815,7 @@ body.team-bg-active .app-shell.is-settings .view .settings-card-head p {
 }
 
 body.team-bg-active .app-shell.is-settings .settings-card {
-  background: color-mix(in oklab, var(--glass-tint, var(--card, #ffffff)) var(--forge-glass-alpha, 86%), transparent);
+  background: color-mix(in oklab, var(--glass-tint, var(--card, var(--on-accent))) var(--forge-glass-alpha, 86%), transparent);
   -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
   backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
   border: 1px solid color-mix(in oklab, var(--border) 88%, transparent);
@@ -851,7 +854,7 @@ body.team-bg-active .app-shell.is-settings .appearance-accent-card {
 
 /* 设置预览卡片在壁纸态下保持亮色预览效果 */
 body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="light"] {
-  background: #faf9f5;
+  background: var(--bg);
 }
 
 body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="dark"] {
@@ -964,7 +967,7 @@ body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="dark"
 }
 
 #view-market .market-tab.is-active em {
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 .market-search {
@@ -1049,7 +1052,7 @@ body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="dark"
   background: transparent;
   color: var(--muted-foreground, var(--text-muted));
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 620;
   cursor: pointer;
 }
@@ -1105,7 +1108,7 @@ body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="dark"
   flex: 0 0 32px;
   border-radius: 8px;
   background: color-mix(in oklab, var(--primary) 12%, var(--muted));
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 .market-row-copy {
@@ -1156,7 +1159,7 @@ body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="dark"
   margin-bottom: 4px;
   border-radius: 12px;
   background: color-mix(in oklab, var(--primary) 10%, var(--muted));
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 .market-empty p {
@@ -1348,12 +1351,12 @@ body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="dark"
 .appearance-theme-swatch i:last-child { width: 64%; }
 
 .appearance-theme-swatch.is-light {
-  background: #faf9f5;
+  background: var(--bg);
   box-shadow: inset 0 0 0 1px #e4e2d6;
 }
 
-.appearance-theme-swatch.is-light i { background: #2a2620; }
-.appearance-theme-swatch.is-light i:first-child { background: #d97757; }
+.appearance-theme-swatch.is-light i { background: var(--text-strong); }
+.appearance-theme-swatch.is-light i:first-child { background: var(--rose); }
 
 .appearance-theme-swatch.is-dark {
   background: #1e1c17;
@@ -1364,12 +1367,12 @@ body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="dark"
 .appearance-theme-swatch.is-dark i:first-child { background: #e0a07a; }
 
 .appearance-theme-swatch.is-system {
-  background: linear-gradient(90deg, #faf9f5 50%, #1e1c17 50%);
+  background: linear-gradient(90deg, var(--bg) 50%, #1e1c17 50%);
   box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .appearance-theme-swatch.is-system i {
-  background: linear-gradient(90deg, #2a2620 50%, #ece9e0 50%);
+  background: linear-gradient(90deg, var(--text-strong) 50%, #ece9e0 50%);
 }
 
 .settings-font-control {
@@ -1484,7 +1487,7 @@ body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="dark"
   border-radius: 50%;
 }
 
-.appearance-accent-card[data-appearance-accent="copper"] i { background: #d97757; }
+.appearance-accent-card[data-appearance-accent="copper"] i { background: var(--rose); }
 .appearance-accent-card[data-appearance-accent="rose"] i { background: #c45c6a; }
 .appearance-accent-card[data-appearance-accent="teal"] i { background: #2f8f7a; }
 .appearance-accent-card[data-appearance-accent="indigo"] i { background: #5b6fd6; }
@@ -1533,7 +1536,7 @@ body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="dark"
   border-radius: 999px;
   background: transparent;
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 12px;
+  font-size: var(--text-xs);
   cursor: pointer;
 }
 
@@ -1573,7 +1576,7 @@ body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="dark"
   height: 14px;
   border-radius: 50%;
   background: var(--card);
-  transition: transform 0.15s ease;
+  transition: transform var(--dur-fast) ease;
 }
 
 .settings-switch[aria-checked="true"] .settings-switch-thumb {
@@ -1599,8 +1602,8 @@ body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="dark"
 }
 
 .appearance-preview[data-theme="light"] {
-  background: #faf9f5;
-  color: #2a2620;
+  background: var(--bg);
+  color: var(--text-strong);
   --hljs-keyword: #d97757;
   --hljs-string: oklch(0.55 0.14 155);
   --hljs-comment: #6f6a5e;
@@ -1656,8 +1659,8 @@ body.team-bg-active .app-shell.is-settings .appearance-preview[data-theme="dark"
   padding: 2px 7px;
   border-radius: 99px;
   background: color-mix(in oklab, var(--primary) 16%, transparent);
-  color: var(--primary);
-  font-size: 10px;
+  color: var(--accent-ink);
+  font-size: var(--text-xs);
   font-weight: 650;
 }
 
@@ -1886,7 +1889,7 @@ html[data-density="comfortable"] .conversation-stream .message-row {
     border: 1px solid var(--border);
     border-radius: 50%;
     background: var(--surface);
-    color: var(--primary);
+    color: var(--accent-ink);
     cursor: pointer;
   }
 
@@ -1994,7 +1997,7 @@ html[data-density="comfortable"] .conversation-stream .message-row {
     border-bottom: 0;
     box-shadow: var(--shadow-lg);
     transform: translateX(-104%);
-    transition: transform 160ms ease-out;
+    transition: transform var(--dur-fast) ease-out;
   }
 
   .workbench-shell.is-rail-open .run-rail {
@@ -2016,11 +2019,11 @@ html[data-density="comfortable"] .conversation-stream .message-row {
   }
 
   #view-workbench .welcome-state[data-stream-key="empty:welcome"] .welcome-hero {
-    font-size: 16px;
+    font-size: var(--text-lg);
   }
 
   #view-workbench .welcome-state[data-stream-key="empty:welcome"] .welcome-sub {
-    font-size: 11px;
+    font-size: var(--text-xs);
   }
 }
 
@@ -2092,7 +2095,7 @@ body.team-bg-active .app-shell.is-settings .view:not([hidden]) {
   overflow: hidden;
   border-radius: 50%;
   background: color-mix(in oklab, var(--primary) 14%, var(--muted));
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 .statusbar-operator-avatar .icon.lucide,
@@ -2137,7 +2140,7 @@ body.team-bg-active .app-shell.is-settings .view:not([hidden]) {
 :is(#view-overview, #view-observability) .metric-label .icon {
   width: 13px;
   height: 13px;
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 :is(#view-overview, #view-observability, #view-security, #view-sessions) .content-section {
@@ -2160,14 +2163,14 @@ body.team-bg-active .app-shell.is-settings .view:not([hidden]) {
 :is(#view-overview, #view-observability, #view-security, #view-sessions) .section-heading h2 {
   margin: 0;
   color: var(--foreground);
-  font-size: 14px;
+  font-size: var(--text-base);
   font-weight: 650;
   letter-spacing: -0.02em;
 }
 
 :is(#view-overview, #view-observability, #view-security, #view-sessions) .section-heading p {
   margin: 3px 0 0;
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.45;
 }
 

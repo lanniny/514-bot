@@ -71,7 +71,9 @@ test("automations is a first-class create view, not a dialog-only leftover", asy
   assert.doesNotMatch(html, /rail-block-automations|id="automations-list"|id="automations-manage-button"/);
   assert.match(state, /automations:\s*"自动化"/);
   assert.match(app, /mountAutomationsPage\(/);
-  assert.match(app, /automations:\s*"协作"/);
+  // 面包屑分组已由 NAV_GROUPS 单源反推（2026-08-30 PM 走查：手写 FORGE_VIEW_GROUPS 与
+  // 导航组漂移——team 显示「Agent 能力」而导航在「协作」）。automations 归「治理」组。
+  assert.match(app, /Object\.fromEntries\(NAV_GROUPS\.flatMap/, "面包屑分组必须由 NAV_GROUPS 单源反推");
   assert.match(app, /function revealWorkbenchAutomations\(/);
   assert.match(app, /#automations\/\$\{/);
   assert.match(app, /function openAutomationManager\(/);

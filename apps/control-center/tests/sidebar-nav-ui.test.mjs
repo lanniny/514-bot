@@ -95,7 +95,11 @@ test("appearance and browser settings pages stay honest", async () => {
   assert.doesNotMatch(html, /清除内置浏览器缓存|清除全部浏览器数据/);
 });
 
-test("workbench has no left-nav entry; avatar opens settings chrome", async () => {
+test("workbench keeps its own rail; global nav rides the burger drawer at every size", async () => {
+  // 2026-08-30 PM 走查决策：旧契约「协作台不放左侧入口」把汉堡/抽屉全域休眠，
+  // 14 视图在桌面端只剩 Ctrl+K 一个全局入口（settings 视图才有设置轨）——最大
+  // 可用性缺陷。新契约：协作台保留自身 run-rail；全局导航走汉堡抽屉（全尺寸可见，
+  // nav-open 时滑出）+ 视图菜单；bot 表面维持无 chrome（bot-shell.css 单独全隐）。
   const [html, app, css] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
@@ -105,9 +109,14 @@ test("workbench has no left-nav entry; avatar opens settings chrome", async () =
   assert.match(html, /id="run-rail"[\s\S]*id="account-dock"[\s\S]*id="account-dock-label"/);
   assert.match(html, /id="account-heading-chip"/);
   assert.match(html, /id="api-connection-badge"/);
-  assert.match(css, /body\.atelier #sidebar/);
-  assert.match(css, /\.topbar \.mobile-menu-button/);
-  assert.match(css, /\.mobile-nav \{/);
+  // 抽屉默认收起（仅 nav-open 滑出），而不是无条件 display:none——否则汉堡按了也没反应
+  assert.match(css, /body\.atelier \.app-shell:not\(\.nav-open\) #sidebar/);
+  assert.match(css, /body\.atelier \.app-shell:not\(\.nav-open\) \.sidebar/);
+  // 汉堡不得再进隐藏名单（它是全局导航抽屉的唯一触发钮）
+  assert.doesNotMatch(css, /\.topbar \.mobile-menu-button,[\s\S]{0,80}display: none !important/);
+  assert.doesNotMatch(css, /\.topbar \.mobile-menu-button \{[\s\S]{0,40}display: none/);
+  // 底栏 tab 维持隐藏（桌面形态不引入移动底栏）
+  assert.match(css, /\.mobile-nav,/);
   assert.match(css, /\.settings-rail-back \{/);
   assert.match(css, /\.settings-rail-item > span \{/);
   assert.match(css, /white-space: nowrap/);

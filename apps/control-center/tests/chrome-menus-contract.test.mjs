@@ -52,7 +52,8 @@ test("initializeChromeMenus wires rail toggle, nav history, and four menus with 
   const app = await source("public/app.js");
   const fnStart = app.indexOf("function initializeChromeMenus()");
   assert.ok(fnStart > -1, "缺 initializeChromeMenus 定义");
-  const fn = app.slice(fnStart, fnStart + 3600);
+  // 窗口须覆盖到帮助菜单（函数尾部）；视图导航条目加入后函数变长，定窗同步放大
+  const fn = app.slice(fnStart, fnStart + 5600);
   assertIncludes(fn, 'bindMenu("chrome-menu-file"');
   assertIncludes(fn, 'bindMenu("chrome-menu-edit"');
   assertIncludes(fn, 'bindMenu("chrome-menu-view"');
@@ -63,6 +64,10 @@ test("initializeChromeMenus wires rail toggle, nav history, and four menus with 
   assertIncludes(fn, 'disabled: typeof invoke !== "function"', "关闭窗口在浏览器模式必须禁用（诚实降级）");
   assertIncludes(fn, 'chromeNavigate("back")');
   assertIncludes(fn, 'chromeNavigate("forward")');
+  // PM 走查修复（2026-08-30）：「视图」菜单必须承载全局视图导航，且由 nav-config 单源驱动——
+  // 此前 14 视图在桌面端只有 Ctrl+K 一个入口，名为「视图」的菜单里没有视图。
+  assertIncludes(fn, "NAV_GROUPS.flatMap", "视图菜单缺 nav-config 驱动的视图导航");
+  assertIncludes(fn, "action: () => setView(view)", "视图菜单项必须走 setView");
   // 启动序列：initializeWindowChrome 之后调用（菜单列浏览器/壳内共用，不锁壳）
   const boot = app.slice(app.indexOf("initializeWindowChrome();"), app.indexOf("initializeWindowChrome();") + 200);
   assertIncludes(boot, "initializeChromeMenus();", "启动序列未调用 initializeChromeMenus");
@@ -99,7 +104,8 @@ test("unified chrome color + floating conversation card styles", async () => {
   assertIncludes(wave, "@keyframes chrome-nav-nudge-left {");
   assertIncludes(wave, "@media (prefers-reduced-motion: reduce) {");
   // rail 收起：抽屉式收轨，会话框顶到窗缘不留缝
-  assertIncludes(wave, "transition: grid-template-columns 280ms cubic-bezier(0.32, 0.72, 0, 1);");
+  // UI-AUDIT P1-5：时长已收敛到 --dur-base（原 280ms），自定义缓动曲线作为品牌手感保留
+  assertIncludes(wave, "transition: grid-template-columns var(--dur-base) cubic-bezier(0.32, 0.72, 0, 1);");
   assertIncludes(wave, ".workbench-shell.rail-collapsed {\n  grid-template-columns: 0px minmax(0, 1fr) !important;\n}");
   assertIncludes(wave, ".workbench-shell.rail-collapsed .conversation-pane {\n  margin-left: 0;\n  border-top-left-radius: 0;\n}");
   assertIncludes(wave, "@media (min-width: 821px) {");
