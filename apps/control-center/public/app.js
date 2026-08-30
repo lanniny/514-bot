@@ -13,7 +13,12 @@ import {
   normalizeApprovalRuntimeGeneration,
 } from "./modules/approval-snapshot.js";
 import { createSettlementRequester } from "./modules/settlement-request.js";
+import { createCloseoutCard } from "./modules/closeout-card.js";
+import { createArtifactCard } from "./modules/artifact-card.js";
+import { createRunReplayScrubber } from "./modules/run-replay-scrubber.js";
+import { createNativeNotifications } from "./modules/native-notifications.js";
 import { createRailPanels } from "./modules/rail-panels.js";
+import { renderNavigation } from "./modules/nav-config.js";
 import { normalizePathKey } from "./path-key.js";
 import { lucideIcon, mountLucideSprite, remapLegacyIconUses } from "./lucide.js";
 import {
@@ -90,6 +95,10 @@ import {
   memberFaceMarkup,
   operatorAvatarMarkup,
 } from "./modules/avatars.js";
+// UI-AUDIT P0-6：空状态 / 骨架屏单一真源，替代散写的 `<p class="subtle">` 与文字 loading
+import { emptyState, inlineEmpty, renderPlaceholder, skeleton } from "./modules/placeholders.js";
+// UI-AUDIT P1-6：异步按钮忙态统一处理（防连点 + 失败必恢复 + aria-busy）
+import { runAsyncAction } from "./modules/async-action.js";
 import {
   state, ACTIVE_RUN_STATES, TERMINAL_RUN_STATES, VIEW_TITLES,
   DEFAULT_COMPONENTS, DEFAULT_MODELS, DEFAULT_POLICIES, DEFAULT_SECRETS,
@@ -113,6 +122,16 @@ const settlementRequester = createSettlementRequester({
 const requestSettlement = settlementRequester.load;
 const cancelSettlementRequest = settlementRequester.cancel;
 const cancelSettlementRequests = settlementRequester.cancelSurface;
+
+// W2.4 原生通知（审批/任务完成/收口失败；幂等 diff，默认关闭）
+const nativeNotifications = createNativeNotifications({ toast });
+// W1.1 一键收口卡（bot 证据面单例：切 tab 不丢运行状态，进度由轮询续上）
+const closeoutCard = createCloseoutCard({ request, onFailure: (detail) => nativeNotifications.notifyCloseoutFailure(detail) });
+// W1.3 Artifact 出卡（bot 会话流单例：展开状态与缓存跨重渲染保留）
+const artifactCard = createArtifactCard({ request });
+// W2.8 会话回放 scrubber（只读时间线，选中 run 时喂 /replay 投影）
+const runReplayScrubber = createRunReplayScrubber({ request });
+let runReplayScrubberMounted = false;
 
 // v4.0 Forge 路由白名单本地扩展：团队协作视图由本波次新增，state.js 的 VIEW_TITLES
 // 属并行波次文件——在此合并放开，state.js 后续补上同键时语义一致（团队协作）。
@@ -2154,6 +2173,32 @@ function initializeWindowChrome() {
     event.preventDefault();
     location.reload();
   });
+  // W1.2 审批快捷裁决：bot 视图下 Y=批准 / N=拒绝最新一条 pending 审批。
+  // 守卫：焦点在可编辑元素/打开的对话框/命令面板时不触发；广域授权禁批（与卡片 disabled 同口径）。
+  document.addEventListener("keydown", (event) => {
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+    const key = String(event.key || "").toLowerCase();
+    if (key !== "y" && key !== "n") return;
+    if (state.view !== "bot") return;
+    const active = document.activeElement;
+    if (active && (active.isContentEditable
+      || ["input", "textarea", "select"].includes(String(active.tagName || "").toLowerCase()))) return;
+    if (document.querySelector("dialog[open], .cmd-palette-overlay.is-open")) return;
+    const run = botConversationActiveRun(botActiveConversation());
+    if (!run?.id) return;
+    const pending = state.approvals.filter((item) => String(item.runId || "") === String(run.id) && (item.status ?? "pending") === "pending");
+    if (!pending.length) return;
+    const latest = pending[pending.length - 1];
+    if (botState.approvalInFlight.has(String(latest.id))) return;
+    const broad = String(latest?.method || "") === "item/permissions/requestApproval";
+    const decision = key === "y" ? "approve" : "deny";
+    if (decision === "approve" && broad) {
+      toast("广域权限授权暂不支持快捷批准，请使用安全诊断页", "warning");
+      return;
+    }
+    event.preventDefault();
+    void resolveInlineApproval(latest.id, decision);
+  });
 }
 
 /** 按当前 localStorage 值重放全部外观 apply（不绑事件）：
@@ -2176,13 +2221,19 @@ function replayAppearanceFromStorage() {
   // 全局壁纸卡片回填 + 轮播计时器对齐（签名不变不重建）；氛围层由团队渲染路径统一重挂
   renderGlobalWallpaperCard();
   restartGlobalWallpaperRotation();
-  // 启动对账：偏好说没有自定义媒体，但服务端可能有（旧内核缺路由时自愈误伤/换端残留）。
-  // HEAD 轻探存在性，成功则恢复 hasCustom——用户点「自定义」色板即可取回，不为对账拉全量字节。
-  void reconcileGlobalWallpaperMedia();
+  // 启动对账不在这里发：replay 会被 initializeTheme 与水合各跑一次，而 HEAD 对账若早于
+  // 水合完成，会在空 localStorage 上写出 {preset:"none",hasCustom:true} 的默认快照，
+  // 把服务端 preset:"custom" 的回填挡在门外（「换壳后壁纸丢失」主因）。改由启动链路在
+  // hydratePreferencesFromServer 结算后串行调用，见 boot 处。
 }
 
 async function reconcileGlobalWallpaperMedia() {
-  if (readGlobalWallpaper().hasCustom) return;
+  // 只对「已有本地偏好但 hasCustom=false」做存在性修复（旧内核自愈误伤/换端残留）。
+  // 本地没有壁纸键 = 水合尚未发生或服务端没有偏好：此时写快照必然是默认值，
+  // 既挡回填又会被偏好双写 PUT 回服务端降级真源——直接等待水合路径处理。
+  let local = null;
+  try { local = localStorage.getItem(GLOBAL_WALLPAPER_KEY); } catch {}
+  if (!local || readGlobalWallpaper().hasCustom) return;
   try {
     await requestBlob(API.globalWallpaper, { method: "HEAD" });
     // 服务端确实存着字节：恢复开关位（不动 preset——用户是否启用全局层仍由色板选择决定）
@@ -2667,6 +2718,7 @@ function applyApprovalSnapshot(payload, { source = "审批快照" } = {}) {
   if (version.runtimeGeneration !== null) approvalSnapshotRuntimeGeneration = version.runtimeGeneration;
   approvalSnapshotRevision = snapshot.revision;
   state.approvals = snapshot.approvals;
+  nativeNotifications.syncApprovals(state.approvals); // W2.4：新 pending → 系统通知（幂等 diff）
   return { accepted: true };
 }
 
@@ -3967,7 +4019,12 @@ function renderConfigRemotePanel() {
   const host = configRemoteHost();
   const project = configRemoteProject();
   if (!host) {
-    panel.innerHTML = `<p class="subtle">该主机已不在 SSH 台账。</p>`;
+    renderPlaceholder(panel, emptyState({
+      tone: "error",
+      title: "该主机已不在 SSH 台账",
+      desc: "它可能已被移除或改名。回到远程主机视图重新选择一台，台账里的会话与同步目标不受影响。",
+      action: { label: "选择其他主机", view: "hosts", icon: "server" },
+    }));
     return;
   }
   const targetKey = configRemoteTargetKey();
@@ -3985,7 +4042,7 @@ function renderConfigRemotePanel() {
 
 function configRemoteRecoveryMarkup(targetKey) {
   const loadFailure = state.configRemoteRecoveryLoadError
-    ? `<section class="config-recovery-banner" role="alert"><div><strong>恢复账本不可用，远端写入已保护性阻断</strong><span>${escapeHtml(state.configRemoteRecoveryLoadError)}</span></div><button class="button secondary" type="button" data-config-recovery-reload><svg class="icon lucide"><use href="#lucide-refresh-cw"></use></svg>重试读取</button></section>`
+    ? `<section class="config-recovery-banner" role="alert"><div><strong>恢复账本不可用，远端写入已保护性阻断</strong><span>${escapeHtml(state.configRemoteRecoveryLoadError)}</span></div><button class="button secondary" type="button" data-config-recovery-reload><svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg>重试读取</button></section>`
     : "";
   return loadFailure + configRemoteRecoveryEntriesForTarget(targetKey).map(([recoveryKey, recovery]) => {
     const uncertain = Array.isArray(recovery.uncertain) ? recovery.uncertain : [];
@@ -3997,7 +4054,7 @@ function configRemoteRecoveryMarkup(targetKey) {
     return `<section class="config-recovery-banner" role="alert" data-config-recovery-key="${escapeHtml(recoveryKey)}">
       <div><strong>远端提交状态不确定，写入已阻断</strong><span>${escapeHtml(recovery.message ?? "远端命令超时或回滚未完成")}</span>${recovery.persistenceError ? `<span class="status-label is-error">${escapeHtml(recovery.persistenceError)}</span>` : ""}</div>
       <dl><div><dt>类型</dt><dd>${escapeHtml(recovery.kind ?? "未知")}</dd></div><div><dt>事务</dt><dd class="mono">${escapeHtml(recovery.transactionId ?? "未返回")}</dd></div><div><dt>已提交</dt><dd>${appliedCount}</dd></div><div><dt>待核对</dt><dd>${uncertainCount}</dd></div></dl>
-      <button class="button secondary" type="button" data-config-recovery-reconcile="${escapeHtml(recoveryKey)}"${canReconcile && !busy ? "" : " disabled"} title="${canReconcile ? "按远端锁元数据和文件摘要核对事务" : "该旧事务缺少可自动核对的种类或事务标识"}"><svg class="icon lucide"><use href="#lucide-scan-search"></use></svg>${busy ? "正在核对" : canReconcile ? "核对远端状态" : "需要人工核对"}</button>
+      <button class="button secondary" type="button" data-config-recovery-reconcile="${escapeHtml(recoveryKey)}"${canReconcile && !busy ? "" : " disabled"} title="${canReconcile ? "按远端锁元数据和文件摘要核对事务" : "该旧事务缺少可自动核对的种类或事务标识"}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-scan-search"></use></svg>${busy ? "正在核对" : canReconcile ? "核对远端状态" : "需要人工核对"}</button>
     </section>`;
   }).join("");
 }
@@ -4225,7 +4282,7 @@ function configRemotePercentCard(hostId, { label, icon, value, detail, historyKe
   const numeric = configRemoteMetricNumber(value);
   const available = numeric != null;
   return `<article class="remote-health-card is-${tone}">
-    <div class="remote-health-card-head"><span><svg class="icon lucide"><use href="#lucide-${icon}"></use></svg>${escapeHtml(label)}</span><strong>${available ? `${numeric.toFixed(1)}%` : "不可用"}</strong></div>
+    <div class="remote-health-card-head"><span><svg aria-hidden="true" class="icon lucide"><use href="#lucide-${icon}"></use></svg>${escapeHtml(label)}</span><strong>${available ? `${numeric.toFixed(1)}%` : "不可用"}</strong></div>
     <progress class="remote-health-meter" max="100" value="${available ? Math.max(0, Math.min(100, numeric)) : 0}" aria-hidden="true"></progress>
     <div class="remote-health-card-foot"><span>${escapeHtml(detail)}</span>${historyKey ? configRemoteSparkline(hostId, historyKey, label) : ""}</div>
   </article>`;
@@ -4234,7 +4291,7 @@ function configRemotePercentCard(hostId, { label, icon, value, detail, historyKe
 function configRemoteHealthDashboard(host, graph) {
   const probe = state.configHostProbes.get(host.id);
   if (!probe || probe.status === "loading") {
-    return `<section class="remote-health-dashboard is-loading" aria-label="远程主机状态"><p class="subtle">正在读取主机 CPU、内存、磁盘、负载与网络状态…</p></section>`;
+    return `<section class="remote-health-dashboard is-loading" aria-label="远程主机状态">${skeleton({ variant: "card", rows: 3, label: "正在读取主机 CPU、内存、磁盘、负载与网络状态" })}</section>`;
   }
   if (probe.status === "error") {
     return `<section class="remote-health-dashboard is-error" aria-label="远程主机状态"><div><strong>主机状态探测失败</strong><span>${escapeHtml(probe.error)}</span></div><button class="button secondary" type="button" data-config-host-probe="${escapeHtml(host.id)}">重试</button></section>`;
@@ -4254,7 +4311,7 @@ function configRemoteHealthDashboard(host, graph) {
   const ringValue = Number.isFinite(health.value) ? Math.max(0, Math.min(100, health.value)) : 0;
   return `<section class="remote-health-dashboard" aria-labelledby="remote-health-title">
     <div class="remote-health-heading">
-      <div><p class="eyebrow">HOST HEALTH</p><h3 id="remote-health-title"><svg class="icon lucide"><use href="#lucide-gauge"></use></svg>服务器状态</h3><p>${escapeHtml(data.hostname ?? host.name ?? host.id)} · ${escapeHtml(data.os ?? "系统未知")} · ${history.length} 次真实采样</p></div>
+      <div><p class="eyebrow">HOST HEALTH</p><h3 id="remote-health-title"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-gauge"></use></svg>服务器状态</h3><p>${escapeHtml(data.hostname ?? host.name ?? host.id)} · ${escapeHtml(data.os ?? "系统未知")} · ${history.length} 次真实采样</p></div>
       <span class="status-label ${health.level === "healthy" ? "is-ok" : health.level === "critical" ? "is-error" : health.level === "warning" ? "is-warning" : "is-neutral"}">${health.label}</span>
     </div>
     <div class="remote-health-overview">
@@ -4283,9 +4340,9 @@ function configRemoteActionMarkup(host, targetKey, { compact = false, project = 
     ? `当前是项目「${project.name ?? project.id}」；此操作仍写入远端用户主目录，不写项目目录`
     : "选择本机配置并同步到远程主机的用户主目录";
   return `<div class="config-remote-actions${compact ? " is-compact" : ""}">
-    <button type="button" class="${buttonClass}" data-config-target-refresh="${escapeHtml(targetKey)}" title="刷新远程配置与环境" aria-label="刷新远程配置与环境"><svg class="icon lucide"><use href="#lucide-refresh-cw"></use></svg>${label("刷新")}</button>
-    <button type="button" class="${buttonClass}" data-config-target-terminal="${escapeHtml(targetKey)}" title="打开 SSH 终端" aria-label="打开 SSH 终端"><svg class="icon lucide"><use href="#lucide-square-terminal"></use></svg>${label("SSH 终端")}</button>
-    <button type="button" class="button secondary" data-config-host-sync="${escapeHtml(host.id)}" title="${escapeHtml(recoveryBlocked ? "上一次远端提交状态不确定；核对前禁止同步" : syncTitle)}"${recoveryBlocked ? " disabled" : ""}><svg class="icon lucide"><use href="#lucide-cloud-upload"></use></svg> ${recoveryBlocked ? "等待事务核对" : syncLabel}</button>
+    <button type="button" class="${buttonClass}" data-config-target-refresh="${escapeHtml(targetKey)}" title="刷新远程配置与环境" aria-label="刷新远程配置与环境"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg>${label("刷新")}</button>
+    <button type="button" class="${buttonClass}" data-config-target-terminal="${escapeHtml(targetKey)}" title="打开 SSH 终端" aria-label="打开 SSH 终端"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-square-terminal"></use></svg>${label("SSH 终端")}</button>
+    <button type="button" class="button secondary" data-config-host-sync="${escapeHtml(host.id)}" title="${escapeHtml(recoveryBlocked ? "上一次远端提交状态不确定；核对前禁止同步" : syncTitle)}"${recoveryBlocked ? " disabled" : ""}><svg aria-hidden="true" class="icon lucide"><use href="#lucide-cloud-upload"></use></svg> ${recoveryBlocked ? "等待事务核对" : syncLabel}</button>
   </div>`;
 }
 
@@ -4293,7 +4350,7 @@ function configRemoteStandardSurface(host, context, { eyebrow, title, body }) {
   return `<div class="config-surface-heading config-remote-surface-heading">
       <div>
         <p class="eyebrow">${escapeHtml(eyebrow)}</p>
-        <h2><svg class="icon lucide"><use href="#lucide-${context.project ? "folder-git-2" : "globe"}"></use></svg> ${escapeHtml(title)}</h2>
+        <h2><svg aria-hidden="true" class="icon lucide"><use href="#lucide-${context.project ? "folder-git-2" : "globe"}"></use></svg> ${escapeHtml(title)}</h2>
         <p class="subtle config-remote-location">${escapeHtml(context.title)} · ${escapeHtml(context.location)}</p>
       </div>
       ${configRemoteActionMarkup(host, context.targetKey, { project: context.project })}
@@ -4328,7 +4385,7 @@ function configRemoteSurfaceBody(host, context) {
 function configRemoteGraphBody(host, render) {
   const entry = state.configHostGraph.get(configRemoteTargetKey());
   if (!entry || entry.status === "loading") {
-    return `<p class="subtle">正在读取远程图谱（目录清单 + live 配置浅提取，最长 30s）…</p>`;
+    return skeleton({ variant: "list", rows: 5, label: "正在读取远程图谱（目录清单 + live 配置浅提取，最长 30s）" });
   }
   if (entry.status === "error") {
     return `<div class="waveg-review"><strong>远程图谱读取失败</strong><p class="subtle">${escapeHtml(entry.error)}</p></div>`;
@@ -4399,17 +4456,17 @@ function configRemoteProviderProfileRow(graph, item, meta, app) {
       meta,
       health,
       latency,
-      handle: '<span class="provider-drag-handle" title="中央供应商档案" aria-hidden="true"><svg class="icon lucide"><use href="#lucide-database"></use></svg></span>',
+      handle: '<span class="provider-drag-handle" title="中央供应商档案" aria-hidden="true"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-database"></use></svg></span>',
       badges: confirmed
         ? '<span class="provider-badge is-live">档案已确认</span>'
         : endpointMatched ? '<span class="provider-badge is-warning">端点相同 · 档案待确认</span>' : "",
     })}
     <div class="provider-row-actions">
       <button class="${confirmed ? "provider-state-pill" : "button secondary provider-card-action"}" type="button" data-config-remote-provider-apply="${escapeHtml(`${app}::${item.id}`)}"${busy || unsupported || recoveryBlocked ? " disabled" : ""} title="${recoveryBlocked ? "上一次远端提交状态不确定；核对前禁止再次写入" : unsupported ? "无图形远端不支持 Claude Desktop" : confirmed ? "重新投影到当前远端" : endpointMatched ? "端点相同但远端未提供稳定档案标识；重新应用此档案" : "应用到远端"}">${confirmed ? '<svg class="icon lucide provider-state-pill-check" aria-hidden="true"><use href="#lucide-check"></use></svg>已确认' : busy ? "发布中…" : endpointMatched ? "重新应用并确认" : "应用到远端"}</button>
-      <button class="icon-button provider-card-action" type="button" data-config-remote-provider-check="${escapeHtml(item.id)}" title="本机连通性检查" aria-label="检查 ${escapeHtml(item.name)}"><svg class="icon lucide"><use href="#lucide-activity"></use></svg></button>
-      ${item.baseUrl ? `<button class="icon-button provider-card-action" type="button" data-config-remote-provider-speed="${escapeHtml(item.id)}" title="本机到端点测速" aria-label="测速 ${escapeHtml(item.name)}"><svg class="icon lucide"><use href="#lucide-gauge"></use></svg></button>` : ""}
-      <button class="icon-button provider-card-action" type="button" data-config-remote-provider-edit="${escapeHtml(item.id)}" title="编辑中央档案" aria-label="编辑 ${escapeHtml(item.name)}"><svg class="icon lucide"><use href="#lucide-settings"></use></svg></button>
-      <button class="icon-button provider-card-action" type="button" data-config-remote-provider-delete="${escapeHtml(item.id)}" title="删除中央档案" aria-label="删除 ${escapeHtml(item.name)}"><svg class="icon lucide"><use href="#lucide-trash-2"></use></svg></button>
+      <button class="icon-button provider-card-action" type="button" data-config-remote-provider-check="${escapeHtml(item.id)}" title="本机连通性检查" aria-label="检查 ${escapeHtml(item.name)}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-activity"></use></svg></button>
+      ${item.baseUrl ? `<button class="icon-button provider-card-action" type="button" data-config-remote-provider-speed="${escapeHtml(item.id)}" title="本机到端点测速" aria-label="测速 ${escapeHtml(item.name)}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-gauge"></use></svg></button>` : ""}
+      <button class="icon-button provider-card-action" type="button" data-config-remote-provider-edit="${escapeHtml(item.id)}" title="编辑中央档案" aria-label="编辑 ${escapeHtml(item.name)}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-settings"></use></svg></button>
+      <button class="icon-button provider-card-action" type="button" data-config-remote-provider-delete="${escapeHtml(item.id)}" title="删除中央档案" aria-label="删除 ${escapeHtml(item.name)}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-trash-2"></use></svg></button>
     </div>
   </article>`;
 }
@@ -4421,7 +4478,7 @@ function configRemoteLiveSummary(graph, app, meta) {
     const sourceId = configRemoteProviderSourceId(graph, row);
     const scope = row.scope === "project" ? "项目覆盖" : "主机";
     const endpoint = row.baseUrl || "官方默认端点";
-    return `<div class="config-remote-live-line"><span><span class="provider-badge is-live">live</span><strong>${escapeHtml(scope)}</strong><span>${escapeHtml(endpoint)}${row.model ? ` · ${escapeHtml(row.model)}` : ""}</span></span><button class="icon-button" type="button" data-config-remote-provider-source="${escapeHtml(sourceId ?? "")}" title="查看脱敏真源" aria-label="查看脱敏真源"${sourceId ? "" : " disabled"}><svg class="icon lucide"><use href="#lucide-file-text"></use></svg></button></div>`;
+    return `<div class="config-remote-live-line"><span><span class="provider-badge is-live">live</span><strong>${escapeHtml(scope)}</strong><span>${escapeHtml(endpoint)}${row.model ? ` · ${escapeHtml(row.model)}` : ""}</span></span><button class="icon-button" type="button" data-config-remote-provider-source="${escapeHtml(sourceId ?? "")}" title="查看脱敏真源" aria-label="查看脱敏真源"${sourceId ? "" : " disabled"}><svg aria-hidden="true" class="icon lucide"><use href="#lucide-file-text"></use></svg></button></div>`;
   }).join("");
 }
 
@@ -4634,17 +4691,17 @@ function configRemoteProxyPanel(host) {
   const targetKey = configRemoteTargetKey();
   const probe = state.configRemoteProxyProbes.get(targetKey);
   if (!probe) {
-    return `<div class="ccs-panel-body"><section class="ccs-tool"><div class="ccs-tool-heading"><h3>远端代理诊断</h3><button class="button secondary" type="button" data-config-remote-proxy-diagnose="${escapeHtml(host.id)}"><svg class="icon lucide"><use href="#lucide-activity"></use></svg>运行诊断</button></div><p class="subtle">尚未读取代理环境、常见监听端口和固定 API 端点出站状态。</p></section></div>`;
+    return `<div class="ccs-panel-body"><section class="ccs-tool"><div class="ccs-tool-heading"><h3>远端代理诊断</h3><button class="button secondary" type="button" data-config-remote-proxy-diagnose="${escapeHtml(host.id)}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-activity"></use></svg>运行诊断</button></div><p class="subtle">尚未读取代理环境、常见监听端口和固定 API 端点出站状态。</p></section></div>`;
   }
-  if (probe.status === "loading") return `<div class="ccs-panel-body"><p class="subtle">正在远端执行代理与出站诊断（最长 35s）…</p></div>`;
+  if (probe.status === "loading") return `<div class="ccs-panel-body">${skeleton({ variant: "list", rows: 4, label: "正在远端执行代理与出站诊断" })}</div>`;
   if (probe.status === "error") return `<div class="ccs-panel-body"><div class="waveg-review"><strong>代理诊断失败</strong><p class="subtle">${escapeHtml(probe.error)}</p><button class="button secondary" type="button" data-config-remote-proxy-diagnose="${escapeHtml(host.id)}">重试</button></div></div>`;
   const data = probe.data ?? {};
   const envRows = (data.environment ?? []).map((entry) => `<tr><td><code>${escapeHtml(entry.name)}</code></td><td class="mono">${escapeHtml(entry.value)}</td></tr>`).join("");
   const outbound = (data.outbound ?? []).map((entry) => `<tr><td>${escapeHtml(entry.url)}</td><td><span class="status-label ${entry.ok ? "is-ok" : "is-error"}">${entry.status || `exit ${entry.exitCode}`}</span></td><td>${entry.timeMs == null ? "—" : `${entry.timeMs}ms`}</td></tr>`).join("");
   return `<div class="ccs-panel-body config-remote-proxy-panel">
-    <section class="ccs-tool"><div class="ccs-tool-heading"><h3>代理环境</h3><button class="icon-button" type="button" data-config-remote-proxy-diagnose="${escapeHtml(host.id)}" title="重新诊断" aria-label="重新诊断"><svg class="icon lucide"><use href="#lucide-refresh-cw"></use></svg></button></div>${envRows ? `<div class="table-wrap"><table class="config-remote-table"><thead><tr><th>变量</th><th>值</th></tr></thead><tbody>${envRows}</tbody></table></div>` : '<p class="subtle">未设置代理环境变量。</p>'}</section>
+    <section class="ccs-tool"><div class="ccs-tool-heading"><h3>代理环境</h3><button class="icon-button" type="button" data-config-remote-proxy-diagnose="${escapeHtml(host.id)}" title="重新诊断" aria-label="重新诊断"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg></button></div>${envRows ? `<div class="table-wrap"><table class="config-remote-table"><thead><tr><th>变量</th><th>值</th></tr></thead><tbody>${envRows}</tbody></table></div>` : '<p class="subtle">未设置代理环境变量。</p>'}</section>
     <section class="ccs-tool"><div class="ccs-tool-heading"><h3>监听端口</h3><span>${data.listeners?.length ?? 0}</span></div>${data.listeners?.length ? `<pre class="waveg-log">${escapeHtml(data.listeners.join("\n"))}</pre>` : '<p class="subtle">常见代理端口未发现监听。</p>'}</section>
-    <section class="ccs-tool"><div class="ccs-tool-heading"><h3>出站</h3><span>${data.curlAvailable === false ? "curl 未安装" : `${data.outbound?.filter((entry) => entry.ok).length ?? 0}/${data.outbound?.length ?? 0}`}</span></div>${outbound ? `<div class="table-wrap"><table class="config-remote-table"><thead><tr><th>端点</th><th>HTTP</th><th>耗时</th></tr></thead><tbody>${outbound}</tbody></table></div>` : '<p class="subtle">无出站结果。</p>'}</section>
+    <section class="ccs-tool"><div class="ccs-tool-heading"><h3>出站</h3><span>${data.curlAvailable === false ? "curl 未安装" : `${data.outbound?.filter((entry) => entry.ok).length ?? 0}/${data.outbound?.length ?? 0}`}</span></div>${outbound ? `<div class="table-wrap"><table class="config-remote-table"><thead><tr><th>端点</th><th>HTTP</th><th>耗时</th></tr></thead><tbody>${outbound}</tbody></table></div>` : inlineEmpty("无出站结果")}</section>
     <p class="subtle">当前远端未部署 514cc 常驻代理内核，此处仅诊断，不提供启停控制。</p>
   </div>`;
 }
@@ -4663,7 +4720,7 @@ function configRemoteResourcesPanel(graph) {
   const rows = configRemoteResourceRows(graph, active);
   return `<div class="ccs-panel-body config-remote-resources-panel">
     <div class="config-remote-resource-tabs" role="tablist" aria-label="远端资源分类">${CONFIG_REMOTE_RESOURCE_TABS.map((tab) => `<button type="button" role="tab" class="button secondary${tab.id === active ? " is-active" : ""}" aria-selected="${tab.id === active}" tabindex="${tab.id === active ? "0" : "-1"}" data-config-remote-resource-tab="${tab.id}">${tab.label}</button>`).join("")}</div>
-    <div class="config-remote-resource-list">${rows.length ? rows.map((item) => `<div class="config-remote-resource-row"><span class="config-remote-resource-icon"><svg class="icon lucide"><use href="#lucide-${active === "mcps" ? "webhook" : active === "skills" ? "puzzle" : active === "backups" ? "archive" : "file-text"}"></use></svg></span><div><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.type)} · ${item.scope === "project" ? "项目" : "主机"} · ${escapeHtml(item.detail)}</span></div><div class="config-remote-resource-actions">${item.sourceId ? `<button class="icon-button" type="button" data-config-remote-provider-source="${escapeHtml(item.sourceId)}" title="打开真源" aria-label="打开真源"${item.disabled ? " disabled" : ""}><svg class="icon lucide"><use href="#lucide-scan-search"></use></svg></button>` : ""}<button class="icon-button" type="button" data-config-target-terminal="${escapeHtml(configRemoteTargetKey())}" title="在 SSH 终端管理" aria-label="在 SSH 终端管理"><svg class="icon lucide"><use href="#lucide-square-terminal"></use></svg></button></div></div>`).join("") : `<div class="provider-global-empty"><svg class="icon lucide"><use href="#lucide-archive"></use></svg><div><strong>当前分类为空</strong><span>${active === "backups" ? "尚未在图谱中检测到 514forge 发布备份" : "远端已知目录中没有对应条目"}</span></div><button class="button secondary" type="button" data-config-target-terminal="${escapeHtml(configRemoteTargetKey())}">SSH 终端</button></div>`}</div>
+    <div class="config-remote-resource-list">${rows.length ? rows.map((item) => `<div class="config-remote-resource-row"><span class="config-remote-resource-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-${active === "mcps" ? "webhook" : active === "skills" ? "puzzle" : active === "backups" ? "archive" : "file-text"}"></use></svg></span><div><strong>${escapeHtml(item.name)}</strong><span>${escapeHtml(item.type)} · ${item.scope === "project" ? "项目" : "主机"} · ${escapeHtml(item.detail)}</span></div><div class="config-remote-resource-actions">${item.sourceId ? `<button class="icon-button" type="button" data-config-remote-provider-source="${escapeHtml(item.sourceId)}" title="打开真源" aria-label="打开真源"${item.disabled ? " disabled" : ""}><svg aria-hidden="true" class="icon lucide"><use href="#lucide-scan-search"></use></svg></button>` : ""}<button class="icon-button" type="button" data-config-target-terminal="${escapeHtml(configRemoteTargetKey())}" title="在 SSH 终端管理" aria-label="在 SSH 终端管理"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-square-terminal"></use></svg></button></div></div>`).join("") : `<div class="provider-global-empty"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-archive"></use></svg><div><strong>当前分类为空</strong><span>${active === "backups" ? "尚未在图谱中检测到 514forge 发布备份" : "远端已知目录中没有对应条目"}</span></div><button class="button secondary" type="button" data-config-target-terminal="${escapeHtml(configRemoteTargetKey())}">SSH 终端</button></div>`}</div>
   </div>`;
 }
 
@@ -4683,13 +4740,13 @@ function configRemoteSyncPanel(host) {
   const plan = state.configRemoteSyncPlans.get(host.id);
   if (!plan) {
     loadConfigRemoteSyncPlan(host.id);
-    return `<div class="ccs-panel-body"><p class="subtle">正在读取本机可同步配置清单…</p></div>`;
+    return `<div class="ccs-panel-body">${skeleton({ variant: "list", rows: 4, label: "正在读取本机可同步配置清单" })}</div>`;
   }
-  if (plan.status === "loading") return `<div class="ccs-panel-body"><p class="subtle">正在读取本机可同步配置清单…</p></div>`;
+  if (plan.status === "loading") return `<div class="ccs-panel-body">${skeleton({ variant: "list", rows: 4, label: "正在读取本机可同步配置清单" })}</div>`;
   if (plan.status === "error") return `<div class="ccs-panel-body"><div class="waveg-review"><strong>同步计划读取失败</strong><p class="subtle">${escapeHtml(plan.error)}</p><button class="button secondary" type="button" data-config-remote-sync-refresh="${escapeHtml(host.id)}">重试</button></div></div>`;
   const files = plan.data?.files ?? [];
   const blocked = configRemoteWriteBlocked({ key: `host:${host.id}`, hostId: host.id, projectId: null }, { notify: false });
-  return `<div class="ccs-panel-body"><section class="ccs-tool"><div class="ccs-tool-heading"><h3>本机配置同步</h3><div><button class="icon-button" type="button" data-config-remote-sync-refresh="${escapeHtml(host.id)}" title="刷新计划" aria-label="刷新计划"><svg class="icon lucide"><use href="#lucide-refresh-cw"></use></svg></button><button class="button secondary" type="button" data-config-host-sync="${escapeHtml(host.id)}"${blocked ? ' disabled title="存在未核对远端事务，暂不可同步"' : ""}><svg class="icon lucide"><use href="#lucide-cloud-upload"></use></svg>${blocked ? "等待事务核对" : "选择并同步"}</button></div></div><div class="config-remote-resource-list">${files.map((file) => `<div class="config-remote-resource-row"><span class="config-remote-resource-icon"><svg class="icon lucide"><use href="#lucide-file-input"></use></svg></span><div><strong>${escapeHtml(file.label)}</strong><span>${escapeHtml(file.local)} → ~/${escapeHtml(file.remote)} · ${file.exists ? formatConfigBytes(file.size) : "本机不存在"}</span></div><span class="status-label ${!file.exists ? "is-neutral" : file.containsSecrets ? "is-warning" : "is-ok"}">${!file.exists ? "缺失" : file.containsSecrets ? "含秘密" : "可同步"}</span></div>`).join("")}</div></section></div>`;
+  return `<div class="ccs-panel-body"><section class="ccs-tool"><div class="ccs-tool-heading"><h3>本机配置同步</h3><div><button class="icon-button" type="button" data-config-remote-sync-refresh="${escapeHtml(host.id)}" title="刷新计划" aria-label="刷新计划"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg></button><button class="button secondary" type="button" data-config-host-sync="${escapeHtml(host.id)}"${blocked ? ' disabled title="存在未核对远端事务，暂不可同步"' : ""}><svg aria-hidden="true" class="icon lucide"><use href="#lucide-cloud-upload"></use></svg>${blocked ? "等待事务核对" : "选择并同步"}</button></div></div><div class="config-remote-resource-list">${files.map((file) => `<div class="config-remote-resource-row"><span class="config-remote-resource-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-file-input"></use></svg></span><div><strong>${escapeHtml(file.label)}</strong><span>${escapeHtml(file.local)} → ~/${escapeHtml(file.remote)} · ${file.exists ? formatConfigBytes(file.size) : "本机不存在"}</span></div><span class="status-label ${!file.exists ? "is-neutral" : file.containsSecrets ? "is-warning" : "is-ok"}">${!file.exists ? "缺失" : file.containsSecrets ? "含秘密" : "可同步"}</span></div>`).join("")}</div></section></div>`;
 }
 
 function configRemoteAccountsPanel(host, graph) {
@@ -4700,7 +4757,7 @@ function configRemoteAccountsPanel(host, graph) {
     const cli = clis.find((entry) => entry.id === cliId(meta.app));
     const configs = (graph.providers ?? []).filter((entry) => entry.cli === meta.app && entry.exists);
     const unsupported = meta.app === "claude-desktop";
-    return `<div class="config-remote-account-row"><span class="config-remote-resource-icon"><svg class="icon lucide"><use href="#lucide-${meta.icon}"></use></svg></span><div><strong>${escapeHtml(meta.label)}</strong><span>${unsupported ? "无图形远端不适用" : `${cli?.installed ? `CLI ${escapeHtml(cli.version ?? "已安装")}` : "CLI 未安装"} · ${configs.length ? `${configs.length} 个配置已检测` : "未检测到配置"}`}</span></div><span class="status-label ${unsupported ? "is-neutral" : cli?.installed && configs.length ? "is-ok" : "is-warning"}">${unsupported ? "不适用" : cli?.installed && configs.length ? "配置存在" : "待配置"}</span>${unsupported ? "" : `<button class="icon-button" type="button" data-config-target-terminal="${escapeHtml(configRemoteTargetKey())}" title="在 SSH 终端登录或检查账户" aria-label="在 SSH 终端检查 ${escapeHtml(meta.label)} 账户"><svg class="icon lucide"><use href="#lucide-square-terminal"></use></svg></button>`}</div>`;
+    return `<div class="config-remote-account-row"><span class="config-remote-resource-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-${meta.icon}"></use></svg></span><div><strong>${escapeHtml(meta.label)}</strong><span>${unsupported ? "无图形远端不适用" : `${cli?.installed ? `CLI ${escapeHtml(cli.version ?? "已安装")}` : "CLI 未安装"} · ${configs.length ? `${configs.length} 个配置已检测` : "未检测到配置"}`}</span></div><span class="status-label ${unsupported ? "is-neutral" : cli?.installed && configs.length ? "is-ok" : "is-warning"}">${unsupported ? "不适用" : cli?.installed && configs.length ? "配置存在" : "待配置"}</span>${unsupported ? "" : `<button class="icon-button" type="button" data-config-target-terminal="${escapeHtml(configRemoteTargetKey())}" title="在 SSH 终端登录或检查账户" aria-label="在 SSH 终端检查 ${escapeHtml(meta.label)} 账户"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-square-terminal"></use></svg></button>`}</div>`;
   }).join("");
   return `<div class="ccs-panel-body"><div class="config-remote-account-list">${rows}</div><p class="subtle">“配置存在”不等于已登录；登录与设备码授权在对应 SSH 终端中完成。</p></div>`;
 }
@@ -4722,10 +4779,10 @@ function configRemoteRuntimeWorkbench(host, graph) {
   return `<section class="ccswitch-workbench config-remote-workbench" aria-label="远端运行与配置工作台">
     <div class="ccs-heading">
       <div><p class="eyebrow">远端运行时</p><h2>运行与配置工作台</h2></div>
-      <div class="ccs-heading-actions"><span class="status-label ${statusClass}">${statusLabel}</span><button class="icon-button" type="button" data-config-target-refresh="${escapeHtml(configRemoteTargetKey())}" title="刷新远程运行环境" aria-label="刷新远程运行环境"><svg class="icon lucide"><use href="#lucide-refresh-cw"></use></svg></button></div>
+      <div class="ccs-heading-actions"><span class="status-label ${statusClass}">${statusLabel}</span><button class="icon-button" type="button" data-config-target-refresh="${escapeHtml(configRemoteTargetKey())}" title="刷新远程运行环境" aria-label="刷新远程运行环境"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg></button></div>
     </div>
     <div class="ccs-tabs" role="tablist" aria-label="远端运行工作台视图">
-      ${CONFIG_REMOTE_WORKBENCH_TABS.map((tab) => `<button type="button" role="tab" class="ccs-tab${tab.id === active ? " is-active" : ""}" aria-selected="${tab.id === active}" tabindex="${tab.id === active ? "0" : "-1"}" data-config-remote-workbench-tab="${tab.id}"><svg class="icon lucide"><use href="#lucide-${tab.icon}"></use></svg><span>${tab.label}</span></button>`).join("")}
+      ${CONFIG_REMOTE_WORKBENCH_TABS.map((tab) => `<button type="button" role="tab" class="ccs-tab${tab.id === active ? " is-active" : ""}" aria-selected="${tab.id === active}" tabindex="${tab.id === active ? "0" : "-1"}" data-config-remote-workbench-tab="${tab.id}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-${tab.icon}"></use></svg><span>${tab.label}</span></button>`).join("")}
     </div>
     ${body}
   </section>`;
@@ -4749,8 +4806,8 @@ function configRemoteProvidersBody(host, context) {
             <p>${escapeHtml(context.title)} · ${escapeHtml(context.location)} · 中央档案与本机共用，发布目标切换到当前远端。</p>
           </div>
           <div class="provider-deck-actions">
-            <span class="status-label is-ok config-remote-target-status"><svg class="icon lucide"><use href="#lucide-${context.project ? "folder-git-2" : "globe"}"></use></svg>${context.project ? "项目" : "主机"}</span>
-            <button class="button secondary" type="button" data-config-remote-provider-add="${escapeHtml(activeApp)}"><svg class="icon lucide"><use href="#lucide-plus"></use></svg> 新增供应商</button>
+            <span class="status-label is-ok config-remote-target-status"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-${context.project ? "folder-git-2" : "globe"}"></use></svg>${context.project ? "项目" : "主机"}</span>
+            <button class="button secondary" type="button" data-config-remote-provider-add="${escapeHtml(activeApp)}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-plus"></use></svg> 新增供应商</button>
             ${configRemoteActionMarkup(host, context.targetKey, { compact: true, project: context.project })}
           </div>
         </div>
@@ -4760,7 +4817,7 @@ function configRemoteProvidersBody(host, context) {
             ${configRemoteLiveSummary(graph, activeApp, activeMeta)}
             <div class="provider-row-list">${rows || `<p class="subtle provider-deck-placeholder">中央档案尚未关联 ${escapeHtml(activeMeta.label)}。 <button class="provider-link-button" type="button" data-config-remote-provider-add="${escapeHtml(activeApp)}">新增/关联</button></p>`}</div>
           </div>
-          <div class="provider-team-apply config-remote-team-apply"><label>团队方案<select data-config-remote-team>${boundTeams.length ? boundTeams.map((team) => `<option value="${escapeHtml(team.id)}">${escapeHtml(team.name)}（${providerSchemeBindings(team).length} 绑）</option>`).join("") : '<option value="">无绑定团队</option>'}</select></label><button class="button secondary" type="button" data-config-remote-team-apply${!boundTeams.length || teamBusy || recoveryBlocked ? " disabled" : ""} title="${recoveryBlocked ? "上一次远端提交状态不确定；核对前禁止批量发布" : "应用团队供应商绑定"}"><svg class="icon lucide"><use href="#lucide-users"></use></svg>${teamBusy ? "应用中…" : recoveryBlocked ? "等待事务核对" : "应用到当前远端"}</button></div>
+          <div class="provider-team-apply config-remote-team-apply"><label>团队方案<select data-config-remote-team>${boundTeams.length ? boundTeams.map((team) => `<option value="${escapeHtml(team.id)}">${escapeHtml(team.name)}（${providerSchemeBindings(team).length} 绑）</option>`).join("") : '<option value="">无绑定团队</option>'}</select></label><button class="button secondary" type="button" data-config-remote-team-apply${!boundTeams.length || teamBusy || recoveryBlocked ? " disabled" : ""} title="${recoveryBlocked ? "上一次远端提交状态不确定；核对前禁止批量发布" : "应用团队供应商绑定"}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-users"></use></svg>${teamBusy ? "应用中…" : recoveryBlocked ? "等待事务核对" : "应用到当前远端"}</button></div>
         </div>
       </section>`;
   });
@@ -4781,7 +4838,7 @@ function configRemoteCapsBody(host) {
     const declaredClis = [...new Set([...clis.filter((cli) => cli.installed).map((cli) => cli.id), ...skills.map((skill) => skill.cli)])];
     const agentCards = agents.length ? agents.map((agent) => {
       const cli = agent.cli === "grokbuild" ? "grok" : agent.cli;
-      const logo = cliIconMarkup(cli, "cli-logo") || '<svg class="icon lucide"><use href="#lucide-bot"></use></svg>';
+      const logo = cliIconMarkup(cli, "cli-logo") || '<svg aria-hidden="true" class="icon lucide"><use href="#lucide-bot"></use></svg>';
       return `<article class="cap-agent-chip config-remote-agent-chip"><span class="config-remote-agent-logo">${logo}</span><strong>${escapeHtml(configRemoteCapabilityName(agent.name))}</strong><span>${escapeHtml(remoteCliLabel(agent.cli))} · ${agent.scope === "project" ? "项目" : "主机"}</span><code>${escapeHtml(agent.name)}</code></article>`;
     }).join("") : '<span class="subtle">已扫描的远端目录中没有 Agent 声明。</span>';
     const skillHead = declaredClis.map((cli) => `<th scope="col">${escapeHtml(remoteCliLabel(cli === "grok" ? "grokbuild" : cli))}</th>`).join("");
@@ -4790,7 +4847,7 @@ function configRemoteCapsBody(host) {
       return `<td class="cap-cell">${detected ? `<span class="cap-detected-badge" aria-label="${escapeHtml(remoteCliLabel(cli))} 已检测到 ${escapeHtml(skill.name)}">已检测到</span>` : `<span class="subtle">未检测到</span>`}</td>`;
     }).join("")}</tr>`).join("") : `<tr><td colspan="${Math.max(1, declaredClis.length + 1)}" class="subtle">未检测到 Skill 目录条目</td></tr>`;
     const mcp = graph.mcp ?? [];
-    const mcpRows = mcp.length ? mcp.map((entry) => `<tr><td class="mono">${escapeHtml(entry.name)}</td><td>配置声明</td><td>${escapeHtml(remoteCliLabel(entry.cli))}</td><td>${entry.scope === "project" ? "项目" : "主机"}</td><td class="mono cap-path" title="${escapeHtml(entry.source)}">${escapeHtml(entry.source)}</td><td><button class="icon-button" type="button" data-config-target-terminal="${escapeHtml(configRemoteTargetKey())}" title="在 SSH 终端管理" aria-label="在 SSH 终端管理 ${escapeHtml(entry.name)}"><svg class="icon lucide"><use href="#lucide-square-terminal"></use></svg></button></td></tr>`).join("") : '<tr><td colspan="6" class="subtle">未检测到 MCP 配置声明</td></tr>';
+    const mcpRows = mcp.length ? mcp.map((entry) => `<tr><td class="mono">${escapeHtml(entry.name)}</td><td>配置声明</td><td>${escapeHtml(remoteCliLabel(entry.cli))}</td><td>${entry.scope === "project" ? "项目" : "主机"}</td><td class="mono cap-path" title="${escapeHtml(entry.source)}">${escapeHtml(entry.source)}</td><td><button class="icon-button" type="button" data-config-target-terminal="${escapeHtml(configRemoteTargetKey())}" title="在 SSH 终端管理" aria-label="在 SSH 终端管理 ${escapeHtml(entry.name)}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-square-terminal"></use></svg></button></td></tr>`).join("") : '<tr><td colspan="6" class="subtle">未检测到 MCP 配置声明</td></tr>';
     return `<section class="content-section config-remote-cap-section" aria-labelledby="config-remote-agents-title"><div class="section-heading"><div><h2 id="config-remote-agents-title">Agent 花名册</h2><p>远端已知 Agent 目录中的命名 Agent 及其 CLI 承载</p></div><span class="status-label is-neutral">${agents.length} Agent</span></div><div class="chip-grid config-remote-agent-grid">${agentCards}</div></section>
       <section class="content-section config-remote-cap-section" aria-labelledby="config-remote-skills-title"><div class="section-heading"><div><h2 id="config-remote-skills-title">Skill 检测矩阵</h2><p>${skills.length} 个 Skill · ${declaredClis.length} 个已接入 CLI · 徽标只表示目录探测结果，远端不能在这里启停</p></div></div><div class="table-scroll"><table class="data-table cap-matrix config-remote-skill-matrix"><thead><tr><th scope="col">Skill</th>${skillHead}</tr></thead><tbody>${skillRows}</tbody></table></div></section>
       <section class="content-section config-remote-cap-section" aria-labelledby="config-remote-mcp-title"><div class="section-heading"><div><h2 id="config-remote-mcp-title">MCP 服务器</h2><p>${mcp.length} 个配置声明 · 只展示名称、来源和范围，不将 env 或参数带入浏览器</p></div></div><div class="table-scroll"><table class="data-table config-remote-mcp-table"><thead><tr><th>名称</th><th>传输</th><th>入口</th><th>范围</th><th>来源文件</th><th>操作</th></tr></thead><tbody>${mcpRows}</tbody></table></div></section>`;
@@ -4901,7 +4958,7 @@ function configRemoteBackupTimeline(graph, file, targetKey, { editable = false, 
     let body = "";
     if (active) {
       if (!cache || cache.status === "loading") {
-        body = `<p class="subtle">正在读取备份（SFTP 围栏 + 1MB cap + 脱敏）…</p>`;
+        body = skeleton({ variant: "list", rows: 3, label: "正在读取备份（SFTP 围栏 + 1MB cap + 脱敏）" });
       } else if (cache.status === "error") {
         body = `<p class="subtle">备份读取失败：${escapeHtml(cache.error)}</p>`;
       } else {
@@ -4920,8 +4977,8 @@ function configRemoteBackupTimeline(graph, file, targetKey, { editable = false, 
         <span class="config-remote-backup-dot" aria-hidden="true"></span>
         <div class="config-remote-backup-meta"><strong>${escapeHtml(formatConfigBackupTime(entry.mtime))}</strong><code title="${escapeHtml(entry.remote ?? entry.name)}">${escapeHtml(entry.name)}</code><span class="subtle">${escapeHtml(formatConfigBytes(entry.size))}</span></div>
         <div class="config-remote-backup-actions">
-          <button class="button secondary" type="button" data-config-remote-backup-compare="${escapeHtml(entry.name)}" data-config-remote-backup-source="${escapeHtml(file.id)}" aria-pressed="${active}"><svg class="icon lucide"><use href="#lucide-scan-search"></use></svg>${active ? "收起" : "对比"}</button>
-          <button class="button secondary" type="button" data-config-remote-backup-restore="${escapeHtml(entry.name)}" data-config-remote-backup-source="${escapeHtml(file.id)}" title="${escapeHtml(restoreTitle)}"${!editable || busy || unrestorable ? " disabled" : ""}><svg class="icon lucide"><use href="#lucide-history"></use></svg>${busy ? "恢复中…" : "恢复"}</button>
+          <button class="button secondary" type="button" data-config-remote-backup-compare="${escapeHtml(entry.name)}" data-config-remote-backup-source="${escapeHtml(file.id)}" aria-pressed="${active}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-scan-search"></use></svg>${active ? "收起" : "对比"}</button>
+          <button class="button secondary" type="button" data-config-remote-backup-restore="${escapeHtml(entry.name)}" data-config-remote-backup-source="${escapeHtml(file.id)}" title="${escapeHtml(restoreTitle)}"${!editable || busy || unrestorable ? " disabled" : ""}><svg aria-hidden="true" class="icon lucide"><use href="#lucide-history"></use></svg>${busy ? "恢复中…" : "恢复"}</button>
         </div>
       </div>
       ${active ? `<div class="config-remote-backup-body">${body}</div>` : ""}
@@ -4940,7 +4997,7 @@ function configRemoteSourceList(graph) {
       if (isOpen) {
         const cache = state.configHostSourceCache.get(`${targetKey}:${file.id}`);
         if (!cache || cache.status === "loading") {
-          detail = `<p class="subtle">正在读取真源（SFTP 围栏 + 1MB cap + 脱敏）…</p>`;
+          detail = skeleton({ variant: "list", rows: 3, label: "正在读取真源（SFTP 围栏 + 1MB cap + 脱敏）" });
         } else if (cache.status === "error") {
           detail = `<p class="subtle">读取失败：${escapeHtml(cache.error)}</p>`;
         } else {
@@ -4953,7 +5010,7 @@ function configRemoteSourceList(graph) {
             const content = draft?.content ?? data.content ?? "";
             detail = `<div class="config-remote-source-editor-shell">
               <textarea class="config-remote-source-editor" data-config-remote-source-editor="${escapeHtml(file.id)}" spellcheck="false" aria-label="编辑 ${escapeHtml(file.label)}">${escapeHtml(content)}</textarea>
-              <div class="config-remote-source-editor-actions"><span class="subtle">${sourceBusy ? "正在保存…" : data.exists ? `SHA-256 ${escapeHtml(String(data.digest).slice(0, 12))}…` : "新建文件"}${draft?.dirty ? " · 未保存" : ""}</span><button class="button secondary" type="button" data-config-remote-source-diff="${escapeHtml(file.id)}" aria-pressed="${diffOpen}"><svg class="icon lucide"><use href="#lucide-list"></use></svg>${diffOpen ? "收起变更" : "预览变更"}</button><button class="button secondary" type="button" data-config-remote-source-reload="${escapeHtml(file.id)}"${sourceBusy ? " disabled" : ""}>重新载入</button><button class="button primary" type="button" data-config-remote-source-save="${escapeHtml(file.id)}"${draft?.dirty && !sourceBusy ? "" : " disabled"}><svg class="icon lucide"><use href="#lucide-save"></use></svg>${data.exists ? "保存" : "创建"}</button></div>
+              <div class="config-remote-source-editor-actions"><span class="subtle">${sourceBusy ? "正在保存…" : data.exists ? `SHA-256 ${escapeHtml(String(data.digest).slice(0, 12))}…` : "新建文件"}${draft?.dirty ? " · 未保存" : ""}</span><button class="button secondary" type="button" data-config-remote-source-diff="${escapeHtml(file.id)}" aria-pressed="${diffOpen}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-list"></use></svg>${diffOpen ? "收起变更" : "预览变更"}</button><button class="button secondary" type="button" data-config-remote-source-reload="${escapeHtml(file.id)}"${sourceBusy ? " disabled" : ""}>重新载入</button><button class="button primary" type="button" data-config-remote-source-save="${escapeHtml(file.id)}"${draft?.dirty && !sourceBusy ? "" : " disabled"}><svg aria-hidden="true" class="icon lucide"><use href="#lucide-save"></use></svg>${data.exists ? "保存" : "创建"}</button></div>
               ${diffOpen ? `<div class="config-remote-source-diff-shell"><header><h4>保存前差异</h4><span class="subtle">基线＝打开时读到的远端原文</span></header>${configRemoteDiffMarkup(data.content ?? "", content, { emptyLabel: "草稿与远端当前内容一致。", label: `${file.label} 保存前差异` })}</div>` : ""}
             </div>`;
           } else {
@@ -4980,7 +5037,7 @@ function configRemoteSourceList(graph) {
         : file.editable ? "不存在 · 可创建" : "不存在";
       return `<div class="config-source-row${file.exists ? "" : " is-missing"}${isOpen ? " is-open" : ""}">
         <button type="button" class="config-source-open" data-config-graph-file="${escapeHtml(file.id)}" ${file.exists || file.editable ? "" : "disabled"}>
-          <svg class="icon lucide"><use href="#lucide-file-text"></use></svg>
+          <svg aria-hidden="true" class="icon lucide"><use href="#lucide-file-text"></use></svg>
           <span class="config-source-label">${escapeHtml(file.label)}${file.scope === "project" ? ` <span class="config-scope-badge">项目</span>` : ""}</span>
           <code title="${escapeHtml(file.remote)}">${escapeHtml(file.projectRelative ?? file.remote)}</code>
           <span class="subtle">${meta}</span>
@@ -4994,7 +5051,9 @@ function configRemoteSourceList(graph) {
 
 function configRemoteSeatWorkspace(host, graph) {
   const probe = state.configHostProbes.get(host.id);
-  if (!probe || probe.status === "loading") return '<p class="subtle config-remote-seat-loading">正在读取远端 CLI 席位…</p>';
+  if (!probe || probe.status === "loading") {
+    return skeleton({ variant: "list", rows: 3, label: "正在读取远端 CLI 席位" });
+  }
   if (probe.status === "error") return `<div class="waveg-review"><strong>运行席位探测失败</strong><p class="subtle">${escapeHtml(probe.error)}</p></div>`;
   const clis = probe.data?.clis ?? [];
   const selectedId = configRemoteSelectedCli(host, graph);
@@ -5005,14 +5064,14 @@ function configRemoteSeatWorkspace(host, graph) {
   const sources = (graph.sources ?? []).filter((row) => row.cli === graphCli);
   const capabilities = (graph.capabilities ?? []).filter((row) => row.cli === graphCli || row.cli === selected.id);
   const mcps = (graph.mcp ?? []).filter((row) => row.cli === graphCli || row.cli === selected.id);
-  const logo = cliIconMarkup(selected.id, "cli-logo") || '<svg class="icon lucide"><use href="#lucide-square-terminal"></use></svg>';
-  const sourceRows = sources.map((source) => `<div class="config-remote-seat-source${source.exists ? "" : " is-missing"}"><div><strong>${escapeHtml(source.label)}</strong><code>${escapeHtml(source.projectRelative ?? source.remote)}</code></div><span class="status-label ${source.exists ? source.scope === "project" ? "is-ok" : "is-neutral" : "is-warning"}">${source.exists ? source.scope === "project" ? "项目" : "主机" : "缺失"}</span>${source.exists || source.editable ? `<button class="icon-button" type="button" data-config-remote-provider-source="${escapeHtml(source.id)}" title="打开配置真源" aria-label="打开 ${escapeHtml(source.label)}"><svg class="icon lucide"><use href="#lucide-scan-search"></use></svg></button>` : ""}</div>`).join("");
+  const logo = cliIconMarkup(selected.id, "cli-logo") || '<svg aria-hidden="true" class="icon lucide"><use href="#lucide-square-terminal"></use></svg>';
+  const sourceRows = sources.map((source) => `<div class="config-remote-seat-source${source.exists ? "" : " is-missing"}"><div><strong>${escapeHtml(source.label)}</strong><code>${escapeHtml(source.projectRelative ?? source.remote)}</code></div><span class="status-label ${source.exists ? source.scope === "project" ? "is-ok" : "is-neutral" : "is-warning"}">${source.exists ? source.scope === "project" ? "项目" : "主机" : "缺失"}</span>${source.exists || source.editable ? `<button class="icon-button" type="button" data-config-remote-provider-source="${escapeHtml(source.id)}" title="打开配置真源" aria-label="打开 ${escapeHtml(source.label)}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-scan-search"></use></svg></button>` : ""}</div>`).join("");
   const providerRows = providers.map((provider) => `<div class="config-remote-seat-provider"><span class="provider-badge is-live">live</span><div><strong>${escapeHtml(provider.baseUrl || "官方默认端点")}</strong><span>${escapeHtml(provider.model || provider.provider || "未声明模型")}</span></div></div>`).join("");
   return `<div class="runtime-seat-definition config-remote-seat-definition" aria-label="远端运行席位术语"><div><strong>运行席位</strong><span>当前远端 CLI 的命令、版本、Provider 与配置来源快照</span></div><div><strong>Adapter</strong><span>经 SSH 受控执行的 CLI 命令；此页不改变运行协议</span></div><div><strong>Provider</strong><span>从远端 live 配置脱敏提取；凭据不会进入浏览器</span></div></div>
     <div class="runtime-seat-layout config-remote-seat-layout">
-      <aside class="runtime-seat-index" aria-labelledby="config-remote-seat-list-title"><header class="runtime-seat-index-header"><div><span class="eyebrow">远端 CLI 席位</span><h3 id="config-remote-seat-list-title">席位目录 <span>${clis.length}</span></h3></div></header><div class="runtime-seat-filters config-remote-seat-summary" role="status"><span>${clis.filter((cli) => cli.installed).length} 已安装</span><span>${clis.length - clis.filter((cli) => cli.installed).length} 未安装</span></div><div class="runtime-seat-list config-remote-seat-list" role="listbox" aria-label="远端 CLI 席位列表">${clis.map((cli) => { const icon = cliIconMarkup(cli.id, "runtime-seat-logo") || '<svg class="icon lucide"><use href="#lucide-square-terminal"></use></svg>'; return `<button type="button" class="runtime-seat-item${cli.id === selected.id ? " is-active" : ""}" role="option" aria-selected="${cli.id === selected.id}" data-config-remote-cli="${escapeHtml(cli.id)}" data-brand="${escapeHtml(cli.id)}"><span class="runtime-seat-item-icon">${icon}</span><span class="runtime-seat-item-copy"><strong>${escapeHtml(cli.label)}</strong><span>${escapeHtml(cli.installed ? cli.version ?? "已安装" : cli.command)}</span></span><span class="runtime-seat-item-state${cli.installed ? " is-ready" : ""}" title="${cli.installed ? "已安装" : "未安装"}"></span></button>`; }).join("")}</div></aside>
+      <aside class="runtime-seat-index" aria-labelledby="config-remote-seat-list-title"><header class="runtime-seat-index-header"><div><span class="eyebrow">远端 CLI 席位</span><h3 id="config-remote-seat-list-title">席位目录 <span>${clis.length}</span></h3></div></header><div class="runtime-seat-filters config-remote-seat-summary" role="status"><span>${clis.filter((cli) => cli.installed).length} 已安装</span><span>${clis.length - clis.filter((cli) => cli.installed).length} 未安装</span></div><div class="runtime-seat-list config-remote-seat-list" role="listbox" aria-label="远端 CLI 席位列表">${clis.map((cli) => { const icon = cliIconMarkup(cli.id, "runtime-seat-logo") || '<svg aria-hidden="true" class="icon lucide"><use href="#lucide-square-terminal"></use></svg>'; return `<button type="button" class="runtime-seat-item${cli.id === selected.id ? " is-active" : ""}" role="option" aria-selected="${cli.id === selected.id}" data-config-remote-cli="${escapeHtml(cli.id)}" data-brand="${escapeHtml(cli.id)}"><span class="runtime-seat-item-icon">${icon}</span><span class="runtime-seat-item-copy"><strong>${escapeHtml(cli.label)}</strong><span>${escapeHtml(cli.installed ? cli.version ?? "已安装" : cli.command)}</span></span><span class="runtime-seat-item-state${cli.installed ? " is-ready" : ""}" title="${cli.installed ? "已安装" : "未安装"}"></span></button>`; }).join("")}</div></aside>
       <section class="runtime-seat-editor config-remote-seat-editor" aria-labelledby="config-remote-seat-title"><header class="runtime-seat-editor-header"><div><span class="eyebrow">可执行档案</span><h3 id="config-remote-seat-title">${escapeHtml(selected.label)} 远端席位</h3></div><span class="status-label ${selected.installed ? "is-ok" : "is-warning"}">${selected.installed ? "已检测" : "未安装"}</span></header>
-        <div class="runtime-seat-editor-body"><div class="config-remote-seat-identity"><span class="config-remote-seat-logo">${logo}</span><div><strong>${escapeHtml(selected.label)}</strong><span>${escapeHtml(selected.command)} · ${escapeHtml(selected.rawVersion ?? selected.version ?? "未安装")}</span></div>${selected.installed ? `<button class="button secondary" type="button" data-config-target-terminal="${escapeHtml(configRemoteTargetKey())}"><svg class="icon lucide"><use href="#lucide-square-terminal"></use></svg>SSH 终端</button>` : `<button class="button primary" type="button" data-config-install-cli="${escapeHtml(host.id)}:${escapeHtml(selected.id)}"${configRemoteRecoveryForTarget() ? ' disabled title="上一次远端提交状态不确定；核对前禁止远端安装"' : ""}><svg class="icon lucide"><use href="#lucide-download"></use></svg>安装</button>`}</div>
+        <div class="runtime-seat-editor-body"><div class="config-remote-seat-identity"><span class="config-remote-seat-logo">${logo}</span><div><strong>${escapeHtml(selected.label)}</strong><span>${escapeHtml(selected.command)} · ${escapeHtml(selected.rawVersion ?? selected.version ?? "未安装")}</span></div>${selected.installed ? `<button class="button secondary" type="button" data-config-target-terminal="${escapeHtml(configRemoteTargetKey())}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-square-terminal"></use></svg>SSH 终端</button>` : `<button class="button primary" type="button" data-config-install-cli="${escapeHtml(host.id)}:${escapeHtml(selected.id)}"${configRemoteRecoveryForTarget() ? ' disabled title="上一次远端提交状态不确定；核对前禁止远端安装"' : ""}><svg aria-hidden="true" class="icon lucide"><use href="#lucide-download"></use></svg>安装</button>`}</div>
           <section class="config-remote-seat-section"><p class="eyebrow">执行协议</p><h4>Adapter 与 Provider</h4><div class="config-remote-seat-facts"><div><span>执行后端</span><strong>SSH · ${escapeHtml(selected.command)}</strong></div><div><span>传输</span><strong>受控远程 CLI</strong></div><div><span>Provider 配置</span><strong>${providers.length} 个 live</strong></div><div><span>能力接入</span><strong>${capabilities.length} 项 · ${mcps.length} MCP</strong></div></div>${providerRows || '<p class="subtle">该 CLI 暂未检测到 live Provider 配置。</p>'}</section>
           <section class="config-remote-seat-section"><p class="eyebrow">配置来源</p><h4>配置来源</h4><div class="config-remote-seat-sources">${sourceRows || '<p class="subtle">该 CLI 没有登记的配置真源。</p>'}</div></section>
           <p class="runtime-seat-note">这是远端只读席位快照。安装、Provider 发布和真源保存继续分别经过既有确认与摘要锁。</p></div>
@@ -5023,7 +5082,7 @@ function configRemoteSeatWorkspace(host, graph) {
 function configRemoteSourcesBody(host) {
   return configRemoteGraphBody(host, (graph) => {
     const mode = configRemoteRuntimeMode();
-    return `${configRemoteHealthDashboard(host, graph)}<div class="runtime-workspace-tabs config-remote-runtime-tabs" role="tablist" aria-label="远端运行配置视图"><button class="${mode === "seats" ? "is-active" : ""}" type="button" role="tab" aria-selected="${mode === "seats"}" tabindex="${mode === "seats" ? "0" : "-1"}" data-config-remote-runtime-mode="seats"><svg class="icon lucide"><use href="#lucide-cpu"></use></svg>运行席位</button><button class="${mode === "sources" ? "is-active" : ""}" type="button" role="tab" aria-selected="${mode === "sources"}" tabindex="${mode === "sources" ? "0" : "-1"}" data-config-remote-runtime-mode="sources"><svg class="icon lucide"><use href="#lucide-file-json"></use></svg>高级真源</button></div>${mode === "seats" ? configRemoteSeatWorkspace(host, graph) : `<section class="config-remote-source-workspace" aria-label="远端高级真源">${configRemoteSourceList(graph)}</section>`}`;
+    return `${configRemoteHealthDashboard(host, graph)}<div class="runtime-workspace-tabs config-remote-runtime-tabs" role="tablist" aria-label="远端运行配置视图"><button class="${mode === "seats" ? "is-active" : ""}" type="button" role="tab" aria-selected="${mode === "seats"}" tabindex="${mode === "seats" ? "0" : "-1"}" data-config-remote-runtime-mode="seats"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-cpu"></use></svg>运行席位</button><button class="${mode === "sources" ? "is-active" : ""}" type="button" role="tab" aria-selected="${mode === "sources"}" tabindex="${mode === "sources" ? "0" : "-1"}" data-config-remote-runtime-mode="sources"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-file-json"></use></svg>高级真源</button></div>${mode === "seats" ? configRemoteSeatWorkspace(host, graph) : `<section class="config-remote-source-workspace" aria-label="远端高级真源">${configRemoteSourceList(graph)}</section>`}`;
   });
 }
 
@@ -5031,10 +5090,17 @@ function configRemoteSourcesBody(host) {
 function configRemoteEnvBody(host) {
   const probe = state.configHostProbes.get(host.id);
   if (!probe || probe.status === "loading") {
-    return `<p class="subtle">正在探测远程环境（OS / Shell / CLI 矩阵）…</p>`;
+    return skeleton({ variant: "card", rows: 3, label: "正在探测远程环境（OS / Shell / CLI 矩阵）" });
   }
   if (probe.status === "error") {
-    return `<p class="subtle">探测失败：${escapeHtml(probe.error)}</p>`;
+    // UI-AUDIT P0-6：错误态必须给恢复路径，不能只是一行灰字
+    return emptyState({
+      tone: "error",
+      title: "远程环境探测失败",
+      desc: `主机 ${host.name ?? host.id} 返回：${probe.error}。确认 SSH 可达与 CLI 安装后重试。`,
+      action: { label: "重新探测", icon: "refresh-cw", attrs: { "data-config-host-probe": String(host.id ?? "") } },
+      compact: true,
+    });
   }
   const data = probe.data ?? {};
   const recoveryBlocked = configRemoteWriteBlocked({ key: `host:${host.id}`, hostId: host.id, projectId: null }, { notify: false });
@@ -5573,7 +5639,7 @@ async function openConfigSyncDialog(host) {
     : host.name ?? host.id;
   const dialog = document.createElement("dialog");
   dialog.className = "action-dialog sshconn-dialog";
-  dialog.innerHTML = `<div class="dialog-heading"><div><span class="eyebrow">同步到主机 Home</span><h2>同步到 ${escapeHtml(targetLabel)}</h2></div></div><div class="dialog-body"><p class="subtle">正在读取本机配置清单…</p></div>`;
+  dialog.innerHTML = `<div class="dialog-heading"><div><span class="eyebrow">同步到主机 Home</span><h2>同步到 ${escapeHtml(targetLabel)}</h2></div></div><div class="dialog-body">${skeleton({ variant: "list", rows: 5, label: "正在读取本机配置清单" })}</div>`;
   document.body.appendChild(dialog);
   dialog.addEventListener("close", () => dialog.remove(), { once: true }); // 一次性 dialog，关即销毁
   dialog.showModal();
@@ -5589,7 +5655,7 @@ async function openConfigSyncDialog(host) {
   dialog.innerHTML = `
     <div class="dialog-heading">
       <div><span class="eyebrow">同步到主机 Home</span><h2>同步到 ${escapeHtml(targetLabel)}</h2></div>
-      <button type="button" class="icon-button" data-act="cancel" aria-label="关闭对话框" title="关闭"><svg class="icon lucide"><use href="#lucide-x"></use></svg></button>
+      <button type="button" class="icon-button" data-act="cancel" aria-label="关闭对话框" title="关闭"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-x"></use></svg></button>
     </div>
     <div class="dialog-body">
       <p class="subtle">推送本机运行时实况文件到远端用户主目录同名路径（整文件覆盖远端同名文件）。${project ? `当前项目目录 <code>${escapeHtml(project.path)}</code> 不会被写入。` : ""}凭据文件（auth.json / .env）永不在清单内。</p>
@@ -5607,7 +5673,7 @@ async function openConfigSyncDialog(host) {
     </div>
     <div class="dialog-actions">
       <button type="button" class="button secondary" data-act="cancel">取消</button>
-      <button type="button" class="button primary" data-act="push"><svg class="icon lucide"><use href="#lucide-cloud-upload"></use></svg> 推送所选</button>
+      <button type="button" class="button primary" data-act="push"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-cloud-upload"></use></svg> 推送所选</button>
     </div>`;
   dialog.querySelectorAll('[data-act="cancel"]').forEach((button) => button.addEventListener("click", () => dialog.close()));
   dialog.querySelector('[data-act="push"]')?.addEventListener("click", async () => {
@@ -5683,12 +5749,13 @@ async function loadObservability() {
   const generation = ++observabilityLoadGeneration;
   state.obsLoaded = true;
   try {
-    const [summary, routeGate, delta, handoffs, ops] = await Promise.all([
+    const [summary, routeGate, delta, handoffs, ops, worktrees] = await Promise.all([
       request(API.obsSummary),
       request(API.obsRouteGate),
       request(API.obsDelta),
       request(API.obsHandoffs),
       request(API.obsOps),
+      request(API.worktrees).catch(() => null), // W3.10 台账读取失败不拖垮其余观测面
     ]);
     if (generation !== observabilityLoadGeneration) return;
     state.obsSummary = summary;
@@ -5696,6 +5763,7 @@ async function loadObservability() {
     state.obsDelta = delta;
     state.obsHandoffs = handoffs.handoffs ?? [];
     state.obsOps = ops;
+    state.obsWorktrees = worktrees ?? null;
   } catch (error) {
     if (generation !== observabilityLoadGeneration) return;
     state.obsLoaded = false;
@@ -5711,17 +5779,20 @@ async function loadObservability() {
 }
 
 async function runDriftCheck() {
-  elements["obs-drift-button"].disabled = true;
-  elements["obs-drift-status"].textContent = "检查中…";
+  const button = elements["obs-drift-button"];
+  const status = elements["obs-drift-status"];
+  // UI-AUDIT P1-6：忙态（含防连点）交给 runAsyncAction；状态文字仍由本函数负责
   try {
-    state.obsDrift = await request(API.obsDrift, { method: "POST" });
+    await runAsyncAction(button, async () => {
+      status.textContent = "检查中…";
+      state.obsDrift = await request(API.obsDrift, { method: "POST" });
+    }, { busyLabel: "检查中…" });
   } catch (error) {
     state.obsDrift = null;
-    elements["obs-drift-status"].textContent = "检查失败";
-    elements["obs-drift-body"].innerHTML = `<tr><td colspan="2" class="subtle">检查失败：${escapeHtml(error.message)}</td></tr>`;
+    status.textContent = "检查失败";
+    // UI-AUDIT P0-6：错误行改走行内空提示单一出口（自带转义）
+    elements["obs-drift-body"].innerHTML = `<tr><td colspan="2">${inlineEmpty(`检查失败：${error.message}`)}</td></tr>`;
     toast(`漂移检查失败：${error.message}`, "error");
-  } finally {
-    elements["obs-drift-button"].disabled = false;
   }
   renderObservability();
 }
@@ -5859,7 +5930,43 @@ function renderObservability() {
     )
     .join("") || `<tr><td colspan="4">暂无 handoff</td></tr>`;
   elements["obs-handoff-meta"].textContent = `${state.obsHandoffs.length} 个交接件 · 点击行查看内容`;
+  renderObservabilityWorktrees();
   renderOpsMetrics(state.obsOps);
+}
+
+// W3.10 worktree 台账渲染：活跃树提供清理入口（DELETE /api/system/worktrees，fail-closed 只清台账内活跃路径）
+function renderObservabilityWorktrees() {
+  const body = document.getElementById("obs-worktree-body");
+  const meta = document.getElementById("obs-worktree-meta");
+  if (!body || !meta) return;
+  const view = state.obsWorktrees;
+  if (!view) {
+    body.innerHTML = `<tr><td colspan="6" class="subtle">台账不可用（旧数据根或读取失败）</td></tr>`;
+    meta.textContent = "台账不可用";
+    return;
+  }
+  meta.textContent = `共 ${view.total} 条记录 · 活跃 ${view.activeCount}`;
+  body.innerHTML = (view.worktrees ?? [])
+    .map((item) => `<tr class="worktree-row">
+      <td class="mono" title="${escapeHtml(item.path)}">${escapeHtml(item.path)}</td>
+      <td>${escapeHtml(item.source ?? "–")}</td>
+      <td class="mono">${escapeHtml(item.runId ? item.runId.slice(0, 8) : "–")}</td>
+      <td class="mono">${escapeHtml(String(item.createdAt ?? "–").slice(0, 16).replace("T", " "))}</td>
+      <td><span class="status-label ${item.removedAt ? "is-neutral" : "is-ok"}">${item.removedAt ? "已清理" : "活跃"}</span></td>
+      <td>${item.removedAt ? "" : `<button class="button danger compact" type="button" data-worktree-remove="${escapeHtml(item.path)}">清理</button>`}</td>
+    </tr>`)
+    .join("") || `<tr><td colspan="6" class="subtle">台账为空——还没有过建树记录</td></tr>`;
+}
+
+async function removeWorktree(path) {
+  try {
+    await request(`${API.worktrees}?path=${encodeURIComponent(path)}`, { method: "DELETE" });
+    toast("工作树已清理", "success", 2200);
+  } catch (error) {
+    toast(`清理失败：${error.message}`, "error");
+    return;
+  }
+  void loadObservability();
 }
 
 async function openHandoff(name) {
@@ -6067,7 +6174,7 @@ function setCapabilityWorkspace(workspace, { focus = false, recordHistory = true
 
 function capabilitySourceButton(sourceId, label) {
   if (!sourceId) return "";
-  return `<button class="icon-button cap-source-button" type="button" data-capability-source-id="${escapeHtml(sourceId)}" title="在真源编辑器中打开" aria-label="打开 ${escapeHtml(label)} 的相关真源"><svg class="icon lucide"><use href="#lucide-file-text"></use></svg></button>`;
+  return `<button class="icon-button cap-source-button" type="button" data-capability-source-id="${escapeHtml(sourceId)}" title="在真源编辑器中打开" aria-label="打开 ${escapeHtml(label)} 的相关真源"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-file-text"></use></svg></button>`;
 }
 
 async function openCapabilitySource(sourceId) {
@@ -6216,6 +6323,7 @@ function renderCapabilities() {
                 <div class="cap-skill-title-row">
                   <strong>${escapeHtml(skill.code)}</strong>
                   <span class="cap-skill-scope">${skill.scope === "codex" ? "本地 · .agents" : "本地 · skills"}</span>
+                  ${skill.version ? `<span class="cap-skill-badge" title="SKILL.md frontmatter version">v${escapeHtml(skill.version)}</span>` : ""}
                   ${skill.registered ? "" : '<span class="cap-skill-badge">未注册</span>'}
                 </div>
                 ${desc ? `<span class="cap-skill-desc">${escapeHtml(desc)}</span>` : ""}
@@ -6247,9 +6355,12 @@ function renderCapabilities() {
     : "";
   const writableCount = (mcp.servers ?? []).filter((server) => mcpServerWritable(server)).length;
   const disabledCount = (mcp.servers ?? []).filter((server) => server.disabled).length;
+  const mcpFreshness = Number(mcp.claudeJsonMtimeMs) > 0
+    ? ` · 配置更新于 ${new Date(Number(mcp.claudeJsonMtimeMs)).toLocaleString()}`
+    : "";
   elements["cap-mcp-summary"].textContent = mcpStatus.failClosed
     ? `MCP 启停已冻结 [${mcpStatus.code || "MCP_QUARANTINE_UNAVAILABLE"}]：${mcpStatus.message || "隔离配置不可用"}${mcpStatus.causeCode ? `（${mcpStatus.causeCode}）` : ""}`
-    : `${mcp.servers.length} 个声明 · ${writableCount} 个可启停 · ${mcp.sources.length} 个来源文件`;
+    : `${mcp.servers.length} 个声明 · ${writableCount} 个可启停 · ${mcp.sources.length} 个来源文件${mcpFreshness}`;
   if (elements["cap-stat-mcp"]) elements["cap-stat-mcp"].textContent = String(mcp.servers.length);
   if (elements["cap-stat-mcp-sub"]) {
     elements["cap-stat-mcp-sub"].textContent = mcpStatus.failClosed
@@ -6417,17 +6528,20 @@ async function toggleMcp(button) {
     });
     if (!verdict) return;
   }
-  button.disabled = true;
+  // UI-AUDIT P1-6：忙态统一交给 runAsyncAction——防连点重复提交、失败必恢复
+  // （原写法把 disabled=false 放在 catch 之后而非 finally，异常路径会留下卡死按钮，
+  //  且会覆盖"因 failClosed 本就该保持禁用"的初始状态）。
   try {
-    await request("/api/capabilities/mcp/toggle", {
-      method: "POST",
-      body: { name, source: button.dataset.mcpSource, action, knownMtimeMs: button.dataset.mcpMtime || undefined },
-    });
-    toast(action === "disable" ? `已禁用 ${name}（隔离区可恢复）` : `已恢复 ${name}`, "success");
+    await runAsyncAction(button, async () => {
+      await request("/api/capabilities/mcp/toggle", {
+        method: "POST",
+        body: { name, source: button.dataset.mcpSource, action, knownMtimeMs: button.dataset.mcpMtime || undefined },
+      });
+      toast(action === "disable" ? `已禁用 ${name}（隔离区可恢复）` : `已恢复 ${name}`, "success");
+    }, { busyLabel: action === "disable" ? "禁用中…" : "恢复中…" });
   } catch (error) {
     toast(`操作失败：${error.message}`, "error", 6000);
   }
-  button.disabled = false;
   void loadCapabilities();
 }
 
@@ -6651,18 +6765,25 @@ function agentFaceMarkup(id, {
 }
 
 // agent 徽标选择器：项目内新建会话后，只允许选择真实 CLI 成员。
+// 卡片副行接成员真实职责（BOT_MEMBER_ROLE_LABELS 归一化角色键 → 中文；自由文本原样透出），
+// 让「发送给谁」一屏可比对谁做什么，而不是四张卡都写「直达成员 CLI」；主脑保留发送语义。
+function agentPickRoleLine(id, coordinatorId) {
+  const storedRole = String(catalogMember(id)?.role || "").trim();
+  const roleLabel = BOT_MEMBER_ROLE_LABELS[storedRole] || storedRole;
+  if (id === coordinatorId) return roleLabel ? `${roleLabel} · 直接发送` : "团队主脑 · 直接发送";
+  return roleLabel ? `${roleLabel} · 直达 CLI` : "直达成员 CLI";
+}
+
 function agentPickerMarkup() {
-  const team = teamById(state.selectedTeamId || defaultTeamId()) ?? state.teams.find((item) => item.builtin);
-  const members = team?.members?.length
-    ? team.members
-    : ["claude-fable", "codex-technical", "grok-search", "grok-build", "kimi-frontend", "gemini-research", "pi-resident"];
-  const coordinator = team?.coordinator ?? members[0];
+  const { team, members, coordinator, name } = currentTeamMembers();
+  // 数字键直达提示只在 1-9 可容纳时展示（键盘监听同门槛，见 bindEvents 的 picker 快捷键段）
+  const keyHint = (index) => index < 9 ? `<kbd class="agent-pick-key" aria-hidden="true">${index + 1}</kbd>` : "";
   const cards = members
-    .map((id) => {
+    .map((id, index) => {
       return `<button class="agent-pick-card is-agent-${agentSlug(id)}" type="button" data-pick-agent="${escapeHtml(id)}" title="直接发送给 ${escapeHtml(agentLabel(id))}">
-        <span class="agent-pick-logo" aria-hidden="true">${agentFaceMarkup(id)}</span>
+        ${keyHint(index)}<span class="agent-pick-logo" aria-hidden="true">${agentFaceMarkup(id)}</span>
         <strong>${escapeHtml(agentLabel(id))}</strong>
-        <span>${id === coordinator ? "团队主脑 · 直接发送" : "直达成员 CLI"}</span>
+        <span>${escapeHtml(agentPickRoleLine(id, coordinator))}</span>
       </button>`;
     })
     .join("");
@@ -6670,6 +6791,7 @@ function agentPickerMarkup() {
     <div class="empty-state welcome-state" data-stream-key="empty:agent-picker">
       <h2 class="welcome-hero is-picker">发送给谁？</h2>
       <span class="welcome-sub">选择成员即直达其 CLI，并使用该成员专属的模型、Effort、权限与命令</span>
+      <span class="picker-team-meta">团队 ${escapeHtml(name)} · ${members.length} 席${team?.coordinator ? "" : " · 未设主脑"} · 按数字键直达</span>
       <div class="agent-pick-grid">${cards}</div>
     </div>`;
 }
@@ -6836,6 +6958,53 @@ function welcomeTemplatesMarkup() {
 // ── 命令面板扩展项（v4.0 Forge）：注入 command-palette.js 的 extraItems ──
 // 视图导航由面板模块从 VIEW_TITLES 自动同步；这里只补面板本身没有的协作/权限/模板动作。
 const FORGE_PALETTE_EXTRA_ITEMS = () => [
+  // W3.11 用户宏进命令面板：每条宏一个动作，run() 把展开模板填进 bot composer 待审发送
+  ...(Array.isArray(state.customMacros) ? state.customMacros.map((macro) => ({
+    id: `macro:${macro.token}`,
+    group: "宏",
+    label: `${macro.token} — 自定义宏`,
+    detail: String(macro.promptTemplate).slice(0, 90),
+    icon: "terminal",
+    keywords: `macro 宏 ${macro.token}`,
+    run: () => {
+      const composer = document.getElementById("bot-composer-input");
+      if (!composer) {
+        toast("找不到 composer 输入框", "error");
+        return;
+      }
+      composer.value = String(macro.promptTemplate ?? "");
+      composer.focus();
+      composer.dispatchEvent(new Event("input", { bubbles: true }));
+    },
+  })) : []),
+  {
+    id: "bot:closeout",
+    group: "514 Bot",
+    label: "Run closeout chain",
+    detail: "一键收口：校验 → 测试 → 浏览器 QA → 发布记录（失败即停）",
+    icon: "shield-check",
+    keywords: "closeout release validate test qa 收口 交付 发布",
+    run: () => {
+      const conversation = botActiveConversation();
+      if (conversation?.kind === "workspace_group") {
+        botActivateCollaborationTab("evidence", { focus: false });
+      } else {
+        toast("一键收口在团队协作室的「证据」页（先选择一个协作室）", "info");
+      }
+      closeoutCard.startFromExternal?.();
+    },
+  },
+  {
+    id: "notifications:toggle",
+    group: "设置",
+    label: "Toggle native notifications",
+    detail: nativeNotifications.status().enabled ? "关闭审批/任务完成的系统通知" : "开启审批/任务完成/收口失败的系统通知",
+    icon: "bell",
+    keywords: "notification notify bell 通知 提醒 系统通知",
+    run: () => {
+      void nativeNotifications.toggle();
+    },
+  },
   {
     id: "bot:open-settings",
     group: "514 Bot",
@@ -7143,6 +7312,7 @@ function railRunMarkup(run) {
 }
 
 function renderRuns() {
+  nativeNotifications.syncRuns(state.runs); // W2.4：run 终态 → 系统通知（幂等 diff，渲染出口统一挂）
   // 已清除 run 的页签如实关闭（clearFinished/重启后 run 不存在）
   const existingRunIds = new Set(state.runs.map((run) => run.id));
   if (state.tabs.some((tab) => !existingRunIds.has(tab.runId))) {
@@ -7730,13 +7900,13 @@ function renderAutomations() {
             ${lucideIcon("settings")}
           </button>
           <button class="rail-action" type="button" data-automation-run="${escapeHtml(item.id)}" title="立即执行" aria-label="立即执行 ${escapeHtml(item.name)}"${writable ? "" : " disabled"}>
-            <svg class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
+            <svg aria-hidden="true" class="icon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z" /></svg>
           </button>
           <button class="rail-action" type="button" data-automation-toggle="${escapeHtml(item.id)}" title="${item.enabled ? "停用" : "启用"}" aria-label="${item.enabled ? "停用" : "启用"} ${escapeHtml(item.name)}"${writable ? "" : " disabled"}>
-            <svg class="icon" viewBox="0 0 24 24">${item.enabled ? '<path d="M10 9v6m4-6v6" />' : '<path d="M8 5v14l11-7z" opacity="0.4" />'}</svg>
+            <svg aria-hidden="true" class="icon" viewBox="0 0 24 24">${item.enabled ? '<path d="M10 9v6m4-6v6" />' : '<path d="M8 5v14l11-7z" opacity="0.4" />'}</svg>
           </button>
           <button class="rail-action" type="button" data-automation-remove="${escapeHtml(item.id)}" title="删除" aria-label="删除 ${escapeHtml(item.name)}"${writable ? "" : " disabled"}>
-            <svg class="icon" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
+            <svg aria-hidden="true" class="icon" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /></svg>
           </button>
         </span>
       </div>`)
@@ -10650,7 +10820,8 @@ function renderTeamMemberOptions(team, {
   const selectedMembers = members instanceof Set ? members : new Set(members ?? []);
   const options = knownProviderOptions(team);
   if (!options.length) {
-    list.innerHTML = '<div class="team-catalog-loading" role="status">正在加载可执行席位</div>';
+    // UI-AUDIT P0-6：席位目录首载骨架屏（此前为唯一"文字 loading"占位，切换时高度跳变）
+    renderPlaceholder(list, skeleton({ variant: "list", rows: 4, label: "正在加载可执行席位" }));
     updateTeamRosterSummary();
     return;
   }
@@ -10688,7 +10859,7 @@ function renderTeamMemberOptions(team, {
         ${teamMemberEligible !== false && coordinatorEligible ? `<label class="coordinator-pick"><input type="radio" name="team-coordinator" value="${escapeHtml(id)}"
           ${id === activeCoordinator ? "checked" : ""} ${readOnly ? "disabled" : ""} aria-label="将 ${escapeHtml(name)} 设为团队主脑" /><span>主脑</span></label>` : ""}
         <button class="icon-button team-member-edit" type="button" data-edit-team-member="${escapeHtml(id)}" title="编辑 ${escapeHtml(name)}" aria-label="编辑 ${escapeHtml(name)}">
-          <svg class="icon lucide"><use href="#lucide-pencil"></use></svg>
+          <svg aria-hidden="true" class="icon lucide"><use href="#lucide-pencil"></use></svg>
         </button>
       </div>`;
     return { id, brand, html };
@@ -13006,7 +13177,7 @@ function usageLineOf(item) {
     if (entry.isValid === false) return escapeHtml(entry.invalidMessage ?? "凭据无效");
     return escapeHtml(entry.extra ?? "已查询");
   });
-  return `<p class="provider-usage-line" title="用量（点击刷新）">${parts.join("；")} <button class="provider-usage-query" type="button" data-provider-usage="${escapeHtml(item.id)}" aria-label="刷新用量"><svg class="icon lucide"><use href="#lucide-refresh-cw"></use></svg></button></p>`;
+  return `<p class="provider-usage-line" title="用量（点击刷新）">${parts.join("；")} <button class="provider-usage-query" type="button" data-provider-usage="${escapeHtml(item.id)}" aria-label="刷新用量"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg></button></p>`;
 }
 
 /** failover 管理条（每应用列头下）：队列 P1..Pn + 自动转移开关。 */
@@ -13023,7 +13194,7 @@ function failoverBarMarkup(app, data, compatibleProviderCount = 0) {
   return `<div class="provider-failover-bar">
     <label class="provider-failover-toggle" title="健康检查失败时自动切换到队列下一可用项">
       <input type="checkbox" data-failover-toggle="${escapeHtml(app)}"${auto ? " checked" : ""} />
-      <svg class="icon lucide"><use href="#lucide-repeat"></use></svg>
+      <svg aria-hidden="true" class="icon lucide"><use href="#lucide-repeat"></use></svg>
       <span>自动转移</span>
     </label>
     <span class="provider-failover-queue">${names || '<span class="subtle">使用卡片上的循环图标加入队列</span>'}</span>
@@ -13049,7 +13220,7 @@ function providerRowIdentityMarkup({ item, meta, health, latency = null, handle 
     <div class="provider-row-main">
       <div class="provider-row-title">
         <strong>${escapeHtml(item.name)}</strong>
-        ${partner ? '<span class="provider-partner-star" title="合作伙伴" aria-label="合作伙伴"><svg class="icon lucide"><use href="#lucide-star"></use></svg></span>' : ""}
+        ${partner ? '<span class="provider-partner-star" title="合作伙伴" aria-label="合作伙伴"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-star"></use></svg></span>' : ""}
         <span class="provider-health-dot is-${health.level}" title="${escapeHtml(health.title)}" role="status"></span>
         ${badges}
       </div>
@@ -13096,7 +13267,7 @@ function officialLiveRowMarkup({ app, liveInfo }) {
   if (app === "codex") {
     const authenticated = Boolean(liveInfo.official);
     return `<article class="provider-row provider-official-row${authenticated ? " is-current" : ""}" data-provider-official-row="codex">
-      <span class="provider-drag-handle is-locked" title="内置供应商，不能排序、编辑或删除" aria-hidden="true"><svg class="icon lucide"><use href="#lucide-lock"></use></svg></span>
+      <span class="provider-drag-handle is-locked" title="内置供应商，不能排序、编辑或删除" aria-hidden="true"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-lock"></use></svg></span>
       <span class="provider-row-icon provider-row-brand">${cliIconMarkup("codex", "cli-logo")}</span>
       <div class="provider-row-main">
         <div class="provider-row-title">
@@ -13112,7 +13283,7 @@ function officialLiveRowMarkup({ app, liveInfo }) {
   if (app === "grokbuild") {
     const active = Boolean(liveInfo.official);
     return `<article class="provider-row provider-official-row${active ? " is-current" : ""}" data-provider-official-row="grokbuild">
-      <span class="provider-drag-handle is-locked" title="内置供应商，不能排序、编辑或删除" aria-hidden="true"><svg class="icon lucide"><use href="#lucide-lock"></use></svg></span>
+      <span class="provider-drag-handle is-locked" title="内置供应商，不能排序、编辑或删除" aria-hidden="true"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-lock"></use></svg></span>
       <span class="provider-row-icon provider-row-brand">${cliIconMarkup("grok", "cli-logo")}</span>
       <div class="provider-row-main">
         <div class="provider-row-title">
@@ -13159,8 +13330,8 @@ function providerRowMarkup({ item, index, total, meta, app, current, liveInfo, q
   const queueIndex = queue.indexOf(item.id);
   const latency = item.baseUrl ? state.providerLatency[item.baseUrl] : null;
   const sortControls = sortMode
-    ? `<button class="icon-button provider-card-action" type="button" data-provider-move="${escapeHtml(app)}::${escapeHtml(item.id)}::-1" title="上移" aria-label="上移"${index === 0 ? " disabled" : ""}><svg class="icon lucide"><use href="#lucide-arrow-up"></use></svg></button>
-       <button class="icon-button provider-card-action" type="button" data-provider-move="${escapeHtml(app)}::${escapeHtml(item.id)}::1" title="下移" aria-label="下移"${index === total - 1 ? " disabled" : ""}><svg class="icon lucide"><use href="#lucide-arrow-down"></use></svg></button>`
+    ? `<button class="icon-button provider-card-action" type="button" data-provider-move="${escapeHtml(app)}::${escapeHtml(item.id)}::-1" title="上移" aria-label="上移"${index === 0 ? " disabled" : ""}><svg aria-hidden="true" class="icon lucide"><use href="#lucide-arrow-up"></use></svg></button>
+       <button class="icon-button provider-card-action" type="button" data-provider-move="${escapeHtml(app)}::${escapeHtml(item.id)}::1" title="下移" aria-label="下移"${index === total - 1 ? " disabled" : ""}><svg aria-hidden="true" class="icon lucide"><use href="#lucide-arrow-down"></use></svg></button>`
     : "";
   const primaryLabel = item.category === "omo" || item.category === "omo-slim"
     ? "启用插件"
@@ -13199,11 +13370,11 @@ function providerRowMarkup({ item, index, total, meta, app, current, liveInfo, q
     })}
     <div class="provider-row-actions">
       ${sortControls || primaryAction}
-      <button class="icon-button provider-card-action" type="button" data-provider-edit="${escapeHtml(item.id)}" title="编辑档案" aria-label="编辑档案"><svg class="icon lucide"><use href="#lucide-pencil"></use></svg></button>
-      <button class="icon-button provider-card-action" type="button" data-provider-duplicate="${escapeHtml(item.id)}" title="复制档案" aria-label="复制档案"${storeBlocked ? " disabled" : ""}><svg class="icon lucide"><use href="#lucide-copy"></use></svg></button>
-      <button class="icon-button provider-card-action" type="button" data-provider-check="${escapeHtml(item.id)}" title="连通性检查" aria-label="连通性检查"><svg class="icon lucide"><use href="#lucide-activity"></use></svg></button>
-      <button class="icon-button provider-card-action" type="button" data-provider-usage-config="${escapeHtml(item.id)}" title="用量查询" aria-label="用量查询"><svg class="icon lucide"><use href="#lucide-chart-column"></use></svg></button>
-      <button class="icon-button provider-card-action" type="button" data-provider-delete="${escapeHtml(item.id)}" title="删除档案" aria-label="删除档案"><svg class="icon lucide"><use href="#lucide-trash-2"></use></svg></button>
+      <button class="icon-button provider-card-action" type="button" data-provider-edit="${escapeHtml(item.id)}" title="编辑档案" aria-label="编辑档案"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-pencil"></use></svg></button>
+      <button class="icon-button provider-card-action" type="button" data-provider-duplicate="${escapeHtml(item.id)}" title="复制档案" aria-label="复制档案"${storeBlocked ? " disabled" : ""}><svg aria-hidden="true" class="icon lucide"><use href="#lucide-copy"></use></svg></button>
+      <button class="icon-button provider-card-action" type="button" data-provider-check="${escapeHtml(item.id)}" title="连通性检查" aria-label="连通性检查"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-activity"></use></svg></button>
+      <button class="icon-button provider-card-action" type="button" data-provider-usage-config="${escapeHtml(item.id)}" title="用量查询" aria-label="用量查询"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-chart-column"></use></svg></button>
+      <button class="icon-button provider-card-action" type="button" data-provider-delete="${escapeHtml(item.id)}" title="删除档案" aria-label="删除档案"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-trash-2"></use></svg></button>
     </div>
   </article>`;
 }
@@ -13282,7 +13453,14 @@ function renderProviders() {
   if (elements["provider-app-bar"]) elements["provider-app-bar"].hidden = true;
   if (!lockedApp) {
     if (elements["provider-add-button"]) elements["provider-add-button"].hidden = true;
-    columns.innerHTML = '<p class="subtle provider-deck-placeholder" id="provider-unlocked-empty">选一个走连接档案的席位后，这里只列出该 Adapter 能用的共享连接。当前席位不走 ProviderStore，或尚未选择席位。</p>';
+    // UI-AUDIT P0-6：首次进入无数据 → 引导型空态（说明价值 + 给出下一步），而非一行灰字
+    renderPlaceholder(columns, emptyState({
+      tone: "first-run",
+      id: "provider-unlocked-empty",
+      icon: "unplug",
+      title: "先选一个走连接档案的席位",
+      desc: "选定后这里只列出该 Adapter 真正能用的共享连接。当前席位不走 ProviderStore，或尚未选择席位。",
+    }));
     const spine = elements["provider-spine"];
     if (spine) spine.hidden = true;
     if (!state.providersData) void loadProviders();
@@ -13292,7 +13470,8 @@ function renderProviders() {
   renderProviderAppBar();
   const data = state.providersData;
   if (!data) {
-    columns.innerHTML = '<p class="subtle provider-deck-placeholder">正在读取供应商档案…</p>';
+    // UI-AUDIT P0-6：骨架屏替代文字 loading，消除卡片区布局跳动（CLS）
+    renderPlaceholder(columns, skeleton({ variant: "card", rows: 3, label: "正在读取供应商档案" }));
     void loadProviders();
     return;
   }
@@ -13325,7 +13504,7 @@ function renderProviders() {
     deckMarkup = `<section class="provider-global-empty" aria-labelledby="provider-global-empty-title">
       <svg class="icon lucide" aria-hidden="true"><use href="#lucide-plug-zap"></use></svg>
       <div><strong id="provider-global-empty-title">尚未创建供应商连接</strong><span>Provider 保存端点与私密凭据；运行席位只绑定 Provider ID。</span></div>
-      ${storeBlocked ? "" : '<button class="button primary" type="button" data-provider-add-app=""><svg class="icon lucide"><use href="#lucide-plus"></use></svg>新增供应商</button>'}
+      ${storeBlocked ? "" : '<button class="button primary" type="button" data-provider-add-app=""><svg aria-hidden="true" class="icon lucide"><use href="#lucide-plus"></use></svg>新增供应商</button>'}
     </section>`;
   } else {
     const app = providerActiveApp();
@@ -13510,9 +13689,15 @@ function providerBackupRowMarkup(entry, { storeBlocked }) {
   let body = "";
   if (open) {
     if (!cache || cache.status === "loading") {
-      body = '<p class="subtle">正在读取备份（脱敏后仅用于对比）…</p>';
+      body = skeleton({ variant: "list", rows: 3, label: "正在读取备份（脱敏后仅用于对比）" });
     } else if (cache.status === "error") {
-      body = `<p class="subtle">备份读取失败：${escapeHtml(cache.error)}</p>`;
+      // UI-AUDIT P0-6：错误态结构化（图标 + 说明），不再是一行灰字
+      body = emptyState({
+        tone: "error",
+        title: "备份读取失败",
+        desc: cache.error,
+        compact: true,
+      });
     } else {
       const data = cache.data ?? {};
       body = data.contentHidden
@@ -13534,9 +13719,9 @@ function providerBackupRowMarkup(entry, { storeBlocked }) {
         <span class="subtle">${escapeHtml(reasonLabel)}${entry.providerName ? ` · 切到「${escapeHtml(entry.providerName)}」前` : ""} · ${escapeHtml(formatConfigBytes(entry.size))}${entry.hasManifest ? "" : " · 无归属清单（历史备份）"}</span>
       </div>
       <div class="config-remote-backup-actions">
-        <button class="button secondary" type="button" data-provider-backup-compare="${escapeHtml(entry.name)}" aria-pressed="${open}"${entry.restorable ? "" : " disabled"}><svg class="icon lucide"><use href="#lucide-scan-search"></use></svg>${open ? "收起" : "对比"}</button>
-        <button class="button secondary" type="button" data-provider-backup-restore="${escapeHtml(entry.name)}" title="${escapeHtml(restoreTitle)}"${entry.restorable && !busy && !storeBlocked ? "" : " disabled"}><svg class="icon lucide"><use href="#lucide-history"></use></svg>${busy ? "回退中…" : "回退到此份"}</button>
-        <button class="icon-button" type="button" data-provider-backup-delete="${escapeHtml(entry.name)}" title="删除此备份" aria-label="删除备份 ${escapeHtml(entry.name)}"${busy ? " disabled" : ""}><svg class="icon lucide"><use href="#lucide-trash-2"></use></svg></button>
+        <button class="button secondary" type="button" data-provider-backup-compare="${escapeHtml(entry.name)}" aria-pressed="${open}"${entry.restorable ? "" : " disabled"}><svg aria-hidden="true" class="icon lucide"><use href="#lucide-scan-search"></use></svg>${open ? "收起" : "对比"}</button>
+        <button class="button secondary" type="button" data-provider-backup-restore="${escapeHtml(entry.name)}" title="${escapeHtml(restoreTitle)}"${entry.restorable && !busy && !storeBlocked ? "" : " disabled"}><svg aria-hidden="true" class="icon lucide"><use href="#lucide-history"></use></svg>${busy ? "回退中…" : "回退到此份"}</button>
+        <button class="icon-button" type="button" data-provider-backup-delete="${escapeHtml(entry.name)}" title="删除此备份" aria-label="删除备份 ${escapeHtml(entry.name)}"${busy ? " disabled" : ""}><svg aria-hidden="true" class="icon lucide"><use href="#lucide-trash-2"></use></svg></button>
       </div>
     </div>
     ${open ? `<div class="config-remote-backup-body">${body}</div>` : ""}
@@ -13567,8 +13752,8 @@ function providerBackupTimelineMarkup(app, { storeBlocked }) {
     <h4>发布备份</h4>
     <span class="subtle">${escapeHtml(countLabel)}</span>
     <div class="provider-backup-head-actions">
-      <button class="icon-button" type="button" data-provider-backups-refresh title="重新读取备份台账" aria-label="重新读取备份台账"><svg class="icon lucide"><use href="#lucide-refresh-cw"></use></svg></button>
-      <button class="button secondary" type="button" data-provider-backups-toggle aria-expanded="true"><svg class="icon lucide"><use href="#lucide-chevron-down"></use></svg>收起</button>
+      <button class="icon-button" type="button" data-provider-backups-refresh title="重新读取备份台账" aria-label="重新读取备份台账"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg></button>
+      <button class="button secondary" type="button" data-provider-backups-toggle aria-expanded="true"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-chevron-down"></use></svg>收起</button>
     </div>
   </header>`;
   let body;
@@ -13577,7 +13762,16 @@ function providerBackupTimelineMarkup(app, { storeBlocked }) {
   } else if (!loaded) {
     body = '<p class="subtle">正在读取备份台账…</p>';
   } else if (!forApp.length) {
-    body = `<p class="subtle">${escapeHtml(meta?.label ?? app)} 还没有留下备份${otherCount ? `（其他应用有 ${otherCount} 份，切换上方应用页签查看）` : "——切换或发布一次供应商后就会有"}。</p>`;
+    // UI-AUDIT P0-6：无数据 → first-run 引导空态（说明"怎么才会有"，而不是干等）
+    body = emptyState({
+      tone: "first-run",
+      icon: "archive",
+      title: `${meta?.label ?? app} 还没有留下备份`,
+      desc: otherCount
+        ? `其他应用有 ${otherCount} 份备份，切换上方应用页签即可查看。`
+        : "切换或发布一次供应商配置后，这里会自动留下可回退的备份快照。",
+      compact: true,
+    });
   } else {
     body = `<div class="config-remote-backup-list">${forApp.map((entry) => providerBackupRowMarkup(entry, { storeBlocked })).join("")}</div>
       <p class="subtle">回退复用与切换同一条写入链：先备份当前内容再原子替换——所以回退本身也能再回退。</p>`;
@@ -13778,7 +13972,7 @@ function renderProviderCodexCatalog() {
       <input type="text" maxlength="120" data-codex-catalog-field="displayName" value="${escapeHtml(row.displayName ?? "")}" placeholder="例如：Kimi K2.5" aria-label="菜单显示名" />
       <input type="text" maxlength="80" data-codex-catalog-field="model" value="${escapeHtml(row.model ?? "")}" placeholder="例如：kimi-k2.5" list="provider-catalog-list" aria-label="实际请求模型" />
       <input type="number" min="1" max="100000000" data-codex-catalog-field="contextWindow" value="${escapeHtml(row.contextWindow ?? "")}" placeholder="128000" aria-label="上下文窗口" />
-      <button class="icon-button" type="button" data-codex-catalog-remove="${index}" title="删除模型映射" aria-label="删除模型映射"><svg class="icon lucide"><use href="#lucide-trash-2"></use></svg></button>
+      <button class="icon-button" type="button" data-codex-catalog-remove="${index}" title="删除模型映射" aria-label="删除模型映射"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-trash-2"></use></svg></button>
     </div>`).join("")}`;
 }
 
@@ -13823,7 +14017,7 @@ function coerceOpencodeOptionValue(key, raw) {
 function renderOpencodePairList(host, rows, { keyPlaceholder, valuePlaceholder, keyAttr, valueAttr, head = null }) {
   if (!host) return;
   if (!rows.length) {
-    host.innerHTML = '<p class="subtle provider-opencode-empty">尚未添加</p>';
+    renderPlaceholder(host, inlineEmpty("尚未添加", { className: "provider-opencode-empty" }));
     return;
   }
   const heading = head
@@ -13832,7 +14026,7 @@ function renderOpencodePairList(host, rows, { keyPlaceholder, valuePlaceholder, 
   host.innerHTML = `${heading}${rows.map((row, index) => `<div class="provider-opencode-pair-row" data-opencode-row="${index}">
       <input type="text" maxlength="80" data-opencode-field="${keyAttr}" value="${escapeHtml(row[keyAttr] ?? "")}" placeholder="${escapeHtml(keyPlaceholder)}" aria-label="${escapeHtml(keyPlaceholder)}" />
       <input type="text" maxlength="300" data-opencode-field="${valueAttr}" value="${escapeHtml(row[valueAttr] ?? "")}" placeholder="${escapeHtml(valuePlaceholder)}" aria-label="${escapeHtml(valuePlaceholder)}" />
-      <button class="icon-button" type="button" data-opencode-remove="${index}" title="删除" aria-label="删除"><svg class="icon lucide"><use href="#lucide-trash-2"></use></svg></button>
+      <button class="icon-button" type="button" data-opencode-remove="${index}" title="删除" aria-label="删除"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-trash-2"></use></svg></button>
     </div>`).join("")}`;
 }
 
@@ -14233,7 +14427,7 @@ function renderProviderEndpoints() {
       <span class="provider-endpoint-url" title="${escapeHtml(entry.url)}">${escapeHtml(entry.url)}</span>
       ${latencyText}
       <button class="button secondary provider-endpoint-use" type="button" data-endpoint-use="${index}">设为主端点</button>
-      <button class="icon-button" type="button" data-endpoint-remove="${index}" title="移除" aria-label="移除端点"><svg class="icon lucide"><use href="#lucide-x"></use></svg></button>
+      <button class="icon-button" type="button" data-endpoint-remove="${index}" title="移除" aria-label="移除端点"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-x"></use></svg></button>
     </div>`;
   }).join("");
 }
@@ -17150,6 +17344,8 @@ const botState = {
   answerTarget: null,
   answerInFlight: false,
   approvalInFlight: new Set(),
+  // W1.5 composer 编排模式直选：pipeline（默认）/ social；/pipeline 前缀恒可强制回流水线
+  orchestrationModePick: "pipeline",
   sentAt: Object.create(null),
   firstResponseAt: Object.create(null),
 };
@@ -18282,7 +18478,7 @@ function botRenderRoster() {
         <span class="bot-agent-avatar ${botAvatarClass(meta.tone)}">${botMemberAvatarContent(member, meta)}</span>
         <span class="bot-agent-copy"><strong>${escapeHtml(meta.label)}</strong><span>${escapeHtml(meta.role)} · ${conversationCount} 个对话 · ${escapeHtml(botRuntimeSeatLabel(botRuntimeProfile(member.runtimeProfileId)))}</span></span>
       </button>
-      <span class="bot-contact-actions"><button class="bot-icon-button" type="button" data-bot-contact-edit="${escapeHtml(id)}" title="编辑 ${escapeHtml(meta.label)}" aria-label="编辑 ${escapeHtml(meta.label)}"><svg class="icon lucide"><use href="#lucide-settings"></use></svg></button><button class="bot-icon-button is-danger" type="button" data-bot-contact-delete="${escapeHtml(id)}" title="${removeLabel} ${escapeHtml(meta.label)}" aria-label="${removeLabel} ${escapeHtml(meta.label)}"><svg class="icon lucide"><use href="#lucide-trash-2"></use></svg></button></span>
+      <span class="bot-contact-actions"><button class="bot-icon-button" type="button" data-bot-contact-edit="${escapeHtml(id)}" title="编辑 ${escapeHtml(meta.label)}" aria-label="编辑 ${escapeHtml(meta.label)}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-settings"></use></svg></button><button class="bot-icon-button is-danger" type="button" data-bot-contact-delete="${escapeHtml(id)}" title="${removeLabel} ${escapeHtml(meta.label)}" aria-label="${removeLabel} ${escapeHtml(meta.label)}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-trash-2"></use></svg></button></span>
     </article>`;
   }).join("");
   if (catalog.length && botActiveConversation()?.kind !== "workspace_group"
@@ -18426,7 +18622,9 @@ function botRenderCollaborationWorkspace() {
   const settlement = run ? botSettlementMarkup(run) : "";
   panel.innerHTML = `<header class="bot-collab-panel-head"><div><span>EVIDENCE LEDGER</span><h3>证据与收敛</h3></div><strong>${escapeHtml(String(run?.status || "idle"))}</strong></header>
     <div class="bot-collab-evidence-facts"><span>Context Epoch <b>${run?.contextEpoch ?? "-"}</b></span><span>继承席位 <b>${run?.contextInheritedMembers?.length || 0}</b></span><span>任务 <b>${run?.taskGraph?.tasks?.length || 0}</b></span></div>
+    <div data-closeout-mount></div>
     ${settlement || '<p class="bot-collab-empty">当前运行尚未进入结算阶段</p>'}`;
+  closeoutCard.mount(panel.querySelector("[data-closeout-mount]"));
 }
 
 function botActivateCollaborationTab(tab, { focus = false } = {}) {
@@ -19221,7 +19419,7 @@ function botPendingAskCardMarkup(run, pendingAsk = run?.pendingAsk) {
     ? `<div class="bot-question-options" role="radiogroup" aria-label="${escapeHtml(`${meta.label} 的问题选项`)}">${options.map((option) => `<button type="button" role="radio" aria-checked="false" data-bot-answer-option data-bot-answer-value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</button>`).join("")}</div><button class="bot-card-confirm" type="button" data-bot-question-confirm data-bot-answer-confirm data-run-id="${escapeHtml(runId)}" data-ask-id="${escapeHtml(askId)}" disabled>确认回答</button>`
     : `<div class="bot-question-answer"><span>没有预设选项</span><button class="bot-text-button" type="button" data-bot-answer-focus data-run-id="${escapeHtml(runId)}" data-ask-id="${escapeHtml(askId)}">在下方输入回答</button></div>`;
   return `<article class="bot-card bot-question-card is-dynamic" data-bot-card="question" data-bot-card-source="run" data-run-id="${escapeHtml(runId)}" data-ask-id="${escapeHtml(askId)}" aria-labelledby="${escapeHtml(titleId)}">
-    <div class="bot-card-head"><span class="bot-card-icon"><svg class="icon lucide"><use href="#lucide-circle-alert"></use></svg></span><div><strong id="${escapeHtml(titleId)}">${escapeHtml(meta.label)} 在等你回答</strong><span>来自 ${escapeHtml(meta.label)} · run ${escapeHtml(runId)}</span></div><span class="bot-card-state is-waiting" data-bot-question-status>waiting for you</span></div>
+    <div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-circle-alert"></use></svg></span><div><strong id="${escapeHtml(titleId)}">${escapeHtml(meta.label)} 在等你回答</strong><span>来自 ${escapeHtml(meta.label)} · run ${escapeHtml(runId)}</span></div><span class="bot-card-state is-waiting" data-bot-question-status>waiting for you</span></div>
     <p class="bot-card-copy">${escapeHtml(question)}</p>
     ${optionMarkup}
   </article>`;
@@ -19287,7 +19485,7 @@ function botApprovalCardMarkup(item) {
   const titleId = `bot-approval-${agentSlug(runId)}-${agentSlug(approvalId)}`;
   const inFlight = botState.approvalInFlight.has(approvalId);
   return `<article class="bot-card bot-approval-card is-dynamic" data-bot-card="approval" data-bot-card-source="approval" data-run-id="${escapeHtml(runId)}" data-approval-id="${escapeHtml(approvalId)}" aria-labelledby="${escapeHtml(titleId)}">
-    <div class="bot-card-head"><span class="bot-card-icon"><svg class="icon lucide"><use href="#lucide-shield-check"></use></svg></span><div><strong id="${escapeHtml(titleId)}">需要你的安全决定</strong><span>${escapeHtml(method)} · run ${escapeHtml(runId)}</span></div><span class="bot-card-state is-waiting" data-bot-approval-status>${inFlight ? "sending decision" : "waiting for approval"}</span></div>
+    <div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-shield-check"></use></svg></span><div><strong id="${escapeHtml(titleId)}">需要你的安全决定</strong><span>${escapeHtml(method)} · run ${escapeHtml(runId)}</span></div><span class="bot-card-state is-waiting" data-bot-approval-status>${inFlight ? "sending decision" : "waiting for approval"}</span></div>
     <p class="bot-card-copy">${escapeHtml(scopeBits.join(" · ") || "当前动作受控制面安全策略保护。")}</p>
     <div class="bot-approval-details">${approvalParamsMarkup(item)}</div>
     <div class="bot-inline-approval-hash">动作哈希 <code title="${escapeHtml(item.actionSha256 || "")}">${escapeHtml(compactHash(item.actionSha256))}</code><span>仅对当前动作生效</span></div>
@@ -19302,6 +19500,24 @@ function botApprovalCardsMarkup(run) {
     .map(botApprovalCardMarkup)
     .filter(Boolean)
     .join("");
+}
+
+// W1.2 待决议审批钉顶条：pending 审批固定在会话流顶部（sticky），附 Y/N 快捷键提示。
+// 决议按钮复用 document 级 [data-inline-approval-id] 委托与 resolveInlineApproval，双入口零分叉。
+function botPinnedApprovalMarkup(run) {
+  if (!run?.id) return "";
+  const pending = state.approvals.filter((item) => String(item.runId || "") === String(run.id) && (item.status ?? "pending") === "pending");
+  if (!pending.length) return "";
+  const latest = pending[pending.length - 1];
+  const latestBroad = String(latest?.method || "") === "item/permissions/requestApproval";
+  return `<div class="bot-pinned-approval" role="region" aria-label="待决议审批置顶">
+    <span class="bot-pinned-approval-badge">${lucideIcon("shield-alert", "icon lucide")}<b>${pending.length}</b> 项待决议</span>
+    <span class="bot-pinned-approval-hint"><kbd>Y</kbd> 批准 · <kbd>N</kbd> 拒绝</span>
+    <span class="bot-pinned-approval-actions">
+      <button class="bot-text-button" type="button" data-inline-approval-id="${escapeHtml(String(latest.id))}" data-inline-approval-decision="deny">拒绝</button>
+      <button class="bot-card-confirm" type="button" data-inline-approval-id="${escapeHtml(String(latest.id))}" data-inline-approval-decision="approve"${latestBroad ? " disabled title=\"v1 不支持广域权限授权\"" : ""}>批准</button>
+    </span>
+  </div>`;
 }
 
 function botApprovalOutcomesMarkup(run) {
@@ -19450,18 +19666,18 @@ function botSettlementMarkup(run) {
     }
   }
   if (!view || view.status === "loading") {
-    return `<article class="bot-card bot-settlement-card is-dynamic" data-bot-card="settlement" data-bot-card-source="settlement" data-run-id="${escapeHtml(runId)}" data-settlement-state="loading"><div class="bot-card-head"><span class="bot-card-icon"><svg class="icon lucide"><use href="#lucide-loader-circle"></use></svg></span><div><strong>正在整理交付记录</strong><span>读取此 run 的结算与证据投影</span></div><span class="bot-card-state is-waiting">loading</span></div><p class="bot-card-copy">不会自动 merge、commit 或 push。</p></article>`;
+    return `<article class="bot-card bot-settlement-card is-dynamic" data-bot-card="settlement" data-bot-card-source="settlement" data-run-id="${escapeHtml(runId)}" data-settlement-state="loading"><div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-loader-circle"></use></svg></span><div><strong>正在整理交付记录</strong><span>读取此 run 的结算与证据投影</span></div><span class="bot-card-state is-waiting">loading</span></div><p class="bot-card-copy">不会自动 merge、commit 或 push。</p></article>`;
   }
   if (view.status === "loading") {
-    return `<article class="bot-card bot-settlement-card is-dynamic" data-bot-card="settlement" data-bot-card-source="settlement" data-run-id="${escapeHtml(runId)}" data-settlement-state="loading"><div class="bot-card-head"><span class="bot-card-icon"><svg class="icon lucide"><use href="#lucide-loader-circle"></use></svg></span><div><strong>正在整理交付记录</strong><span>结算请求仍在进行</span></div><span class="bot-card-state is-waiting">loading</span></div></article>`;
+    return `<article class="bot-card bot-settlement-card is-dynamic" data-bot-card="settlement" data-bot-card-source="settlement" data-run-id="${escapeHtml(runId)}" data-settlement-state="loading"><div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-loader-circle"></use></svg></span><div><strong>正在整理交付记录</strong><span>结算请求仍在进行</span></div><span class="bot-card-state is-waiting">loading</span></div></article>`;
   }
   if (view.status === "error" || view.status === "invalid") {
     const invalid = view.status === "invalid";
-    return `<article class="bot-card bot-settlement-card is-dynamic is-error" data-bot-card="settlement" data-bot-card-source="settlement" data-run-id="${escapeHtml(runId)}" data-settlement-state="error"><div class="bot-card-head"><span class="bot-card-icon"><svg class="icon lucide"><use href="#lucide-circle-alert"></use></svg></span><div><strong>${invalid ? "交付记录未通过校验" : "交付记录暂时不可用"}</strong><span>${invalid ? "未经识别的数据不会渲染" : "这不代表没有产物"}</span></div><span class="bot-card-state is-error">${invalid ? "blocked" : "unavailable"}</span></div><p class="bot-card-copy">${escapeHtml(redact(String(view.error || (invalid ? "结算契约不完整" : "结算读取失败")).slice(0, 240)))}</p><div class="bot-card-actions bot-settlement-actions"><button class="bot-text-button" type="button" data-bot-settlement-retry="${escapeHtml(runId)}">重新读取结算</button></div></article>`;
+    return `<article class="bot-card bot-settlement-card is-dynamic is-error" data-bot-card="settlement" data-bot-card-source="settlement" data-run-id="${escapeHtml(runId)}" data-settlement-state="error"><div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-circle-alert"></use></svg></span><div><strong>${invalid ? "交付记录未通过校验" : "交付记录暂时不可用"}</strong><span>${invalid ? "未经识别的数据不会渲染" : "这不代表没有产物"}</span></div><span class="bot-card-state is-error">${invalid ? "blocked" : "unavailable"}</span></div><p class="bot-card-copy">${escapeHtml(redact(String(view.error || (invalid ? "结算契约不完整" : "结算读取失败")).slice(0, 240)))}</p><div class="bot-card-actions bot-settlement-actions"><button class="bot-text-button" type="button" data-bot-settlement-retry="${escapeHtml(runId)}">重新读取结算</button></div></article>`;
   }
   const envelope = view.data && typeof view.data === "object" ? view.data : null;
   if (!envelope || envelope.schema !== BOT_SETTLEMENT_SCHEMA) {
-    return `<article class="bot-card bot-settlement-card is-dynamic is-error" data-bot-card="settlement" data-bot-card-source="settlement" data-run-id="${escapeHtml(runId)}" data-settlement-state="invalid"><div class="bot-card-head"><span class="bot-card-icon"><svg class="icon lucide"><use href="#lucide-shield"></use></svg></span><div><strong>交付记录未通过校验</strong><span>控制面返回了未知结算契约</span></div><span class="bot-card-state is-error">blocked</span></div><p class="bot-card-copy">未渲染未经识别的产物数据。</p></article>`;
+    return `<article class="bot-card bot-settlement-card is-dynamic is-error" data-bot-card="settlement" data-bot-card-source="settlement" data-run-id="${escapeHtml(runId)}" data-settlement-state="invalid"><div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-shield"></use></svg></span><div><strong>交付记录未通过校验</strong><span>控制面返回了未知结算契约</span></div><span class="bot-card-state is-error">blocked</span></div><p class="bot-card-copy">未渲染未经识别的产物数据。</p></article>`;
   }
   const verdict = String(envelope.verdict || "unknown").toLowerCase();
   const verdictLabel = BOT_SETTLEMENT_VERDICT_LABELS[verdict] || "状态未知";
@@ -19482,7 +19698,7 @@ function botSettlementMarkup(run) {
     ? `<button class="bot-text-button" type="button" data-bot-settlement-diff="${escapeHtml(runId)}">查看产物 diff</button>`
     : "";
   return `<article class="bot-card bot-settlement-card is-dynamic is-${escapeHtml(botSettlementAvailabilityClass(verdict))}" data-bot-card="settlement" data-bot-card-source="settlement" data-run-id="${escapeHtml(runId)}" data-settlement-state="${settlementState}" data-settlement-verdict="${escapeHtml(verdict)}">
-    <div class="bot-card-head"><span class="bot-card-icon"><svg class="icon lucide"><use href="#lucide-git-branch"></use></svg></span><div><strong>${heading}</strong><span>run ${escapeHtml(runId)} · ${escapeHtml(verdictLabel)}</span></div><span class="bot-card-state ${verdict === "reviewable" ? "is-complete" : settlementState === "blocked" ? "is-error" : "is-waiting"}">${escapeHtml(verdict)}</span></div>
+    <div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-git-branch"></use></svg></span><div><strong>${heading}</strong><span>run ${escapeHtml(runId)} · ${escapeHtml(verdictLabel)}</span></div><span class="bot-card-state ${verdict === "reviewable" ? "is-complete" : settlementState === "blocked" ? "is-error" : "is-waiting"}">${escapeHtml(verdict)}</span></div>
     <p class="bot-card-copy">${escapeHtml(nextAction)}</p>
     <div class="bot-settlement-meta"><span>${escapeHtml(envelope.isolation || "unknown")}</span>${diffSummary ? `<span>${escapeHtml(diffSummary)}</span>` : ""}<span>自动落地关闭</span></div>
     ${risks.length ? `<ul class="bot-settlement-risks">${risks.map((risk) => `<li>${escapeHtml(redact(String(risk?.reason || risk?.id || "风险未知")).slice(0, 180))}</li>`).join("")}</ul>` : ""}
@@ -19743,7 +19959,9 @@ function botRenderConversationMessages(agentId, run, messages) {
   const typingHtml = !askHtml && lastKind === "user" && botRunPresentation(run)?.className === "is-running"
     ? `<div class="bot-message bot-message-agent" data-bot-typing="1">${botMessageAvatar(agentId)}<div><div class="bot-bubble bot-typing" role="status" aria-label="${escapeHtml(botMeta(agentId).label)} 正在输入"><i></i><i></i><i></i></div></div></div>`
     : "";
-  const html = `${messageHtml}${typingHtml}${askHtml}${approvalOutcomeHtml}${approvalHtml}${settlementHtml}`;
+  const pinnedApprovalHtml = botPinnedApprovalMarkup(run);
+  const artifactMountHtml = '<div class="bot-artifact-mount" data-artifact-mount></div>';
+  const html = `${pinnedApprovalHtml}${messageHtml}${typingHtml}${askHtml}${approvalOutcomeHtml}${approvalHtml}${settlementHtml}${artifactMountHtml}`;
   const conversationLabel = botState.activeGroupRunId && String(run?.id) === String(botState.activeGroupRunId)
     ? botGroupTitle(run)
     : botMeta(agentId).label;
@@ -19751,6 +19969,7 @@ function botRenderConversationMessages(agentId, run, messages) {
   const previousScroll = stream.scrollTop;
   const atBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 80;
   stream.innerHTML = renderedHtml;
+  artifactCard.mount(stream.querySelector("[data-artifact-mount]"));
   stream.setAttribute("aria-label", botState.activeGroupRunId ? `群聊 ${escapeHtml(conversationLabel)}` : `与 ${escapeHtml(conversationLabel)} 的对话`);
   stream.scrollTop = atBottom ? stream.scrollHeight : previousScroll;
   const storeKey = botConversationStoreKey(agentId);
@@ -19901,7 +20120,7 @@ function renderBotRunQueue(agentId = botState.agentId) {
     const prompt = String(run?.prompt || run?.title || (cleared ? "运行主体已清理" : "点击加载运行历史")).replace(/\s+/g, " ").trim();
     const preview = prompt.length > 96 ? `${prompt.slice(0, 96)}…` : prompt;
     return `<button class="bot-run-queue-item${runId === selectedRunId ? " is-current" : ""}" type="button" data-bot-action="open-run" data-bot-run-id="${escapeHtml(runId)}" data-bot-agent-id="${escapeHtml(String(agentId))}" aria-label="${cleared ? "运行已清理" : "打开运行"} ${escapeHtml(runId)}"${cleared ? " disabled" : ""}>
-      <span class="bot-run-queue-icon ${presentation.className}"><svg class="icon lucide"><use href="#lucide-${presentation.active ? "loader-circle" : presentation.className === "is-error" ? "circle-alert" : "check"}"></use></svg></span>
+      <span class="bot-run-queue-icon ${presentation.className}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-${presentation.active ? "loader-circle" : presentation.className === "is-error" ? "circle-alert" : "check"}"></use></svg></span>
       <span class="bot-run-queue-copy"><strong>${escapeHtml(preview || "未命名任务")}</strong><span>run ${escapeHtml(runId)}${relationLabel ? ` · ${relationLabel}` : ""}</span></span>
       <span class="bot-run-queue-state ${presentation.className}">${escapeHtml(presentation.text)}</span>
     </button>`;
@@ -19923,7 +20142,7 @@ function syncBotComposerMode() {
   button.classList.toggle("is-pending", interrupting);
   button.innerHTML = stopMode
     ? '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" /></svg>'
-    : '<svg class="icon lucide"><use href="#lucide-arrow-up"></use></svg>';
+    : '<svg aria-hidden="true" class="icon lucide"><use href="#lucide-arrow-up"></use></svg>';
   const label = interrupting
     ? "正在停止当前回复"
     : stopMode ? "停止当前回复并保留对话" : "发送消息";
@@ -21428,7 +21647,7 @@ function botArmFirstResponseClock() {
 }
 
 function botConnectorCardMarkup({ title = "连接器需要登录", detail = "未连接", action = "Authenticate" } = {}) {
-  return `<article class="bot-card bot-connector-card" data-bot-card="connector" data-bot-card-source="connector"><div class="bot-card-head"><span class="bot-card-icon"><svg class="icon lucide"><use href="#lucide-plug-zap"></use></svg></span><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div><span class="bot-card-state is-waiting">waiting for you</span></div><div class="bot-card-actions"><button class="bot-card-confirm" type="button" data-bot-action="connector-manage">${escapeHtml(action)}</button></div></article>`;
+  return `<article class="bot-card bot-connector-card" data-bot-card="connector" data-bot-card-source="connector"><div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-plug-zap"></use></svg></span><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div><span class="bot-card-state is-waiting">waiting for you</span></div><div class="bot-card-actions"><button class="bot-card-confirm" type="button" data-bot-action="connector-manage">${escapeHtml(action)}</button></div></article>`;
 }
 
 function botCloudComputerCardMarkup(state = "not-provisioned") {
@@ -21437,20 +21656,20 @@ function botCloudComputerCardMarkup(state = "not-provisioned") {
     "local-runtime": ["本机运行时", "终端 / 浏览器 / 文件证据来自本机"],
     "remote-attested": ["远端已回读", "仅在真实主机健康回读后交还控制权"],
   }[state] || ["电脑状态未知", "缺少运行态证据"];
-  return `<article class="bot-card bot-computer-card" data-bot-card="cloud-computer" data-bot-card-source="computer" data-computer-state="${escapeHtml(state)}"><div class="bot-card-head"><span class="bot-card-icon"><svg class="icon lucide"><use href="#lucide-monitor"></use></svg></span><div><strong>${escapeHtml(copy[0])}</strong><span>${escapeHtml(copy[1])}</span></div><span class="bot-card-state">${escapeHtml(state)}</span></div></article>`;
+  return `<article class="bot-card bot-computer-card" data-bot-card="cloud-computer" data-bot-card-source="computer" data-computer-state="${escapeHtml(state)}"><div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-monitor"></use></svg></span><div><strong>${escapeHtml(copy[0])}</strong><span>${escapeHtml(copy[1])}</span></div><span class="bot-card-state">${escapeHtml(state)}</span></div></article>`;
 }
 
 function botRoutineCardMarkup({ title = "例行任务", next = "未调度", enabled = false } = {}) {
-  return `<article class="bot-card bot-routine-card" data-bot-card="routine" data-bot-card-source="routine"><div class="bot-card-head"><span class="bot-card-icon"><svg class="icon lucide"><use href="#lucide-timer"></use></svg></span><div><strong>${escapeHtml(title)}</strong><span>下次运行 · ${escapeHtml(next)}</span></div><span class="bot-card-state">${enabled ? "running" : "queued"}</span></div></article>`;
+  return `<article class="bot-card bot-routine-card" data-bot-card="routine" data-bot-card-source="routine"><div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-timer"></use></svg></span><div><strong>${escapeHtml(title)}</strong><span>下次运行 · ${escapeHtml(next)}</span></div><span class="bot-card-state">${enabled ? "running" : "queued"}</span></div></article>`;
 }
 
 function botArtifactCardMarkup({ title = "产物", detail = "可打开证据", href = "" } = {}) {
   const link = href ? `<a class="bot-text-button" href="${escapeHtml(href)}">打开</a>` : "";
-  return `<article class="bot-card bot-artifact-card" data-bot-card="artifact" data-bot-card-source="artifact"><div class="bot-card-head"><span class="bot-card-icon"><svg class="icon lucide"><use href="#lucide-file-text"></use></svg></span><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div></div><div class="bot-card-actions">${link}</div></article>`;
+  return `<article class="bot-card bot-artifact-card" data-bot-card="artifact" data-bot-card-source="artifact"><div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-file-text"></use></svg></span><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div></div><div class="bot-card-actions">${link}</div></article>`;
 }
 
 function botAttentionCardMarkup({ title = "需要你决定", detail = "Ask / Answer / ACK", runId = "", askId = "" } = {}) {
-  return `<article class="bot-card bot-attention-card" data-bot-card="attention" data-bot-card-source="attention" data-run-id="${escapeHtml(runId)}" data-ask-id="${escapeHtml(askId)}"><div class="bot-card-head"><span class="bot-card-icon"><svg class="icon lucide"><use href="#lucide-circle-alert"></use></svg></span><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div><span class="bot-card-state is-waiting">waiting for you</span></div></article>`;
+  return `<article class="bot-card bot-attention-card" data-bot-card="attention" data-bot-card-source="attention" data-run-id="${escapeHtml(runId)}" data-ask-id="${escapeHtml(askId)}"><div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-circle-alert"></use></svg></span><div><strong>${escapeHtml(title)}</strong><span>${escapeHtml(detail)}</span></div><span class="bot-card-state is-waiting">waiting for you</span></div></article>`;
 }
 
 function botMentionContextKey(conversation = botActiveConversation()) {
@@ -22035,6 +22254,19 @@ function initBotShell() {
   byId("bot-surface-tabs")?.addEventListener("click", (event) => {
     const tab = event.target.closest("[data-bot-surface-tab]");
     if (tab) botActivateSurfaceTab(tab.dataset.botSurfaceTab, { focus: false });
+  });
+  // W1.5 composer 编排模式直选（radiogroup 语义）
+  byId("bot-orchestration-pick")?.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-orchestration-pick]");
+    if (!option) return;
+    const value = option.dataset.orchestrationPick === "social" ? "social" : "pipeline";
+    botState.orchestrationModePick = value;
+    byId("bot-orchestration-pick")?.querySelectorAll("[data-orchestration-pick]").forEach((button) => {
+      const active = button.dataset.orchestrationPick === value;
+      button.classList.toggle("is-active", active);
+      button.setAttribute("aria-checked", String(active));
+    });
+    toast(value === "social" ? "本次发送将进入社会模拟编排" : "本次发送按流水线执行", "info", 2600);
   });
   byId("bot-surface-tabs")?.addEventListener("keydown", (event) => {
     const tabs = [...byId("bot-surface-tabs").querySelectorAll("[data-bot-surface-tab]")];
@@ -23105,7 +23337,7 @@ function worktreeSettlementMarkup(run) {
 function runDiffPanelMarkup(run) {
   const view = state.runDiffView;
   if (!view || view.runId !== run.id) return "";
-  if (view.status === "loading") return `<div class="run-diff-panel" data-stream-key="tail:diff"><span class="subtle">正在读取工作树产物…</span></div>`;
+  if (view.status === "loading") return `<div class="run-diff-panel" data-stream-key="tail:diff">${skeleton({ variant: "list", rows: 2, label: "正在读取工作树产物" })}</div>`;
   if (view.status === "error") return `<div class="run-diff-panel is-error" data-stream-key="tail:diff"><span>产物 diff 读取失败：${escapeHtml(view.error)}</span></div>`;
   const { data } = view;
   const statusLines = String(data.status ?? "").trim();
@@ -23650,7 +23882,7 @@ function syncSubmitButtonMode() {
     // 停止态用实心方块（官方同款，16px 下一眼即「停止」）——circle-stop 描边小尺寸像 ⊙ 被误读
     button.innerHTML = stopMode
       ? '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" /></svg>'
-      : '<svg class="icon lucide"><use href="#lucide-arrow-up"></use></svg>';
+      : '<svg aria-hidden="true" class="icon lucide"><use href="#lucide-arrow-up"></use></svg>';
   }
   const label = stopMode ? "停止当前回复（保留会话、授权与工作树）" : "发起协作";
   button.title = label;
@@ -25596,6 +25828,15 @@ function renderTopology(run) {
 
 function renderWorkbenchEvents() {
   const run = selectedRun();
+  // W2.8 回放 scrubber：静态挂载点只 mount 一次，run 切换时按 id diff 拉取 /replay
+  if (!runReplayScrubberMounted) {
+    const replayMount = document.querySelector("[data-replay-mount]");
+    if (replayMount) {
+      runReplayScrubber.mount(replayMount);
+      runReplayScrubberMounted = true;
+    }
+  }
+  void runReplayScrubber.update(run?.id || null);
   // 选中 run 时合并磁盘回放历史（fetchRunEvents）——旧 run 的事件早已滚出 SSE 实时窗口，
   // 只吃 state.events 会让右栏空报"等待事件"（历史在磁盘上明明有）
   const historical = run ? [...historyEventsForRun(run.id)].reverse() : []; // 磁盘回放旧→新，时间线要新→旧
@@ -25707,8 +25948,8 @@ function renderSources() {
       const expanded = state.sourceGroupsExpanded.has(group.key) || items.some((item) => item.id === state.selectedSourceId);
       return `<section class="source-group${expanded ? " is-expanded" : ""}">
         <button class="source-group-header" type="button" data-source-group="${escapeHtml(group.key)}" aria-expanded="${expanded}">
-          <svg class="icon lucide source-group-chevron"><use href="#lucide-chevron-right"></use></svg>
-          <svg class="icon lucide"><use href="#lucide-${escapeHtml(group.icon)}"></use></svg>
+          <svg aria-hidden="true" class="icon lucide source-group-chevron"><use href="#lucide-chevron-right"></use></svg>
+          <svg aria-hidden="true" class="icon lucide"><use href="#lucide-${escapeHtml(group.icon)}"></use></svg>
           <span class="source-group-label">${escapeHtml(group.label)}</span>
           <span class="source-group-count">${items.length}</span>
         </button>
@@ -26633,10 +26874,12 @@ async function createRun(event) {
     return toast("原生命令需要在一个已有会话中执行（/resume 可切回最近会话）", "warning", 3600);
   }
   // v42 R2-03：默认 pipeline；/social 显式 opt-in；/pipeline 仍可强制流水线
-  const socialOptIn = /^\/social(?:\s+|$)/i.test(prompt);
+  // W1.5 composer 模式 picker：直选档位与 /social 前缀等效；显式 /pipeline 前缀恒赢过 picker。
+  const pipelineForced = /^\/pipeline\s+/i.test(prompt);
+  const pickMode = botState.orchestrationModePick === "social" && !pipelineForced ? "social" : "";
+  const socialOptIn = pickMode === "social" || /^\/social(?:\s+|$)/i.test(prompt);
   const botSocialOptIn = botSubmissionCandidate?.orchestrationMode === "social";
   const socialMode = socialOptIn || botSocialOptIn;
-  const pipelineForced = /^\/pipeline\s+/i.test(prompt);
   const effectivePrompt = socialMode
     ? prompt.replace(/^\/social\s*/i, "").trim()
     : pipelineForced
@@ -27764,7 +28007,7 @@ function renderDiagnostics() {
             </tr>`;
         })
         .join("")
-    : `<tr><td colspan="5" class="subtle">尚未执行端点诊断。</td></tr>`;
+    : `<tr><td colspan="5">${inlineEmpty("尚未执行端点诊断")}</td></tr>`;
 }
 
 function renderDiagnosticLog() {
@@ -29215,6 +29458,15 @@ function selectComposerTarget(agentId = null, { focusInput = true } = {}) {
   if (focusInput) elements["task-input"]?.focus({ preventScroll: true });
 }
 
+// picker 选人的统一出口：卡片点击与数字键直达共用，行为不漂移
+function pickComposerAgent(agentId) {
+  selectComposerTarget(agentId, { focusInput: false });
+  state.agentPickerOpen = false;
+  renderSelectedRun();
+  elements["task-input"]?.focus({ preventScroll: true });
+  toast(`直接发送给 ${agentLabel(agentId)}——已切换其 CLI 配置`, "success", 2600);
+}
+
 function keepActiveComposerTargetVisible(strip) {
   requestAnimationFrame(() => {
     if (!strip?.isConnected) return;
@@ -29404,6 +29656,20 @@ function bindEvents() {
     if (!row) return;
     event.preventDefault();
     selectRun(row.dataset.runSelect);
+  });
+  // 「发送给谁」picker 数字键直达：1-9 选第 n 张成员卡（卡片上的 kbd 角标同源渲染）。
+  // 编辑控件聚焦时不抢输入；带修饰键的组合不拦；上限 9 与可见提示门槛一致。
+  document.addEventListener("keydown", (event) => {
+    if (!state.agentPickerOpen || event.defaultPrevented) return;
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+    const target = event.target;
+    if (target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))) return;
+    const index = Number(event.key) - 1;
+    if (!Number.isInteger(index) || index < 0 || index > 8) return;
+    const card = elements["conversation-stream"]?.querySelectorAll("[data-pick-agent]")[index];
+    if (!card?.dataset.pickAgent) return;
+    event.preventDefault();
+    pickComposerAgent(card.dataset.pickAgent);
   });
 
   document.addEventListener("click", (event) => {
@@ -29798,12 +30064,7 @@ function bindEvents() {
     // agent 徽标选择器：选定直接收件人标签并联动 CLI 专属控制目录。
     const pickAgent = event.target.closest("[data-pick-agent]");
     if (pickAgent) {
-      const agentId = pickAgent.dataset.pickAgent;
-      selectComposerTarget(agentId, { focusInput: false });
-      state.agentPickerOpen = false;
-      renderSelectedRun();
-      elements["task-input"].focus({ preventScroll: true });
-      toast(`直接发送给 ${agentLabel(agentId)}——已切换其 CLI 配置`, "success", 2600);
+      pickComposerAgent(pickAgent.dataset.pickAgent);
     }
     const sessionLink = event.target.closest("[data-session-project][data-session-id]");
     if (sessionLink) void openSessionPreview(sessionLink.dataset.sessionProject, sessionLink.dataset.sessionId, sessionLink.dataset.sessionCli ?? "claude", sessionLink.dataset.sessionScope ?? "");
@@ -30642,6 +30903,15 @@ function bindEvents() {
   elements["obs-handoff-body"].addEventListener("click", (event) => {
     const row = event.target.closest("[data-handoff]");
     if (row) void openHandoff(row.dataset.handoff);
+  });
+  // W3.10 worktree 台账清理入口（台账内活跃路径才可清，服务端二次校验）
+  document.getElementById("obs-worktree-body")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-worktree-remove]");
+    if (!button) return;
+    const path = button.dataset.worktreeRemove;
+    if (confirm(`确认清理工作树？\n${path}\n该操作执行 git worktree remove --force，未提交改动将丢失。`)) {
+      void removeWorktree(path);
+    }
   });
   elements["copy-log-button"].addEventListener("click", async () => {
     try {
@@ -31591,7 +31861,11 @@ async function start() {
   try { state.composerCliOpen = localStorage.getItem(COMPOSER_CLI_OPEN_KEY) === "1"; } catch { state.composerCliOpen = false; }
   // 端口隔离克星：新壳启动时从服务端补齐缺失的外观键（本地已有值优先，网络失败静默）；
   // 补齐命中时会重放 initializeTheme，所以排在窗口控制初始化之后。
-  void hydratePreferencesFromServer();
+  // 壁纸 HEAD 对账串在水合结算之后跑：本地无壁纸键时它必须等待回填结果，
+  // 否则默认快照会抢位（v8.5 丢壁纸修复，见 reconcileGlobalWallpaperMedia）。
+  void hydratePreferencesFromServer().finally(() => {
+    void reconcileGlobalWallpaperMedia();
+  });
   bindEvents();
   // 活跃轮走时：只改 time 节点文本，不重绘会话流；submitted 期间没有中间 checkpoint，
   // 这是用户判断"还在跑"还是"已经停了"的唯一依据。
@@ -31804,6 +32078,12 @@ async function start() {
       onOpenHosts: () => setView("hosts"),
     });
   }
+  // W2.5 三套导航（侧栏/topbar/移动底栏）由 nav-config 单一真源生成，先于首屏 setView
+  renderNavigation();
+  // W3.11 用户宏清单进 palette（CRUD 后由对应操作重新拉取）
+  void request("/api/macros").then((payload) => {
+    state.customMacros = Array.isArray(payload?.macros) ? payload.macros : [];
+  }).catch(() => {});
   const initialRoute = parseForgeRoute();
   const initialMemberTarget = initialRoute.view === "config" && (
     initialRoute.configSurface === "capabilities" && initialRoute.memberId

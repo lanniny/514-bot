@@ -185,7 +185,8 @@ test("the send button becomes a stop key while the run is active and the input i
   assert.doesNotMatch(app.slice(app.indexOf("function runHasInterruptibleTurn"), app.indexOf("function syncSubmitButtonMode")), /recovery_required/);
   // 停止态实心方块（官方同款语义）；发送态还原 lucide 箭头
   assert.match(app, /<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" \/>/);
-  assert.match(app, /: '<svg class="icon lucide"><use href="#lucide-arrow-up"><\/use><\/svg>';/);
+  // UI-AUDIT P2-3：装饰图标统一补 aria-hidden（读屏不再念出未命名图形）
+  assert.match(app, /: '<svg aria-hidden="true" class="icon lucide"><use href="#lucide-arrow-up"><\/use><\/svg>';/);
   // 状态翻页链路：loadRuns 是 run.completed/failed 等纯状态事件的唯一通道，必须连会话视图一起刷
   assert.match(app, /renderOverview\(\);\s*\n\s*\/\/ 状态翻页必须连会话视图一起刷[\s\S]*?renderSelectedRun\(\);/);
   // 停止路径：只中断当前 provider turn，不撤销整场会话的 session/租约/工作树。
@@ -332,6 +333,30 @@ test("new-task picker uses catalog faces instead of ?? placeholders", async () =
   assert.match(constellation, /agentFaceMarkup\(id\)/);
   assert.doesNotMatch(constellation, /"\?\?"/);
   assert.match(app, /function refreshAvatarSurfaces\(\)[\s\S]{0,400}renderSelectedRun\(/);
+});
+
+// picker 可读性 + 键盘直达（2026-08-30 协作界面完善波）：
+// 卡片副行接成员真实职责、团队上下文可见、1-9 数字键与点击共用同一选人出口。
+test("new-task picker surfaces member roles, team context, and number-key direct pick", async () => {
+  const app = await readFile(resolve(publicRoot, "app.js"), "utf8");
+  const css = await readFile(resolve(publicRoot, "styles.css"), "utf8");
+
+  const picker = app.slice(app.indexOf("function agentPickRoleLine"), app.indexOf("const QUICK_TASK_TEMPLATES"));
+  assert.match(picker, /BOT_MEMBER_ROLE_LABELS\[storedRole\] \|\| storedRole/, "角色键必须经标签字典归一化后再上卡");
+  assert.match(picker, /团队 \$\{escapeHtml\(name\)\}/, "团队上下文（团队名 + 席位数）必须可见");
+  assert.match(picker, /agent-pick-key/, "数字键角标缺失则快捷键不可发现");
+
+  // 键盘直达只开在 picker 打开时，编辑控件聚焦不抢输入，且与点击共用 pickComposerAgent 出口
+  assert.match(app, /function pickComposerAgent\(/);
+  assert.match(app, /pickComposerAgent\(pickAgent\.dataset\.pickAgent\)/, "点击路径必须走统一出口");
+  const shortcut = app.slice(app.indexOf("picker 数字键直达"), app.indexOf("pickComposerAgent(card.dataset.pickAgent);"));
+  assert.ok(shortcut.length > 0 && shortcut.length < 2000, "数字键监听必须紧邻注释块，防止切片漂移");
+  assert.match(shortcut, /state\.agentPickerOpen/);
+  assert.match(shortcut, /isContentEditable|\["INPUT", "TEXTAREA", "SELECT"\]/, "编辑控件聚焦时不得拦截数字输入");
+
+  // 角标与上下文行的样式落点
+  assert.match(css, /\.agent-pick-key \{[^}]*position:\s*absolute/);
+  assert.match(css, /\.picker-team-meta \{/);
 });
 
 // LO 2026-08-20：@ 带自定义头像的协作者时，chip 里的 img 没有尺寸约束，

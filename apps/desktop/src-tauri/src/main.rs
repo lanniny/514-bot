@@ -357,6 +357,35 @@ fn kernel_stderr_log_path() -> PathBuf {
     boot_dir().join("kernel-stderr.log")
 }
 
+/// 启动反馈窗（splash）：内核握手前用户面前什么都没有（冷启 + 杀软扫描可能 10s+），
+/// 感官上就是"点了没反应"。壳一启动就展示极小的 frameless 占位窗（dist/index.html，
+/// frontendDist 内置资源，不依赖内核），主窗口 Live 后由 supervisor 关闭；
+/// 失败路径统一在 supervisor 收尾/ app.exit 时随应用销毁，不额外维护生命周期。
+fn show_splash_window(app: &AppHandle) {
+    let built = WebviewWindowBuilder::new(app, "splash", WebviewUrl::App("index.html".into()))
+        .title("514cc Console")
+        .decorations(false)
+        .resizable(false)
+        .inner_size(380.0, 220.0)
+        .center()
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .build();
+    match built {
+        Ok(_) => boot_log("splash window shown"),
+        Err(error) => boot_log(&format!("splash window failed (non-fatal): {error}")),
+    }
+}
+
+fn close_splash_window(app: &AppHandle) {
+    if let Some(splash) = app.get_webview_window("splash") {
+        if let Err(error) = splash.close() {
+            eprintln!("failed to close splash window: {error}");
+        }
+    }
+}
+
 fn show_fatal_error(title: &str, message: &str) {
     eprintln!("{title}: {message}");
     #[cfg(windows)]
@@ -364,7 +393,10 @@ fn show_fatal_error(title: &str, message: &str) {
         // GUI 子系统进程的 stderr 没人看；致命启动失败必须可见，否则就是"无声闪退"。
         use std::os::windows::ffi::OsStrExt;
         let wide = |s: &str| -> Vec<u16> {
-            std::ffi::OsStr::new(s).encode_wide().chain(Some(0)).collect()
+            std::ffi::OsStr::new(s)
+                .encode_wide()
+                .chain(Some(0))
+                .collect()
         };
         let text = wide(message);
         let caption = wide(title);
@@ -511,8 +543,8 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        activate_window, cancel_window_launch, parse_kernel_url, window_phase, KERNEL_PORT,
-        WindowLaunchPhase, WindowLaunchState,
+        activate_window, cancel_window_launch, parse_kernel_url, window_phase, WindowLaunchPhase,
+        WindowLaunchState, KERNEL_PORT,
     };
 
     #[test]
@@ -1089,7 +1121,9 @@ fn supervisor(
             c
         }
         Err(e) => {
-            boot_log(&format!("kernel spawn failed: {e}. Check node on PATH / CC_NODE / CC_ROOT."));
+            boot_log(&format!(
+                "kernel spawn failed: {e}. Check node on PATH / CC_NODE / CC_ROOT."
+            ));
             show_fatal_error(
                 "514cc Console 启动失败",
                 &format!(
@@ -1265,6 +1299,7 @@ fn supervisor(
             Ok(Event::WindowActivated(Ok(()))) => {
                 if window_phase(&window_launch_state) == WindowLaunchPhase::Live {
                     window_up = true;
+                    close_splash_window(&app); // 主窗口已可见：启动反馈窗退场
                 } else {
                     // EOF/ExitRequested 可在回执入队前覆盖 Live；对应事件仍会随后到达。
                     eprintln!("console window activation was superseded by cancellation");
@@ -1391,6 +1426,7 @@ fn supervisor(
         &window_launch_state,
         "failed to hide main window during supervisor cleanup",
     );
+    close_splash_window(&app); // 启动失败/超时/内核早夭路径：别让 splash 悬在桌面上
     kill_kernel_tree(&mut child);
     if !clean_shutdown {
         // 异常路径（启动失败/窗口失败/内核崩溃）：结束应用；正常关窗路径 app 已在退出中
@@ -1484,6 +1520,9 @@ fn main() {
             }
 
             let handle = app.handle().clone();
+            // 启动反馈先行：splash 必须早于 supervisor 线程建立，保证「主窗口 Live →
+            // 关 splash」时 splash 一定已存在（否则晚建的 splash 会悬在桌面上不退场）。
+            show_splash_window(app.handle());
             let rx = rx_for_setup
                 .lock()
                 .expect("rx slot lock poisoned at setup")

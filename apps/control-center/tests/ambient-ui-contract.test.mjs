@@ -474,6 +474,17 @@ test("壁纸调和玻璃 v2：--wall-tint 采样链 + 壁纸态有效令牌 + �
   assert.match(heal, /team-bg-active/, "自愈必须以已挂壁纸为跳过条件（用户主动关闭不触发）");
   assert.match(heal, /30_000/, "自愈必须 30s 节流（防失焦风暴反复重挂）");
 
+  // 契约 16b（壁纸韧性 v8.5）：LO「应用启动时自定义壁纸可能丢失」——HEAD 对账若早于
+  // 偏好水合完成，会在空 localStorage 上写出 {preset:"none",hasCustom:true} 默认快照：
+  // ①挡掉服务端 preset:"custom" 回填（水合只补缺失键）②被偏好双写 PUT 回服务端降级真源。
+  // 现契约：对账只对「已有本地偏好」做存在性修复，且串在水合结算之后，不在 replay 里跑。
+  const reconcileFn = extractTopLevelFn(app, "async function reconcileGlobalWallpaperMedia(");
+  assert.match(reconcileFn, /localStorage\.getItem\(GLOBAL_WALLPAPER_KEY\)/, "对账必须先查本地壁纸键");
+  assert.match(reconcileFn, /if \(!local \|\| readGlobalWallpaper\(\)\.hasCustom\) return;/, "本地无键（水合未发生/服务端无偏好）与已确认 hasCustom 都必须跳过对账");
+  const replayFn = extractTopLevelFn(app, "function replayAppearanceFromStorage(");
+  assert.doesNotMatch(replayFn, /reconcileGlobalWallpaperMedia/, "replay 不得触发对账（initializeTheme 与水合会各跑一次，必然抢在水合前写默认快照）");
+  assert.match(app, /hydratePreferencesFromServer\(\)\.finally\(\(\) => \{\s*void reconcileGlobalWallpaperMedia\(\);/, "对账必须串在水合结算之后（成功/失败都要跑，失败时保留旧键语义）");
+
   // 契约 15（流内残留实底清扫 v8）：成员直发气泡（bot-bubble --bot-panel 暖米实底）、
   // 会话页签条、governance/终态注记（amber-soft）、轮次胶囊——壁纸态统一玻璃化，
   // 注记保留识别色退薄纱；成员用户气泡与工作台用户便签同款高一档。
