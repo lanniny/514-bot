@@ -40,6 +40,7 @@ RECENT_DAYS = 7            # 路由门只看近 7 天
 # 与 stop-gate.FIRE_PREFIXES（含 synthesis__，管所有产物的 DELTA 纪律）有意不同口径，非疏漏。
 FIRE_PREFIXES = ("codex-to-", "gemini-to-", "grok-to-")  # 真·外部发火 handoff（grok-to-=织新驱动，gemini-to- 保留识别历史）
 STALE_FIRE_DAYS = 14      # 超此天数无真实外部发火 → 醒目告警
+STALE_CONTEXT_DAYS = 7    # context.md 超 7 天未收口 → 醒目告警
 DELTA_RE = re.compile(r"^__DELTA__:")
 
 
@@ -123,6 +124,19 @@ def days_since_last_fire(aishared: Path):
     if newest is None:
         return None
     return int((datetime.now().timestamp() - newest) / 86400)
+
+
+def context_stale_days(aishared: Path):
+    """W0.2 记忆新鲜度：context.md 最后修改距今天数；文件缺失返回 None。
+    动机：context.md 曾过期 8~11 天而全体 agent 仍按纪律先读它——软纪律下沉为机械告警。
+    口径用 mtime（文件被真实收口才会更新），阈值 STALE_CONTEXT_DAYS=7。"""
+    ctx = aishared / "context.md"
+    if not ctx.is_file():
+        return None
+    try:
+        return int((datetime.now().timestamp() - ctx.stat().st_mtime) / 86400)
+    except Exception:
+        return None
 
 
 def check_drift():
@@ -217,6 +231,17 @@ def build_card(aishared: Path, soul_state: str = "unverifiable", soul_msg: str =
         fire = f"{fire_days} 天"
         idling = False
 
+    # 记忆新鲜度行（W0.2）：context.md 是全体 agent 的第一读取，过期即全局误判源
+    ctx_days = context_stale_days(aishared)
+    if ctx_days is None:
+        ctx_line = "⚠️ context.md 缺失"
+        idling = True
+    elif ctx_days >= STALE_CONTEXT_DAYS:
+        ctx_line = f"{ctx_days} 天未收口 ⚠️ 超 {STALE_CONTEXT_DAYS}d（先收口再开工）"
+        idling = True
+    else:
+        ctx_line = f"{ctx_days} 天 ✓"
+
     # 双地落哨兵行（三态：一致/漂移/无法核验——核验失败绝不渲染成"一致"，烛 dogfood 致命修复）
     try:
         _sync = str(Path(__file__).resolve().parents[2] / "scripts" / "sync-runtime.ps1")
@@ -249,6 +274,7 @@ def build_card(aishared: Path, soul_state: str = "unverifiable", soul_msg: str =
         f"· 路由门(近{RECENT_DAYS}d)：{rg}\n"
         f"· DELTA 账本：{n_delta} 条\n"
         f"· 距上次真实外部发火(烛/织)：{fire}\n"
+        f"· 记忆新鲜度(context.md)：{ctx_line}\n"
         f"· 双地落哨兵(宪法/人格)：{drift_line}\n"
         f"· SOUL 哨兵(全局)：{soul_line}"
         f"{verdict}\n"

@@ -1,5 +1,5 @@
 {
-  "count": 141,
+  "count": 142,
   "icons": [
     "activity",
     "archive",
@@ -8,6 +8,7 @@
     "arrow-right",
     "arrow-up",
     "arrow-up-right",
+    "bell",
     "book-open",
     "bot",
     "box",
@@ -92,7 +93,6 @@
     "panel-left",
     "panel-right",
     "paperclip",
-    "pause",
     "pencil",
     "pin",
     "play",
@@ -114,6 +114,7 @@
     "server",
     "settings",
     "shield",
+    "shield-alert",
     "shield-check",
     "shopping-bag",
     "sparkles",

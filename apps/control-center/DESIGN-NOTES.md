@@ -15,6 +15,12 @@ Console 是 LO 的多 agent 体系的指挥甲板——洛琪希（水王魔术�
 - **琥珀**：#F0B429 只用于 warning，罕见。
 - **字**：Segoe UI Variable（显示/正文）+ **Cascadia Code**（数据/mono 签名脸——终端母语=体系世界的原生话语）。
 
+### Token 单一真源（2026-08-30 W2.1 归并后）
+- **唯一真源 = `forge/tokens.css`**：Forge OKLCH 主段 + Legacy bridge 段（styles.css 旧变量族的唯一颜色定义处，亮/暗两套齐备）。
+- **`styles.css` 头部 :root 只允许布局尺寸与字体栈**（--activity-width/--sidebar-width/--mono/--sans 等），**禁止再定义任何颜色/阴影/圆角/语义别名令牌**——旧"styles 定义→forge 后加载覆盖"的双源模式已拆除，写进 styles.css 的颜色从此真的会生效，没有安全网。
+- 新增颜色语义一律进 tokens.css（亮/暗两段都要给值），组件侧只消费 var()。
+- 工程预算（W2.2）：**新代码只进 `public/modules/`**；`app.js` 只减不增（v4.0 波次已按此执行：closeout/artifact/notifications 均为独立模块）。
+
 ## 签名元素
 - 指标卡→**仪表读数**：mono 巨号数值 + 顶部玫瑰光线 + 玫瑰 mono 标签。
 - 组件健康→**舰队花名册**：agent 带状态光晕（aqua glow=online / 玫瑰脉冲=active / 暗=offline）。

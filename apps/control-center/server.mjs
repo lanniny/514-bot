@@ -1353,6 +1353,8 @@ async function api(request, response, url) {
         commandIds: payload?.commandIds ?? null,
         // Client input is only an expectation. The runner always reads server HEAD itself.
         expectedSourceCommit: typeof payload?.sourceCommit === "string" ? payload.sourceCommit : null,
+        // W1.1 一键收口：策略开关可由客户端选择，命令目录与判定仍固定在服务端。
+        stopOnFailure: payload?.stopOnFailure === true,
       });
       return json(response, 200, {
         ...result,

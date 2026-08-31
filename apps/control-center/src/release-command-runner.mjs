@@ -147,7 +147,7 @@ export function createReleaseCommandRunner({
     }]));
   }
 
-  async function executeAttempt({ attempt, expectedSourceCommit, requested, controller }) {
+  async function executeAttempt({ attempt, expectedSourceCommit, requested, controller, stopOnFailure }) {
     const { signal } = controller;
     const runtimeIdentity = await collectRuntime();
     if (!runtimeIdentity) {
@@ -243,6 +243,28 @@ export function createReleaseCommandRunner({
       }
       executed.push([id, outcome]);
       active.progress.push({ id, status: outcome.status, exitCode: outcome.exitCode, durationMs: outcome.durationMs });
+      // 一键收口语义（W1.1）：stopOnFailure=true 时首个未通过命令即停，剩余命令记 skipped。
+      // 策略由服务端固定解释——客户端只能开关该策略，不能改命令目录或判定标准。
+      if (stopOnFailure && outcome.status !== "passed") {
+        for (const restId of requested.slice(executed.length)) {
+          active.progress.push({ id: restId, status: "skipped", exitCode: null, durationMs: 0 });
+          executed.push([restId, {
+            status: "skipped",
+            exitCode: null,
+            durationMs: 0,
+            sourceCommit: evidenceCommit,
+            diffDigest: initialWorkspace.diffDigest,
+            workspaceClean: true,
+            checkedAt: now(),
+            runId: attempt.runId,
+            runtimePid: runtimeIdentity.pid,
+            runtimeGeneration: runtimeIdentity.generation,
+            runtimeStartedAt: runtimeIdentity.startedAt,
+            note: `skipped: stop-on-failure after "${id}" ${outcome.status}`,
+          }]);
+        }
+        break;
+      }
     }
 
     let evidence = Object.fromEntries(executed);
@@ -273,7 +295,8 @@ export function createReleaseCommandRunner({
     };
   }
 
-  async function run({ commandIds = null, sourceCommit = null, expectedSourceCommit = sourceCommit } = {}) {
+  async function run(opts = {}) {
+    const { commandIds = null, sourceCommit = null, expectedSourceCommit = sourceCommit } = opts;
     const requested = normalizeCommandIds(commandIds);
     if (closed) throw runnerError("RELEASE_RUNNER_CLOSED", "release command runner is closed");
     if (active) {
@@ -291,7 +314,13 @@ export function createReleaseCommandRunner({
     const controller = new AbortController();
     active = { ...attempt, current: null, progress: [] };
     activeController = controller;
-    const pending = executeAttempt({ attempt, expectedSourceCommit: expected, requested, controller });
+    const pending = executeAttempt({
+      attempt,
+      expectedSourceCommit: expected,
+      requested,
+      controller,
+      stopOnFailure: opts.stopOnFailure === true,
+    });
     activePromise = pending;
     try {
       return await pending;

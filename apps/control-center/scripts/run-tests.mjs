@@ -1,9 +1,43 @@
 import { spawn } from "node:child_process";
+import { readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { defaultKillTree } from "../src/child-registry.mjs";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 const sqliteFlag = "--experimental-sqlite";
+
+/**
+ * W0.5 测试残留自清：tests/*.mjs 大量使用 `mkdtemp(resolve(appRoot, ".test-<name>-"))`
+ * 且无收尾，残留曾积累 4370 个目录。此处提供统一清扫（仅在测试进程树确认关闭后调用，
+ * 保证不删到仍在使用的目录），并暴露 CLI 入口：`node scripts/run-tests.mjs --clean-only`。
+ */
+export function sweepTestResidue(root = appRoot) {
+  let removed = 0;
+  let skipped = 0;
+  let entries;
+  try {
+    entries = readdirSync(root);
+  } catch {
+    return { removed, skipped };
+  }
+  for (const name of entries) {
+    if (!name.startsWith(".test-")) continue;
+    try {
+      rmSync(path.join(root, name), { recursive: true, force: true });
+      removed += 1;
+    } catch {
+      skipped += 1; // Windows EBUSY/EPERM（句柄未释放等）：跳过不阻断
+    }
+  }
+  return { removed, skipped };
+}
+
+if (process.argv.includes("--clean-only")) {
+  const { removed, skipped } = sweepTestResidue();
+  process.stdout.write(`clean-exit:swept=${removed} skipped=${skipped}\n`);
+  process.exit(0);
+}
 
 /**
  * P0-10：测试启动器从「只转发退出码」升级为「clean-exit gate」。
@@ -95,6 +129,10 @@ const hangTimer = setTimeout(async () => {
     ]);
   }
   report("reap", killTreeSucceeded || closeObserved);
+  if (killTreeSucceeded || closeObserved) {
+    const { removed, skipped } = sweepTestResidue();
+    process.stdout.write(`clean-exit:swept=${removed} skipped=${skipped}\n`);
+  }
 }, timeoutMs);
 
 child.once("close", (code, signal) => {
@@ -120,4 +158,6 @@ child.once("close", (code, signal) => {
   }
   report("childexit", true);
   process.exitCode = 0;
+  const { removed, skipped } = sweepTestResidue();
+  process.stdout.write(`clean-exit:swept=${removed} skipped=${skipped}\n`);
 });

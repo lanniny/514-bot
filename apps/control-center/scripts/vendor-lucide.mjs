@@ -8,7 +8,7 @@ const dir = join(root, "node_modules/lucide/dist/esm/icons");
 // Forge 全量清单：与 public/lucide-icons.json 的 manifest 保持一致；
 // 上游 stop-circle 已更名 circle-stop（不要再加回 stop-circle）。
 const names = [
-  "activity", "archive", "arrow-down", "arrow-left", "arrow-right", "arrow-up", "arrow-up-right", "book-open", "bot", "box", "boxes",
+  "activity", "archive", "arrow-down", "arrow-left", "arrow-right", "arrow-up", "arrow-up-right", "bell", "book-open", "bot", "box", "boxes",
   "brain", "brush", "camera", "chart-column", "check", "chevron-down", "chevron-right", "circle-alert", "circle-check",
   "circle-dot", "circle-pause", "circle-play", "circle-stop", "clipboard-list", "cloud", "cloud-download", "cloud-upload",
   "code", "command", "compass", "copy", "corner-down-left", "cpu", "database", "diamond", "download", "ellipsis", "external-link", "image",
@@ -20,7 +20,7 @@ const names = [
   "log-in", "log-out", "message-circle", "message-square", "messages-square", "mic", "minus", "monitor", "moon", "network", "orbit", "package",
   "package-plus", "palette", "panel-left", "panel-right", "paperclip", "pencil", "pin", "play", "plug-zap", "plus", "puzzle",
   "radar", "refresh-ccw", "refresh-cw", "repeat", "rocket", "rotate-ccw", "route", "satellite-dish", "save",
-  "scan-search", "search", "send", "server", "settings", "shield", "shield-check", "shopping-bag", "sparkles",
+  "scan-search", "search", "send", "server", "settings", "shield", "shield-alert", "shield-check", "shopping-bag", "sparkles",
   "square", "square-terminal", "star", "store", "sun", "telescope", "terminal", "timer", "trash-2",
   "triangle-alert", "type", "unplug", "upload", "user-minus", "user-round", "users", "wallet", "wand-sparkles", "waves", "waypoints",
   "webhook", "workflow", "wrench", "x", "zap",

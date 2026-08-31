@@ -6,6 +6,29 @@
 
 ---
 
+## 2026-08-30 — v4.0.0 Forge 设计体系 + 多 CLI 协作 Console + 交付闸门 + Bot 入口（正式发布）
+
+- **状态**：正式 framework version **v4.0.0**（rules.md §八 / module.yaml 同步）。由 2026-07-25 起的 v4.0 未发布波次 + v42 交付体系 + v43 Bot 重塑 + 2026-08-30 治理收口升格而来。**partial 项如实标注**，不构成 GitHub Release 或正式实例激活。
+- 触发源：LO 批准《514cc Console 完善 + 拓展总计划》Wave 0.4（版本升格拍板）
+- 源：`D-2026-08-30-*`（decisions.md）+ `.ai-shared/context.md` 各波次记录
+
+### 变更
+
+- **Forge 设计系统**：24 CSS 分层（tokens/motion/primitives + 每视图一皮），OKLCH 令牌、暗夜玫瑰/暖墨双主题（`[data-theme]` 仅翻令牌零组件改动）、Lucide 图标零 emoji、`prefers-reduced-motion` 全量遵守、CSP `script-src 'self'` 零 CDN。源：`apps/control-center/public/forge/README.md`。
+- **Console 多 CLI 协作面**：9 CLI adapter（claude/codex/grok/kimi/gemini/droid/qwen/opencode/copilot）、团队工作区（团队→项目→会话层级树）、多源会话聚合（Claude/Codex 归并、子代理区分、30 天 declutter 三开关）、审批 broker（fail-closed）、bus 消息驱动社会模拟（`[[msg]]`/`[[memo]]`/ask-answer 挂起）、automations、市场、SSH/PTY/Office/Channels、配置图谱 v42 回退闭环、模型/档位动态发现。
+- **桌面壳**：Tauri 2 薄壳（cc-desktop.exe，进程生命周期+托盘+深链+轻量模式），updater 显式禁用（无签名端点，`disabled_no_signed_514cc_release_endpoint`）。
+- **v42 交付闸门体系（R0-R3）**：`promptTransport/v1` 中文主路径、`releaseTruth/v1` 证据分级（server-observed 须绑定 pid+generation+HEAD+diffDigest）、`release-record`/`settlement` 合成、QA runner 固定命令目录无 shell、全链 fail-closed。**partial**：R3-01 formal release 未从确定提交正式执行，formalRelease=false。
+- **v43 Bot 入口**：Bot Shell 成默认入口（`D-2026-08-22-002`），审批卡/提问卡/结算卡/窗口 chrome/成员席位/群聊联系人/附件全套。
+- **2026-08-30 治理收口**：Git 证据链重建（对账 `origin/main`，`2b1892c` 快照可达）；`.githooks/pre-commit` 密钥闸门 + `scripts/secret-audit.mjs` 历史盘点；`egress-guard.mjs` SSRF 白名单；event-store 追加式哈希链；`sanitizeForPersistence` 结构化健壮性修复；handoff 归档自动化（`scripts/archive-handoff.mjs`，118 项已归档）；mirror-gate 记忆新鲜度哨兵；测试残留自清（`run-tests.mjs` sweepTestResidue，4377 项清扫）。
+- **已知风险（不入版本传播口径）**：公开仓库历史含 1 个真实代理 token（`P0-2026-08-30`，须先轮换再推送清理提交）；正式实例发布顺序未完成，R3-01 保持 partial。
+
+### 回退路径
+
+- 版本：rules.md §八 / module.yaml version 回 `3.5.0`，删除本条目（历史波次条目仍在，不丢失）。
+- 治理件：`.githooks`（`git config --unset core.hooksPath`）、egress-guard/哈希链/secret-audit 按 `D-2026-08-30-*` 各条回退说明。
+
+---
+
 ## 2026-07-17 — v3.5.0 深度对话协作 + 模型优势路由 v2 + Console 接电
 
 - 触发源：LO "深度完善这个 ai agent 智能体系"六点要求（①Claude↔Codex 对话协作 ②深度自定义 ③全配置前端 ④参考 AionUI/codeg/LiveAgent/pi/Codex 桌面端 ⑤多 agent 体系 ⑥按模型优势派活）+ ultracode 授权
@@ -35,7 +58,7 @@
 
 ## 2026-07-25 — v4.0 深度整合 codeg + LiveAgent + 多 CLI 协作可视化（未发布波次·工作记录）
 
-- **状态**：未发布功能波次（in-flight）。正式 framework version 仍为 **v3.5.0**（rules.md §八）；本条目仅为波次工作记录，正式发布时再升格为 `v4.0.0` 正式条目并置顶
+- **状态**：~~未发布功能波次（in-flight）~~ → **已于 2026-08-30 升格为 v4.0.0 正式条目并置顶**（见顶部）。本条目保留为波次工作记录
 - 触发源：LO "深度完善本作品系统"四点要求（①集成 codeg+LiveAgent 全部功能并加强 ②多 CLI 协作团队系统深度集成 ③创新 ④前端美化）
 - 方法：并行调研 codeg（2.4k star）+ LiveAgent（1.4k star）源码 + 514cc 现状审计 → 综合整合方案
 

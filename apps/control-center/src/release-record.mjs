@@ -18,6 +18,7 @@ export const RELEASE_COMMAND_STATUSES = Object.freeze([
   "unknown",
   "partial",
   "blocked",
+  "skipped",
 ]);
 export const RELEASE_GATE_VERDICTS = Object.freeze(["unknown", "blocked", "partial", "ready"]);
 export const RELEASE_COMMAND_PROVENANCE = Object.freeze(["operator-attested", "server-observed"]);
@@ -276,7 +277,9 @@ export function collectUnfinishedItems({
       status: command.status === "failed" ? "blocked" : "partial",
       reason: command.status === "failed"
         ? `${command.label} 失败 exit=${command.exitCode ?? "unknown"}`
-        : command.status === "passed" && command.matchesSource && command.evidenceTrust !== "independent"
+        : command.status === "skipped"
+          ? `${command.label} 被收口策略跳过（前一命令未通过），需全链重跑`
+          : command.status === "passed" && command.matchesSource && command.evidenceTrust !== "independent"
           ? `${command.label} 仅有操作者自述，缺少服务端独立观测证据`
         : command.status === "passed" && command.matchesSource && command.matchesWorkspace !== true
           ? `${command.label} 证据未绑定当前干净工作树`

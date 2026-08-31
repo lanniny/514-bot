@@ -148,8 +148,9 @@
 }
 
 /* ==========================================================================
-   Legacy bridge — styles.css 旧变量族的人性化换血（tokens.css 后加载，
-   同特 :root 覆盖赢；styles.css 一万行零改动，全部旧引用自动转暖）。
+   Legacy bridge — styles.css 旧变量族的唯一真源（W2.1 token 归并后 styles.css
+   不再定义任何颜色/阴影/圆角/语义别名令牌，全部收敛到本段；styles.css 仅留
+   布局尺寸与字体栈）。同名变量此前靠"后加载覆盖"双源并存，现已单源。
    ========================================================================== */
 
 :root {
@@ -183,6 +184,39 @@
   --sidebar: #f4f1ea;
   --sidebar-hover: #ece8de;
   --sidebar-active: #e4dfd2;
+
+  /* —— W2.1 自 styles.css 收编的多类语义色 —— */
+  --red-fill: #b3261e;
+  --aqua: #067562;
+  --aqua-soft: rgba(6, 117, 98, 0.1);
+  --aqua-glow: rgba(6, 117, 98, 0.18);
+  --blue: #365fcf;
+  --blue-soft: rgba(54, 95, 207, 0.1);
+  --green: #067562;
+  --green-soft: rgba(6, 117, 98, 0.1);
+  --amber: #8a5b00;
+  --amber-soft: rgba(138, 91, 0, 0.11);
+  --red: #b3261e;
+  --red-soft: rgba(179, 38, 30, 0.1);
+  --violet: #6f4ab3;
+  --violet-soft: rgba(111, 74, 179, 0.1);
+
+  /* —— W2.1 收编：局部阴影/圆角（--radius 真源在上文 Forge scale，此处不重复） —— */
+  --shadow-low: 0 1px 2px rgba(24, 29, 37, 0.08);
+  --shadow-menu: 0 16px 40px rgba(24, 29, 37, 0.18), 0 0 0 1px var(--border);
+  --radius-card: 8px;
+  --radius-small: 5px;
+
+  /* —— W2.1 收编：语义别名（派生自上文真源，保持旧引用兼容） —— */
+  --border-subtle: var(--border);
+  --text-primary: var(--text);
+  --text-secondary: var(--text-soft);
+  --surface-raised: var(--surface);
+  --surface-hover: var(--surface-muted);
+  --surface-sunken: var(--surface-muted);
+  --accent: var(--rose);
+  --accent-soft: var(--rose-soft);
+  --font-mono: var(--mono);
 }
 
 [data-theme="dark"] {
@@ -214,4 +248,21 @@
   --sidebar: #17140f;
   --sidebar-hover: #221e17;
   --sidebar-active: #2c2820;
+
+  /* —— W2.1 自 styles.css 暗色块收编 —— */
+  --aqua: #55c6aa;
+  --aqua-soft: rgba(85, 198, 170, 0.13);
+  --aqua-glow: rgba(85, 198, 170, 0.2);
+  --blue: #8ba6ff;
+  --blue-soft: rgba(139, 166, 255, 0.14);
+  --green: #55c6aa;
+  --green-soft: rgba(85, 198, 170, 0.13);
+  --amber: #e0a84d;
+  --amber-soft: rgba(224, 168, 77, 0.14);
+  --red: #ff8379;
+  --red-soft: rgba(255, 131, 121, 0.13);
+  --violet: #c5a0ff;
+  --violet-soft: rgba(197, 160, 255, 0.14);
+  --shadow-low: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-menu: 0 12px 36px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border);
 }

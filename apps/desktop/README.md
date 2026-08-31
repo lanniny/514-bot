@@ -48,11 +48,13 @@ cargo test
 cargo check
 ```
 
-## Phase 2+ 路线（视 LO 优先级）
+## Phase 2 落地状态（2026-08-30 核对）
 
-1. **会话聚合面板**（codeg 思路）：解析 `~/.claude/projects/*.jsonl`、`~/.codex/sessions`、`.ai-shared/roster.json`，Console 里统一看三家 CLI 的历史会话与对话桥线程。
-2. **派工台**：从 Console 直接派活给 Codex（对话桥）/ Grok Build（headless -p），审批经现有 approval-broker。
-3. **Settings 分域全配置**（LiveAgent 蓝本）：providers/agents/hooks/customize TOML/output-style 分域编辑，接 config validate→plan→apply→rollback 管线。
-4. **原生通知**：审批请求 / 长任务完成（发火收尾）走系统通知。
-5. **仪表盘接 .ai-shared 数据源**：route-gate.log / DELTA 账本 / handoff / 双地落漂移（v35 设计文档 §五 P1 项）。
-6. **打包分发**：bundle.active=true 出安装包（当前 dev 形态直接跑 exe 即可）。
+1. ~~**会话聚合面板**~~ → **已落地**：Console 已聚合 13 源会话（Claude/Codex/Cursor/Kimi/Pi/bridge/Grok/OpenCode/Cline/OpenClaw/Hermes/CodeBuddy/Gemini），项目树统一呈现。
+2. ~~**派工台**~~ → **已落地**：Bot Shell 默认入口 + 9 CLI adapter + approval-broker（fail-closed）+ 审批钉顶/Y·N 快捷裁决。
+3. ~~**Settings 分域全配置**~~ → **已落地**：配置图谱 v42（validate→plan→apply→rollback 闭环）+ 远端配置编辑/同步面。
+4. **原生通知**：审批请求 / 长任务完成走系统通知——**待实施**（完善总计划 W2.4）。
+5. ~~**仪表盘接 .ai-shared 数据源**~~ → **已落地**：体系观测页（handoff 浏览/DELTA 时间线/route-gate 日志）+ bot 流 Artifact 出卡。
+6. **打包分发**：未落地——bundle 保持 dev 形态直接跑 exe；依赖 W3.16 签名更新链（minisign + 静态端点）先行。
+
+## Phase 3 候选（原 Phase 2+ 未尽项）

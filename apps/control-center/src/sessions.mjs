@@ -552,7 +552,8 @@ export class SessionAggregator {
   async list({ limitPerSource = 25, includeSummaries = false } = {}) {
     const normalizedLimit = Math.max(1, Math.min(100, Math.floor(Number(limitPerSource) || 25)));
     // v4.0 codeg 对标扩源：原 7 源 + 新增 5 源 = 12 源（与 codeg 的 12 源对齐）
-    const [claude, codex, cursor, kimi, pi, bridge, grok, opencode, cline, openclaw, hermes, codebuddy] = await Promise.all([
+    // W1.6：+ Gemini CLI（~/.gemini/tmp 实证结构）= 13 源
+    const [claude, codex, cursor, kimi, pi, bridge, grok, opencode, cline, openclaw, hermes, codebuddy, gemini] = await Promise.all([
       this.#claudeSessions(normalizedLimit, includeSummaries),
       this.#codexSessions(normalizedLimit, includeSummaries),
       this.#treeBackedSessions({
@@ -584,8 +585,10 @@ export class SessionAggregator {
       this.#openclawSessions(normalizedLimit),
       this.#hermesSessions(normalizedLimit),
       this.#codebuddySessions(normalizedLimit),
+      // W1.6：Gemini CLI（~/.gemini/tmp/<project>/chats/session-*.json）
+      this.#geminiSessions(normalizedLimit, includeSummaries),
     ]);
-    return { includeSummaries, sources: [claude, codex, cursor, kimi, pi, bridge, grok, opencode, cline, openclaw, hermes, codebuddy] };
+    return { includeSummaries, sources: [claude, codex, cursor, kimi, pi, bridge, grok, opencode, cline, openclaw, hermes, codebuddy, gemini] };
   }
 
   // 协作台左栏「项目树」数据：Claude Code 会话按项目分组，项目下挂历史对话。
@@ -1818,6 +1821,89 @@ export class SessionAggregator {
       }
     }
     source.error = "no known session directory";
+    return source;
+  }
+
+  // W1.6 Gemini CLI 会话（2026-08-30 本机实证）：
+  // ~/.gemini/tmp/<project>/chats/session-*.json——<project> 为明文 cwd 名或 64-hex sha256 哈希；
+  // 明文/短哈希目录带 .project_root（首行 = cwd）；session json 头部字段
+  // { sessionId, projectHash, startTime, lastUpdated, messages[{id,timestamp,type,content}] }。
+  // 哈希目录无法逆映射 cwd——scope 如实标注为 "hash:<dir>" 或附 .project_root，不伪造路径。
+  async #geminiSessions(limit, includeSummaries) {
+    const source = { source: "gemini", label: "Gemini CLI", available: false, sessionCount: 0, sessions: [] };
+    const tmpRoot = join(this.home, ".gemini", "tmp");
+    const GEMINI_PARSE_LIMIT = 2 * 1024 * 1024; // >2MB 不解析内容，只用文件名时间戳（避免整文件 JSON 巨读）
+    try {
+      const realTmp = await realpath(tmpRoot);
+      const projects = await readdir(tmpRoot, { withFileTypes: true });
+      source.available = true;
+      const collected = [];
+      await mapConcurrent(projects.filter((entry) => entry.isDirectory()), 4, async (project) => {
+        const projectDir = join(tmpRoot, project.name);
+        // 限根同 claude/codex 纪律：逃逸 symlink 不列出、不读取
+        let realProjectDir;
+        try {
+          realProjectDir = await realpath(projectDir);
+        } catch {
+          return;
+        }
+        if (!realProjectDir.startsWith(realTmp + sep)) return;
+        // cwd 还原：.project_root 存在且真实位于本目录内才读（首行即 cwd）
+        let cwd = null;
+        try {
+          const prPath = join(projectDir, ".project_root");
+          const prReal = await realpath(prPath);
+          if (prReal === join(realProjectDir, ".project_root")) {
+            cwd = (await readFile(prPath, "utf8")).split(/\r?\n/)[0].trim() || null;
+          }
+        } catch {
+          cwd = null; // 无映射如实置 null，不猜
+        }
+        const scope = cwd || (/^[0-9a-f]{64}$/.test(project.name) ? `hash:${project.name}` : project.name);
+        const chatsDir = join(projectDir, "chats");
+        let names;
+        try {
+          names = await readdir(chatsDir);
+        } catch {
+          return;
+        }
+        for (const name of names.filter((item) => /^session-.*\.json$/.test(item))) {
+          try {
+            const filePath = join(chatsDir, name);
+            const [info, real] = await Promise.all([stat(filePath), realpath(filePath)]);
+            if (!info.isFile() || !real.startsWith(realProjectDir + sep)) continue;
+            let id = name.replace(/\.json$/, "");
+            let summary = null;
+            if (info.size <= GEMINI_PARSE_LIMIT) {
+              try {
+                const parsed = JSON.parse(await readFile(real, "utf8"));
+                if (typeof parsed.sessionId === "string" && parsed.sessionId) id = parsed.sessionId;
+                if (includeSummaries && Array.isArray(parsed.messages)) {
+                  const firstUser = parsed.messages.find((message) => message?.type === "user" && typeof message.content === "string" && message.content.trim());
+                  if (firstUser) summary = scrub(firstUser.content.trim().slice(0, 200));
+                }
+              } catch {
+                // 解析失败退回文件名 id——如实降级，不伪造
+              }
+            }
+            collected.push({
+              id,
+              scope,
+              summary,
+              size: info.size,
+              modifiedAt: new Date(info.mtimeMs).toISOString(),
+            });
+          } catch {
+            // 跳过瞬时消失文件
+          }
+        }
+      });
+      collected.sort((a, b) => (a.modifiedAt < b.modifiedAt ? 1 : -1));
+      source.sessionCount = collected.length;
+      source.sessions = collected.slice(0, limit);
+    } catch (error) {
+      source.error = error.code || error.message;
+    }
     return source;
   }
 
