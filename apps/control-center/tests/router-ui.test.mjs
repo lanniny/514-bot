@@ -10,10 +10,11 @@ import { resolve } from "node:path";
 const publicRoot = resolve(import.meta.dirname, "../public");
 
 test("team page owns the router workbench and router is only an alias", async () => {
-  const [index, app, palette] = await Promise.all([
+  const [index, app, palette, routerPanel] = await Promise.all([
     readFile(resolve(publicRoot, "index.html"), "utf8"),
     readFile(resolve(publicRoot, "app.js"), "utf8"),
     readFile(resolve(publicRoot, "command-palette.js"), "utf8"),
+    readFile(resolve(publicRoot, "modules/router-preview-panel.js"), "utf8"),
   ]);
   const teamStart = index.indexOf('id="view-team"');
   const configStart = index.indexOf('id="view-config"');
@@ -33,7 +34,7 @@ test("team page owns the router workbench and router is only an alias", async ()
   assert.match(app, /revealTeamRouting/);
   assert.match(app, /lockToTarget: false/);
   assert.match(app, /includeAttachments: false/);
-  assert.match(app, /team-router-candidate/);
+  assert.match(routerPanel, /team-router-candidate/);
   assert.doesNotMatch(app, /router-candidate-body"\]\.innerHTML = `<tr/);
 
   assert.match(palette, /router: "router 路由/);
