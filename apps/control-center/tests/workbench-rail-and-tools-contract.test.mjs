@@ -660,7 +660,7 @@ function PERMISSION_MODE_META_BLOCK(app) {
 test("a failed conversation mount cannot deadlock the live stream", async () => {
   const app = await source("public/app.js");
   // 根治：batched 挂载主体包 try/catch——异常时 release ownership、清 aria-busy、落诊断
-  const mount = app.slice(app.indexOf("async function replaceConversationStreamBatched"), app.indexOf("const CONVERSATION_WINDOW_SIZE"));
+  const mount = app.slice(app.indexOf("async function replaceConversationStreamBatched"), app.indexOf("// conversation window functions → modules/conversation-window.js"));
   assert.ok(mount.includes("} catch (error) {"), "batched 挂载缺异常兜底");
   assert.ok(mount.includes('stream.removeAttribute("aria-busy");'), "异常路径未清挂载闸");
   assert.ok(mount.includes("会话流分批挂载失败（已放开渲染闸）"), "异常未落诊断");
