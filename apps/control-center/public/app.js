@@ -130,6 +130,7 @@ import { createBotActivityTimeline } from "./modules/bot-activity-timeline.js";
 import { createConversationEventMarkup } from "./modules/conversation-event-markup.js";
 import { createProjectPrefsStore } from "./modules/project-prefs-store.js";
 import { createObservabilityPage } from "./modules/observability-page.js";
+import { createDeltaMerge } from "./modules/delta-merge.js";
 import {
   state, ACTIVE_RUN_STATES, TERMINAL_RUN_STATES, VIEW_TITLES,
   DEFAULT_COMPONENTS, DEFAULT_MODELS, DEFAULT_POLICIES, DEFAULT_SECRETS,
@@ -24929,6 +24930,16 @@ function isDeltaEventType(type) {
   return /(?:^|[./])delta$/i.test(String(type ?? ""));
 }
 
+const deltaMerge = createDeltaMerge({
+  isDeltaEventType,
+  NORMALIZED_EVENT_FIXED_OVERHEAD,
+});
+const {
+  utf8Bytes, normalizedEventResidentBytes, serializedRunHistoryEventBytes,
+  eventIdsForTracking, eventTracksEvent, canMergeDeltaEvent, mergeDeltaEvent,
+  cacheRunHistoryEventBytes, cacheMergedDeltaEventIds,
+} = deltaMerge;
+
 function eventAffectsConversation(event) {
   if (isDeltaEventType(event.type)) return false; // final assistant.message 才提交正文
   // Codex 过程可见性：完成态的 item 携带命令/输出/改动，是"它到底做了什么"的唯一来源。
@@ -26066,131 +26077,9 @@ const RUN_HISTORY_MAX_WIRE_BYTES = RUN_HISTORY_MAX_BYTES_PER_RUN + 128 * 1024; /
 const RUN_HISTORY_JSON_FALLBACK_MAX_BYTES = 512 * 1024;
 const RUN_HISTORY_PARSE_SLICE_BYTES = 32 * 1024;
 const RUN_HISTORY_PARSE_SLICE_MS = 4;
-const MERGED_DELTA_TRACKED_ID_LIMIT = 256;
 const runHistoryLru = new Map();
 const runHistoryInflight = new Map(); // runId → { promise, controller, order, pendingEvents, pendingHead, pendingBytes }
-const runHistoryEventBytes = new WeakMap();
-const mergedDeltaEventIds = new WeakMap();
-const mergedDeltaSequenceRanges = new WeakMap();
-const runHistoryTextEncoder = new TextEncoder();
 let runHistoryRequestOrder = 0;
-
-function utf8Bytes(value) {
-  return runHistoryTextEncoder.encode(String(value ?? "")).byteLength;
-}
-
-function estimateUiValueResidentBytes(value, depth = 0) {
-  if (value == null) return 8;
-  if (typeof value === "string") return value.length * 2 + 16;
-  if (typeof value === "number" || typeof value === "boolean") return 16;
-  if (depth >= 8) return 64;
-  if (Array.isArray(value)) {
-    let bytes = 32 + value.length * 8;
-    for (const item of value) bytes += estimateUiValueResidentBytes(item, depth + 1);
-    return bytes;
-  }
-  if (typeof value !== "object") return String(value).length * 2 + 16;
-  let bytes = 64;
-  for (const [key, item] of Object.entries(value)) {
-    bytes += key.length * 2 + 24 + estimateUiValueResidentBytes(item, depth + 1);
-  }
-  return bytes;
-}
-
-function normalizedEventResidentBytes(event) {
-  const known = runHistoryEventBytes.get(event);
-  if (known != null) return known;
-  const bytes = NORMALIZED_EVENT_FIXED_OVERHEAD + estimateUiValueResidentBytes(event);
-  runHistoryEventBytes.set(event, bytes);
-  return bytes;
-}
-
-function serializedRunHistoryEventBytes(event) {
-  return normalizedEventResidentBytes(event);
-}
-
-function eventIdsForTracking(event) {
-  const mergedIds = mergedDeltaEventIds.get(event);
-  return mergedIds ? [...mergedIds] : [event?.id];
-}
-
-function eventTracksId(event, id) {
-  if (!event || id == null) return false;
-  return event.id === id || Boolean(mergedDeltaEventIds.get(event)?.has(id));
-}
-
-function eventSequenceRange(event) {
-  const tracked = mergedDeltaSequenceRanges.get(event);
-  if (tracked) return tracked;
-  const sequence = Number(event?.seq);
-  return Number.isSafeInteger(sequence) ? { min: sequence, max: sequence } : null;
-}
-
-function eventTracksEvent(tracked, incoming) {
-  if (!tracked || !incoming) return false;
-  if (eventIdsForTracking(incoming).some((id) => eventTracksId(tracked, id))) return true;
-  // sequence 只在同一 delta 流内才有去重语义。不同 run/session/correlation 都可能从
-  // 相同序号起步，跨流套 range 会把合法事件吞掉。
-  if (!sameDeltaStream(tracked, incoming)) return false;
-  const sequence = Number(incoming.seq);
-  const range = eventSequenceRange(tracked);
-  return Number.isSafeInteger(sequence) && Boolean(range && sequence >= range.min && sequence <= range.max);
-}
-
-function sameDeltaStream(left, right) {
-  return Boolean(
-    left
-    && isDeltaEventType(right.type)
-    && left.type === right.type
-    && left.runId === right.runId
-    && left.sessionId === right.sessionId
-    && left.correlationId === right.correlationId
-  );
-}
-
-function canMergeDeltaEvent(target, incoming) {
-  if (!sameDeltaStream(target, incoming)) return false;
-  const targetRange = eventSequenceRange(target);
-  const incomingRange = eventSequenceRange(incoming);
-  if (targetRange || incomingRange) {
-    // range 只代表已经证实连续的片段。10,12,11 必须保留三片，不能先把 10-12
-    // 当成闭区间再把迟到的 11 误判为重放。
-    return Boolean(targetRange && incomingRange && incomingRange.min === targetRange.max + 1);
-  }
-  const trackedIds = mergedDeltaEventIds.get(target);
-  const trackedCount = trackedIds?.size ?? (target?.id == null ? 0 : 1);
-  const newIds = eventIdsForTracking(incoming)
-    .filter((id) => id != null && !eventTracksId(target, id));
-  // 无 sequence 时只能靠显式 ID 去重。达到 256 后开启下一聚合项，避免淘汰最早 ID
-  // 后的重放再次拼进尾部，也让每个聚合 envelope 的元数据保持严格有界。
-  return trackedCount + newIds.length <= MERGED_DELTA_TRACKED_ID_LIMIT;
-}
-
-function mergeDeltaEvent(target, incoming) {
-  let mergedIds = mergedDeltaEventIds.get(target);
-  if (!mergedIds) {
-    mergedIds = new Set([target.id]);
-    mergedDeltaEventIds.set(target, mergedIds);
-  }
-  for (const id of eventIdsForTracking(incoming)) {
-    if (id != null) mergedIds.add(id);
-  }
-  while (mergedIds.size > MERGED_DELTA_TRACKED_ID_LIMIT) {
-    mergedIds.delete(mergedIds.values().next().value);
-  }
-  const targetRange = eventSequenceRange(target);
-  const incomingRange = eventSequenceRange(incoming);
-  if (targetRange || incomingRange) {
-    mergedDeltaSequenceRanges.set(target, {
-      min: Math.min(targetRange?.min ?? incomingRange.min, incomingRange?.min ?? targetRange.min),
-      max: Math.max(targetRange?.max ?? incomingRange.max, incomingRange?.max ?? targetRange.max),
-    });
-  }
-  target.summary = `${target.summary}${incoming.summary}`.slice(-500);
-  target.content = `${target.content}${incoming.content}`.slice(-4000);
-  target.timestamp = incoming.timestamp;
-  target.seq = incoming.seq;
-}
 
 function touchRunHistory(runId) {
   if (!Object.hasOwn(state.runEvents, runId)) return;
@@ -26310,7 +26199,7 @@ function appendNormalizedHistoryEvent(events, conversationEvents, conversationMe
   // 预算按实际驻留的 normalized envelope 计量。normalizeEvent 会保留 data，同时生成
   // content/summary；按 wire 行字节计量会把大 text/status 的复制放大漏掉一半。
   const eventBytes = Math.max(normalizedEventSourceBytes(sourceCharacters), normalizedEventResidentBytes(event));
-  runHistoryEventBytes.set(event, eventBytes);
+  cacheRunHistoryEventBytes(event, eventBytes);
   if (eventBytes > RUN_HISTORY_MAX_BYTES_PER_RUN || historyBytes + eventBytes > RUN_HISTORY_MAX_BYTES_PER_RUN) {
     throw new ApiError(`任务历史响应超过 ${RUN_HISTORY_MAX_BYTES_PER_RUN / 1024 / 1024} MiB 浏览器缓存上限`);
   }
@@ -26377,8 +26266,8 @@ function appendLiveRunHistoryEvent(runId, event, { trim = true } = {}) {
   // per-run 历史始终保留原始 SSE envelope。全局窗口可以聚合 delta 以降低渲染成本，
   // 但审计缓存必须逐事件对账，才能正确合并与 HTTP 快照部分重叠的实时尾部。
   const cachedEvent = { ...event };
-  if (incomingIds.length > 1) mergedDeltaEventIds.set(cachedEvent, new Set(incomingIds));
-  runHistoryEventBytes.set(cachedEvent, eventBytes);
+  if (incomingIds.length > 1) cacheMergedDeltaEventIds(cachedEvent, incomingIds);
+  cacheRunHistoryEventBytes(cachedEvent, eventBytes);
   if (eventBytes > RUN_HISTORY_MAX_BYTES_PER_RUN) {
     appendDiagnostic(`任务历史事件 ${runId} 单条超过 16 MiB，已跳过该事件并保留现有缓存`, "warning", { render: false });
     return false;
