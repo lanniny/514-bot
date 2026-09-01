@@ -9,27 +9,29 @@ import { resolve } from "node:path";
 const publicRoot = resolve(import.meta.dirname, "../public");
 
 test("写权限降级与无产出轮各有一条注记，不静默", async () => {
-  const app = await readFile(resolve(publicRoot, "app.js"), "utf8");
+  const eventMarkup = await readFile(resolve(publicRoot, "modules/conversation-event-markup.js"), "utf8");
+  // Wave B slice 16：GOVERNANCE_EVENTS 已抽取到 modules/conversation-event-markup.js
   // 降级注记：说清是哪个成员、为什么、怎么恢复——只说"降级了"等于没说
-  assert.match(app, /"run\.write_degraded":\s*\{/);
-  assert.match(app, /本轮降为只读/);
-  assert.match(app, /CAPABILITY_LEASE_INACTIVE"\s*\?\s*"执行租约已过期或被吊销"/);
-  assert.match(app, /BUILD_APPROVAL_INVALID"\s*\?\s*"Build 审批已失效/);
+  assert.match(eventMarkup, /"run\.write_degraded":\s*\{/);
+  assert.match(eventMarkup, /本轮降为只读/);
+  assert.match(eventMarkup, /CAPABILITY_LEASE_INACTIVE"\s*\?\s*"执行租约已过期或被吊销"/);
+  assert.match(eventMarkup, /BUILD_APPROVAL_INVALID"\s*\?\s*"Build 审批已失效/);
   // 无产出轮：轮次与 token 真实消耗了，必须说明预算已花掉，而不是留一个空白气泡
-  assert.match(app, /"agent\.turn_unproductive":\s*\{/);
-  assert.match(app, /没有产出内容/);
-  assert.match(app, /已有部分输出仅供排查，未形成交付/);
-  assert.match(app, /该轮预算已消耗/);
-  assert.match(app, /任务不会按成功结算/);
-  assert.match(app, /provider 收束原因：\$\{data\.stopReason\}/);
+  assert.match(eventMarkup, /"agent\.turn_unproductive":\s*\{/);
+  assert.match(eventMarkup, /没有产出内容/);
+  assert.match(eventMarkup, /已有部分输出仅供排查，未形成交付/);
+  assert.match(eventMarkup, /该轮预算已消耗/);
+  assert.match(eventMarkup, /任务不会按成功结算/);
+  assert.match(eventMarkup, /provider 收束原因：\$\{data\.stopReason\}/);
   // 两条都是需要人注意的异常态，不能用中性 tone 混进正常流水
-  const degraded = app.slice(app.indexOf('"run.write_degraded"'), app.indexOf('"agent.turn_unproductive"'));
+  const degraded = eventMarkup.slice(eventMarkup.indexOf('"run.write_degraded"'), eventMarkup.indexOf('"agent.turn_unproductive"'));
   assert.match(degraded, /tone: "amber"/);
 });
 
 test("轮次统计行标出本轮能不能写盘", async () => {
-  const app = await readFile(resolve(publicRoot, "app.js"), "utf8");
-  const meta = app.slice(app.indexOf("function turnMetaText"), app.indexOf("const eventRenderTokens"));
+  const eventMarkup = await readFile(resolve(publicRoot, "modules/conversation-event-markup.js"), "utf8");
+  // Wave B slice 16：turnMetaText 已抽取到 modules/conversation-event-markup.js
+  const meta = eventMarkup.slice(eventMarkup.indexOf("function turnMetaText"), eventMarkup.lastIndexOf("return {"));
   assert.match(meta, /data\.permissionMode === "workspace-write"/);
   assert.match(meta, /parts\.push\("可写盘"\)/);
   // plan/read-only 不标注（本来就不写盘），其余非常规档位如实显示原值

@@ -175,11 +175,11 @@ test("the adapter attaches progress to the persisted notification event", async 
 });
 
 test("the conversation stream renders completed items and tracks the running one", async () => {
-  const [app, mod, css] = await Promise.all([source("public/app.js"), source("public/modules/run-live-activity.js"), source("public/styles.css")]);
+  const [app, mod, css, eventMarkup] = await Promise.all([source("public/app.js"), source("public/modules/run-live-activity.js"), source("public/styles.css"), source("public/modules/conversation-event-markup.js")]);
   // 白名单不含 codex.* 时，带载荷的事件照样被整片过滤掉——两层都得通
   assertIncludes(app, 'if (progress) return !(progress.kind === "reasoning" && !progress.text);');
-  // progress 为空的工具 item 也进会话流：靠 hint/itemType 降级成工具卡
-  assertIncludes(app, "function toolProgressFromFallback(hint, itemType)");
+  // Wave B slice 16：toolProgressFromFallback 已抽取到 modules/conversation-event-markup.js
+  assertIncludes(eventMarkup, "function toolProgressFromFallback(hint, itemType)");
   assertIncludes(app, "return Boolean(toolProgressFromFallback(event.data?.hint, event.data?.itemType));");
   // 思考状态接入活跃行：reasoning started 入账、文案「正在思考」
   assertIncludes(mod, '["command", "file", "reasoning", "tool"].includes(progress.kind)');
