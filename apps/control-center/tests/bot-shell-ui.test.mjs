@@ -704,22 +704,24 @@ test("Bot project tree projects one highest-priority status per conversation", a
 });
 
 test("Bot messages keep coherent Markdown, visible identities, compact activity and send-stop controls", async () => {
-  const [html, app, css] = await Promise.all([
+  const [html, app, css, timeline] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
     readFile(`${appRoot}/public/forge/bot-shell.css`, "utf8"),
+    readFile(`${appRoot}/public/modules/bot-activity-timeline.js`, "utf8"),
   ]);
   assert.doesNotMatch(app, /function botSplitBubbleText\(/);
   assert.match(app, /renderMarkdown\(text, redact\)/);
-  assert.match(app, /function botConversationMessagesMarkup\(messages\)/);
-  assert.match(app, /function botActivityGroupMarkup\(messages, timelineMarkup = ""\)/);
-  assert.match(app, /function botActivitySegmentMarkup\(messages\)/);
-  assert.match(app, /let activityStarted = false/);
-  assert.match(app, /timeline\.push\(botActivitySegmentMarkup\(segment\)\)/);
-  assert.match(app, /botActivityGroupMarkup\(activity, timeline\.join\(""\)\)/);
-  assert.match(app, /function botActivityPhases\(messages\)/);
-  assert.match(app, /<strong>协作过程<\/strong>/);
-  assert.match(app, /processCardMarkup\(message, key\)/);
+  // Wave B slice 15：bot activity timeline 函数已抽取到 modules/bot-activity-timeline.js
+  assert.match(timeline, /function botConversationMessagesMarkup\(messages\)/);
+  assert.match(timeline, /function botActivityGroupMarkup\(messages, timelineMarkup = ""\)/);
+  assert.match(timeline, /function botActivitySegmentMarkup\(messages\)/);
+  assert.match(timeline, /let activityStarted = false/);
+  assert.match(timeline, /timeline\.push\(botActivitySegmentMarkup\(segment\)\)/);
+  assert.match(timeline, /botActivityGroupMarkup\(activity, timeline\.join\(""\)\)/);
+  assert.match(timeline, /function botActivityPhases\(messages\)/);
+  assert.match(timeline, /<strong>协作过程<\/strong>/);
+  assert.match(timeline, /processCardMarkup\(message, key\)/);
   assert.match(app, /operatorAvatarMarkup\(\{/);
   assert.match(css, /\.bot-activity-group/);
   assert.match(css, /\.bot-activity-timeline/);
