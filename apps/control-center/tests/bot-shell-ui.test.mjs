@@ -312,7 +312,10 @@ test("Bot settings keep account, plugin library, and member sub-settings inside 
 });
 
 test("Bot render ignores late runs from a non-active conversation for the same agent (P0-03)", async () => {
-  const app = await readFile(`${appRoot}/public/app.js`, "utf8");
+  const [app, header] = await Promise.all([
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/conversation-header.js`, "utf8"),
+  ]);
   assert.match(
     app,
     /function botRenderConversationMessages[\s\S]*?const activeConversation = botActiveConversation\(\)[\s\S]*?activeConversation && run && !botRunBelongsToConversation\(run, activeConversation\)[\s\S]*?return;[\s\S]*?botNoteAgentFirstResponse\(run\)/,
@@ -329,7 +332,7 @@ test("Bot render ignores late runs from a non-active conversation for the same a
     "SSE scheduling must be scoped to the visible run and conversation store",
   );
   assert.match(
-    app,
+    header,
     /function runLocalEnvironmentId\(run\)[\s\S]*?run\?\.id && \(run\.cwd \|\| \(run\.worktreePath && run\.worktreeBase\)\)[\s\S]*?function loadHeadingEnvironment\(run\)[\s\S]*?if \(run && !runLocalEnvironmentId\(run\)\) return;/,
     "direct-conversation runs without a local workspace must not probe the workbench environment endpoint",
   );

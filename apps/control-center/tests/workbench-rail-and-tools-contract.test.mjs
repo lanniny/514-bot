@@ -39,16 +39,17 @@ test("team tree is strict about ownership with an unassigned fallback group", as
 // M2 置顶会话只进置顶区、树中不重复渲染；M3 团队块折叠由 team-tree-toggle 单管并持久化；
 // L6 折叠按钮不得吞 heading 语义（button 内 h2 → span[role=heading]）。
 test("pinned and archived rail sections share the tree's unassigned fallback discipline", async () => {
-  const [app, chrome, html] = await Promise.all([
+  const [app, chrome, html, railMeta] = await Promise.all([
     source("public/app.js"),
     source("public/workbench-chrome.js"),
     source("public/index.html"),
+    source("public/modules/rail-meta-sections.js"),
   ]);
   // M1：interrupted 归「正在工作」区，pinned 的 interrupted 不再双列双计数
-  assert.match(app, /const pinnedRuns = state\.runs\.filter\(\(run\) => !run\.archived && run\.pinned && !ACTIVE_RUN_STATES\.has\(run\.status\) && run\.status !== "interrupted"/);
+  assert.match(railMeta, /const pinnedRuns = getRuns\(\)\.filter\(\s*\(run\) => !run\.archived && run\.pinned && !ACTIVE_RUN_STATES\.has\(run\.status\) && run\.status !== "interrupted"/);
   // H1：置顶/归档分区的团队过滤与树「未归属」兜底同律（显式归属命中本团队或未归属 null 都收）
-  assert.match(app, /const inRailTeam = \(explicitTeamId\) => explicitTeamId === railId \|\| explicitTeamId === null;/);
-  assert.match(app, /return pref\.pinned && !pref\.hidden && inRailTeam\(explicitProjectTeamId\(project\)\);/);
+  assert.match(app, /inRailTeam: \(explicitTeamId\) => explicitTeamId === railTeamId\(\) \|\| explicitTeamId === null/);
+  assert.match(railMeta, /return pref\.pinned && !pref\.hidden && inRailTeam\(explicitProjectTeamId\(project\)\);/);
   // M2：置顶会话只进置顶区——树内会话过滤排除 pinned（项目普通组与跨团队 loose 组同律）
   assert.match(app, /&& !pref\.pinned \/\/ 置顶会话只进置顶区/);
   assert.match(app, /!pref\.archived && !pref\.pinned\) \{/);
@@ -137,7 +138,7 @@ test("project tree aggregates native sessions by collaboration run", async () =>
   assert.match(app, /event\.target\.closest\("\[data-run-group-toggle\]"\)/);
   assert.match(app, /if \(members\) members\.hidden = !wasCollapsed;/);
   // run 列表更新必须带动树内聚合翻页（commitMarkup 幂等，不抢焦点）
-  assert.match(app, /renderRailMetaSections\(\);\s*\n\s*renderProjects\(\); \/\/ run\.sessions 变了/);
+  assert.match(app, /railMetaSections\.render\(\);\s*\n\s*renderProjects\(\); \/\/ run\.sessions 变了/);
   // 样式
   for (const rule of [".run-group-toggle {", ".run-group-head {", ".run-group-head.is-selected {", ".run-member-chip {", ".run-session-row .session-link {", ".run-group-members {", '.run-group-toggle[aria-expanded="true"] .chevron {']) {
     assert.ok(css.includes(rule), `缺少样式 ${rule}`);

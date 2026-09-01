@@ -61,12 +61,14 @@ test("Mission Control dock keeps registry-driven ARIA panels and the legacy live
 });
 
 test("Wave UI-A multi-CLI team surface: constellation, command palette, @ mention", async () => {
-  const [html, appSource, serverSource, css, paletteSource] = await Promise.all([
+  const [html, appSource, serverSource, css, paletteSource, mentionModule, slashModule] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
     readFile(`${appRoot}/server.mjs`, "utf8"),
     readFile(`${appRoot}/public/styles.css`, "utf8"),
     readFile(`${appRoot}/public/command-palette.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/mention-menu.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/slash-menu.js`, "utf8"),
   ]);
 
   // 命令面板（v4.0 Forge）：DOM 由 command-palette.js 运行时创建并自绑 Ctrl+K；
@@ -92,10 +94,10 @@ test("Wave UI-A multi-CLI team surface: constellation, command palette, @ mentio
   assert.match(appSource, /function renderConversationAgents\(/);
   assert.match(appSource, /级联取消|cancelCascade/);
   assert.match(html, /id="conversation-agents"/);
-  assert.match(appSource, /function renderMentionMenu\(/);
+  assert.match(mentionModule, /function renderMentionMenu\(/);
   assert.match(appSource, /requestedAgentIds:/);
   assert.match(appSource, /MAX_REQUESTED_AGENTS/);
-  assert.match(appSource, /function renderSlashMenu\(/);
+  assert.match(slashModule, /function renderSlashMenu\(/);
   assert.match(appSource, /function openAutomationManager\(/);
   assert.match(appSource, /能力租约|capability-lease/);
   assert.match(appSource, /动作审批 · 待处理/);
@@ -234,21 +236,26 @@ test("Mission Control Playwright gate covers ownership, all tab keys and target 
 });
 
 test("same-run topology invalidation aborts the old request and rejects a late cache write", async () => {
+  const { createWorkbenchTopology } = await import("../public/modules/workbench-topology.js");
   const appSource = await readFile(`${appRoot}/public/app.js`, "utf8");
-  const blockStart = appSource.indexOf("const socialTopologyCache = new Map()");
-  const blockEnd = appSource.indexOf("async function renderSocialTopology", blockStart);
-  assert.ok(blockStart >= 0 && blockEnd > blockStart, "social topology cache block is missing");
+  const moduleSource = await readFile(`${appRoot}/public/modules/workbench-topology.js`, "utf8");
   assert.match(appSource, /if \(topologySignal && event\.runId\) invalidateSocialTopology\(event\.runId\)/);
-  assert.match(appSource, /socialTopologyInflight\.get\(runId\)\?\.promise !== pending/);
+  assert.match(moduleSource, /socialTopologyInflight\.get\(runId\)\?\.promise !== pending/);
 
   const requests = [];
-  const request = (_url, { signal } = {}) => new Promise((resolve, reject) => {
+  const mockRequest = (_url, { signal } = {}) => new Promise((resolve, reject) => {
     requests.push({ resolve, reject, signal });
   });
-  const context = { request, AbortController };
-  runInNewContext(`${appSource.slice(blockStart, blockEnd)}\n`
-    + "globalThis.__topology = { loadSocialTopologyMessages, invalidateSocialTopology, socialTopologyCache, socialTopologyInflight };", context);
-  const topology = context.__topology;
+  const stubEls = { "session-topology": {}, "route-decision": {}, "workbench-event-list": {} };
+  const topology = createWorkbenchTopology({
+    request: mockRequest, elements: stubEls,
+    state: { selectedRunId: null, events: [] },
+    selectedRun: () => null, commitMarkup: () => {},
+    agentLabel: (id) => id, AGENT_SHORT: {}, agentSlug: (id) => id,
+    agentCli: () => "", cliIconMarkup: () => "",
+    historyEventsForRun: () => [], eventTracksEvent: () => false,
+    runReplayScrubber: { mount: () => {}, update: () => Promise.resolve() },
+  });
   const runId = "11111111-1111-4111-8111-111111111111";
 
   const stale = topology.loadSocialTopologyMessages(runId);

@@ -6,11 +6,13 @@ import { resolve } from "node:path";
 const publicRoot = resolve(import.meta.dirname, "../public");
 
 test("composer target tabs are the only visible direct-recipient control", async () => {
-  const [html, app, state, css] = await Promise.all([
+  const [html, app, state, css, mentionModule, tabsModule] = await Promise.all([
     readFile(resolve(publicRoot, "index.html"), "utf8"),
     readFile(resolve(publicRoot, "app.js"), "utf8"),
     readFile(resolve(publicRoot, "state.js"), "utf8"),
     readFile(resolve(publicRoot, "forge/workbench.css"), "utf8"),
+    readFile(resolve(publicRoot, "modules/mention-menu.js"), "utf8"),
+    readFile(resolve(publicRoot, "modules/conversation-tabs.js"), "utf8"),
   ]);
 
   const form = html.slice(html.indexOf('id="task-form"'), html.indexOf("</form>", html.indexOf('id="task-form"')));
@@ -22,12 +24,12 @@ test("composer target tabs are the only visible direct-recipient control", async
   assert.doesNotMatch(html, /id="start-agent-pick"|id="followup-agent-pick"/);
   assert.match(state, /composerTargetAgentId:\s*null/);
   assert.match(app, /function activeComposerTarget\(\)/);
-  assert.match(app, /function defaultRunRecipient\(run\)/);
-  assert.match(app, /function runRecipient\(run, requestedAgentId = null\)/);
+  assert.match(tabsModule, /function defaultRunRecipient\(run\)/);
+  assert.match(tabsModule, /function runRecipient\(run, requestedAgentId = null\)/);
   assert.match(app, /data-composer-target=/);
   assert.match(app, /role="radio"/);
   assert.match(app, /aria-checked=/);
-  assert.match(app, /function renderRequestedAgentChips/);
+  assert.match(mentionModule, /function renderRequestedAgentChips/);
   assert.match(app, /function keepActiveComposerTargetVisible/);
   assert.match(app, /strip\.scrollLeft \+=/);
   assert.match(app, /startAgentId:\s*composerTarget\.memberId/);
@@ -42,17 +44,17 @@ test("composer target tabs are the only visible direct-recipient control", async
   assert.doesNotMatch(app, /agentId:\s*elements\["followup-agent"\]/);
   assert.doesNotMatch(app, /data-composer-target=""/);
   assert.doesNotMatch(app, /data-pick-dismiss|团队协作 · 由/);
-  assert.doesNotMatch(app, /openTab\([^\n]*,\s*null\)/);
+  assert.doesNotMatch(tabsModule, /openTab\([^\n]*,\s*null\)/);
   assert.match(app, /if \(focusAnswer\) selectComposerTarget\(focusAnswer\.dataset\.focusAnswer/);
   assert.match(css, /\.composer-target-tabs\s*\{/);
   assert.match(css, /data-target-agent="kimi-frontend"/);
 });
 
 test("mentions stay structured without changing the direct target", async () => {
-  const app = await readFile(resolve(publicRoot, "app.js"), "utf8");
-  const start = app.indexOf("function applyMention(agentId)");
-  const end = app.indexOf("\nconst FORMAT_BADGES", start);
-  const body = app.slice(start, end);
+  const mentionModule = await readFile(resolve(publicRoot, "modules/mention-menu.js"), "utf8");
+  const start = mentionModule.indexOf("function applyMention(agentId)");
+  const end = mentionModule.indexOf("\n}", start + 100);
+  const body = mentionModule.slice(start, end);
   assert.match(body, /state\.requestedAgentIds = addRequestedAgentId/);
   assert.doesNotMatch(body, /selectComposerTarget|start-agent|followup-agent/);
 });
@@ -162,16 +164,17 @@ test("a stale composer blur timer cannot close a newly reopened command menu", a
   assert.ok(start >= 0 && end > start);
   assert.match(blurHandler, /document\.activeElement === taskInput/);
   assert.match(blurHandler, /document\.activeElement\?\.closest\?\.\("#mention-menu, #slash-menu"\)/);
-  assert.match(blurHandler, /hideMentionMenu\(\);\s*hideSlashMenu\(\);/s);
+  assert.match(blurHandler, /mentionMenu\.hideMentionMenu\(\);\s*slashMenu\.hideSlashMenu\(\);/s);
 });
 
 // LO 2026-08-10：发送键随工作状态双态——活跃 run + 空输入 = 停止当前回复；
 // 有输入 = 发送键（轮间插话不被吃掉）；审批挂起时停止键保持可用。
 test("the send button becomes a stop key while the run is active and the input is empty", async () => {
-  const [app, css, html] = await Promise.all([
+  const [app, css, html, tabsModule] = await Promise.all([
     readFile(resolve(publicRoot, "app.js"), "utf8"),
     readFile(resolve(publicRoot, "styles.css"), "utf8"),
     readFile(resolve(publicRoot, "index.html"), "utf8"),
+    readFile(resolve(publicRoot, "modules/conversation-tabs.js"), "utf8"),
   ]);
   // 双态计算：续聊 + 真正可中断的 turn + 非预览 + 空输入 = stop
   // waiting_agent / recovery_required 没有 provider turn，不得再显示假停止键。
@@ -212,8 +215,8 @@ test("the send button becomes a stop key while the run is active and the input i
   assert.match(app, /dataset\.mode !== "stop"/);
   assert.match(app, /function stashComposerDraftForCurrentContext\(\)/);
   assert.match(app, /function restoreComposerDraftForCurrentContext\(\)/);
-  assert.match(app, /stashComposerDraftForCurrentContext\(\);\s*\n\s*tab\.dirty = false;/);
-  assert.match(app, /restoreComposerDraftForCurrentContext\(\);\s*\n\s*if \(focusTab\)/);
+  assert.match(tabsModule, /stashComposerDraftForCurrentContext\(\);\s*\n\s*tab\.dirty = false;/);
+  assert.match(tabsModule, /restoreComposerDraftForCurrentContext\(\);\s*\n\s*if \(focusTab\)/);
   assert.match(app, /function clearSubmittedComposerDraft\(\{ runId = null, submittedDraft \}\)/);
   assert.match(app, /composerDraftMatches\(currentDraft, submittedDraft\)/);
   assert.match(app, /state\.composerRunDrafts\[runId\] = currentDraft/);
@@ -225,11 +228,18 @@ test("the send button becomes a stop key while the run is active and the input i
 
 test("composer context transitions stash the old owner before restoring the new owner", async () => {
   const app = await readFile(resolve(publicRoot, "app.js"), "utf8");
+  const tabsModule = await readFile(resolve(publicRoot, "modules/conversation-tabs.js"), "utf8");
   const bodyOf = (startLabel, endLabel) => {
     const start = app.indexOf(startLabel);
     const end = app.indexOf(endLabel, start + startLabel.length);
     assert.ok(start >= 0 && end > start, `missing source range: ${startLabel}`);
     return app.slice(start, end);
+  };
+  const bodyOfTabs = (startLabel, endLabel) => {
+    const start = tabsModule.indexOf(startLabel);
+    const end = tabsModule.indexOf(endLabel, start + startLabel.length);
+    assert.ok(start >= 0 && end > start, `missing source range in conversation-tabs: ${startLabel}`);
+    return tabsModule.slice(start, end);
   };
   const ordered = (source, ...needles) => {
     let cursor = -1;
@@ -246,19 +256,19 @@ test("composer context transitions stash the old owner before restoring the new 
   const previewClose = bodyOf("function closeSessionPreview", "function renderSessionPreview");
   ordered(previewClose, "stashComposerDraftForCurrentContext();", "state.sessionPreview = null;", "restoreComposerDraftForCurrentContext();", "renderSelectedRun();");
 
-  const closeTab = bodyOf("function closeTab", "function renderTabs");
+  const closeTab = bodyOfTabs("function closeTab", "function renderTabs");
   ordered(closeTab, "stashComposerDraftForCurrentContext();", "state.selectedRunId = null;", "state.sessionPreview = null;", "restoreComposerDraftForCurrentContext();");
 
   const loadRuns = bodyOf("async function loadRuns", "async function loadApprovals");
   ordered(loadRuns, "stashComposerDraftForCurrentContext();", "state.runs =", "state.selectedRunId = nextSelectedRunId;", "restoreComposerDraftForCurrentContext();", "renderRuns();");
   assert.match(loadRuns, /composerWasNewTask && composerDraftHasActivity/);
 
-  const renderRuns = bodyOf("function renderRuns", "function renderRailMetaSections");
+  const renderRuns = bodyOf("function renderRuns", "function pinnedProjectMarkup");
   ordered(
     renderRuns,
     "stashComposerDraftForCurrentContext();",
     "const survivingSelectedRunId = existingRunIds.has(state.selectedRunId) ? state.selectedRunId : null;",
-    "state.selectedRunId = activeTab()?.runId ?? survivingSelectedRunId;",
+    "state.selectedRunId = conversationTabs.activeTab()?.runId ?? survivingSelectedRunId;",
     "restoreComposerDraftForCurrentContext();",
   );
 
@@ -267,7 +277,7 @@ test("composer context transitions stash the old owner before restoring the new 
   const enterNewTask = bodyOf("function enterNewTaskComposer", "function activateAttachmentContext");
   assert.match(enterNewTask, /transitionComposerContext\(\(\) => \{/);
   ordered(enterNewTask, "state.selectedRunId = null;", "state.sessionPreview = null;", "state.activeTabKey = null;");
-  ordered(enterNewTask, "transitionComposerContext", "persistTabs();", "renderTabs();", "renderRuns();");
+  ordered(enterNewTask, "transitionComposerContext", "conversationTabs.persistTabs();", "conversationTabs.renderTabs();", "renderRuns();");
 
   const paletteNew = bodyOf('id: "task:new"', 'id: "team:manage"');
   assert.match(paletteNew, /enterNewTaskComposer\(\);/);
@@ -281,7 +291,7 @@ test("composer context transitions stash the old owner before restoring the new 
   assert.match(sessionDialog, /enterNewTaskComposer\(\{ agentPickerOpen: true \}\);/);
   const retry = bodyOf("function retryRun", "function newComposerDraftId");
   assert.match(retry, /enterNewTaskComposer\(\{ text: run\.prompt \}\);/);
-  const restoreTabs = bodyOf("function restoreTabs", "function openTab");
+  const restoreTabs = bodyOfTabs("function restoreTabs", "function openTab");
   assert.match(restoreTabs, /!state\.selectionClearedByUser && !state\.sessionPreview && !state\.deepLinkRunId/);
   assert.match(restoreTabs, /transitionComposerContext\(\(\) => \{/);
   const clearFinished = bodyOf("async function clearFinishedRuns", "function exposeProjectForLocation");

@@ -459,25 +459,26 @@ test("control catalog states the safe subset boundary instead of claiming full C
 });
 
 test("composer slash catalog stays adapter-driven and accepts parameter-stage queries", async () => {
-  const [html, appSource] = await Promise.all([
+  const [html, appSource, slashModule] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/slash-menu.js`, "utf8").then((text) => text.replace(/\r\n/g, "\n")),
   ]);
   assert.doesNotMatch(appSource, /const\s+SLASH_COMMANDS\s*=/);
-  assert.match(appSource, /function slashCommandsForContext/);
-  assert.match(appSource, /catalogCommands/);
-  assert.match(appSource, /catalog\?\.context\?\.memberId === agentId/);
+  assert.match(slashModule, /function slashCommandsForContext/);
+  assert.match(slashModule, /catalogCommands/);
+  assert.match(slashModule, /catalog\?\.context\?\.memberId === agentId/);
   assert.equal((appSource.match(/task-effort-pick"\]\?\.hidden \? undefined/g) || []).length, 1, "composer controls must be read once at the immutable snapshot boundary");
   assert.match(appSource, /function captureComposerConfig/);
   assert.equal((appSource.match(/<section class="provider-global-empty"/g) || []).length, 1);
   assert.match(appSource, /provider-add-button"\]\.hidden = globallyEmpty \|\| storeBlocked/);
   assert.doesNotMatch(html, /option value="ultracode"/);
 
-  const start = appSource.indexOf("function slashQueryAtCursor");
-  const end = appSource.indexOf("\nfunction syncSlashActiveOption", start);
+  const start = slashModule.indexOf("function slashQueryAtCursor(textarea)");
+  const end = slashModule.indexOf("\n  function syncSlashActiveOption", start);
   assert.ok(start >= 0 && end > start);
   const context = {};
-  runInNewContext(`${appSource.slice(start, end)}\nthis.querySlash = slashQueryAtCursor;`, context);
+  runInNewContext(`${slashModule.slice(start, end)}\nthis.querySlash = slashQueryAtCursor;`, context);
   assert.equal(context.querySlash({ value: "/model ", selectionStart: 7 }).query, "model ");
   assert.equal(context.querySlash({ value: "run /effort xh", selectionStart: 14 }).query, "effort xh");
 });

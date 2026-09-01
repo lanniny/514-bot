@@ -263,17 +263,18 @@ test("team draft state guards switching, activation and provider application", a
 });
 
 test("team UI derives coordinator identity instead of branding Claude as the permanent brain", async () => {
-  const [app, panel, roles, palette, state] = await Promise.all([
+  const [app, panel, roles, palette, state, topology] = await Promise.all([
     readFile(resolve(publicRoot, "app.js"), "utf8"),
     readFile(resolve(publicRoot, "team-panel.js"), "utf8"),
     readFile(resolve(publicRoot, "modules/agent-roles.js"), "utf8"),
     readFile(resolve(publicRoot, "command-palette.js"), "utf8"),
     readFile(resolve(publicRoot, "state.js"), "utf8"),
+    readFile(resolve(publicRoot, "modules/workbench-topology.js"), "utf8"),
   ]);
   for (const source of [app, panel, roles, palette, state]) assert.doesNotMatch(source, /Claude 主脑/);
   assert.match(panel, /"claude-fable": \{ name: "Claude Fable", title: "规划编排席"/);
   assert.match(panel, /agentId === coordinatorId[\s\S]{0,80}"orchestrator"/);
-  assert.match(app, /const coordinatorName = coordinatorId \? agentLabel\(coordinatorId\) : "团队主脑"/);
+  assert.match(topology, /const coordinatorName = coordinatorId \? agentLabel\(coordinatorId\) : "团队主脑"/);
   assert.doesNotMatch(app, /run\.coordinatorId \|\| "claude-fable"|members\[0\] \?\? "claude-fable"/);
   assert.doesNotMatch(app, /builtin\?\.members \?\? \["claude-fable"\]/);
   // UI-AUDIT P0-6：文字 loading 已换成骨架屏（单一真源 modules/placeholders.js）

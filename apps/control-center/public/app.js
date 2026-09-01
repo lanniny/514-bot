@@ -110,6 +110,18 @@ import { createContextMenu } from "./modules/context-menu.js";
 import { createConversationRunProjection, settlementRunSignature, settlementViewNeedsRefresh } from "./modules/conversation-run-projection.js";
 // UI-AUDIT P1-6：异步按钮忙态统一处理（防连点 + 失败必恢复 + aria-busy）
 import { runAsyncAction } from "./modules/async-action.js";
+import { createRailMetaSections } from "./modules/rail-meta-sections.js";
+import { createConversationHeader } from "./modules/conversation-header.js";
+import { createMentionMenu } from "./modules/mention-menu.js";
+import { createSlashMenu } from "./modules/slash-menu.js";
+import { createConversationTabs } from "./modules/conversation-tabs.js";
+import { countDiffChanges, createLocalDiff, diffMarkup, extractDiff } from "./modules/diff-utils.js";
+import {
+  commandHeadline, diffStatsMarkup, FILE_CHANGE_LABELS, FILE_CHANGE_VERBS,
+  tickLiveElapsed,
+  createRunLiveActivity,
+} from "./modules/run-live-activity.js";
+import { createWorkbenchTopology } from "./modules/workbench-topology.js";
 import {
   state, ACTIVE_RUN_STATES, TERMINAL_RUN_STATES, VIEW_TITLES,
   DEFAULT_COMPONENTS, DEFAULT_MODELS, DEFAULT_POLICIES, DEFAULT_SECRETS,
@@ -147,7 +159,6 @@ const closeoutCard = createCloseoutCard({ request, onFailure: (detail) => native
 const artifactCard = createArtifactCard({ request });
 // W2.8 会话回放 scrubber（只读时间线，选中 run 时喂 /replay 投影）
 const runReplayScrubber = createRunReplayScrubber({ request });
-let runReplayScrubberMounted = false;
 
 // v4.0 Forge 路由白名单本地扩展：团队协作视图由本波次新增，state.js 的 VIEW_TITLES
 // 属并行波次文件——在此合并放开，state.js 后续补上同键时语义一致（团队协作）。
@@ -7135,7 +7146,7 @@ const FORGE_PALETTE_EXTRA_ITEMS = () => [
 
 function applyQuickTemplate(prompt, startAgent) {
   state.requestedAgentIds = [];
-  renderRequestedAgentChips();
+  mentionMenu.renderRequestedAgentChips();
   let appliedStartAgent = null;
   if (elements["task-input"]) {
     elements["task-input"].value = prompt;
@@ -7148,157 +7159,6 @@ function applyQuickTemplate(prompt, startAgent) {
   setView("workbench");
   elements["task-input"]?.focus({ preventScroll: true });
   toast(appliedStartAgent ? `模板已填入 · 直接发送给 ${agentLabel(appliedStartAgent)}` : "模板已填入任务内容，可修改后发送", "info", 2400);
-}
-
-// ── @ 成员提及：结构化协作点名，与直接收件人目标标签严格分离 ──
-function hideMentionMenu() {
-  const menu = byId("mention-menu");
-  if (menu) {
-    menu.hidden = true;
-    menu.innerHTML = "";
-  }
-  state.mentionActive = false;
-  state.mentionIndex = -1;
-  state.mentionCandidates = [];
-  state.mentionRange = null;
-  elements["task-input"]?.setAttribute("aria-expanded", "false");
-  elements["task-input"]?.removeAttribute("aria-activedescendant");
-}
-
-function mentionQueryAtCursor(textarea) {
-  if (!textarea) return null;
-  const value = textarea.value;
-  const caret = textarea.selectionStart ?? value.length;
-  const before = value.slice(0, caret);
-  // 词间允许空格：成员标签本身含空格（如"Grok 搜索"），@Grok 搜 也要能持续过滤；
-  // 一旦后文不再命中候选（renderMentionMenu 过滤为空）菜单即关闭，不会误吞正常正文
-  const match = before.match(/(^|[\s\n])@([\w\u4e00-\u9fff-]*(?:[ \t]+[\w\u4e00-\u9fff-]+)*)$/);
-  if (!match) return null;
-  return { start: caret - match[2].length - 1, end: caret, query: match[2].toLowerCase().replace(/[ \t]+/g, " ").trimEnd() };
-}
-
-function syncMentionActiveOption() {
-  const menu = byId("mention-menu");
-  const textarea = elements["task-input"];
-  if (!menu || !textarea) return;
-  menu.querySelectorAll(".mention-item").forEach((element, index) => {
-    const active = index === state.mentionIndex;
-    element.classList.toggle("is-active", active);
-    element.setAttribute("aria-selected", String(active));
-    if (active) {
-      textarea.setAttribute("aria-activedescendant", element.id);
-      element.scrollIntoView({ block: "nearest" });
-    }
-  });
-}
-
-function renderMentionMenu() {
-  const menu = byId("mention-menu");
-  const textarea = elements["task-input"];
-  if (!menu || !textarea) return;
-  const hit = mentionQueryAtCursor(textarea);
-  if (!hit) {
-    hideMentionMenu();
-    return;
-  }
-  const { members, coordinator } = currentTeamMembers();
-  const candidates = members
-    .map((id) => ({
-      id,
-      label: agentLabel(id),
-      role: AGENT_ROLE_BLURB[id] || "",
-      isLeader: id === coordinator,
-    }))
-    .filter((item) => {
-      if (!hit.query) return true;
-      const normalized = `${item.label} ${item.id} ${item.role}`.toLowerCase().replace(/[ \t]+/g, " ");
-      // 多词查询按前缀匹配（"@Grok 搜" → "Grok 搜索"）；单词仍按包含匹配，id/角色也能搜
-      return hit.query.includes(" ")
-        ? normalized.startsWith(hit.query)
-        : normalized.includes(hit.query);
-    });
-  if (!candidates.length) {
-    hideMentionMenu();
-    return;
-  }
-  state.mentionActive = true;
-  state.mentionCandidates = candidates;
-  state.mentionIndex = 0;
-  state.mentionRange = hit;
-  menu.hidden = false;
-  menu.innerHTML = candidates.map((item, index) => {
-    return `<button class="mention-item${index === 0 ? " is-active" : ""} is-agent-${agentSlug(item.id)}" id="mention-option-${index}" type="button" role="option" aria-selected="${index === 0}" data-mention-id="${escapeHtml(item.id)}">
-      <span class="mention-logo" aria-hidden="true">${agentFaceMarkup(item.id, { initialsClass: "mention-fallback" })}</span>
-      <span class="mention-copy">
-        <strong>${escapeHtml(item.label)}${item.isLeader ? " · leader" : ""}</strong>
-        <span>${escapeHtml(item.role)}</span>
-      </span>
-    </button>`;
-  }).join("");
-  textarea.setAttribute("aria-expanded", "true");
-  textarea.setAttribute("aria-activedescendant", "mention-option-0");
-}
-
-function applyMention(agentId) {
-  const textarea = elements["task-input"];
-  const range = state.mentionRange;
-  if (!textarea || !range || !agentId) return;
-  const continuing = Boolean(selectedRun() && !TERMINAL_RUN_STATES.has(selectedRun().status));
-  if (!continuing
-    && !state.requestedAgentIds.includes(agentId)
-    && state.requestedAgentIds.length >= MAX_REQUESTED_AGENTS) {
-    hideMentionMenu();
-    toast(`一次最多点名 ${MAX_REQUESTED_AGENTS} 个 Agent`, "warning", 2400);
-    textarea.focus({ preventScroll: true });
-    return;
-  }
-  const label = agentLabel(agentId);
-  const before = textarea.value.slice(0, range.start);
-  const after = textarea.value.slice(range.end);
-  const insert = `@${label} `;
-  textarea.value = `${before}${insert}${after}`;
-  const caret = before.length + insert.length;
-  textarea.setSelectionRange(caret, caret);
-  textarea.dispatchEvent(new Event("input", { bubbles: true }));
-
-  // @ 是新任务的结构化协作点名，不得覆盖“活动目标标签 = 直接收件人”。
-  if (!continuing) {
-    state.requestedAgentIds = addRequestedAgentId(state.requestedAgentIds, agentId);
-    renderRequestedAgentChips();
-  }
-  hideMentionMenu();
-  textarea.focus({ preventScroll: true });
-  toast(`已点名 ${label}`, "success", 1800);
-}
-
-function renderRequestedAgentChips() {
-  const container = byId("composer-collaborators");
-  if (!container) return;
-  const ids = [...state.requestedAgentIds];
-  container.hidden = ids.length === 0;
-  container.innerHTML = ids.length
-    ? `<span class="composer-collaborator-label">${lucideIcon("users", "icon lucide")} 额外协作者</span>${ids.map((id) => {
-        return `<span class="composer-collaborator-chip is-agent-${agentSlug(id)}">
-          <span aria-hidden="true">${agentFaceMarkup(id, { initialsClass: "composer-collaborator-fallback" })}</span>
-          <span>${escapeHtml(agentLabel(id))}</span>
-          <button type="button" data-requested-agent-remove="${escapeHtml(id)}" title="移除额外协作者" aria-label="移除额外协作者 ${escapeHtml(agentLabel(id))}">${lucideIcon("x", "icon lucide")}</button>
-        </span>`;
-      }).join("")}`
-    : "";
-}
-
-function removeRequestedAgent(agentId, { focusInput = true } = {}) {
-  const id = String(agentId || "");
-  if (!id || !state.requestedAgentIds.includes(id)) return;
-  state.requestedAgentIds = state.requestedAgentIds.filter((candidate) => candidate !== id);
-  const input = elements["task-input"];
-  if (input) {
-    input.value = removeRequestedAgentMention(input.value, agentLabel(id));
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  } else {
-    renderRequestedAgentChips();
-  }
-  if (focusInput) input?.focus({ preventScroll: true });
 }
 
 // 配置源格式徽标：slice(0,4) 会截出 MARK/PYTH 这种残词，改用可读缩写表
@@ -7376,11 +7236,11 @@ function renderRuns() {
     if (state.activeTabKey && !state.tabs.some((tab) => tab.key === state.activeTabKey)) {
       state.activeTabKey = state.tabs.at(-1)?.key ?? null;
       const survivingSelectedRunId = existingRunIds.has(state.selectedRunId) ? state.selectedRunId : null;
-      state.selectedRunId = activeTab()?.runId ?? survivingSelectedRunId;
+      state.selectedRunId = conversationTabs.activeTab()?.runId ?? survivingSelectedRunId;
       if (state.selectedRunId !== previousSelectedRunId) restoreComposerDraftForCurrentContext();
     }
-    persistTabs();
-    renderTabs();
+    conversationTabs.persistTabs();
+    conversationTabs.renderTabs();
     renderMemberStrip();
     for (const runId of removedRunIds) {
       releaseRunHistoryIfUnreferenced(runId);
@@ -7402,62 +7262,13 @@ function renderRuns() {
   elements["rail-working"].hidden = !working.length;
   elements["working-count"].textContent = String(working.length);
   commitMarkup(elements["working-run-list"], working.map(railRunMarkup).join(""));
-  renderRailMetaSections();
+  railMetaSections.render();
   renderProjects(); // run.sessions 变了，树内协作会话聚合（runSessionLinkIndex）也要跟着翻页；commitMarkup 幂等不抢焦点
   renderSelectedRun();
 }
 
 // ===== 置顶区 + 已归档区：Console run 与原生历史会话混合渲染（Codex 式单一置顶区） =====
-function renderRailMetaSections() {
-  if (state.view !== "workbench") return;
-  // LO 2026-08-04：置顶/已归档同样按选中团队隔离，不在侧栏混显其他团队
-  const railId = railTeamId();
-  // interrupted 归「正在工作」区（renderRuns 同律）——pinned 的 interrupted 若也进置顶区会双列双计数
-  const pinnedRuns = state.runs.filter((run) => !run.archived && run.pinned && !ACTIVE_RUN_STATES.has(run.status) && run.status !== "interrupted" && runInRailTeam(run));
-  const allProjects = [...state.pendingProjects, ...(state.projectsData?.projects ?? []), ...remoteTreeNodes()]; // 乐观/远程项目也可置顶/归档进分区
-  // 置顶/归档分区的团队过滤与树「未归属」兜底同律（烛侧栏审查 H1）：显式归属命中本团队、
-  // 或未归属（null）都收——否则未归属项目一置顶就从侧栏彻底消失（树排除 pinned，这里又够不着）
-  const inRailTeam = (explicitTeamId) => explicitTeamId === railId || explicitTeamId === null;
-  const pinnedProjects = allProjects.filter((project) => {
-    const pref = projectPrefOf(project);
-    return pref.pinned && !pref.hidden && inRailTeam(explicitProjectTeamId(project));
-  });
-  const pinnedSessions = [];
-  const archivedSessions = [];
-  for (const project of allProjects) {
-    if (projectPrefOf(project).hidden) continue;
-    for (const session of project.sessions ?? []) {
-      const pref = sessionPrefOf(session.cli ?? "claude", project.id, session.id);
-      const explicitTeamId = pref.teamId && teamById(pref.teamId) ? pref.teamId : explicitProjectTeamId(project);
-      if (!inRailTeam(explicitTeamId)) continue;
-      if (pref.archived) archivedSessions.push({ project, session });
-      else if (pref.pinned) pinnedSessions.push({ project, session });
-    }
-  }
-  const pinnedTotal = pinnedRuns.length + pinnedProjects.length + pinnedSessions.length;
-  elements["rail-pinned"].hidden = !pinnedTotal;
-  elements["pinned-count"].textContent = String(pinnedTotal);
-  commitMarkup(elements["pinned-run-list"], [
-    ...pinnedRuns.map(railRunMarkup),
-    ...pinnedProjects.map((project, index) => pinnedProjectMarkup(project, index)),
-    ...pinnedSessions.map(({ project, session }) => sessionLinkMarkup(project, session)),
-  ].join(""));
-  const archivedRuns = state.runs.filter((run) => run.archived && runInRailTeam(run));
-  const archivedTotal = archivedRuns.length + archivedSessions.length;
-  elements["rail-archived"].hidden = !archivedTotal;
-  elements["archived-count"].textContent = String(archivedTotal);
-  elements["archived-toggle"].setAttribute("aria-expanded", String(state.archivedExpanded));
-  elements["archived-run-list"].hidden = !state.archivedExpanded;
-  commitMarkup(
-    elements["archived-run-list"],
-    state.archivedExpanded
-      ? [
-          ...archivedRuns.map(railRunMarkup),
-          ...archivedSessions.map(({ project, session }) => sessionLinkMarkup(project, session)),
-        ].join("")
-      : "",
-  );
-}
+// renderRailMetaSections → modules/rail-meta-sections.js (createRailMetaSections)
 
 // 置顶项目行：复用 project-toggle/project-sessions 样式，点击内联展开（展开态独立存 expandedPinnedProjects）
 function pinnedProjectMarkup(project, index) {
@@ -7552,6 +7363,54 @@ const promptDialog = createPromptDialog({
   getForm: () => byId("input-dialog-form"),
   getCancel: () => elements["input-dialog-cancel"],
 });
+const railMetaSections = createRailMetaSections({
+  elements,
+  state,
+  escapeHtml,
+  getRailTeamId: railTeamId,
+  getRuns: () => state.runs,
+  getAllProjects: () => [...state.pendingProjects, ...(state.projectsData?.projects ?? []), ...remoteTreeNodes()],
+  inRailTeam: (explicitTeamId) => explicitTeamId === railTeamId() || explicitTeamId === null,
+  runInRailTeam,
+  projectPrefOf,
+  sessionPrefOf,
+  explicitProjectTeamId,
+  teamById,
+  buildRunHtml: railRunMarkup,
+  buildPinnedProjectHtml: pinnedProjectMarkup,
+  buildSessionLinkHtml: (project, session) => sessionLinkMarkup(project, session),
+  commitMarkup,
+  ACTIVE_RUN_STATES,
+});
+const conversationHeader = createConversationHeader({
+  elements,
+  state,
+  escapeHtml,
+  lucideIcon,
+  request,
+  API,
+  TERMINAL_RUN_STATES,
+  getSelectedRun: selectedRun,
+  toast,
+  setComposerMode,
+  renderSelectedRun,
+});
+const { runLocalEnvironmentId, headingEnvEntry } = conversationHeader;
+
+const mentionMenu = createMentionMenu({
+  elements,
+  state,
+  byId,
+  lucideIcon,
+  toast,
+  currentTeamMembers,
+  agentLabel,
+  AGENT_ROLE_BLURB,
+  agentSlug,
+  agentFaceMarkup,
+  getSelectedRun: selectedRun,
+  TERMINAL_RUN_STATES,
+});
 
 function menuTriggerMarkup(kind, id, label) {
   return contextMenu.triggerMarkup(kind, id, label);
@@ -7580,8 +7439,8 @@ async function patchRunMeta(id, patch, message) {
       tabsChanged = true;
     }
     if (tabsChanged) {
-      persistTabs();
-      renderTabs();
+      conversationTabs.persistTabs();
+      conversationTabs.renderTabs();
     }
     renderRuns();
     if (message) toast(message, "success");
@@ -8245,7 +8104,7 @@ const LOCAL_SLASH_COMMANDS = Object.freeze([
       toast("产物 diff 需要已结束且带隔离工作树的会话", "warning", 3200);
       return;
     }
-    void toggleRunDiff(run.id);
+    void conversationHeader.toggleRunDiff(run.id);
   } },
   { id: "copy", label: "/copy", detail: "复制最近一条助手回复（Codex 对标）", apply: async () => {
     const last = [...document.querySelectorAll(".message-row .md-body")].pop();
@@ -8355,171 +8214,17 @@ function fallbackRuntimeSlashCommands() {
   return commands;
 }
 
-function slashCommandsForContext() {
-  const agentId = activeComposerTarget().memberId || "";
-  const catalog = state.agentControlCatalog;
-  const catalogCommands = catalog?.context?.memberId === agentId && Array.isArray(catalog.commands)
-    ? catalog.commands
-    : [];
-  const runtimeCommands = (catalogCommands.length ? catalogCommands.filter((command) => command.execution === "composer-control" || command.control !== "native") : fallbackRuntimeSlashCommands())
-    .filter((command) => command.control !== "native")
-    .map((command) => ({
-      ...command,
-      group: "composer",
-      apply() { applyRuntimeSlashControl(this); },
-    }));
-  const nativeCommands = catalogCommands
-    .filter((command) => command.control === "native")
-    .map((command) => ({
-      ...command,
-      native: command.execution === "passthrough" || command.execution === "adapter-hook",
-      group: "member-native",
-      apply() {
-        if (command.execution === "cli-attach") {
-          toast(command.detail || "请用 /cli 附着原生 TUI", "warning", 2800);
-          void openRunCliTerminal();
-        }
-      },
-    }));
-  return [...runtimeCommands, ...nativeCommands, ...LOCAL_SLASH_COMMANDS.map((item) => ({ ...item, group: "composer" }))];
-}
-
-function hideSlashMenu() {
-  const menu = byId("slash-menu");
-  if (menu) {
-    menu.hidden = true;
-    menu.innerHTML = "";
-  }
-  state.slashActive = false;
-  state.slashIndex = -1;
-  state.slashCandidates = [];
-  state.slashRange = null;
-  elements["task-input"]?.setAttribute("aria-expanded", "false");
-  elements["task-input"]?.removeAttribute("aria-activedescendant");
-}
-
-function slashQueryAtCursor(textarea) {
-  if (!textarea) return null;
-  const value = textarea.value;
-  const caret = textarea.selectionStart ?? value.length;
-  const before = value.slice(0, caret);
-  const match = before.match(/(^|[\s\n])\/([A-Za-z0-9_-]*(?:[ \t]+[A-Za-z0-9._:/-]*)?)$/);
-  if (!match) return null;
-  return {
-    start: caret - match[2].length - 1,
-    end: caret,
-    query: match[2].toLowerCase().replace(/[ \t]+/g, " "),
-  };
-}
-
-function syncSlashActiveOption() {
-  const menu = byId("slash-menu");
-  const textarea = elements["task-input"];
-  if (!menu || !textarea) return;
-  menu.querySelectorAll(".slash-item").forEach((element, index) => {
-    const active = index === state.slashIndex;
-    element.classList.toggle("is-active", active);
-    element.setAttribute("aria-selected", String(active));
-    if (active) {
-      textarea.setAttribute("aria-activedescendant", element.id);
-      element.scrollIntoView({ block: "nearest" });
-    }
-  });
-}
-
-function renderSlashMenu() {
-  const menu = byId("slash-menu");
-  const textarea = elements["task-input"];
-  if (!menu || !textarea) return;
-  if (state.mentionActive) {
-    hideSlashMenu();
-    return;
-  }
-  const hit = slashQueryAtCursor(textarea);
-  if (!hit) {
-    hideSlashMenu();
-    return;
-  }
-  const candidates = slashCommandsForContext().filter((item) => {
-    if (!hit.query) return true;
-    const normalizedLabel = item.label.slice(1).toLowerCase().replace(/[ \t]+/g, " ");
-    return hit.query.includes(" ")
-      ? normalizedLabel.startsWith(hit.query)
-      : `${normalizedLabel} ${item.detail} ${item.id}`.toLowerCase().includes(hit.query);
-  });
-  const passthrough = [];
-  if (!candidates.length && hit.query) {
-    const rawCommand = textarea.value.slice(hit.start, hit.end).trim();
-    if (/^\/[A-Za-z0-9_-]+([ \t]+\S+){0,8}$/.test(rawCommand)) {
-      const nativeHit = slashCommandsForContext().find((item) => item.control === "native" && (item.token === rawCommand || rawCommand.startsWith(`${item.token} `)));
-      if (nativeHit && nativeHit.native) {
-        passthrough.push({
-          ...nativeHit,
-          id: "native-passthrough",
-          label: rawCommand,
-          detail: nativeHit.detail || "作为当前成员原生命令发送",
-        });
-      } else {
-        passthrough.push({
-          id: "native-unsupported",
-          label: rawCommand,
-          detail: nativeHit?.detail || "当前成员不支持这条原生命令。完整 TUI 请用 /cli 附着。",
-          native: false,
-          apply() {
-            toast(this.detail, "warning", 3200);
-          },
-        });
-      }
-    }
-  }
-  if (!candidates.length && !passthrough.length) {
-    hideSlashMenu();
-    return;
-  }
-  state.slashActive = true;
-  state.slashCandidates = [...candidates, ...passthrough];
-  state.slashIndex = 0;
-  state.slashRange = hit;
-  menu.hidden = false;
-  menu.innerHTML = state.slashCandidates.map((item, index) => `
-    <button class="slash-item${index === 0 ? " is-active" : ""}${item.native ? " is-native" : ""}" id="slash-option-${index}" type="button" role="option" aria-selected="${index === 0}" data-slash-id="${escapeHtml(item.id)}">
-      <strong>${escapeHtml(item.label)}</strong>
-      <span>${escapeHtml(item.detail)}</span>
-    </button>`).join("");
-  textarea.setAttribute("aria-expanded", "true");
-  textarea.setAttribute("aria-activedescendant", "slash-option-0");
-}
-
-function applySlashCommand(id) {
-  const command = state.slashCandidates.find((item) => item.id === id);
-  const textarea = elements["task-input"];
-  const range = state.slashRange;
-  if (!command || !textarea || !range) return;
-  if (command.native) {
-    // 原生命令透传：文本留在输入框（提交时原样进 CLI），只打显式标记——
-    // 标记不来自消息内容本身，提示注入无法伪造命令轮
-    state.pendingNativeCommand = true;
-    hideSlashMenu();
-    toast(`${command.label} 将作为原生命令发送给 CLI —— 按 Enter 提交`, "success", 2800);
-    textarea.focus({ preventScroll: true });
-    return;
-  }
-  state.pendingNativeCommand = false;
-  const before = textarea.value.slice(0, range.start);
-  const after = textarea.value.slice(range.end);
-  textarea.value = before + after; // 去掉命令 token，不把 /plan 留在 prompt 里
-  const caret = before.length;
-  textarea.setSelectionRange(caret, caret);
-  textarea.dispatchEvent(new Event("input", { bubbles: true }));
-  hideSlashMenu();
-  try {
-    command.apply();
-    toast(`已应用 ${command.label}`, "success", 1800);
-  } catch (error) {
-    toast(error.message, "error");
-  }
-  textarea.focus({ preventScroll: true });
-}
+const slashMenu = createSlashMenu({
+  elements,
+  state,
+  byId,
+  toast,
+  activeComposerTarget,
+  LOCAL_SLASH_COMMANDS,
+  fallbackRuntimeSlashCommands,
+  applyRuntimeSlashControl,
+  openRunCliTerminal,
+});
 
 // ===== 项目侧栏偏好（置顶/重命名/隐藏）=====
 function projectPrefsFromPayload(payload) {
@@ -9406,8 +9111,8 @@ function activeComposerTarget() {
     ? run.teamMembers
     : team?.members || []).filter(Boolean);
   const coordinatorId = run?.coordinatorId || team?.coordinator || members[0] || null;
-  const preferredAgentId = run ? activeAgentId() : state.composerTargetAgentId;
-  const defaultMemberId = run ? defaultRunRecipient(run) : coordinatorId;
+  const preferredAgentId = run ? conversationTabs.activeAgentId() : state.composerTargetAgentId;
+  const defaultMemberId = run ? conversationTabs.defaultRunRecipient(run) : coordinatorId;
   const memberId = preferredAgentId && members.includes(preferredAgentId)
     ? preferredAgentId
     : members.includes(defaultMemberId) ? defaultMemberId : coordinatorId;
@@ -10530,7 +10235,7 @@ async function syncModelPick() {
     if (effortPick) effortPick.title = `${discovered.context?.adapterLabel || agentLabel(agentId)} 推理强度`;
     syncComposerControlVisibility();
     renderComposerCliConsole();
-    if (state.slashActive) renderSlashMenu();
+    if (state.slashActive) slashMenu.renderSlashMenu();
   } catch {
     // 动态目录失败保持静态（端点自身已回退，这里是双保险）
     renderComposerCliConsole();
@@ -10543,7 +10248,7 @@ function selectTeam(id) {
   state.selectedTeamId = id;
   state.composerTargetAgentId = null;
   state.requestedAgentIds = [];
-  renderRequestedAgentChips();
+  mentionMenu.renderRequestedAgentChips();
   localStorage.setItem(TEAM_KEY, id); // LO 2026-08-04：跨客户端重启记忆所选团队（原 sessionStorage 随退出丢失）
   state.expandedTeams.add(id); // 切团队后侧栏直接展开该团队全部项目
   renderTeams();
@@ -16224,7 +15929,7 @@ function shortDate(value) {
 function renderProjects() {
   const container = elements["workbench-project-tree"];
   const data = state.projectsData;
-  renderRailMetaSections(); // 置顶/已归档区随项目数据与偏好联动（含 run，早退路径也要刷）
+  railMetaSections.render(); // 置顶/已归档区随项目数据与偏好联动（含 run，早退路径也要刷）
   if (!container) return;
   if (state.view !== "workbench") return;
   if (!data) {
@@ -16691,7 +16396,7 @@ function renderSessionPreview() {
   elements["workbench-run-status"].className = "status-label is-neutral";
   elements["cancel-run-button"].disabled = true;
   setComposerMode(null); // 历史预览下胶囊回新任务模式
-  paintConversationChips(null); // chips 走预览分支：只露来源项目，不碰 run 级 pill/菜单
+  conversationHeader.paintConversationChips(null); // chips 走预览分支：只露来源项目，不碰 run 级 pill/菜单
   const stream = elements["conversation-stream"];
   syncConversationLiveContext(`preview:${preview.key}`);
   const renderedKey = `${preview.seq}|${preview.loading}|${preview.error ?? ""}`;
@@ -21410,8 +21115,8 @@ function botPrepareIndependentComposer(agentId, { teamId = "", allowedMemberIds 
       state.activeTabKey = null;
       state.composerTargetAgentId = normalized;
     });
-    persistTabs();
-    renderTabs();
+    conversationTabs.persistTabs();
+    conversationTabs.renderTabs();
     renderMemberStrip();
     void syncModelPick();
   } else {
@@ -21517,7 +21222,7 @@ function botSubmitPendingAskAnswer(context, answer, {
   // continueSelectedRun 复用现有 /messages、附件事务和 answerToAskId 校验；
   // 这里只切换隐藏的共享 composer 上下文，不改变 Bot 的可见表面。
   transitionComposerContext(() => {
-    const key = tabKeyOf(current.runId, current.askerId);
+    const key = conversationTabs.tabKeyOf(current.runId, current.askerId);
     if (!state.tabs.some((tab) => tab.key === key)) {
       state.tabs.push({ key, runId: current.runId, agentId: current.askerId, title: current.run.title, dirty: false });
     }
@@ -21526,7 +21231,7 @@ function botSubmitPendingAskAnswer(context, answer, {
     state.selectionClearedByUser = false;
     state.sessionPreview = null;
   });
-  renderTabs();
+  conversationTabs.renderTabs();
   renderMemberStrip();
   void syncModelPick();
   taskInput.value = text;
@@ -21832,7 +21537,7 @@ function botBridgeComposer(text, {
   // 选择题卡片可以直接声明并行协作者，不要求用户在输入框里手写 @ 提及。
   // 这仍走现有 composer/requestedAgentIds 合同，不创建第二套 Bot runtime。
   state.requestedAgentIds = collaborators;
-  renderRequestedAgentChips();
+  mentionMenu.renderRequestedAgentChips();
   const submission = {
     token: `bot-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     agentId: botState.agentId,
@@ -22065,8 +21770,8 @@ function initBotShell() {
       toast("该运行已不在当前快照中，无法打开 diff", "warning", 3600);
       return;
     }
-    openTab(runId, botState.agentId);
-    void toggleRunDiff(runId);
+    conversationTabs.openTab(runId, botState.agentId);
+    void conversationHeader.toggleRunDiff(runId);
   });
   const agentList = byId("bot-agent-list");
   agentList?.addEventListener("click", async (event) => {
@@ -22511,8 +22216,8 @@ byId("bot-member-runtime-profile")?.addEventListener("change", () => {
         toast("该运行已不在当前快照中，无法打开 diff", "warning", 3600);
         return;
       }
-      openTab(runId, botState.agentId);
-      void toggleRunDiff(runId);
+      conversationTabs.openTab(runId, botState.agentId);
+      void conversationHeader.toggleRunDiff(runId);
       return;
     }
     const answerOption = event.target.closest("[data-bot-answer-option]");
@@ -23358,7 +23063,7 @@ function applyComposerDraft(draft) {
   // 程序化赋值不触发 input 事件，textarea 自增高会停留在旧高度——手动按同一规则重算
   textarea.style.height = "auto";
   textarea.style.height = `${Math.min(textarea.scrollHeight, 220)}px`;
-  renderRequestedAgentChips();
+  mentionMenu.renderRequestedAgentChips();
   activateAttachmentContext();
   syncSubmitButtonMode();
 }
@@ -23408,8 +23113,8 @@ function enterNewTaskComposer(options = {}) {
     };
     applyComposerDraft(state.composerNewTaskDraft);
   }
-  persistTabs();
-  renderTabs();
+  conversationTabs.persistTabs();
+  conversationTabs.renderTabs();
   renderMemberStrip();
   void syncModelPick();
   renderRuns();
@@ -23469,7 +23174,7 @@ function clearSubmittedComposerDraft({ runId = null, submittedDraft }) {
   if (currentOwnsSubmission) {
     elements["task-input"].value = "";
     state.requestedAgentIds = [];
-    renderRequestedAgentChips();
+    mentionMenu.renderRequestedAgentChips();
     syncSideChatDraftFromComposer();
   }
   return true;
@@ -24182,7 +23887,7 @@ function freezeLatestConversationWindowForIncoming(event) {
   ) return;
   const run = selectedRun();
   if (!run) return;
-  const agentId = activeAgentId();
+  const agentId = conversationTabs.activeAgentId();
   const incomingMessage = conversationMessageFromEvent(event);
   if (!incomingMessage || !messageMatchesAgentPage(incomingMessage, agentId)) return;
   const key = conversationWindowKey(run.id, agentId);
@@ -24234,7 +23939,7 @@ function conversationNewerGateMarkup(messageWindow) {
 function moveConversationWindow(direction) {
   const run = selectedRun();
   if (!run || elements["conversation-stream"].getAttribute("aria-busy") === "true") return;
-  const agentId = activeAgentId();
+  const agentId = conversationTabs.activeAgentId();
   const messages = normalizeRunMessages(run, { agentId });
   const current = conversationWindow(run, agentId, messages);
   const key = conversationWindowKey(run.id, agentId);
@@ -24263,7 +23968,7 @@ function loadNewerConversation() {
 function returnToLatestConversation() {
   const run = selectedRun();
   if (!run || elements["conversation-stream"].getAttribute("aria-busy") === "true") return;
-  conversationWindowStarts.delete(conversationWindowKey(run.id, activeAgentId()));
+  conversationWindowStarts.delete(conversationWindowKey(run.id, conversationTabs.activeAgentId()));
   renderSelectedRun({ preserveStreamState: true });
 }
 
@@ -24298,7 +24003,7 @@ function renderSelectedRun({ preserveStreamState = true } = {}) {
     elements["workbench-run-status"].className = "status-label is-neutral";
     elements["cancel-run-button"].disabled = true;
     setComposerMode(null);
-    paintConversationChips(null);
+    conversationHeader.paintConversationChips(null);
     renderRecoveryBar(null);
     renderRunAttentionBar(null);
     replaceConversationStream(
@@ -24317,7 +24022,7 @@ function renderSelectedRun({ preserveStreamState = true } = {}) {
   missionControlDock?.selectRun(run.id, `${run.updatedAt ?? run.createdAt ?? ""}:${run.status}:${run.round ?? 0}`, runLocalEnvironmentId(run));
   syncRailToActiveRun();
 
-  const agentId = activeAgentId(); // 成员独立页（null=团队协作页）
+  const agentId = conversationTabs.activeAgentId(); // 成员独立页（null=团队协作页）
   const renderContext = `run:${run.id}:${agentId ?? "team"}`;
   syncConversationLiveContext(renderContext);
   elements["conversation-title"].textContent = agentId ? `${run.title} · ${agentLabel(agentId)}` : run.title;
@@ -24349,7 +24054,7 @@ function renderSelectedRun({ preserveStreamState = true } = {}) {
   }
   const waitingApproval = run.status === "waiting_approval" || run.buildApproval?.status === "pending";
   setComposerMode(run, { waitingApproval });
-  paintConversationChips(run);
+  conversationHeader.paintConversationChips(run);
   renderRecoveryBar(run);
   renderRunAttentionBar(run);
 
@@ -25007,45 +24712,6 @@ function streamKeyAttribute(message) {
   return message?.key ? ` data-stream-key="${escapeHtml(String(message.key))}"` : "";
 }
 
-const FILE_CHANGE_LABELS = { add: "新增", update: "修改", delete: "删除", rename: "重命名" };
-// 控制台式时间线动词（参考形态："已编辑 file +1 -1" 单行）——summary 行的第一词
-const FILE_CHANGE_VERBS = { add: "已新增", update: "已编辑", delete: "已删除", rename: "已重命名" };
-
-/** 从 unified diff 文本数 +/- 行（跳过 +++/--- 头），给 summary 行右侧的彩色统计。 */
-function diffLineStats(diff) {
-  let add = 0;
-  let del = 0;
-  for (const line of String(diff || "").split("\n")) {
-    if (line.startsWith("+++") || line.startsWith("---")) continue;
-    if (line.startsWith("+")) add += 1;
-    else if (line.startsWith("-")) del += 1;
-  }
-  return { add, del };
-}
-
-function diffStatsMarkup(changes) {
-  let add = 0;
-  let del = 0;
-  for (const change of changes) {
-    const stats = diffLineStats(change?.diff);
-    add += stats.add;
-    del += stats.del;
-  }
-  if (!add && !del) return "";
-  const parts = [];
-  if (add) parts.push(`<em class="is-add">+${add}</em>`);
-  if (del) parts.push(`<em class="is-del">−${del}</em>`);
-  return `<span class="process-diffstat">${parts.join("")}</span>`;
-}
-
-/** 命令的首个词——折叠态一眼分辨 npm / git / node，不用展开。 */
-function commandHeadline(command) {
-  const text = String(command || "").trim();
-  if (!text) return "命令";
-  const firstLine = text.split("\n")[0];
-  return firstLine.length > 96 ? `${firstLine.slice(0, 96)}…` : firstLine;
-}
-
 /**
  * Codex 过程卡：命令 / 文件改动 / 旁白。默认折叠成一行（几百条命令也不淹没对话），
  * 展开看完整命令与输出——对齐 CLI 里"命令 + 输出 + 退出码"的读法。
@@ -25249,509 +24915,40 @@ function messageMarkup(message, prev = null) {
     </article>`;
 }
 
-// 活跃轮呼吸行：run 进行中时会话流尾部的"谁在干什么"实时指示——最后一条 turnAttempt 的
-// agent + 相位人话 + 三点动画。没有它，LO 面对静止的流不知道系统是活着还是卡死。
-const compactingRuns = new Map();
+const {
+  trackContextCompaction, trackCodexActivity, trackTurnFileStats,
+  liveProcessRowsMarkup, turnProgressMarkup, liveTurnMarkup, liveDeltaMarkup,
+  codexActivityText,
+} = createRunLiveActivity({
+  ACTIVE_RUN_STATES,
+  agentSlug,
+  agentCli,
+  agentLabel,
+  cliIconMarkup,
+  toolGlyphFor,
+  historyEventsForRun,
+  isDeltaEventType,
+  getMemberCatalog: () => state.memberCatalog || [],
+});
 
-function trackContextCompaction(event) {
-  if (!event?.runId) return false;
-  if (event.type === "run.context_compaction_started") {
-    compactingRuns.set(event.runId, {
-      agentId: event.data?.agentId || event.agentId || "",
-      startedAt: event.timestamp || new Date().toISOString(),
-    });
-    return true;
-  }
-  if (event.type === "run.context_compaction_completed" || event.type === "run.context_compaction_failed") {
-    return compactingRuns.delete(event.runId);
-  }
-  if (/^run\.(completed|failed|cancelled|interrupted)$/.test(event.type)) {
-    return compactingRuns.delete(event.runId);
-  }
-  return false;
-}
-
-function liveTurnMarkup(run) {
-  if (!ACTIVE_RUN_STATES.has(run.status)) return "";
-  if (run.status === "waiting_approval" || run.status === "recovery_required" || run.pendingAsk) return ""; // 等的是人，不是 agent
-  const inflight = Object.keys(run.inflightTurns || {}).length > 0;
-  if (run.recoveryNote && !inflight && run.status !== "running") return ""; // 粘性注记只在没有在途 turn 时藏呼吸行
-  const liveCompaction = compactingRuns.get(run.id);
-  const compacting = run.contextRecovery?.state === "compacting" || Boolean(liveCompaction);
-  // 压缩窗口必须盖过「上轮 failed → 编排器正在路由下一轮」的空隙文案：耗尽轮已经 failed，
-  // 但原生 compact 最长 5 分钟——不写专门相位，LO 会以为卡住然后去点中断。
-  if (compacting) {
-    const compactAgentId = run.contextRecovery?.agentId || liveCompaction?.agentId || (run.turnAttempts ?? []).at(-1)?.agentId || "";
-    const compactSince = run.contextRecovery?.startedAt || liveCompaction?.startedAt || run.updatedAt || null;
-    const compactSlug = agentSlug(compactAgentId);
-    const compactCli = agentCli(compactAgentId);
-    return `
-    <div class="live-turn is-agent-${compactSlug}" data-stream-key="tail:live">
-      <span class="message-avatar live-avatar${compactCli ? ` has-cli-avatar is-cli-${compactCli}` : ""}" aria-hidden="true">${memberAvatarMarkup(
-        (state.memberCatalog || []).find((item) => item.id === compactAgentId) || { id: compactAgentId, avatar: "" },
-        { className: "avatar-photo", iconClass: "cli-logo", fallback: compactCli ? cliIconMarkup(compactCli) : lucideIcon("bot") },
-      )}</span>
-      <span><strong>${escapeHtml(agentLabel(compactAgentId))}</strong> 正在压缩上下文，请勿中断</span>
-      <span class="live-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-      ${compactSince ? `<time class="live-elapsed" data-live-since="${escapeHtml(compactSince)}">${escapeHtml(liveElapsedText(compactSince))}</time>` : ""}
-    </div>`;
-  }
-  const attempt = (run.turnAttempts ?? []).at(-1);
-  // 时效兜底：相位 30 分钟没动过=协程大概率已死（超时上限量级），不假装还在跑
-  const staleMs = Date.now() - Date.parse(attempt?.updatedAt ?? run.updatedAt ?? 0);
-  if (Number.isFinite(staleMs) && staleMs > 30 * 60_000) return "";
-  if (!attempt || ["completed", "failed"].includes(attempt.phase)) {
-    // 轮间空隙（上轮已结、下轮未起）：编排器在路由/编织上下文
-    return run.status === "running"
-      ? `<div class="live-turn" data-stream-key="tail:live"><span class="live-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>编排器正在路由下一轮</span></div>`
-      : "";
-  }
-  const phaseText = {
-    prepared: "正在准备会话",
-    session_ready: "会话已就绪，正在提交",
-    submitting: "正在提交任务",
-    submitted: "正在执行",
-    ambiguous: "提交状态待确认",
-  }[attempt.phase] ?? "正在执行";
-  const slug = agentSlug(attempt.agentId);
-  const attemptCli = agentCli(attempt.agentId);
-  // 已运行时长：submitted 期间没有中间 checkpoint，只显示"正在执行"时 4 分钟和 40 分钟长得一样，
-  // 用户无法区分"在深度思考"和"已经死了"（LO 2026-08-08：发继续没反应，实为 Codex 正常长跑）。
-  const since = attempt.updatedAt || attempt.createdAt || null;
-  // 具体在跑什么 > 泛泛的"正在执行"。第五轮起 command/file 活跃项已独立成进行态过程行
-  // （liveProcessRowsMarkup）——呼吸行只为 reasoning 保留「正在思考」，其余退回相位文案，一活不两显。
-  const latestActivity = codexLiveActivities(run.id).at(-1);
-  const activity = latestActivity?.progress.kind === "reasoning" ? "正在思考" : "";
-  return `
-    <div class="live-turn is-agent-${slug}" data-stream-key="tail:live">
-      <span class="message-avatar live-avatar${attemptCli ? ` has-cli-avatar is-cli-${attemptCli}` : ""}" aria-hidden="true">${memberAvatarMarkup(
-        (state.memberCatalog || []).find((item) => item.id === attempt.agentId) || { id: attempt.agentId, avatar: "" },
-        { className: "avatar-photo", iconClass: "cli-logo", fallback: attemptCli ? cliIconMarkup(attemptCli) : lucideIcon("bot") },
-      )}</span>
-      <span><strong>${escapeHtml(agentLabel(attempt.agentId))}</strong> ${escapeHtml(activity || phaseText)}</span>
-      <span class="live-dots" aria-hidden="true"><i></i><i></i><i></i></span>
-      ${since ? `<time class="live-elapsed" data-live-since="${escapeHtml(since)}">${escapeHtml(liveElapsedText(since))}</time>` : ""}
-    </div>`;
-}
-
-function liveDeltaMarkup(run) {
-  if (!ACTIVE_RUN_STATES.has(run.status)) return "";
-  if (run.status === "waiting_approval" || run.status === "recovery_required" || run.pendingAsk) return "";
-  const events = historyEventsForRun(run.id);
-  const delta = [...events].reverse().find((event) => isDeltaEventType(event.type));
-  const text = String(delta?.content || delta?.data?.delta || delta?.data?.text || "").trim();
-  if (!text) return "";
-  return `<div class="live-delta-bubble" data-stream-key="tail:live-delta"><div class="md-body">${escapeHtml(redact(text.slice(-4000)))}</div></div>`;
-}
-
-// 正在执行的 Codex item：item/started 记入、item/completed 抹去。历史卡片只认完成态
-// （每条命令一行），"此刻在跑什么"由这里承接——两者合起来才等于 CLI 的可见度。
-// reasoning 也在册：模型长考时没有 command/file 活跃，没有它呼吸行只剩干巴巴的相位文案
-// （LO 2026-08-10：要 Codex 官方那种「正在思考」状态）。
-const codexActivity = new Map();
-
-function trackCodexActivity(event) {
-  if (!event?.runId) return false;
-  const progress = event.data?.progress;
-  if (event.type === "codex.item/started" && progress?.id && ["command", "file", "reasoning", "tool"].includes(progress.kind)) {
-    codexActivity.set(`${event.runId}\u0000${progress.id}`, { runId: event.runId, progress, since: event.timestamp });
-    return true;
-  }
-  if (event.type === "codex.item/completed" && progress?.id) {
-    return codexActivity.delete(`${event.runId}\u0000${progress.id}`);
-  }
-  // run 收尾时清掉残留（进程被杀/轮失败时不会有 completed），否则会一直显示假的"正在执行"
-  if (/^run\.(completed|failed|cancelled)$/.test(event.type)) {
-    let removed = false;
-    for (const key of [...codexActivity.keys()]) {
-      if (key.startsWith(`${event.runId}\u0000`)) removed = codexActivity.delete(key) || removed;
-    }
-    return removed;
-  }
-  return false;
-}
-
-/** 当前 run 的全部活跃 item（started 登记、completed 核销），按发生序。 */
-function codexLiveActivities(runId) {
-  return [...codexActivity.values()].filter((item) => item.runId === runId);
-}
-
-/** 当前 run 正在跑的那条命令/改动的人话摘要；没有则空串。 */
-function codexActivityText(runId) {
-  const entry = codexLiveActivities(runId).at(-1);
-  if (!entry) return "";
-  if (entry.progress.kind === "reasoning") return "正在思考";
-  if (entry.progress.kind === "tool") return `正在调用 ${commandHeadline(entry.progress.name)}`;
-  if (entry.progress.kind === "file") {
-    const count = Number(entry.progress.changesTotal || entry.progress.changes?.length || 0);
-    return count ? `正在写入 ${count} 个文件` : "正在写入文件";
-  }
-  return `正在执行 ${commandHeadline(entry.progress.command)}`;
-}
-
-/**
- * 进行态过程行（收敛层·第五轮，参考 Codex 桌面「运行了命令…」转圈行）：
- * codexActivity 里 started 未核销的 command/file 项逐条成行——此前它们只折算成呼吸行
- * 的一句文案，"此刻在跑什么"的可见度差一档。reasoning 不进这里（呼吸行的
- * 「正在思考」已表达，一活不两显）。行内时长复用 data-live-since 秒级走时
- * （tickLiveElapsed），不靠重渲。无 item 信号的席位（kimi/gemini 等）天然无此行，不造假活。
- */
-function liveProcessRowsMarkup(run) {
-  if (!run || !ACTIVE_RUN_STATES.has(run.status)) return "";
-  if (run.status === "waiting_approval" || run.status === "recovery_required" || run.pendingAsk) return ""; // 等的是人：在途 item 已暂停，不挂转圈假活
-  const rows = codexLiveActivities(run.id)
-    .filter((entry) => entry.progress.kind === "command" || entry.progress.kind === "file" || entry.progress.kind === "tool")
-    .map((entry) => {
-      const progress = entry.progress;
-      const isFile = progress.kind === "file";
-      const isTool = progress.kind === "tool";
-      const count = Number(progress.changesTotal || progress.changes?.length || 0);
-      const singlePath = isFile && count === 1 ? String(progress.changes?.[0]?.path || "") : "";
-      const target = isFile
-        ? singlePath
-          ? redact(singlePath).split(/[\\/]/).pop() || "文件"
-          : `${count || 1} 个文件`
-        : isTool
-          ? `${commandHeadline(progress.name)}${progress.input ? ` ${String(progress.input).replace(/\s+/g, " ").slice(0, 96)}` : ""}`
-          : commandHeadline(progress.command);
-      const since = entry.since
-        ? `<time class="live-elapsed" data-live-since="${escapeHtml(entry.since)}">${escapeHtml(liveElapsedText(entry.since))}</time>`
-        : "";
-      return `<div class="live-process-row${isFile ? " is-file" : isTool ? " is-tool" : " is-command"}">`
-        + `<span class="live-process-spin" aria-hidden="true">${lucideIcon("loader-circle", "icon forge-spin", 13)}</span>`
-        + `<span class="process-glyph" aria-hidden="true">${lucideIcon(isFile ? "file-pen-line" : isTool ? toolGlyphFor(progress.name) : "terminal")}</span>`
-        + `<span class="process-verb">${isFile ? "正在编辑" : isTool ? "正在调用" : "正在执行"}</span>`
-        + `<code class="process-summary-text">${escapeHtml(redact(target))}</code>${since}</div>`;
-    })
-    .join("");
-  return rows ? `<div class="live-process-rows" data-stream-key="tail:live-items">${rows}</div>` : "";
-}
-
-// 本次交互的文件变更累加器（runId → {files: Map(path→{change,add,del}), add, del}）。
-// 与顶栏「更改 pill」分工：那是终态 worktree 权威口径，这是进行中的实时口径
-// （参考形态「N 个文件已更改 +150 −24」）。只收 completed 的 file progress
-// （started 的 diff 为空）；user.message 开新交互即重置；run 收尾清账防串交互。
-const turnFileStats = new Map();
-
-function trackTurnFileStats(event) {
-  if (!event?.runId) return false;
-  if (event.type === "user.message" || /^run\.(completed|failed|cancelled)$/.test(event.type)) {
-    return turnFileStats.delete(event.runId);
-  }
-  if (event.type !== "codex.item/completed") return false;
-  const progress = event.data?.progress;
-  if (progress?.kind !== "file" || !Array.isArray(progress.changes)) return false;
-  let stats = turnFileStats.get(event.runId);
-  if (!stats) {
-    stats = { files: new Map(), add: 0, del: 0 };
-    turnFileStats.set(event.runId, stats);
-  }
-  for (const change of progress.changes) {
-    const path = typeof change?.path === "string" ? change.path : "";
-    if (!path) continue;
-    const lines = diffLineStats(change.diff);
-    const entry = stats.files.get(path) ?? { change: change.change ?? "update", add: 0, del: 0 };
-    entry.change = typeof change?.change === "string" ? change.change : entry.change;
-    entry.add += lines.add;
-    entry.del += lines.del;
-    stats.files.set(path, entry);
-    stats.add += lines.add;
-    stats.del += lines.del;
-  }
-  return true;
-}
-
-/**
- * 流尾步进进度条：「◌ 第 X / Y 步 · N 个文件已更改 +A −D」，可展开 per-file 明细。
- * 步进口径与顶栏 meta 同源（interactionStep/maxStepsPerInteraction）；文件统计来自
- * turnFileStats 实时累加。无 item 信号的席位没有文件段，只显示步进——不猜不编。
- */
-function turnProgressMarkup(run) {
-  if (!run || !ACTIVE_RUN_STATES.has(run.status)) return "";
-  if (run.status === "waiting_approval" || run.status === "recovery_required" || run.pendingAsk) return ""; // 等的是人：审批/问答卡才是此刻焦点
-  const interactionStep = Number(run.interactionStep) || 0;
-  const maxSteps = Number(run.maxStepsPerInteraction ?? run.maxRounds) || 0;
-  const stepText = maxSteps > 0 ? `第 ${interactionStep} / ${maxSteps} 步` : "";
-  const stats = turnFileStats.get(run.id);
-  const fileCount = stats?.files.size ?? 0;
-  if (!stepText && !fileCount) return "";
-  const statBits = [
-    stats?.add ? `<em class="is-add">+${stats.add}</em>` : "",
-    stats?.del ? `<em class="is-del">−${stats.del}</em>` : "",
-  ].filter(Boolean);
-  const headline = [stepText, fileCount ? `${fileCount} 个文件已更改` : ""]
-    .filter(Boolean)
-    .join('<span class="turn-progress-sep">·</span>');
-  const summaryInner = `<span class="live-process-spin" aria-hidden="true">${lucideIcon("loader-circle", "icon forge-spin", 13)}</span>`
-    + `<span class="turn-progress-text">${headline}</span>`
-    + (statBits.length ? `<span class="process-diffstat">${statBits.join("")}</span>` : "");
-  if (!fileCount) {
-    return `<div class="turn-progress" data-stream-key="tail:progress"><div class="turn-progress-line">${summaryInner}</div></div>`;
-  }
-  const rows = [...stats.files.entries()].map(([path, entry]) => {
-    const bits = [
-      entry.add ? `<em class="is-add">+${entry.add}</em>` : "",
-      entry.del ? `<em class="is-del">−${entry.del}</em>` : "",
-    ].filter(Boolean);
-    const label = FILE_CHANGE_LABELS[entry.change] ?? entry.change ?? "改动";
-    return `<div class="turn-progress-file">`
-      + `<span class="process-file-kind is-${escapeHtml(entry.change ?? "update")}">${escapeHtml(label)}</span>`
-      + `<code>${escapeHtml(redact(path))}</code>`
-      + (bits.length ? `<span class="process-diffstat">${bits.join("")}</span>` : "")
-      + `</div>`;
-  }).join("");
-  return `<details class="turn-progress" data-stream-key="tail:progress">`
-    + `<summary>${summaryInner}<span class="turn-progress-caret" aria-hidden="true">${lucideIcon("chevron-right")}</span></summary>`
-    + `<div class="turn-progress-files">${rows}</div>`
-    + `</details>`;
-}
-
-/** 活跃轮已运行时长文案；超过 5 分钟追加提示，帮助区分"慢"与"停"。 */
-function liveElapsedText(since) {
-  const startedMs = Date.parse(String(since ?? ""));
-  if (!Number.isFinite(startedMs)) return "";
-  const elapsed = Math.max(0, Date.now() - startedMs);
-  const totalSeconds = Math.floor(elapsed / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  // formatDuration 输出的是 "263 s"，分钟级读起来费劲——活跃轮要的是一眼看懂
-  const span = minutes ? `${minutes} 分 ${String(totalSeconds % 60).padStart(2, "0")} 秒` : `${totalSeconds} 秒`;
-  return elapsed >= 5 * 60_000 ? `已运行 ${span} · 长时间执行中` : `已运行 ${span}`;
-}
-
-/** 秒级走时：只改那一个 time 节点的文本，不触发会话流重绘；页面不可见时整秒扫描直接跳过。 */
-function tickLiveElapsed() {
-  if (document.hidden) return;
-  for (const node of document.querySelectorAll("[data-live-since]")) {
-    node.textContent = liveElapsedText(node.dataset.liveSince);
-  }
-}
-
-// v3.6 社会模拟拓扑：从 bus.jsonl 的 from/to 消息流构建参与者链（谁说了几句、谁是 leader）。
-// 成功短 TTL + 失败指数负缓存；旧 run 请求可取消，避免离线 bus 在 SSE 热路径形成请求风暴。
-const socialTopologyCache = new Map(); // runId → { at, messages, diagnostics } | { error, failures, retryAt }
-const socialTopologyInflight = new Map(); // runId → { promise, controller }
-let socialTopologyGeneration = 0;
-const SOCIAL_TOPOLOGY_TTL_MS = 30_000; // bus.routed 会精确失效；TTL 只兜底外部写入
-const SOCIAL_TOPOLOGY_MAX_BACKOFF_MS = 30_000;
-
-function trimSocialTopologyCache() {
-  while (socialTopologyCache.size > 30) socialTopologyCache.delete(socialTopologyCache.keys().next().value);
-}
-
-function abortSocialTopologyRequest(runId) {
-  const entry = socialTopologyInflight.get(runId);
-  if (!entry) return;
-  // Delete ownership before aborting. A transport that ignores AbortSignal is
-  // still fenced out by the promise-identity gate in the completion handler.
-  socialTopologyInflight.delete(runId);
-  entry.controller.abort();
-}
-
-function invalidateSocialTopology(runId) {
-  socialTopologyCache.delete(runId);
-  abortSocialTopologyRequest(runId);
-}
-
-function cancelSocialTopologyRequestsExcept(runId) {
-  for (const id of socialTopologyInflight.keys()) {
-    if (id !== runId) abortSocialTopologyRequest(id);
-  }
-}
-
-function supersededSocialTopologyError() {
-  return Object.assign(new Error("social topology request was superseded"), {
-    name: "AbortError",
-    code: "ABORT_ERR",
-  });
-}
-
-function loadSocialTopologyMessages(runId) {
-  const now = Date.now();
-  const cached = socialTopologyCache.get(runId);
-  if (cached?.messages && now - cached.at < SOCIAL_TOPOLOGY_TTL_MS) {
-    return Promise.resolve({ messages: cached.messages, diagnostics: cached.diagnostics ?? null });
-  }
-  if (cached?.error && now < cached.retryAt) return Promise.reject(cached.error);
-  const existing = socialTopologyInflight.get(runId);
-  if (existing) return existing.promise;
-  const controller = new AbortController();
-  const pending = request(`/api/runs/${encodeURIComponent(runId)}/bus`, { signal: controller.signal })
-    .then((payload) => {
-      if (controller.signal.aborted || socialTopologyInflight.get(runId)?.promise !== pending) {
-        throw supersededSocialTopologyError();
-      }
-      const messages = Array.isArray(payload?.messages) ? payload.messages : [];
-      const diagnostics = payload?.diagnostics && typeof payload.diagnostics === "object" ? payload.diagnostics : null;
-      socialTopologyCache.set(runId, { at: Date.now(), messages, diagnostics });
-      trimSocialTopologyCache();
-      return { messages, diagnostics };
-    })
-    .catch((error) => {
-      const ownsRequest = socialTopologyInflight.get(runId)?.promise === pending;
-      if (!controller.signal.aborted && ownsRequest && error?.name !== "AbortError") {
-        const failures = (cached?.failures ?? 0) + 1;
-        const retryAfter = Math.min(1_000 * (2 ** (failures - 1)), SOCIAL_TOPOLOGY_MAX_BACKOFF_MS);
-        socialTopologyCache.set(runId, { error, failures, retryAt: Date.now() + retryAfter });
-        trimSocialTopologyCache();
-      }
-      throw error;
-    })
-    .finally(() => {
-      if (socialTopologyInflight.get(runId)?.promise === pending) socialTopologyInflight.delete(runId);
-    });
-  socialTopologyInflight.set(runId, { promise: pending, controller });
-  return pending;
-}
-
-async function renderSocialTopology(run, generation) {
-  const container = elements["session-topology"];
-  const canCommit = () =>
-    generation === socialTopologyGeneration
-    && state.selectedRunId === run.id
-    && selectedRun()?.orchestrationMode === "social";
-  try {
-    const { messages, diagnostics } = await loadSocialTopologyMessages(run.id);
-    if (!canCommit()) return;
-    const degraded = diagnostics?.status === "degraded";
-    const truncated = diagnostics?.truncated?.bytes === true || diagnostics?.truncated?.messages === true;
-    const windowed = truncated || degraded;
-    if (!messages.length) {
-      commitMarkup(container, degraded
-        ? `<div class="empty-state" role="alert"><span>bus 审计降级，暂无法完整重建团队拓扑</span></div>`
-        : `<div class="empty-state"><span>暂无对话</span></div>`);
-      return;
-    }
-    const participants = [];
-    for (const message of messages) {
-      for (const party of [message.from, message.to]) {
-        if (party && !participants.includes(party)) participants.push(party);
-      }
-    }
-    const notice = degraded
-      ? `<div class="topology-window-note is-degraded" role="alert">bus 审计降级，以下拓扑可能不完整</div>`
-      : truncated
-        ? `<div class="topology-window-note" role="status">仅按最近 ${messages.length} 条消息重建</div>`
-        : "";
-    commitMarkup(container, notice + participants
-      .map((party) => {
-        const label = party === "lo" ? "LO" : party === "team" ? "全员" : party === "system" ? "系统" : agentLabel(party);
-        const role = party === "lo" ? "用户" : party === "team" ? "广播" : party === "system" ? "编排器" : party === run.coordinatorId ? "leader" : "成员";
-        const spoken = messages.filter((message) => message.from === party).length;
-        // 参与者卡与会话流同一套 agent 配色槽/双字码（群聊视觉一致性）；最近发言者呼吸高亮
-        const chip = party === "lo" ? "LO" : party === "team" ? "全" : party === "system" ? "系" : AGENT_SHORT[party] ?? label.slice(0, 2).toUpperCase();
-        const partyCli = agentCli(party);
-        const chipContent = partyCli ? cliIconMarkup(partyCli) : escapeHtml(chip);
-        const slug = ["lo", "team", "system"].includes(party) ? "" : ` is-agent-${agentSlug(party)}`;
-        const speaking = messages.at(-1)?.from === party ? " is-speaking" : "";
-        const interactive = party !== "lo" && party !== "team" && party !== "system";
-        const tag = interactive ? "button" : "div";
-        const attributes = interactive
-          ? ` type="button" data-topology-agent="${escapeHtml(party)}" title="打开 ${escapeHtml(label)} 的独立页" aria-label="打开 ${escapeHtml(label)} 的独立页"`
-          : "";
-        const countLabel = windowed ? `${spoken} 条近期发言` : `${spoken} 条发言`;
-        return `<${tag} class="topology-node${slug}${speaking}"${attributes}><span class="topology-chip${partyCli ? " has-cli-logo" : ""}" aria-hidden="true">${chipContent}</span><div><strong>${escapeHtml(label)}</strong><span>${escapeHtml(role)} · ${countLabel}</span></div></${tag}>`;
-      })
-      .join(""));
-  } catch (error) {
-    if (error?.name === "AbortError" || error?.code === "ABORT_ERR") return;
-    if (canCommit()) {
-      const retryAt = socialTopologyCache.get(run.id)?.retryAt ?? Date.now();
-      const seconds = Math.max(1, Math.ceil((retryAt - Date.now()) / 1000));
-      commitMarkup(container, `<div class="empty-state"><span>bus 读取失败，${seconds} 秒后可重试</span></div>`);
-    }
-  }
-}
-
-function renderRouteDecision(route) {
-  if (!route) {
-    elements["route-decision"].innerHTML = `<span class="route-model">尚未路由</span><p>任务提交后显示候选模型、路由权重和守卫条件。</p>`;
-    return;
-  }
-  const name = route.primary?.name || "未选择";
-  const reason = route.reasons?.[0] || `策略 ${route.policy || "未标注"}`;
-  elements["route-decision"].innerHTML = `<span class="route-model">${escapeHtml(name)}</span><p>${escapeHtml(reason)}</p>`;
-}
-
-function renderTopology(run) {
-  const generation = ++socialTopologyGeneration;
-  cancelSocialTopologyRequestsExcept(run?.orchestrationMode === "social" ? run.id : null);
-  if (!run) {
-    commitMarkup(elements["session-topology"], `<div class="empty-state"><span>暂无会话</span></div>`);
-    return;
-  }
-  if (run.orchestrationMode === "social") {
-    void renderSocialTopology(run, generation); // 请求去重 + 选中 run/渲染代次双门，旧响应不得倒灌
-    return;
-  }
-  const sessions = Array.isArray(run.sessions) ? run.sessions : [];
-  const coordinatorId = run.coordinatorId || "";
-  const coordinatorName = coordinatorId ? agentLabel(coordinatorId) : "团队主脑";
-  const root = selectPipelineRoot(sessions, coordinatorId) ?? {
-    name: coordinatorName,
-    agentId: coordinatorId || null,
-    role: "orchestrator",
-    status: run.status,
-  };
-  const children = sessions.filter((session) => session !== root).slice(0, 5);
-  const nodes = [root, ...children];
-  commitMarkup(elements["session-topology"], nodes
-    .map((session, index) => {
-      const agentId = sessionAgentId(session);
-      const name = session.name ?? session.agent_name ?? (agentId ? agentLabel(agentId) : null) ?? session.adapter ?? (index === 0 ? coordinatorName : `Agent ${index}`);
-      const role = session === root ? "orchestrator" : session.role ?? session.kind ?? "worker";
-      const status = session.status ?? session.state ?? run.status;
-      return `<div class="topology-node"><span class="status-dot is-${normalizeStatus(status === "complete" ? "ok" : ACTIVE_RUN_STATES.has(String(status)) ? "pending" : status)}"></span><div><strong>${escapeHtml(name)}</strong><span>${escapeHtml(role)} · ${escapeHtml(runStatusText(status))}</span></div></div>`;
-    })
-    .join(""));
-}
-
-function renderWorkbenchEvents() {
-  const run = selectedRun();
-  // W2.8 回放 scrubber：静态挂载点只 mount 一次，run 切换时按 id diff 拉取 /replay
-  if (!runReplayScrubberMounted) {
-    const replayMount = document.querySelector("[data-replay-mount]");
-    if (replayMount) {
-      runReplayScrubber.mount(replayMount);
-      runReplayScrubberMounted = true;
-    }
-  }
-  void runReplayScrubber.update(run?.id || null);
-  // 选中 run 时合并磁盘回放历史（fetchRunEvents）——旧 run 的事件早已滚出 SSE 实时窗口，
-  // 只吃 state.events 会让右栏空报"等待事件"（历史在磁盘上明明有）
-  const historical = run ? [...historyEventsForRun(run.id)].reverse() : []; // 磁盘回放旧→新，时间线要新→旧
-  const merged = [];
-  for (const event of [...state.events.filter((item) => !run || item.runId === run.id), ...historical]) {
-    // 实时窗口会把连续 delta 聚合成一个 envelope，而磁盘历史保留原始片段。
-    // 复用聚合项的 ID/sequence 覆盖关系，避免右栏同时显示聚合项和每个原始片段。
-    if (merged.some((tracked) => eventTracksEvent(tracked, event))) continue;
-    merged.push(event);
-    if (merged.length >= 30) break;
-  }
-  const events = merged;
-  // 事件流彩色分类（精致化波次）：类型前缀→色调，告警词→红，一眼分出治理/总线/agent/自动化
-  const eventTone = (type) => {
-    const value = String(type);
-    if (/fail|error|denied|dropped|blocked/i.test(value)) return "red";
-    if (value.startsWith("bus.")) return "aqua";
-    if (value.startsWith("agent.")) return "blue";
-    if (value.startsWith("automation.")) return "amber";
-    if (value.startsWith("run.")) return "rose";
-    if (value === "user.message") return "violet";
-    return "neutral";
-  };
-  elements["workbench-event-list"].innerHTML = events.length
-    ? events
-        .map(
-          (event) => `
-          <li class="timeline-item is-tone-${eventTone(event.type)}">
-            <strong>${escapeHtml(event.type)}</strong>
-            <span>${escapeHtml(event.summary)}</span>
-            <time>${escapeHtml(formatTime(event.timestamp))}</time>
-          </li>`,
-        )
-        .join("")
-    : `<li class="timeline-item"><strong>等待事件</strong><span>${run ? "该任务暂无事件记录" : "SSE 建立后自动刷新"}</span></li>`;
-}
+const {
+  renderRouteDecision, renderTopology, renderWorkbenchEvents,
+  invalidateSocialTopology,
+} = createWorkbenchTopology({
+  request,
+  elements,
+  state,
+  selectedRun,
+  commitMarkup,
+  agentLabel,
+  AGENT_SHORT,
+  agentSlug,
+  agentCli,
+  cliIconMarkup,
+  historyEventsForRun,
+  eventTracksEvent,
+  runReplayScrubber,
+});
 
 // 配置源语义分组：99 个源平铺必乱——按路径拓扑归 13 组（顺序即展示序），
 // 运行时/密钥面永远沉底；搜索态退化为平铺结果（分组反而碍事）
@@ -26216,80 +25413,6 @@ async function planConfig() {
   } finally {
     setConfigBusy(false);
   }
-}
-
-function extractDiff(result) {
-  if (!result) return "";
-  if (typeof result === "string") return result;
-  if (typeof result.diff === "string") return result.diff;
-  if (result.diff && typeof result.diff === "object") {
-    const lines = Array.isArray(result.diff.lines) ? result.diff.lines : [];
-    if (lines.length) {
-      return lines
-        .map((line) => {
-          if (typeof line === "string") return line;
-          const kind = String(line.type ?? line.kind ?? line.operation ?? "context").toLowerCase();
-          const prefix = kind === "add" || kind === "added" || kind === "insert" ? "+ " : kind === "remove" || kind === "removed" || kind === "delete" ? "- " : "  ";
-          return `${prefix}${line.content ?? line.text ?? line.value ?? ""}`;
-        })
-        .join("\n");
-    }
-    if (result.diff.summary) return String(result.diff.summary);
-  }
-  if (typeof result.patch === "string") return result.patch;
-  if (Array.isArray(result.changes)) {
-    return result.changes
-      .map((change) => {
-        if (typeof change === "string") return change;
-        const path = change.path ?? change.pointer ?? change.field ?? "value";
-        return `- ${path}: ${JSON.stringify(change.before ?? change.old ?? null)}\n+ ${path}: ${JSON.stringify(change.after ?? change.new ?? null)}`;
-      })
-      .join("\n");
-  }
-  return "";
-}
-
-function createLocalDiff(before, after) {
-  if (before === after) return "无变更";
-  const left = String(before).split(/\r?\n/);
-  const right = String(after).split(/\r?\n/);
-  let prefix = 0;
-  while (prefix < left.length && prefix < right.length && left[prefix] === right[prefix]) prefix += 1;
-  let suffix = 0;
-  while (
-    suffix < left.length - prefix &&
-    suffix < right.length - prefix &&
-    left[left.length - 1 - suffix] === right[right.length - 1 - suffix]
-  ) {
-    suffix += 1;
-  }
-  const removed = left.slice(prefix, left.length - suffix);
-  const added = right.slice(prefix, right.length - suffix);
-  const contextBefore = left.slice(Math.max(0, prefix - 2), prefix);
-  const contextAfter = suffix ? left.slice(left.length - suffix, Math.min(left.length, left.length - suffix + 2)) : [];
-  return [
-    `@@ line ${prefix + 1} @@`,
-    ...contextBefore.map((line) => `  ${line}`),
-    ...removed.map((line) => `- ${line}`),
-    ...added.map((line) => `+ ${line}`),
-    ...contextAfter.map((line) => `  ${line}`),
-  ].join("\n");
-}
-
-function countDiffChanges(diff) {
-  return String(diff)
-    .split(/\r?\n/)
-    .filter((line) => (line.startsWith("+") && !line.startsWith("+++")) || (line.startsWith("-") && !line.startsWith("---"))).length;
-}
-
-function diffMarkup(diff) {
-  return String(diff)
-    .split(/\r?\n/)
-    .map((line) => {
-      const className = line.startsWith("+") && !line.startsWith("+++") ? "diff-line-add" : line.startsWith("-") && !line.startsWith("---") ? "diff-line-remove" : "";
-      return `<span class="${className}">${escapeHtml(line)}</span>`;
-    })
-    .join("\n");
 }
 
 function renderDiff(diff) {
@@ -26885,7 +26008,7 @@ async function createRun(event) {
       // 否则 openTab() 的 stash 会把新任务在途编辑错塞进底层 run。
       restoreComposerDraftForCurrentContext();
     }
-    openTab(run.id, composerTarget.memberId);
+    conversationTabs.openTab(run.id, composerTarget.memberId);
     if (botSubmission) {
       setView("bot", { focus: false });
       botRenderAgent(composerTarget.memberId);
@@ -27281,8 +26404,8 @@ function flushEventRenderBatch() {
 
   if (batch.diagnostics) renderDiagnosticLog();
   if (batch.tabs) {
-    renderTabs();
-    persistTabs();
+    conversationTabs.renderTabs();
+    conversationTabs.persistTabs();
   }
   if (batch.overview) renderOverview();
   const stream = elements["conversation-stream"];
@@ -28310,7 +27433,7 @@ function handleWorkbenchEnvironmentAction(action, payload = {}) {
       return;
     }
     missionControlDock?.activateTab?.("artifacts");
-    if (run.worktreePath) void toggleRunDiff(run.id);
+    if (run.worktreePath) void conversationHeader.toggleRunDiff(run.id);
     else toast("该任务没有隔离 worktree diff；已打开任务产物与文件入口", "info", 4500);
     return;
   }
@@ -28932,26 +28055,6 @@ function fetchRunEvents(runId) {
   return promise;
 }
 
-// 产物 diff 面板开合：重复点击同一 run 收起；展开时按需拉取（面板态不进 run 持久化，纯视图态）
-async function toggleRunDiff(runId) {
-  if (state.runDiffView?.runId === runId) {
-    state.runDiffView = null;
-    renderSelectedRun();
-    return;
-  }
-  state.runDiffView = { runId, status: "loading" };
-  renderSelectedRun();
-  try {
-    const data = await request(`${API.runs}/${encodeURIComponent(runId)}/diff`);
-    if (state.runDiffView?.runId !== runId) return; // 等待期间已换 run/收起——迟到响应直接丢弃
-    state.runDiffView = { runId, status: "ok", data };
-  } catch (error) {
-    if (state.runDiffView?.runId !== runId) return;
-    state.runDiffView = { runId, status: "error", error: error.message };
-  }
-  renderSelectedRun();
-}
-
 async function loadRunSettlement(runId, { force = false, runSignature = "", skipLoadingGuard = false } = {}) {
   if (!runId) return;
   await runProjection.loadSettlement("workbench", runId, {
@@ -28971,430 +28074,15 @@ async function loadRunSettlement(runId, { force = false, runSignature = "", skip
   });
 }
 
-// ===== 会话头 chips / 更改 pill / Composer 分支 chip（参考桌面 agent 台顶栏形态，LO 2026-08-16 供图） =====
-// 单一数据源：GET /api/workbench/environment（run→任务工作树；无 run→控制面仓库根）。
-// 缓存按 runId/"idle" 分键、30s TTL；回填只写 chip/pill 局部 DOM，不触发整树重绘，避免与 SSE 渲染互踩。
-const HEADING_ENV_TTL_MS = 30_000;
-const headingEnvCache = new Map(); // key → { at, env } | { at, error }
-let headingEnvPendingKey = null;
-
-function headingEnvKey(run) {
-  return run?.id || "idle";
-}
-
-function headingEnvEntry(run) {
-  const entry = headingEnvCache.get(headingEnvKey(run));
-  return entry && Date.now() - entry.at < HEADING_ENV_TTL_MS ? entry : null;
-}
-
-function runLocalEnvironmentId(run) {
-  return run?.id && (run.cwd || (run.worktreePath && run.worktreeBase)) ? String(run.id) : null;
-}
-
-function loadHeadingEnvironment(run) {
-  if (run && !runLocalEnvironmentId(run)) return;
-  const key = headingEnvKey(run);
-  if (headingEnvEntry(run) || headingEnvPendingKey === key) return;
-  headingEnvPendingKey = key;
-  request(`${API.workbenchEnvironment}${run ? `?runId=${encodeURIComponent(run.id)}` : ""}`)
-    .then((env) => headingEnvCache.set(key, { at: Date.now(), env }))
-    .catch((error) => headingEnvCache.set(key, { at: Date.now(), error: String(error?.message || error) }))
-    .finally(() => {
-      if (headingEnvPendingKey === key) headingEnvPendingKey = null;
-      // 迟到响应只在上下文仍对应时回填；切走 run/进预览就静默丢弃
-      const current = state.sessionPreview ? null : selectedRun();
-      if (headingEnvKey(current) === key) paintConversationChips(current);
-      // idle 环境到达后补跑一遍 composer 模式：默认仓 fallback 的项目 chip 这时才有名字
-      if (!current && !state.sessionPreview && key === "idle") setComposerMode(null);
-    });
-}
-
-function envBranchLabel(entry) {
-  const git = entry?.env?.git;
-  if (!git?.available) return null;
-  return git.detached ? `detached · ${git.head || "HEAD"}` : git.branch || null;
-}
-
-function conversationChipMarkup({ icon, label, title, copy = "" }) {
-  const labelHtml = `<span class="conv-chip-label">${escapeHtml(label)}</span>`;
-  if (!copy) return `<span class="conv-chip" title="${escapeHtml(title)}">${lucideIcon(icon, "icon lucide")} ${labelHtml}</span>`;
-  return `<button class="conv-chip" type="button" data-chip-copy="${escapeHtml(copy)}" title="${escapeHtml(title)}（点击复制）">${lucideIcon(icon, "icon lucide")} ${labelHtml}</button>`;
-}
-
-// `git diff --stat` 末行形如 " 11 files changed, 179 insertions(+), 23 deletions(-)"——
-// 缺子句（无增/无删）时 git 会整段省略，此时按 0 计而不是判空。
-function diffStatTotals(stat) {
-  const tail = String(stat ?? "").trim().split("\n").filter(Boolean).pop() || "";
-  const pick = (re) => {
-    const match = re.exec(tail);
-    return match ? Number(match[1]) : null;
-  };
-  const files = pick(/(\d+)\s+files?\s+changed/);
-  return {
-    files,
-    adds: files === null ? null : (pick(/(\d+)\s+insertions?\(\+\)/) ?? 0),
-    dels: files === null ? null : (pick(/(\d+)\s+deletions?\(-\)/) ?? 0),
-  };
-}
-
-// 更改 pill：终态 worktree run 的产物改动总览（参考「更改 +20399 −1997」）。
-// 数字优先级：已展开过的产物 diff stat（权威） > 环境 numstat（顺手就有）；都没有就只显示「更改」。
-function paintChangesPill(run) {
-  const pill = elements["changes-pill"];
-  if (!pill) return;
-  if (!run || !run.worktreePath || !TERMINAL_RUN_STATES.has(run.status)) {
-    pill.hidden = true;
-    pill.innerHTML = "";
-    pill.dataset.runId = "";
-    return;
-  }
-  let adds = null;
-  let dels = null;
-  const view = state.runDiffView;
-  if (view?.runId === run.id && view.status === "ok") {
-    ({ adds, dels } = diffStatTotals(view.data?.stat));
-  }
-  if (adds === null) {
-    const changes = headingEnvEntry(run)?.env?.git?.changes;
-    if (changes && Number.isFinite(Number(changes.additions))) {
-      adds = Number(changes.additions);
-      dels = Number(changes.deletions) || 0;
-    }
-  }
-  const open = view?.runId === run.id;
-  pill.innerHTML = `${lucideIcon("file-pen-line", "icon lucide")}<span>更改${adds === null ? "" : ` <em class="is-add">+${adds}</em> <em class="is-del">−${dels}</em>`}</span>`;
-  pill.title = `${open ? "收起" : "查看"}产物 diff（工作树相对 HEAD 的未提交改动）`;
-  pill.dataset.runId = run.id;
-  pill.hidden = false;
-}
-
-// Composer 顶行分支 chip：与项目地址 chip 并排（参考底栏「🌿 main ▾」）。
-// 新任务模式只在地址仍是默认仓时显示——pendingCwd 指往别处时环境端点反映的是默认仓，如实隐藏。
-function paintComposerBranch(run) {
-  const chip = elements["composer-branch"];
-  if (!chip) return;
-  const preview = state.sessionPreview;
-  const continuing = Boolean(run) && !preview;
-  const envApplies = !preview && (continuing || (!state.pendingCwd && !state.pendingRemote));
-  const branch = envApplies ? envBranchLabel(headingEnvEntry(continuing ? run : null)) : null;
-  if (!branch) {
-    chip.hidden = true;
-    chip.innerHTML = "";
-    return;
-  }
-  chip.innerHTML = `${lucideIcon("git-branch", "icon lucide")} <span>${escapeHtml(branch)}</span>`;
-  chip.title = `当前分支：${branch}（只读）`;
-  chip.hidden = false;
-}
-
-// 会话头 chips：标题后随 项目 + 分支（参考顶栏「📁 514cc 🌿 main …」）。
-// run 缺 cwd（纯远程/老数据）时项目 chip 如实缺省；分支等环境回填期间给中性占位。
-function paintConversationChips(run) {
-  const chips = elements["conversation-chips"];
-  const overflow = elements["conversation-overflow"];
-  if (!chips) return;
-  const preview = state.sessionPreview;
-  if (preview) {
-    chips.innerHTML = conversationChipMarkup({
-      icon: "folder",
-      label: preview.projectLabel,
-      title: `来源项目：${preview.projectLabel}`,
-      copy: preview.projectLabel,
-    });
-    if (overflow) overflow.hidden = true;
-    chips.hidden = false;
-    paintChangesPill(null);
-    paintComposerBranch(null);
-    return;
-  }
-  if (!run) {
-    chips.hidden = true; // 溢出菜单在 chips 容器内，一并隐藏
-    chips.innerHTML = "";
-    paintChangesPill(null);
-    paintComposerBranch(null);
-    loadHeadingEnvironment(null); // 欢迎态 composer 分支 chip 吃 idle 环境
-    return;
-  }
-  const parts = [];
-  if (run.remote) {
-    const short = String(run.remote.path || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || run.remote.path || "远程项目";
-    parts.push(conversationChipMarkup({
-      icon: "globe",
-      label: short,
-      title: `远程项目：${run.remote.hostName || run.remote.hostId || ""} · ${run.remote.path || ""}`,
-      copy: run.remote.path || "",
-    }));
-  } else if (run.cwd) {
-    const short = String(run.cwd).replace(/[\\/]+$/, "").split(/[\\/]/).pop() || run.cwd;
-    parts.push(conversationChipMarkup({ icon: "folder", label: short, title: `项目目录：${run.cwd}`, copy: run.cwd }));
-  }
-  const entry = headingEnvEntry(run);
-  const branch = envBranchLabel(entry);
-  if (branch) {
-    const git = entry?.env?.git ?? {};
-    const divergence = git.upstream
-      ? [git.ahead ? `↑${git.ahead}` : null, git.behind ? `↓${git.behind}` : null].filter(Boolean).join(" ") || "已同步"
-      : "无上游";
-    parts.push(conversationChipMarkup({ icon: "git-branch", label: branch, title: `当前分支：${branch} · ${divergence}`, copy: git.branch || branch }));
-  } else if (!entry && headingEnvPendingKey === headingEnvKey(run)) {
-    parts.push('<span class="conv-chip is-loading" aria-hidden="true">…</span>');
-  }
-  chips.innerHTML = parts.join("");
-  // innerHTML 重建会把容器内的溢出按钮节点冲掉——节点引用还在，挂回来即可
-  if (overflow) {
-    overflow.hidden = false;
-    chips.appendChild(overflow);
-  }
-  chips.hidden = false; // 有 run 时恒显示：哪怕 run 缺 cwd/分支，「…」菜单也在
-  paintChangesPill(run);
-  paintComposerBranch(run);
-  loadHeadingEnvironment(run);
-}
-
-async function copyTextWithToast(text, message) {
-  try {
-    await navigator.clipboard.writeText(String(text ?? ""));
-    toast(message, "success", 1800);
-  } catch (error) {
-    toast(`复制失败：${error.message}`, "error");
-  }
-}
-
-// 会话头「…」溢出菜单（复用 context-menu 基建）：只放复制类安全动作 + 产物 diff 入口，
-// 破坏性动作（取消任务）留在顶栏原有停止键，不进菜单。
-function conversationMenuItems(run) {
-  const items = [
-    { icon: "id", label: `复制 run id（${String(run.id).slice(0, 8)}…）`, action: () => void copyTextWithToast(run.id, "run id 已复制") },
-    { icon: "copy", label: "复制任务标题", action: () => void copyTextWithToast(run.title || "", "任务标题已复制") },
-  ];
-  if (run.cwd) items.push({ icon: "folder", label: "复制项目路径", action: () => void copyTextWithToast(run.cwd, "项目路径已复制") });
-  if (run.worktreePath) items.push({ icon: "branch", label: "复制工作树路径", action: () => void copyTextWithToast(run.worktreePath, "工作树路径已复制") });
-  if (run.worktreePath && TERMINAL_RUN_STATES.has(run.status)) {
-    items.push("---", {
-      icon: "eye",
-      label: state.runDiffView?.runId === run.id ? "收起产物 diff" : "查看产物 diff",
-      action: () => void toggleRunDiff(run.id),
-    });
-  }
-  return items;
-}
-
-// ===== 浏览器式 tab 页签 + 成员 agent 独立页（LO 的信息架构） =====
-// 项目 → 会话 → 成员页；每个可发送页签都绑定唯一真实成员。
-// 会话行默认打开执行所有者；成员条/拓扑点击开对应成员页（只看 ta、直接问 ta）。
-// 多页并存于 tab 栏实时切换，非活跃页有新消息落脏标。页签 sessionStorage 持久化（刷新不丢）。
-const TABS_KEY = "514cc-conv-tabs";
-
-function runRecipientIds(run) {
-  return [...new Set([
-    ...(Array.isArray(run?.teamMembers) ? run.teamMembers : []),
-    run?.executionOwnerId,
-    run?.startAgentId,
-    run?.coordinatorId,
-    ...sessionAgentIds(run?.sessions),
-  ].map((id) => String(id || "").trim()).filter(Boolean))];
-}
-
-function defaultRunRecipient(run) {
-  const members = runRecipientIds(run);
-  return [run?.executionOwnerId, run?.startAgentId, run?.coordinatorId, ...members]
-    .map((id) => String(id || "").trim())
-    .find((id) => id && members.includes(id)) || null;
-}
-
-function runRecipient(run, requestedAgentId = null) {
-  const members = runRecipientIds(run);
-  const requested = String(requestedAgentId || "").trim();
-  return requested && members.includes(requested) ? requested : defaultRunRecipient(run);
-}
-
-function tabKeyOf(runId, agentId) {
-  return `${runId}::${agentId}`;
-}
-
-function activeTab() {
-  return state.tabs.find((tab) => tab.key === state.activeTabKey) ?? null;
-}
-
-function activeAgentId() {
-  return activeTab()?.agentId ?? null;
-}
-
-function persistTabs() {
-  try {
-    sessionStorage.setItem(TABS_KEY, JSON.stringify({ tabs: state.tabs, active: state.activeTabKey }));
-  } catch {
-    // 隐私模式等写失败：页签退化为内存态，不阻断使用
-  }
-}
-
-function restoreTabs() {
-  const runIds = new Set(state.runs.map((run) => run.id));
-  const restoreStoredSelection = !state.selectionClearedByUser && !state.sessionPreview && !state.deepLinkRunId;
-  let restoredSelectedRunId = state.selectedRunId;
-  try {
-    const saved = JSON.parse(sessionStorage.getItem(TABS_KEY) ?? "null");
-    if (saved) {
-      const restored = new Map();
-      for (const tab of saved.tabs ?? []) {
-        if (!runIds.has(tab.runId)) continue;
-        const run = state.runs.find((item) => item.id === tab.runId);
-        const agentId = runRecipient(run, tab.agentId);
-        if (!agentId) continue;
-        const key = tabKeyOf(tab.runId, agentId);
-        const previous = restored.get(key);
-        restored.set(key, {
-          ...tab,
-          key,
-          agentId,
-          title: run?.title ?? tab.title,
-          dirty: Boolean(previous?.dirty || tab.dirty),
-        });
-      }
-      state.tabs = [...restored.values()];
-      const savedActive = (saved.tabs ?? []).find((tab) => tab.key === saved.active);
-      const activeRun = savedActive && state.runs.find((run) => run.id === savedActive.runId);
-      const activeAgentId = activeRun ? runRecipient(activeRun, savedActive.agentId) : null;
-      const migratedActiveKey = activeAgentId ? tabKeyOf(activeRun.id, activeAgentId) : null;
-      state.activeTabKey = restoreStoredSelection
-        ? (state.tabs.some((tab) => tab.key === migratedActiveKey) ? migratedActiveKey : state.tabs.at(-1)?.key ?? null)
-        : null;
-      const tab = activeTab();
-      if (tab) restoredSelectedRunId = tab.runId;
-    }
-  } catch {
-    state.tabs = [];
-    state.activeTabKey = null;
-  }
-  if (restoredSelectedRunId !== state.selectedRunId) {
-    transitionComposerContext(() => {
-      state.selectedRunId = restoredSelectedRunId;
-      state.selectionClearedByUser = false;
-    });
-  }
-  if (state.deepLinkRunId && runIds.has(state.deepLinkRunId)) {
-    const runId = state.deepLinkRunId;
-    state.deepLinkRunId = null;
-    openTab(runId);
-  }
-}
-
-function openTab(runId, agentId = null) {
-  const run = state.runs.find((item) => item.id === runId);
-  if (!run) return;
-  if (run.cwd && !run.remote) focusProjectByPath(run.cwd);
-  const recipientId = runRecipient(run, agentId);
-  if (!recipientId) {
-    toast("当前会话没有可发送的真实成员", "error");
-    return;
-  }
-  const key = tabKeyOf(runId, recipientId);
-  if (!state.tabs.some((tab) => tab.key === key)) {
-    state.tabs.push({ key, runId, agentId: recipientId, title: run.title, dirty: false });
-  }
-  activateTab(key);
-}
-
-function focusRenderedTab(key) {
-  requestAnimationFrame(() => {
-    elements["conv-tabs"]
-      ?.querySelector(`[data-tab-activate="${CSS.escape(key)}"]`)
-      ?.focus({ preventScroll: true });
-  });
-}
-
-function activateTab(key, { focusTab = false } = {}) {
-  const tab = state.tabs.find((item) => item.key === key);
-  if (!tab) return;
-  closeCliImmersiveIfOpen(); // 切会话页 = 离开当前 CLI 沉浸接续（罩层只属于它打开时的那条会话）
-  stashComposerDraftForCurrentContext();
-  tab.dirty = false;
-  state.activeTabKey = key;
-  state.selectedRunId = tab.runId;
-  state.selectionClearedByUser = false;
-  state.sessionPreview = null; // 切页即离开历史预览
-  state.runDiffView = null; // 切页收起产物面板
-  runProjection.clearSettlementSurface("workbench");
-  persistTabs();
-  renderTabs();
-  renderMemberStrip();
-  void syncModelPick();
-  renderRuns(); // 左栏选中态跟随 tab
-  if (state.view !== "workbench") setView("workbench");
-  void fetchRunEvents(tab.runId);
-  restoreComposerDraftForCurrentContext();
-  if (focusTab) focusRenderedTab(key);
-}
-
-function closeTab(key, { restoreFocus = false } = {}) {
-  const index = state.tabs.findIndex((tab) => tab.key === key);
-  if (index < 0) return;
-  const closedRunId = state.tabs[index].runId;
-  state.tabs.splice(index, 1);
-  if (state.activeTabKey === key) {
-    // 删除后原右邻仍占同一 index；没有右邻时才退到左邻。
-    const next = state.tabs[index] ?? state.tabs[index - 1] ?? null;
-    if (next) {
-      activateTab(next.key, { focusTab: restoreFocus });
-      releaseRunHistoryIfUnreferenced(closedRunId);
-      return;
-    }
-    stashComposerDraftForCurrentContext();
-    state.activeTabKey = null;
-    state.selectedRunId = null;
-    state.selectionClearedByUser = true;
-    state.sessionPreview = null;
-    restoreComposerDraftForCurrentContext();
-  }
-  persistTabs();
-  renderTabs();
-  renderMemberStrip();
-  renderRuns();
-  releaseRunHistoryIfUnreferenced(closedRunId);
-  if (restoreFocus) {
-    const fallback = state.tabs[Math.min(index, state.tabs.length - 1)] ?? state.tabs[index - 1] ?? null;
-    if (fallback) focusRenderedTab(fallback.key);
-    else elements["task-input"]?.focus({ preventScroll: true });
-  }
-}
-
-function renderTabs() {
-  const bar = elements["conv-tabs"];
-  if (!bar) return;
-  bar.hidden = state.tabs.length === 0;
-  bar.innerHTML = state.tabs
-    .map((tab, index) => {
-      const active = tab.key === state.activeTabKey;
-      const roving = active || (!state.activeTabKey && index === 0);
-      const agent = agentLabel(tab.agentId);
-      const slug = ` is-agent-${agentSlug(tab.agentId)}`;
-      const tabId = `conv-tab-${index}`;
-      return `<div class="conv-tab${active ? " is-active" : ""}${slug}" role="presentation">
-        <button class="conv-tab-main" id="${tabId}" type="button" role="tab"
-          aria-selected="${active}" aria-controls="conversation-stream" tabindex="${roving ? 0 : -1}"
-          data-tab-activate="${escapeHtml(tab.key)}" title="${escapeHtml(tab.title)} · 直接发送给 ${escapeHtml(agent)}">
-          <span class="conv-tab-agent">${escapeHtml(agent)}</span>
-          <span class="conv-tab-title">${escapeHtml(tab.title)}</span>
-          ${tab.dirty ? '<span class="conv-tab-dirty" aria-label="有新消息"></span>' : ""}
-        </button>
-        <button class="conv-tab-close" type="button" data-tab-close="${escapeHtml(tab.key)}" aria-label="关闭「${escapeHtml(tab.title)}」页签">×</button>
-      </div>`;
-    })
-    .join("");
-  const panel = elements["conversation-stream"];
-  const activeIndex = state.tabs.findIndex((tab) => tab.key === state.activeTabKey);
-  panel?.setAttribute("aria-labelledby", activeIndex >= 0 ? `conv-tab-${activeIndex}` : "conversation-title");
-}
-
 function selectComposerTarget(agentId = null, { focusInput = true } = {}) {
   const target = activeComposerTarget();
   const normalized = agentId && target.members.includes(agentId) ? agentId : null;
   const nextDirectTarget = normalized || target.coordinatorId;
   if (!target.run && nextDirectTarget && state.requestedAgentIds.includes(nextDirectTarget)) {
-    removeRequestedAgent(nextDirectTarget, { focusInput: false });
+    mentionMenu.removeRequestedAgent(nextDirectTarget, { focusInput: false });
   }
   if (target.run) {
-    openTab(target.run.id, nextDirectTarget);
+    conversationTabs.openTab(target.run.id, nextDirectTarget);
   } else {
     rememberComposerControlDraft(target);
     state.composerTargetAgentId = nextDirectTarget;
@@ -29452,6 +28140,23 @@ function renderMemberStrip() {
   keepActiveComposerTargetVisible(strip);
 }
 
+const conversationTabs = createConversationTabs({
+  elements, state, toast,
+  agentLabel, agentSlug,
+  focusProjectByPath,
+  closeCliImmersiveIfOpen,
+  stashComposerDraftForCurrentContext,
+  restoreComposerDraftForCurrentContext,
+  transitionComposerContext,
+  runProjection,
+  syncModelPick,
+  renderRuns,
+  setView,
+  fetchRunEvents,
+  renderMemberStrip,
+  releaseRunHistoryIfUnreferenced,
+});
+
 async function selectRun(id) {
   const normalizedId = String(id ?? "").trim();
   if (!normalizedId) return false;
@@ -29472,7 +28177,7 @@ async function selectRun(id) {
   if (state.view === "automations") setView("workbench", { updateHash: true, focus: false });
   markSelectedSessionLink(null, null);
   if (run.unread) void patchRunMeta(normalizedId, { unread: false }); // 打开即已读
-  openTab(normalizedId); // 会话行默认进入真实执行所有者，不创建可发送的伪群聊页
+  conversationTabs.openTab(normalizedId); // 会话行默认进入真实执行所有者，不创建可发送的伪群聊页
   return true;
 }
 
@@ -29718,8 +28423,7 @@ function bindEvents() {
     if (capabilitySource) void openCapabilitySource(capabilitySource.dataset.capabilitySourceId);
     const archivedToggle = event.target.closest("#archived-toggle");
     if (archivedToggle) {
-      state.archivedExpanded = !state.archivedExpanded;
-      renderRailMetaSections(); // 折叠态不保留归档会话 DOM
+      railMetaSections.toggleArchived();
       return;
     }
     const runMenu = event.target.closest("[data-run-menu]");
@@ -29957,28 +28661,9 @@ function bindEvents() {
     }
     const pinnedProject = event.target.closest("[data-pinned-project]");
     if (pinnedProject) {
-      // 置顶区项目内联展开：与项目树同一交互，展开态独立记账
       const id = pinnedProject.dataset.pinnedProject;
       focusWorkbenchProject(findProjectById(id));
-      const wasExpanded = state.expandedPinnedProjects.has(id);
-      if (wasExpanded) state.expandedPinnedProjects.delete(id);
-      else state.expandedPinnedProjects.add(id);
-      pinnedProject.setAttribute("aria-expanded", String(!wasExpanded));
-      const list = byId(pinnedProject.getAttribute("aria-controls"));
-      if (list) {
-        if (wasExpanded) list.replaceChildren();
-        else {
-          const project = findProjectById(id);
-          // 置顶远程项目同样走 run 台账聚合（无本地原生会话）
-          const items = project
-            ? (project.remoteProject ? remoteProjectSessionItems(project) : sessionGroupsMarkup(project, visibleTreeSessions(project)))
-            : "";
-          list.innerHTML = items || (project?.remoteProject
-            ? `<li class="project-empty">${REMOTE_PROJECT_EMPTY_HINT}</li>`
-            : `<li class="project-empty">无历史对话</li>`);
-        }
-        list.hidden = wasExpanded;
-      }
+      railMetaSections.togglePinned(id);
     }
     const projectNewSession = event.target.closest("[data-project-newsession]");
     if (projectNewSession && !projectNewSession.disabled) {
@@ -30077,13 +28762,13 @@ function bindEvents() {
     const mentionItem = event.target.closest("[data-mention-id]");
     if (mentionItem) {
       event.preventDefault();
-      applyMention(mentionItem.dataset.mentionId);
+      mentionMenu.applyMention(mentionItem.dataset.mentionId);
     }
     // / 斜杠命令菜单
     const slashItem = event.target.closest("[data-slash-id]");
     if (slashItem) {
       event.preventDefault();
-      applySlashCommand(slashItem.dataset.slashId);
+      slashMenu.applySlashCommand(slashItem.dataset.slashId);
     }
     const automationEdit = event.target.closest("[data-automation-edit]");
     if (automationEdit) openAutomationManager(automationEdit.dataset.automationEdit);
@@ -30099,7 +28784,7 @@ function bindEvents() {
     if (retry) retryRun(retry.dataset.retryRun);
     // 产物 diff：终态+有 worktree 的 run 展开/收起产物面板（内容服务端脱敏）
     const runDiff = event.target.closest("[data-run-diff]");
-    if (runDiff) void toggleRunDiff(runDiff.dataset.runDiff);
+    if (runDiff) void conversationHeader.toggleRunDiff(runDiff.dataset.runDiff);
     const settlementRetry = event.target.closest("[data-settlement-retry]");
     if (settlementRetry) retryRunSettlement(settlementRetry.dataset.settlementRetry);
     // 时间线左缘沟槽（VSCode folding 式）：消息行折叠按 streamKey 记账（重渲不失）；
@@ -30174,9 +28859,9 @@ function bindEvents() {
     if (returnLatest) returnToLatestConversation();
     // tab 页签：激活 / 关闭
     const tabActivate = event.target.closest("[data-tab-activate]");
-    if (tabActivate) activateTab(tabActivate.dataset.tabActivate, { focusTab: true });
+    if (tabActivate) conversationTabs.activateTab(tabActivate.dataset.tabActivate, { focusTab: true });
     const tabClose = event.target.closest("[data-tab-close]");
-    if (tabClose) closeTab(tabClose.dataset.tabClose, { restoreFocus: true });
+    if (tabClose) conversationTabs.closeTab(tabClose.dataset.tabClose, { restoreFocus: true });
     const composerCliTab = event.target.closest("[data-composer-cli-tab]");
     if (composerCliTab) setComposerCliTab(composerCliTab.dataset.composerCliTab, { focus: true });
     const composerCliCommand = event.target.closest("[data-composer-cli-command]");
@@ -30187,10 +28872,10 @@ function bindEvents() {
     const composerTarget = event.target.closest("[data-composer-target]");
     if (composerTarget) selectComposerTarget(composerTarget.dataset.composerTarget);
     const requestedAgentRemove = event.target.closest("[data-requested-agent-remove]");
-    if (requestedAgentRemove) removeRequestedAgent(requestedAgentRemove.dataset.requestedAgentRemove);
+    if (requestedAgentRemove) mentionMenu.removeRequestedAgent(requestedAgentRemove.dataset.requestedAgentRemove);
     // 拓扑参与者卡：点击=开该成员独立页（与成员条同语义）
     const topologyAgent = event.target.closest("[data-topology-agent]");
-    if (topologyAgent && state.selectedRunId) openTab(state.selectedRunId, topologyAgent.dataset.topologyAgent);
+    if (topologyAgent && state.selectedRunId) conversationTabs.openTab(state.selectedRunId, topologyAgent.dataset.topologyAgent);
     // 配置图谱能力面：MCP 隔离启停
     const mcpEdit = event.target.closest("[data-mcp-edit]");
     if (mcpEdit) {
@@ -30293,7 +28978,7 @@ function bindEvents() {
         : event.key === "ArrowRight"
           ? (current + 1) % tabs.length
           : (current - 1 + tabs.length) % tabs.length;
-    activateTab(tabs[nextIndex].dataset.tabActivate, { focusTab: true });
+    conversationTabs.activateTab(tabs[nextIndex].dataset.tabActivate, { focusTab: true });
   });
 
   // 侧栏右键菜单：会话（三分区共用）与项目树（document 级委托一次覆盖）
@@ -31439,8 +30124,8 @@ function bindEvents() {
       if ((state.mentionActive || state.slashActive) && event.key === "Escape" && !event.isComposing) {
         event.preventDefault();
         event.stopPropagation();
-        hideMentionMenu();
-        hideSlashMenu();
+        mentionMenu.hideMentionMenu();
+        slashMenu.hideSlashMenu();
         return;
       }
       // 编辑态 Esc：取消编辑并恢复原草稿（@// 菜单的 Esc 优先于它）
@@ -31455,7 +30140,7 @@ function bindEvents() {
           const pick = state.mentionCandidates?.[state.mentionIndex];
           if (pick) {
             event.preventDefault();
-            applyMention(pick.id);
+            mentionMenu.applyMention(pick.id);
             return;
           }
         }
@@ -31463,7 +30148,7 @@ function bindEvents() {
           const pick = state.slashCandidates?.[state.slashIndex];
           if (pick) {
             event.preventDefault();
-            applySlashCommand(pick.id);
+            slashMenu.applySlashCommand(pick.id);
             return;
           }
         }
@@ -31477,12 +30162,12 @@ function bindEvents() {
           const list = state.mentionCandidates ?? [];
           if (!list.length) return;
           state.mentionIndex = Math.max(0, Math.min(list.length - 1, (state.mentionIndex ?? 0) + delta));
-          syncMentionActiveOption();
+          mentionMenu.syncMentionActiveOption();
         } else {
           const list = state.slashCandidates ?? [];
           if (!list.length) return;
           state.slashIndex = Math.max(0, Math.min(list.length - 1, (state.slashIndex ?? 0) + delta));
-          syncSlashActiveOption();
+          slashMenu.syncSlashActiveOption();
         }
         return;
       }
@@ -31499,21 +30184,21 @@ function bindEvents() {
         state.pendingNativeCommand = false;
       }
       state.requestedAgentIds = pruneRequestedAgentIds(state.requestedAgentIds, taskInput.value, agentLabel);
-      renderRequestedAgentChips();
-      renderMentionMenu();
-      renderSlashMenu();
+      mentionMenu.renderRequestedAgentChips();
+      mentionMenu.renderMentionMenu();
+      slashMenu.renderSlashMenu();
       syncSideChatDraftFromComposer();
       syncSubmitButtonMode(); // 输入有无决定发送/停止双态
     });
     taskInput.addEventListener("click", () => {
-      renderMentionMenu();
-      renderSlashMenu();
+      mentionMenu.renderMentionMenu();
+      slashMenu.renderSlashMenu();
     });
     taskInput.addEventListener("blur", () => {
       window.setTimeout(() => {
         if (document.activeElement === taskInput || document.activeElement?.closest?.("#mention-menu, #slash-menu")) return;
-        hideMentionMenu();
-        hideSlashMenu();
+        mentionMenu.hideMentionMenu();
+        slashMenu.hideSlashMenu();
       }, 120);
     });
     byId("slash-menu")?.addEventListener("pointerdown", (event) => event.preventDefault());
@@ -31634,12 +30319,12 @@ async function start() {
   elements["conversation-overflow"]?.addEventListener("click", (event) => {
     const run = state.sessionPreview ? null : selectedRun();
     if (!run) return;
-    showContextMenuFromTrigger(event.currentTarget, conversationMenuItems(run));
+    showContextMenuFromTrigger(event.currentTarget, conversationHeader.buildMenuItems(run));
   });
   // 更改 pill：与「产物 diff」按钮同路——展开/收起流尾部 diff 面板
   elements["changes-pill"]?.addEventListener("click", () => {
     const runId = elements["changes-pill"].dataset.runId;
-    if (runId) void toggleRunDiff(runId);
+    if (runId) void conversationHeader.toggleRunDiff(runId);
   });
   byId("settings-avatar-button")?.addEventListener("click", (event) => {
     if (event.shiftKey && state.operatorProfile?.avatar === "custom") {
@@ -31723,7 +30408,7 @@ async function start() {
     ),
     notify: toast,
     onArtifactAction: (artifact, snapshot) => {
-      if (artifact.kind === "diff") void toggleRunDiff(snapshot.runId);
+      if (artifact.kind === "diff") void conversationHeader.toggleRunDiff(snapshot.runId);
     },
     environmentPanel: workbenchEnvironmentPanel,
     // 无选中 run 时仍展示异构 CLI 团队健康——514 特色空态，不是空白灰区
@@ -32063,8 +30748,8 @@ async function start() {
       runtimeProfileId: initialRoute.runtimeProfileId,
     });
   }
-  restoreTabs(); // runs 就绪后恢复页签（已清除 run 的页签如实丢弃）——刷新不丢工作现场
-  renderTabs();
+  conversationTabs.restoreTabs(); // runs 就绪后恢复页签（已清除 run 的页签如实丢弃）——刷新不丢工作现场
+  conversationTabs.renderTabs();
   renderRuns();
   if (state.selectedSourceId && !state.config) await loadSelectedConfig();
   window.setInterval(() => {

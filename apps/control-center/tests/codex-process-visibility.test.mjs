@@ -175,15 +175,15 @@ test("the adapter attaches progress to the persisted notification event", async 
 });
 
 test("the conversation stream renders completed items and tracks the running one", async () => {
-  const [app, css] = await Promise.all([source("public/app.js"), source("public/styles.css")]);
+  const [app, mod, css] = await Promise.all([source("public/app.js"), source("public/modules/run-live-activity.js"), source("public/styles.css")]);
   // 白名单不含 codex.* 时，带载荷的事件照样被整片过滤掉——两层都得通
   assertIncludes(app, 'if (progress) return !(progress.kind === "reasoning" && !progress.text);');
   // progress 为空的工具 item 也进会话流：靠 hint/itemType 降级成工具卡
   assertIncludes(app, "function toolProgressFromFallback(hint, itemType)");
   assertIncludes(app, "return Boolean(toolProgressFromFallback(event.data?.hint, event.data?.itemType));");
   // 思考状态接入活跃行：reasoning started 入账、文案「正在思考」
-  assertIncludes(app, '["command", "file", "reasoning", "tool"].includes(progress.kind)');
-  assertIncludes(app, 'if (entry.progress.kind === "reasoning") return "正在思考";');
+  assertIncludes(mod, '["command", "file", "reasoning", "tool"].includes(progress.kind)');
+  assertIncludes(mod, 'if (entry.progress.kind === "reasoning") return "正在思考";');
   assertIncludes(app, 'kind: "process", author: event.agentId || "Agent", progress');
   assertIncludes(app, "function processCardMarkup(message, keyAttribute)");
   assertIncludes(app, 'if (kind === "process") {');
@@ -193,13 +193,13 @@ test("the conversation stream renders completed items and tracks the running one
   assertIncludes(noteCss, "text-align: center;");
   assert.equal(/40px/.test(noteCss), false, "过程旁白不得再用 40px 左边距挤出居中栏");
   // 历史只认完成态（每条命令一行）；"此刻在跑什么"走活跃行
-  assertIncludes(app, "function trackCodexActivity(event)");
+  assertIncludes(mod, "function trackCodexActivity(event)");
   // 键分隔符用 \u0000（与 conversationWindowStarts 同约定）：runId/itemId 都可能含空格
-  assertIncludes(app, "codexActivity.set(`${event.runId}\\u0000${progress.id}`");
-  assertIncludes(app, "key.startsWith(`${event.runId}\\u0000`)");
-  assertIncludes(app, "escapeHtml(activity || phaseText)");
+  assertIncludes(mod, "codexActivity.set(`${event.runId}\\u0000${progress.id}`");
+  assertIncludes(mod, "key.startsWith(`${event.runId}\\u0000`)");
+  assertIncludes(mod, "escapeHtml(activity || phaseText)");
   // run 收尾必须清残留，否则进程被杀后会一直显示假的"正在执行"
-  assertIncludes(app, "if (/^run\\.(completed|failed|cancelled)$/.test(event.type))");
+  assertIncludes(mod, "if (/^run\\.(completed|failed|cancelled)$/.test(event.type))");
   // 活跃行变化也要触发重绘，否则 item/started 到达时界面不动
   assertIncludes(app, "matchesSelectedRun && (conversationEvent || activityChanged || delta)");
   // 命令文本与输出都是外部内容，进 DOM 前必须脱敏 + 转义

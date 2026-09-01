@@ -27,8 +27,11 @@ async function loadAppFunction(name, nextMarker, dependencies = {}, extraSource 
 }
 
 test("composer slash: continue mode keeps runtime commands for hot-change", async () => {
-  const app = await readFile(resolve(publicRoot, "app.js"), "utf8").then((text) => text.replace(/\r\n/g, "\n"));
-  const section = extractFunction(app, "slashCommandsForContext", "function hideSlashMenu");
+  const [app, slashModule] = await Promise.all([
+    readFile(resolve(publicRoot, "app.js"), "utf8").then((text) => text.replace(/\r\n/g, "\n")),
+    readFile(resolve(publicRoot, "modules/slash-menu.js"), "utf8").then((text) => text.replace(/\r\n/g, "\n")),
+  ]);
+  const section = extractFunction(slashModule, "slashCommandsForContext", "function hideSlashMenu");
   // 续聊不再短路成本地命令：模型/Effort/权限热改经 change → applyRunControlChange PATCH /controls
   assert.doesNotMatch(section, /if\s*\(\s*continuing\s*\)\s*return/);
   assert.match(section, /fallbackRuntimeSlashCommands/);
@@ -52,7 +55,7 @@ test("composer slash: Codex-parity commands all have real entries", async () => 
     [/selectRun\(target\.id\)/, "/resume"],
     [/await renameRun\(run\)/, "/rename"],
     [/patchRunMeta\(run\.id,\s*\{ archived: true \}/, "/archive"],
-    [/toggleRunDiff\(run\.id\)/, "/diff"],
+    [/conversationHeader\.toggleRunDiff\(run\.id\)/, "/diff"],
     [/navigator\.clipboard\.writeText\(last\.innerText/, "/copy"],
     [/setPermissionMenuOpen\(true\)/, "/permissions"],
     [/setComposerCliOpen\(true\)/, "/status"],
@@ -69,7 +72,11 @@ test("composer slash: Codex-parity commands all have real entries", async () => 
 });
 
 test("composer mention: query allows inner spaces for multi-word member labels", async () => {
-  const mentionQueryAtCursor = await loadAppFunction("mentionQueryAtCursor", "function syncMentionActiveOption");
+  const mentionModule = await readFile(resolve(publicRoot, "modules/mention-menu.js"), "utf8").then((text) => text.replace(/\r\n/g, "\n"));
+  const fnStart = mentionModule.indexOf("function mentionQueryAtCursor(textarea)");
+  const fnEnd = mentionModule.indexOf("\n  function syncMentionActiveOption", fnStart);
+  const fnBody = mentionModule.slice(fnStart, fnEnd);
+  const mentionQueryAtCursor = new Function(`${fnBody}\nreturn mentionQueryAtCursor;`)();
   const textarea = (value, caret = value.length) => ({ value, selectionStart: caret });
   // 多词标签 "@Grok 搜索" 的前缀阶段都能保持查询
   assert.deepEqual(mentionQueryAtCursor(textarea("@Grok 搜")), { start: 0, end: 7, query: "grok 搜" });
@@ -178,12 +185,15 @@ test("kimi adapter: process timeout marks settled and keeps session resumable", 
 });
 
 test("composer native passthrough: unmatched slash commands fail closed unless the member catalog allows them", async () => {
-  const app = await readFile(resolve(publicRoot, "app.js"), "utf8").then((text) => text.replace(/\r\n/g, "\n"));
-  const renderSlash = extractFunction(app, "renderSlashMenu", "function applySlashCommand");
+  const [app, slashModule] = await Promise.all([
+    readFile(resolve(publicRoot, "app.js"), "utf8").then((text) => text.replace(/\r\n/g, "\n")),
+    readFile(resolve(publicRoot, "modules/slash-menu.js"), "utf8").then((text) => text.replace(/\r\n/g, "\n")),
+  ]);
+  const renderSlash = extractFunction(slashModule, "renderSlashMenu", "function applySlashCommand");
   assert.match(renderSlash, /native-passthrough/);
   assert.match(renderSlash, /native-unsupported/);
   assert.match(renderSlash, /当前成员不支持这条原生命令/);
-  const applySlash = extractFunction(app, "applySlashCommand", "function projectPrefsFromPayload");
+  const applySlash = extractFunction(slashModule, "applySlashCommand", "return {");
   assert.match(applySlash, /command\.native/);
   assert.match(applySlash, /state\.pendingNativeCommand = true/);
   assert.match(app, /message\.nativeCommand = true/);
@@ -196,9 +206,10 @@ test("composer native passthrough: unmatched slash commands fail closed unless t
 });
 
 test("run CLI handoff: one-key jump from UI to the live native CLI terminal", async () => {
-  const [app, html] = await Promise.all([
+  const [app, html, tabsModule] = await Promise.all([
     readFile(resolve(publicRoot, "app.js"), "utf8").then((text) => text.replace(/\r\n/g, "\n")),
     readFile(resolve(publicRoot, "index.html"), "utf8"),
+    readFile(resolve(publicRoot, "modules/conversation-tabs.js"), "utf8").then((text) => text.replace(/\r\n/g, "\n")),
   ]);
   // 会话头按钮 + 快捷键 + /cli 命令三个入口都指到同一条链路
   assert.match(html, /id="run-cli-terminal-button"/);
@@ -218,7 +229,7 @@ test("run CLI handoff: one-key jump from UI to the live native CLI terminal", as
   assert.match(handoff, /\[data-view="workbench"\]/);
   assert.doesNotMatch(handoff, /openBottomTerminal\(\)/);
   // 切换会话页 / 新建任务都要收起罩层（罩层只属于它打开时的那条会话）
-  const activate = extractFunction(app, "activateTab", "function closeTab");
+  const activate = extractFunction(tabsModule, "activateTab", "function closeTab");
   assert.match(activate, /closeCliImmersiveIfOpen\(\)/);
   assert.match(app, /function enterNewTaskComposer[\s\S]{0,260}?closeCliImmersiveIfOpen\(\)/);
   const panel = await readFile(resolve(publicRoot, "terminal-panel.js"), "utf8").then((text) => text.replace(/\r\n/g, "\n"));
