@@ -188,18 +188,19 @@ test("collectOpsMetrics reads live stores without inventing a health probe", () 
 });
 
 test("observability UI and API expose ops metrics without treating unknown as zero", async () => {
-  const [api, html, app, server] = await Promise.all([
+  const [api, html, app, mod, server] = await Promise.all([
     readFile(`${root}/public/api.js`, "utf8"),
     readFile(`${root}/public/index.html`, "utf8"),
     readFile(`${root}/public/app.js`, "utf8"),
+    readFile(`${root}/public/modules/observability-page.js`, "utf8"),
     readFile(`${root}/server.mjs`, "utf8"),
   ]);
   assert.match(api, /obsOps:\s*"\/api\/observability\/ops"/);
   assert.match(server, /\/api\/observability\/ops/);
   assert.match(html, /id="obs-ops-body"/);
   assert.match(html, /运营指标/);
-  assert.match(app, /API\.obsOps/);
-  assert.match(app, /未知/);
-  assert.match(app, /knownMeanUsd/);
-  assert.doesNotMatch(app, /costUsd\.knownMeanUsd \|\| 0/);
+  assert.match(mod, /API\.obsOps/);
+  assert.match(mod, /未知/);
+  assert.match(mod, /knownMeanUsd/);
+  assert.doesNotMatch(mod, /costUsd\.knownMeanUsd \|\| 0/);
 });

@@ -207,7 +207,7 @@ function configSyncDialogHarness({
   toast = noop,
 }) {
   return evaluateSection(
-    sourceSection("async function openConfigSyncDialog", "async function loadObservability"),
+    sourceSection("async function openConfigSyncDialog", "const observabilityPage"),
     ["openConfigSyncDialog"],
     {
       document,
