@@ -714,6 +714,7 @@
       ],
       "properties": {
         "schemaVersion": {
+          "type": "integer",
           "const": 1
         },
         "eventId": {
@@ -768,6 +769,7 @@
           ]
         },
         "sensitivity": {
+          "type": "string",
           "enum": [
             "public",
             "internal",

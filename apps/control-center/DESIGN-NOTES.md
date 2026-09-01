@@ -1226,3 +1226,38 @@ SSE ready 帧增加 `eventSchema` + `eventSchemaVersions` 声明。client 收到
 3. Schema 漂移哨兵：contracts.schema.json 覆盖实际 envelope keys
 4. Fail-closed 行为：unknown version → tombstone，原始 data 不泄露
 5. Client/Server 契约：源码 assertIncludes 验证 gate 存在
+
+## HX-03: 事件 envelope 形状单源定义 + JSON Schema 生成（2026-09-01）
+
+HX-02 让版本机制真实运转，但 envelope 的字段定义仍三处手写：event-store.mjs emit()、
+contracts.schema.json eventEnvelope、app.js normalizeEvent()。新增/重命名字段时需同步
+三处，漏改即漂移。
+
+### 单源模块（public/modules/event-shape.js）
+
+`EVENT_ENVELOPE_FIELDS` 定义所有 16 个字段的类型、约束、required 标记。纯 ESM，无
+DOM/Node 依赖，server/client 共享。导出：
+- `EVENT_ENVELOPE_FIELDS` — 字段定义（frozen）
+- `getRequiredEventFields()` — required 字段列表
+- `buildEventEnvelopeSchema()` — 生成完整 eventEnvelope JSON Schema
+
+### 生成脚本（scripts/generate-event-schema.mjs）
+
+读取 event-shape.js，替换 contracts.schema.json 的 `$defs.eventEnvelope`。运行：
+`npm run schema:generate`。生成后 `npm run validate` 验证 schema 仍有效。
+
+### Dev-only 校验（src/event-store.mjs）
+
+emit() 在 prev/hash 附加后、哈希链计算前，检查所有 required 字段存在。仅
+`NODE_ENV !== "production"` 时运行，不影响生产性能。新增 required 字段时如果 emit()
+漏掉，测试立刻失败。
+
+### 测试覆盖（tests/event-shape.test.mjs, 14 tests）
+
+1. 形状完整性：EVENT_ENVELOPE_FIELDS 覆盖 emit() 所有字段
+2. Required 字段：getRequiredEventFields() 与 schema.required 一致
+3. 类型约束：sensitivity enum、sequence minimum、schemaVersion const、eventId uuid
+4. sourceRefs 结构：array maxItems 16，items 嵌套 required/properties
+5. Schema 生成：buildEventEnvelopeSchema() 结构正确，properties 匹配字段定义
+6. 生成一致性：contracts.schema.json eventEnvelope 与 buildEventEnvelopeSchema() 深比较一致
+7. Producer 一致性：EventStore.emit() 产生的事件符合 shape

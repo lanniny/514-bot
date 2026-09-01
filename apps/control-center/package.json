@@ -30,6 +30,7 @@
     "qa:config-topology": "node scripts/qa-config-topology.mjs",
     "qa:remote-config": "node scripts/qa-remote-config.mjs",
     "validate": "node scripts/validate-control-configs.mjs",
+    "schema:generate": "node scripts/generate-event-schema.mjs",
     "smoke:collaboration": "node scripts/smoke-collaboration.mjs",
     "qa:walkthrough": "node scripts/qa-config-walkthrough.mjs",
     "qa:delivery": "node scripts/qa-delivery-manifest.mjs",

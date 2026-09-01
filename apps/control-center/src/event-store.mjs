@@ -4,6 +4,7 @@ import { dirname } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { sanitizeForPersistence } from "./redaction.mjs";
 import { EVENT_ENVELOPE_SCHEMA_VERSION } from "../public/modules/event-protocol.js";
+import { getRequiredEventFields } from "../public/modules/event-shape.js";
 
 const DEFAULT_RECENT_LIMIT = 2000;
 const DEFAULT_PER_RUN_LIMIT = 10_000;
@@ -594,6 +595,11 @@ export class EventStore {
     const prevTip = this.chainTip;
     event.prev = prevTip;
     event.hash = "";
+    if (process.env.NODE_ENV !== "production") {
+      for (const field of getRequiredEventFields()) {
+        if (!(field in event)) throw new Error(`emit() missing required field: ${field}`);
+      }
+    }
     const stubLine = JSON.stringify(event);
     const hash = chainHashOf(prevTip, stubLine);
     const finalized = finalizeChainLine(stubLine, hash);
