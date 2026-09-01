@@ -968,7 +968,6 @@ test("Bot settlement cards consume the real settlement contract and fail closed 
   assert.match(app, /requestSettlement\("bot", id\)/);
   assert.match(app, /data-bot-settlement-diff/);
   assert.match(app, /不会自动 merge、commit 或 push/);
-  assert.match(app, /settlementViews: Object\.create\(null\)/);
   assert.match(css, /\.bot-settlement-card/);
   assert.match(css, /\.bot-artifact-row/);
 });
@@ -996,7 +995,6 @@ test("Bot settlement views refresh after run changes or the bounded TTL expires"
   assert.match(module, /export function settlementViewNeedsRefresh\(view, run, ttlMs\)/);
   assert.match(module, /signature && view\.runSignature && signature !== view\.runSignature/);
   assert.match(module, /Date\.now\(\) - loadedAt >= ttlMs/);
-  assert.match(app, /settlementLoadQueued/);
   assert.match(app, /loadBotSettlement\(runId, \{ force = false, runSignature = "", skipLoadingGuard = false \}/);
   assert.match(app, /loadRunSettlement\(runId, \{ force = false, runSignature = "", skipLoadingGuard = false \}/);
 });
@@ -1038,8 +1036,6 @@ test("Workbench settlement distinguishes unavailable and blocked states", async 
   assert.match(app, /交付记录暂时不可用/);
   assert.match(app, /data-settlement-state="\$\{stateLabel\}"/);
   assert.match(app, /\["blocked", "remote-unsupported", "unknown", "partial"\]/);
-  assert.match(app, /const runSettlementGenerations = new Map\(\)/);
-  assert.match(app, /runSettlementGenerations\.get\(String\(runId\)\) !== generation/);
   assert.match(app, /SETTLEMENT_REQUEST_TIMEOUT_MS = 12_000/);
   assert.match(app, /data-settlement-retry/);
   assert.match(app, /data-bot-settlement-retry/);

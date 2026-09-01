@@ -3067,7 +3067,7 @@ async function loadRuns() {
   const selectionChanged = nextSelectedRunId !== previousSelectedRunId;
   if (selectionChanged && previousSelectedRunId) {
     cancelSettlementRequest("workbench", previousSelectedRunId);
-    if (state.runSettlementView?.runId === previousSelectedRunId) state.runSettlementView = null;
+    runProjection.clearSettlementView("workbench", previousSelectedRunId);
   }
   state.selectedRunId = nextSelectedRunId;
   state.selectionClearedByUser = nextSelectionClearedByUser;
@@ -17284,9 +17284,6 @@ const botState = {
   selectedRunIds: Object.create(null),
   clearedRunIds: new Set(),
   collaborationTabs: Object.create(null),
-  settlementViews: Object.create(null),
-  settlementGenerations: Object.create(null),
-  settlementLoadQueued: Object.create(null),
   historyGeneration: Object.create(null),
   historyTimers: Object.create(null),
   conversationAdmissionToken: null,
@@ -18293,7 +18290,7 @@ function botConversationAttention(conversation) {
   if (["waiting_approval", "waiting_for_approval"].includes(String(run.status || ""))) {
     return { label: "待审批", tone: "attention", priority: 4 };
   }
-  const settlement = botState.settlementViews[String(run.id)] || null;
+  const settlement = runProjection.settlementView("bot", run.id);
   const settlementStatus = String(settlement?.data?.status || settlement?.status || "");
   if (["partial", "blocked", "remote-unsupported", "error"].includes(settlementStatus)) {
     return { label: settlementStatus === "error" ? "交付异常" : "待确认", tone: "warning", priority: 3 };
@@ -19605,8 +19602,8 @@ function retryBotSettlement(runId) {
   const run = runProjection.resolveRun(id);
   const signature = settlementRunSignature(run);
   cancelSettlementRequest("bot", id);
-  botState.settlementGenerations[id] = (Number(botState.settlementGenerations[id]) || 0) + 1;
-  botState.settlementViews[id] = { runId: id, status: "loading", runSignature: signature };
+  runProjection.nextSettlementGeneration("bot", id);
+  runProjection.setSettlementView("bot", id, { runId: id, status: "loading", runSignature: signature });
   if (state.view === "bot" && String(botRunForAgent()?.id || "") === id) {
     botRenderConversationMessages(botState.agentId, run, run ? normalizeRunMessages(run, { agentId: botState.agentId }) : []);
   }
@@ -19616,16 +19613,10 @@ function retryBotSettlement(runId) {
 function botSettlementMarkup(run) {
   if (!run?.id || !shouldPaintSettlement(run)) return "";
   const runId = String(run.id);
-  const view = botState.settlementViews[runId] || null;
+  const view = runProjection.settlementView("bot", runId);
   const runSignature = settlementRunSignature(run);
   if (settlementViewNeedsRefresh(view, run, BOT_SETTLEMENT_TTL_MS)) {
-    if (!botState.settlementLoadQueued[runId]) {
-      botState.settlementLoadQueued[runId] = true;
-      queueMicrotask(() => {
-        delete botState.settlementLoadQueued[runId];
-        void loadBotSettlement(runId, { force: Boolean(view), runSignature });
-      });
-    }
+    runProjection.queueSettlementLoad("bot", runId, () => loadBotSettlement(runId, { force: Boolean(view), runSignature }));
   }
   if (!view || view.status === "loading") {
     return `<article class="bot-card bot-settlement-card is-dynamic" data-bot-card="settlement" data-bot-card-source="settlement" data-run-id="${escapeHtml(runId)}" data-settlement-state="loading"><div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-loader-circle"></use></svg></span><div><strong>正在整理交付记录</strong><span>读取此 run 的结算与证据投影</span></div><span class="bot-card-state is-waiting">loading</span></div><p class="bot-card-copy">不会自动 merge、commit 或 push。</p></article>`;
@@ -19672,24 +19663,23 @@ function botSettlementMarkup(run) {
 async function loadBotSettlement(runId, { force = false, runSignature = "", skipLoadingGuard = false } = {}) {
   const id = String(runId || "").trim();
   const currentRun = runProjection.resolveRun(id);
-  const existing = botState.settlementViews[id];
+  const existing = runProjection.settlementView("bot", id);
   if (!id || (!skipLoadingGuard && existing?.status === "loading")) return;
   if (!force && existing && !settlementViewNeedsRefresh(existing, currentRun, BOT_SETTLEMENT_TTL_MS)) return;
-  const generation = (Number(botState.settlementGenerations[id]) || 0) + 1;
-  botState.settlementGenerations[id] = generation;
+  const generation = runProjection.nextSettlementGeneration("bot", id);
   const signature = runSignature || settlementRunSignature(currentRun);
-  botState.settlementViews[id] = { runId: id, status: "loading", runSignature: signature };
+  runProjection.setSettlementView("bot", id, { runId: id, status: "loading", runSignature: signature });
   try {
     const data = await requestSettlement("bot", id);
-    if (botState.settlementGenerations[id] !== generation) return;
+    if (runProjection.settlementGeneration("bot", id) !== generation) return;
     const validation = validateBotSettlementEnvelope(data, id);
-    botState.settlementViews[id] = validation.ok
+    runProjection.setSettlementView("bot", id, validation.ok
       ? { runId: id, status: "ok", data: validation.data, loadedAt: Date.now(), runSignature: signature }
-      : { runId: id, status: "invalid", error: validation.reason, loadedAt: Date.now(), runSignature: signature };
+      : { runId: id, status: "invalid", error: validation.reason, loadedAt: Date.now(), runSignature: signature });
   } catch (error) {
     if (error?.name === "AbortError") return;
-    if (botState.settlementGenerations[id] !== generation) return;
-    botState.settlementViews[id] = { runId: id, status: "error", error: error.message, loadedAt: Date.now(), runSignature: signature };
+    if (runProjection.settlementGeneration("bot", id) !== generation) return;
+    runProjection.setSettlementView("bot", id, { runId: id, status: "error", error: error.message, loadedAt: Date.now(), runSignature: signature });
   }
   if (state.view === "bot" && String(botRunForAgent()?.id || "") === id) {
     void botSyncConversation(botState.agentId);
@@ -23189,9 +23179,6 @@ function shouldPaintSettlement(run) {
   return TERMINAL_RUN_STATES.has(run.status);
 }
 
-let runSettlementLoadQueuedFor = null;
-const runSettlementGenerations = new Map();
-
 function runDiffButtonMarkup(run) {
   if (!run.worktreePath || run.remote || !TERMINAL_RUN_STATES.has(run.status)) return "";
   const open = state.runDiffView?.runId === run.id;
@@ -23204,22 +23191,18 @@ function retryRunSettlement(runId) {
   const run = state.runs.find((item) => String(item?.id || "") === id) || null;
   const signature = settlementRunSignature(run);
   cancelSettlementRequest("workbench", id);
-  runSettlementGenerations.set(id, (runSettlementGenerations.get(id) || 0) + 1);
-  state.runSettlementView = { runId: id, status: "loading", runSignature: signature };
+  runProjection.nextSettlementGeneration("workbench", id);
+  runProjection.setSettlementView("workbench", id, { runId: id, status: "loading", runSignature: signature });
   renderSelectedRun();
   void loadRunSettlement(id, { force: true, runSignature: signature, skipLoadingGuard: true });
 }
 
 function worktreeSettlementMarkup(run) {
   if (!shouldPaintSettlement(run)) return "";
-  const view = state.runSettlementView?.runId === run.id ? state.runSettlementView : null;
+  const view = runProjection.settlementView("workbench", run.id);
   const runSignature = settlementRunSignature(run);
-  if (settlementViewNeedsRefresh(view, run, RUN_SETTLEMENT_TTL_MS) && runSettlementLoadQueuedFor !== String(run.id)) {
-    runSettlementLoadQueuedFor = String(run.id);
-    queueMicrotask(() => {
-      runSettlementLoadQueuedFor = null;
-      void loadRunSettlement(run.id, { force: Boolean(view), runSignature });
-    });
+  if (settlementViewNeedsRefresh(view, run, RUN_SETTLEMENT_TTL_MS)) {
+    runProjection.queueSettlementLoad("workbench", String(run.id), () => loadRunSettlement(run.id, { force: Boolean(view), runSignature }));
   }
   if (!view || view.status === "loading") {
     return `
@@ -29019,30 +29002,29 @@ async function toggleRunDiff(runId) {
 async function loadRunSettlement(runId, { force = false, runSignature = "", skipLoadingGuard = false } = {}) {
   if (!runId) return;
   const currentRun = state.runs.find((run) => String(run?.id || "") === String(runId)) || null;
-  const existing = state.runSettlementView?.runId === runId ? state.runSettlementView : null;
+  const existing = runProjection.settlementView("workbench", runId);
   if (!skipLoadingGuard && existing?.status === "loading") return;
   if (!force && existing && !settlementViewNeedsRefresh(existing, currentRun, RUN_SETTLEMENT_TTL_MS)) return;
   const signature = runSignature || settlementRunSignature(currentRun);
-  const generation = (runSettlementGenerations.get(String(runId)) || 0) + 1;
-  runSettlementGenerations.set(String(runId), generation);
-  state.runSettlementView = { runId, status: "loading", runSignature: signature };
+  const generation = runProjection.nextSettlementGeneration("workbench", runId);
+  runProjection.setSettlementView("workbench", runId, { runId, status: "loading", runSignature: signature });
   try {
     const data = await requestSettlement("workbench", runId);
-    if (state.runSettlementView?.runId !== runId || runSettlementGenerations.get(String(runId)) !== generation) return;
+    if (runProjection.settlementGeneration("workbench", runId) !== generation) return;
     const latestRun = state.runs.find((run) => String(run?.id || "") === String(runId));
     if (latestRun && settlementRunSignature(latestRun) !== signature) {
-      state.runSettlementView = null;
+      runProjection.clearSettlementView("workbench", runId);
       renderSelectedRun();
       return;
     }
     const validation = validateBotSettlementEnvelope(data, runId);
-    state.runSettlementView = validation.ok
+    runProjection.setSettlementView("workbench", runId, validation.ok
       ? { runId, status: "ok", data: validation.data, loadedAt: Date.now(), runSignature: signature }
-      : { runId, status: "invalid", error: validation.reason, loadedAt: Date.now(), runSignature: signature };
+      : { runId, status: "invalid", error: validation.reason, loadedAt: Date.now(), runSignature: signature });
   } catch (error) {
     if (error?.name === "AbortError") return;
-    if (state.runSettlementView?.runId !== runId || runSettlementGenerations.get(String(runId)) !== generation) return;
-    state.runSettlementView = { runId, status: "error", error: error.message, loadedAt: Date.now(), runSignature: signature };
+    if (runProjection.settlementGeneration("workbench", runId) !== generation) return;
+    runProjection.setSettlementView("workbench", runId, { runId, status: "error", error: error.message, loadedAt: Date.now(), runSignature: signature });
   }
   renderSelectedRun();
   if (state.view === "bot" && String(botRunForAgent()?.id || "") === String(runId)) {
@@ -29393,10 +29375,7 @@ function activateTab(key, { focusTab = false } = {}) {
   state.selectionClearedByUser = false;
   state.sessionPreview = null; // 切页即离开历史预览
   state.runDiffView = null; // 切页收起产物面板
-  if (state.runSettlementView?.runId && state.runSettlementView.runId !== tab.runId) {
-    cancelSettlementRequest("workbench", state.runSettlementView.runId);
-  }
-  state.runSettlementView = null;
+  runProjection.clearSettlementSurface("workbench");
   persistTabs();
   renderTabs();
   renderMemberStrip();
