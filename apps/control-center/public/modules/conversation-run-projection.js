@@ -191,6 +191,54 @@ export function createConversationRunProjection({
     return settlementViewNeedsRefresh(view, run, settlementTtlMs);
   }
 
+  async function loadSettlement(surface, runId, {
+    force = false,
+    runSignature = "",
+    skipLoadingGuard = false,
+    request,
+    validate,
+    onChange,
+    dropStaleResponses = false,
+    getRun = () => resolveRun(runId),
+  } = {}) {
+    if (typeof request !== "function") throw new TypeError("loadSettlement needs request()");
+    if (typeof validate !== "function") throw new TypeError("loadSettlement needs validate()");
+    const id = String(runId || "").trim();
+    if (!id) return;
+    const currentRun = getRun();
+    const existing = settlementView(surface, id);
+    if (!skipLoadingGuard && existing?.status === "loading") return;
+    const ttlMs = settlementTtlMs;
+    if (!force && existing && !settlementViewNeedsRefresh(existing, currentRun, ttlMs)) return;
+    const signature = runSignature || settlementRunSignature(currentRun);
+    const generation = nextSettlementGeneration(surface, id);
+    setSettlementView(surface, id, { runId: id, status: "loading", runSignature: signature });
+    try {
+      const data = await request(id);
+      if (settlementGeneration(surface, id) !== generation) return;
+      if (dropStaleResponses) {
+        const latestRun = getRun();
+        if (latestRun && settlementRunSignature(latestRun) !== signature) {
+          clearSettlementView(surface, id);
+          if (typeof onChange === "function") onChange(null, { stale: true });
+          return;
+        }
+      }
+      const validation = validate(data, id);
+      const view = validation.ok
+        ? { runId: id, status: "ok", data: validation.data, loadedAt: Date.now(), runSignature: signature }
+        : { runId: id, status: "invalid", error: validation.reason, loadedAt: Date.now(), runSignature: signature };
+      setSettlementView(surface, id, view);
+      if (typeof onChange === "function") onChange(view, { stale: false });
+    } catch (error) {
+      if (error?.name === "AbortError") return;
+      if (settlementGeneration(surface, id) !== generation) return;
+      const view = { runId: id, status: "error", error: error.message, loadedAt: Date.now(), runSignature: signature };
+      setSettlementView(surface, id, view);
+      if (typeof onChange === "function") onChange(view, { stale: false });
+    }
+  }
+
   return Object.freeze({
     resolveRun,
     resolveRunStrict,
@@ -207,6 +255,7 @@ export function createConversationRunProjection({
     settlementGeneration,
     queueSettlementLoad,
     settlementNeedsRefresh,
+    loadSettlement,
     settlementTtlMs,
   });
 }

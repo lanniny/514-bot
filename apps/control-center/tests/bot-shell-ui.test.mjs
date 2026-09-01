@@ -965,7 +965,7 @@ test("Bot settlement cards consume the real settlement contract and fail closed 
   assert.match(app, /schema !== BOT_SETTLEMENT_SCHEMA/);
   assert.match(app, /function botSettlementArtifactMarkup\(artifact\)/);
   assert.match(app, /artifacts\.slice\(0, 16\)/);
-  assert.match(app, /requestSettlement\("bot", id\)/);
+  assert.match(app, /requestSettlement\("bot", rid\)/);
   assert.match(app, /data-bot-settlement-diff/);
   assert.match(app, /不会自动 merge、commit 或 push/);
   assert.match(css, /\.bot-settlement-card/);

@@ -19662,29 +19662,21 @@ function botSettlementMarkup(run) {
 
 async function loadBotSettlement(runId, { force = false, runSignature = "", skipLoadingGuard = false } = {}) {
   const id = String(runId || "").trim();
-  const currentRun = runProjection.resolveRun(id);
-  const existing = runProjection.settlementView("bot", id);
-  if (!id || (!skipLoadingGuard && existing?.status === "loading")) return;
-  if (!force && existing && !settlementViewNeedsRefresh(existing, currentRun, BOT_SETTLEMENT_TTL_MS)) return;
-  const generation = runProjection.nextSettlementGeneration("bot", id);
-  const signature = runSignature || settlementRunSignature(currentRun);
-  runProjection.setSettlementView("bot", id, { runId: id, status: "loading", runSignature: signature });
-  try {
-    const data = await requestSettlement("bot", id);
-    if (runProjection.settlementGeneration("bot", id) !== generation) return;
-    const validation = validateBotSettlementEnvelope(data, id);
-    runProjection.setSettlementView("bot", id, validation.ok
-      ? { runId: id, status: "ok", data: validation.data, loadedAt: Date.now(), runSignature: signature }
-      : { runId: id, status: "invalid", error: validation.reason, loadedAt: Date.now(), runSignature: signature });
-  } catch (error) {
-    if (error?.name === "AbortError") return;
-    if (runProjection.settlementGeneration("bot", id) !== generation) return;
-    runProjection.setSettlementView("bot", id, { runId: id, status: "error", error: error.message, loadedAt: Date.now(), runSignature: signature });
-  }
-  if (state.view === "bot" && String(botRunForAgent()?.id || "") === id) {
-    void botSyncConversation(botState.agentId);
-    botRenderCollaborationWorkspace();
-  }
+  await runProjection.loadSettlement("bot", id, {
+    force,
+    runSignature,
+    skipLoadingGuard,
+    request: (rid) => requestSettlement("bot", rid),
+    validate: (data, rid) => validateBotSettlementEnvelope(data, rid),
+    getRun: () => runProjection.resolveRun(id),
+    onChange: () => {
+      if (state.view === "bot" && String(botRunForAgent()?.id || "") === id) {
+        void botSyncConversation(botState.agentId);
+        botRenderCollaborationWorkspace();
+      }
+    },
+    dropStaleResponses: false,
+  });
 }
 
 function botBubbleMessageMarkup({ variant, grouped, eventKey, authorId, author, bubbleText, time }) {
@@ -29001,35 +28993,21 @@ async function toggleRunDiff(runId) {
 
 async function loadRunSettlement(runId, { force = false, runSignature = "", skipLoadingGuard = false } = {}) {
   if (!runId) return;
-  const currentRun = state.runs.find((run) => String(run?.id || "") === String(runId)) || null;
-  const existing = runProjection.settlementView("workbench", runId);
-  if (!skipLoadingGuard && existing?.status === "loading") return;
-  if (!force && existing && !settlementViewNeedsRefresh(existing, currentRun, RUN_SETTLEMENT_TTL_MS)) return;
-  const signature = runSignature || settlementRunSignature(currentRun);
-  const generation = runProjection.nextSettlementGeneration("workbench", runId);
-  runProjection.setSettlementView("workbench", runId, { runId, status: "loading", runSignature: signature });
-  try {
-    const data = await requestSettlement("workbench", runId);
-    if (runProjection.settlementGeneration("workbench", runId) !== generation) return;
-    const latestRun = state.runs.find((run) => String(run?.id || "") === String(runId));
-    if (latestRun && settlementRunSignature(latestRun) !== signature) {
-      runProjection.clearSettlementView("workbench", runId);
+  await runProjection.loadSettlement("workbench", runId, {
+    force,
+    runSignature,
+    skipLoadingGuard,
+    request: (rid) => requestSettlement("workbench", rid),
+    validate: (data, rid) => validateBotSettlementEnvelope(data, rid),
+    getRun: () => state.runs.find((run) => String(run?.id || "") === String(runId)) || null,
+    onChange: () => {
       renderSelectedRun();
-      return;
-    }
-    const validation = validateBotSettlementEnvelope(data, runId);
-    runProjection.setSettlementView("workbench", runId, validation.ok
-      ? { runId, status: "ok", data: validation.data, loadedAt: Date.now(), runSignature: signature }
-      : { runId, status: "invalid", error: validation.reason, loadedAt: Date.now(), runSignature: signature });
-  } catch (error) {
-    if (error?.name === "AbortError") return;
-    if (runProjection.settlementGeneration("workbench", runId) !== generation) return;
-    runProjection.setSettlementView("workbench", runId, { runId, status: "error", error: error.message, loadedAt: Date.now(), runSignature: signature });
-  }
-  renderSelectedRun();
-  if (state.view === "bot" && String(botRunForAgent()?.id || "") === String(runId)) {
-    void botSyncConversation(botState.agentId);
-  }
+      if (state.view === "bot" && String(botRunForAgent()?.id || "") === String(runId)) {
+        void botSyncConversation(botState.agentId);
+      }
+    },
+    dropStaleResponses: true,
+  });
 }
 
 // ===== 会话头 chips / 更改 pill / Composer 分支 chip（参考桌面 agent 台顶栏形态，LO 2026-08-16 供图） =====
