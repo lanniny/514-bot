@@ -100,6 +100,7 @@ import {
 import { emptyState, inlineEmpty, renderPlaceholder, skeleton } from "./modules/placeholders.js";
 // UI-AUDIT Wave B 抽取：右键菜单展示层（显隐/钳位/键盘/焦点），内容构建仍在 app.js
 import { createContextMenu } from "./modules/context-menu.js";
+import { createConversationRunProjection, settlementRunSignature, settlementViewNeedsRefresh } from "./modules/conversation-run-projection.js";
 // UI-AUDIT P1-6：异步按钮忙态统一处理（防连点 + 失败必恢复 + aria-busy）
 import { runAsyncAction } from "./modules/async-action.js";
 import {
@@ -125,6 +126,11 @@ const settlementRequester = createSettlementRequester({
 const requestSettlement = settlementRequester.load;
 const cancelSettlementRequest = settlementRequester.cancel;
 const cancelSettlementRequests = settlementRequester.cancelSurface;
+
+const runProjection = createConversationRunProjection({
+  getRuns: () => state.runs,
+  surfaces: { workbench: { capacity: 1 }, bot: {} },
+});
 
 // W2.4 原生通知（审批/任务完成/收口失败；幂等 diff，默认关闭）
 const nativeNotifications = createNativeNotifications({ toast });
@@ -17275,8 +17281,6 @@ const botState = {
   runQueues: Object.create(null),
   runAgents: Object.create(null),
   runParticipants: Object.create(null),
-  runSnapshots: Object.create(null),
-  runSnapshotExpiry: Object.create(null),
   selectedRunIds: Object.create(null),
   clearedRunIds: new Set(),
   collaborationTabs: Object.create(null),
@@ -17443,7 +17447,7 @@ function botRunIdsForAgent(agentId = botState.agentId) {
 
 function botRunsForAgent(agentId = botState.agentId) {
   return botRunIdsForAgent(agentId)
-    .map((runId) => state.runs.find((run) => String(run.id) === String(runId)) || botState.runSnapshots[String(runId)])
+    .map((runId) => runProjection.resolveRun(runId))
     .filter(Boolean);
 }
 
@@ -17459,8 +17463,7 @@ function botRememberRun(run, agentId, { primary = true } = {}) {
   if (primary || !botState.runAgents[runId]) botState.runAgents[runId] = id;
   botState.runParticipants[runId] = [...new Set([...(botState.runParticipants[runId] || []), id])].slice(0, 7);
   botState.runIds[id] = runId;
-  botState.runSnapshots[runId] = run;
-  botState.runSnapshotExpiry[runId] = Date.now() + 15_000;
+  runProjection.rememberSnapshot(run);
   botPersistRunIndex();
   botSyncRosterRow(id, botMeta(id));
 }
@@ -17486,19 +17489,12 @@ function botHydrateRunQueuesFromRuns() {
   // 服务端清理结束任务后，连同本地归属映射和 optimistic 快照一起回收，
   // 防止刷新时孤儿 run-agent 关系继续膨胀并污染后续归属判断。
   for (const runId of Object.keys(botState.runAgents)) {
-    const optimistic = Number(botState.runSnapshotExpiry[runId] || 0) > Date.now() && botState.runSnapshots[runId];
-    if (!liveRunIds.has(String(runId)) && !optimistic) delete botState.runAgents[runId];
+    if (!liveRunIds.has(String(runId)) && !runProjection.isOptimistic(runId)) delete botState.runAgents[runId];
   }
   for (const runId of Object.keys(botState.runParticipants)) {
-    const optimistic = Number(botState.runSnapshotExpiry[runId] || 0) > Date.now() && botState.runSnapshots[runId];
-    if (!liveRunIds.has(String(runId)) && !optimistic) delete botState.runParticipants[runId];
+    if (!liveRunIds.has(String(runId)) && !runProjection.isOptimistic(runId)) delete botState.runParticipants[runId];
   }
-  for (const runId of Object.keys(botState.runSnapshots)) {
-    if (!liveRunIds.has(String(runId)) && Number(botState.runSnapshotExpiry[runId] || 0) <= Date.now()) {
-      delete botState.runSnapshots[runId];
-      delete botState.runSnapshotExpiry[runId];
-    }
-  }
+  runProjection.pruneExpiredSnapshots(liveRunIds);
   for (const run of state.runs) {
     const runId = String(run?.id || "");
     const indexedAgent = botState.runAgents[runId]
@@ -17516,13 +17512,12 @@ function botHydrateRunQueuesFromRuns() {
       if (!queue.includes(runId) && queue.length < BOT_RUN_QUEUE_LIMIT) queue.push(runId);
       queues[agentId] = queue;
     });
-    botState.runSnapshots[runId] = run;
-    delete botState.runSnapshotExpiry[runId];
+    runProjection.promoteSnapshot(run);
   }
   for (const [agentId, queue] of Object.entries(queues)) {
     queues[agentId] = queue.filter((runId) => (
       liveRunIds.has(String(runId))
-      || (Number(botState.runSnapshotExpiry[String(runId)] || 0) > Date.now() && botState.runSnapshots[String(runId)])
+      || runProjection.isOptimistic(runId)
     )).slice(0, BOT_RUN_QUEUE_LIMIT);
     if (!queues[agentId].length) delete queues[agentId];
   }
@@ -17537,7 +17532,7 @@ function botReconcileRunQueues() {
     // 等权威列表出现后由 state.runs 覆盖，避免新消息在竞态窗口被误判成“无运行”。
     const next = [...new Set((Array.isArray(queue) ? queue : []).map(String).filter(Boolean))].filter((runId) => (
       state.runs.some((run) => String(run.id) === String(runId))
-      || Number(botState.runSnapshotExpiry[String(runId)] || 0) > Date.now()
+      || runProjection.isOptimistic(runId)
     )).slice(0, BOT_RUN_QUEUE_LIMIT);
     if (next.length) {
       botState.runQueues[agentId] = next;
@@ -17814,7 +17809,7 @@ function botConversationForMember(memberId, { includeHidden = true } = {}) {
 function botConversationActiveRun(conversation) {
   const runId = String(conversation?.activeRunId || "");
   if (runId) {
-    const run = state.runs.find((candidate) => String(candidate?.id || "") === runId) || botState.runSnapshots[runId] || null;
+    const run = runProjection.resolveRun(runId);
     return botRunBelongsToConversation(run, conversation) ? run : null;
   }
   // POST /api/runs 已经把 run 绑定到 Conversation，但列表刷新可能晚一个网络往返。
@@ -17830,9 +17825,7 @@ function botConversationRun(conversation) {
   const conversationId = String(conversation?.id || "");
   const selectedRunId = String(botState.selectedRunIds[conversationId] || "");
   if (selectedRunId && (conversation?.runIds || []).some((runId) => String(runId) === selectedRunId)) {
-    const selected = state.runs.find((run) => String(run?.id || "") === selectedRunId)
-      || botState.runSnapshots[selectedRunId]
-      || null;
+    const selected = runProjection.resolveRun(selectedRunId);
     if (botRunBelongsToConversation(selected, conversation)) return selected;
   }
   return botConversationActiveRun(conversation);
@@ -18642,7 +18635,7 @@ function botRenderAgent(agentId = botState.agentId) {
   const activeGroup = groupConversation
     ? botConversationRun(groupConversation)
     : botState.activeGroupRunId
-      ? (state.runs.find((run) => String(run.id) === String(botState.activeGroupRunId)) || botState.runSnapshots[String(botState.activeGroupRunId)] || null)
+      ? runProjection.resolveRun(botState.activeGroupRunId)
       : null;
   const activeGroupParticipants = botGroupParticipants(activeGroup || groupConversation);
   if ((groupConversation || botState.activeGroupRunId) && activeGroupParticipants.length && !activeGroupParticipants.includes(next)) {
@@ -18796,7 +18789,7 @@ function botOpenConversation(conversationId, { activateChats = true, selectionTo
 function botOpenGroupConversation(runId, { activateChats = true } = {}) {
   botBeginSelectionIntent();
   const id = String(runId || "");
-  const run = state.runs.find((item) => String(item.id) === id) || botState.runSnapshots[id] || null;
+  const run = runProjection.resolveRun(id);
   if (!run || run.orchestrationMode !== "social") return;
   const participants = botGroupParticipants(run);
   const primary = String(botState.runAgents[id] || run.startAgentId || participants[0] || "");
@@ -19362,7 +19355,7 @@ function botRenderMessageStore(agentId = botState.agentId) {
   const groupRun = conversation?.kind === "workspace_group"
     ? botConversationRun(conversation)
     : botState.activeGroupRunId
-      ? state.runs.find((run) => String(run.id) === String(botState.activeGroupRunId)) || botState.runSnapshots[String(botState.activeGroupRunId)]
+      ? runProjection.resolveRun(botState.activeGroupRunId)
       : null;
   const groupView = conversation?.kind === "workspace_group" ? conversation : groupRun;
   const label = groupView ? String(groupView.title || botGroupTitle(groupRun || groupView)) : botMeta(agentId).label;
@@ -19472,7 +19465,7 @@ function botApprovalCardMarkup(item) {
   rememberApprovalPending(item);
   const method = String(item.method || "unknown");
   const broadPermission = method === "item/permissions/requestApproval";
-  const run = state.runs.find((entry) => String(entry.id) === runId) || botState.runSnapshots[runId] || null;
+  const run = runProjection.resolveRun(runId);
   const scopeBits = [
     run?.permissionMode ? `模式 ${permissionModeMeta(run.permissionMode, run.permissionMode).short}` : null,
     run?.worktreePath ? "绑定隔离工作树" : run?.cwd ? "绑定会话 cwd" : "作用域：控制面策略",
@@ -19549,33 +19542,6 @@ const BOT_SETTLEMENT_REQUIRED_ACTIONS = Object.freeze(["merge", "rebase", "commi
 const BOT_SETTLEMENT_TTL_MS = 15_000;
 const RUN_SETTLEMENT_TTL_MS = 15_000;
 
-function settlementRunSignature(run) {
-  if (!run?.id) return "";
-  const remote = run.remote && typeof run.remote === "object"
-    ? `${run.remote.hostId || ""}:${run.remote.path || ""}`
-    : "";
-  return [
-    run.id,
-    run.status,
-    run.updatedAt || run.completedAt || run.createdAt || "",
-    run.round || 0,
-    run.worktreePath || "",
-    run.worktreeBase || "",
-    remote,
-    run.recoveryRequired === true ? "recovery" : "",
-    run.error || "",
-  ].join("|");
-}
-
-function settlementViewNeedsRefresh(view, run, ttlMs) {
-  if (!view) return true;
-  if (view.status === "loading") return false;
-  const signature = settlementRunSignature(run);
-  if (signature && view.runSignature && signature !== view.runSignature) return true;
-  const loadedAt = Number(view.loadedAt);
-  return !Number.isFinite(loadedAt) || Date.now() - loadedAt >= ttlMs;
-}
-
 function validSettlementObject(value) {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -19636,7 +19602,7 @@ function botSettlementArtifactMarkup(artifact) {
 function retryBotSettlement(runId) {
   const id = String(runId || "").trim();
   if (!id) return;
-  const run = state.runs.find((item) => String(item?.id || "") === id) || botState.runSnapshots[id] || null;
+  const run = runProjection.resolveRun(id);
   const signature = settlementRunSignature(run);
   cancelSettlementRequest("bot", id);
   botState.settlementGenerations[id] = (Number(botState.settlementGenerations[id]) || 0) + 1;
@@ -19705,7 +19671,7 @@ function botSettlementMarkup(run) {
 
 async function loadBotSettlement(runId, { force = false, runSignature = "", skipLoadingGuard = false } = {}) {
   const id = String(runId || "").trim();
-  const currentRun = state.runs.find((run) => String(run?.id || "") === id) || botState.runSnapshots[id] || null;
+  const currentRun = runProjection.resolveRun(id);
   const existing = botState.settlementViews[id];
   if (!id || (!skipLoadingGuard && existing?.status === "loading")) return;
   if (!force && existing && !settlementViewNeedsRefresh(existing, currentRun, BOT_SETTLEMENT_TTL_MS)) return;
@@ -20024,7 +19990,7 @@ function botRunForAgent(agentId = botState.agentId) {
   }
   const runId = botRunIdsForAgent(agentId)[0] || botState.runIds[agentId] || (agentId === botState.agentId ? botState.runId : null);
   return runId
-    ? state.runs.find((run) => String(run.id) === String(runId)) || botState.runSnapshots[String(runId)] || null
+    ? runProjection.resolveRun(runId)
     : null;
 }
 
@@ -20037,13 +20003,13 @@ async function botOpenConversationRun(conversation, runId, agentId = botState.ag
     toast("该运行主体已清理，仅保留 Conversation 审计引用", "info", 4200);
     return;
   }
-  let run = state.runs.find((candidate) => String(candidate?.id || "") === id) || botState.runSnapshots[id] || null;
+  let run = runProjection.resolveRun(id);
   if (!run) {
     try {
       const payload = await request(API.run(id));
       run = normalizeRun(payload?.run ?? payload, 0);
       botState.clearedRunIds.delete(id);
-      botState.runSnapshots[id] = run;
+      runProjection.rememberSnapshot(run, { optimistic: false });
       state.runs = [run, ...state.runs.filter((candidate) => String(candidate?.id || "") !== id)];
     } catch (error) {
       if (error?.code === "RUN_NOT_FOUND") {
@@ -20101,7 +20067,7 @@ function renderBotRunQueue(agentId = botState.agentId) {
     : botRunIdsForAgent(agentId);
   const entries = runIds.map((runId) => ({
     runId,
-    run: state.runs.find((run) => String(run?.id || "") === runId) || botState.runSnapshots[runId] || null,
+    run: runProjection.resolveRun(runId),
   }));
   if (!entries.length) {
     queue.hidden = true;
@@ -20233,7 +20199,7 @@ function botBindRun(run, { prompt = "", agentId = "", agentIds = [], submission 
       }).then((updated) => {
         const normalized = normalizeRun(updated, 0);
         state.runs = [normalized, ...state.runs.filter((item) => String(item.id) !== String(normalized.id))];
-        botState.runSnapshots[String(normalized.id)] = normalized;
+        runProjection.rememberSnapshot(normalized, { optimistic: false });
         botRenderRoster();
       }).catch((error) => toast(`群聊名称保存失败：${error.message}`, "warning", 4200));
     }
@@ -21486,7 +21452,7 @@ function botPendingAskContext(cardOrTarget) {
   const runId = String(dataset.runId || dataset.id || "").trim();
   const askId = String(dataset.askId || dataset.pendingAsk?.id || "").trim();
   if (!runId || !askId) return null;
-  const run = state.runs.find((item) => String(item.id) === runId) || botState.runSnapshots[runId] || null;
+  const run = runProjection.resolveRun(runId);
   const pendingAsk = run?.pendingAsk;
   if (!run || !pendingAsk || TERMINAL_RUN_STATES.has(run.status) || String(pendingAsk.id || "") !== askId) return null;
   const askerId = String(pendingAsk.from || "").trim();
@@ -21967,7 +21933,7 @@ async function botInterruptCurrentRun() {
     });
     const updated = normalizeRun(payload?.run ?? payload, 0);
     state.runs = [updated, ...state.runs.filter((item) => String(item.id) !== runId)];
-    botState.runSnapshots[runId] = updated;
+    runProjection.rememberSnapshot(updated, { optimistic: false });
     toast(updated.status === "interrupted"
       ? "当前回复已停止，可以在同一对话继续"
       : updated.status === "recovery_required"

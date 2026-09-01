@@ -151,7 +151,9 @@ test("Bot roster and composer bridge keep a single runtime source", async () => 
   assert.match(app, /pendingSubmissions\.length > 8/);
   assert.match(app, /botBindRun\(run/);
   assert.match(app, /setView\("bot", \{ focus: false \}\)/);
-  assert.match(app, /state\.runs\.find\(\(run\) => String\(run\.id\) === String\(runId\)/);
+  assert.match(app, /runProjection\.resolveRun\(/);
+  assert.doesNotMatch(app, /botState\.runSnapshots/);
+  assert.doesNotMatch(app, /botState\.runSnapshotExpiry/);
   assert.doesNotMatch(app, /fetch\([^\n]*bot/);
 });
 
@@ -983,12 +985,17 @@ test("Bot settlement validation requires complete ownership, diff, artifact, and
 });
 
 test("Bot settlement views refresh after run changes or the bounded TTL expires", async () => {
-  const app = await readFile(`${appRoot}/public/app.js`, "utf8");
+  const [app, module] = await Promise.all([
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/conversation-run-projection.js`, "utf8"),
+  ]);
   assert.match(app, /const BOT_SETTLEMENT_TTL_MS = 15_000/);
-  assert.match(app, /function settlementRunSignature\(run\)/);
-  assert.match(app, /function settlementViewNeedsRefresh\(view, run, ttlMs\)/);
-  assert.match(app, /signature && view\.runSignature && signature !== view\.runSignature/);
-  assert.match(app, /Date\.now\(\) - loadedAt >= ttlMs/);
+  assert.match(app, /import \{[^}]*settlementRunSignature[^}]*\} from "\.\/modules\/conversation-run-projection\.js"/);
+  assert.match(app, /import \{[^}]*settlementViewNeedsRefresh[^}]*\} from "\.\/modules\/conversation-run-projection\.js"/);
+  assert.match(module, /export function settlementRunSignature\(run\)/);
+  assert.match(module, /export function settlementViewNeedsRefresh\(view, run, ttlMs\)/);
+  assert.match(module, /signature && view\.runSignature && signature !== view\.runSignature/);
+  assert.match(module, /Date\.now\(\) - loadedAt >= ttlMs/);
   assert.match(app, /settlementLoadQueued/);
   assert.match(app, /loadBotSettlement\(runId, \{ force = false, runSignature = "", skipLoadingGuard = false \}/);
   assert.match(app, /loadRunSettlement\(runId, \{ force = false, runSignature = "", skipLoadingGuard = false \}/);
