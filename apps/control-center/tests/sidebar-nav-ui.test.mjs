@@ -107,10 +107,11 @@ test("workbench keeps its own rail; global nav rides the burger drawer at every 
   // 14 视图在桌面端只剩 Ctrl+K 一个全局入口（settings 视图才有设置轨）——最大
   // 可用性缺陷。新契约：协作台保留自身 run-rail；全局导航走汉堡抽屉（全尺寸可见，
   // nav-open 时滑出）+ 视图菜单；bot 表面维持无 chrome（bot-shell.css 单独全隐）。
-  const [html, app, css] = await Promise.all([
+  const [html, app, css, settingsRailChrome] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
     readFile(`${appRoot}/public/forge/experience-polish.css`, "utf8"),
+    readFile(`${appRoot}/public/modules/settings-rail-chrome.js`, "utf8"),
   ]);
 
   assert.match(html, /id="run-rail"[\s\S]*id="account-dock"[\s\S]*id="account-dock-label"/);
@@ -134,16 +135,16 @@ test("workbench keeps its own rail; global nav rides the burger drawer at every 
   assert.match(css, /\.app-shell\.is-settings \.main-content/);
   assert.match(css, /border-radius: 12px 0 0 0/);
   assert.match(css, /"topbar topbar"/);
-  assert.match(app, /function filterSettingsRail\(/);
-  assert.match(app, /function settingsRailHaystack\(/);
+  assert.match(settingsRailChrome, /function filterSettingsRail\(/);
+  assert.match(settingsRailChrome, /function settingsRailHaystack\(/);
   assert.doesNotMatch(css, /\.page-heading > div:first-child \{[\s\S]{0,80}clip: rect/);
   assert.match(css, /html\[data-accent="rose"\]/);
   assert.match(css, /html\[data-density="compact"\]/);
   assert.match(css, /-webkit-appearance: none;/);
-  assert.match(app, /function isSettingsChrome\(/);
-  assert.match(app, /view !== "workbench" && view !== "automations"/);
-  assert.match(app, /function openSettings\(/);
-  assert.match(app, /function syncSettingsRailActive\(/);
+  assert.match(settingsRailChrome, /function isSettingsChrome\(/);
+  assert.match(settingsRailChrome, /view !== "workbench" && view !== "automations"/);
+  assert.match(settingsRailChrome, /function openSettings\(/);
+  assert.match(settingsRailChrome, /function syncSettingsRailActive\(/);
   assert.match(app, /function applyThemePreference\(/);
   assert.match(app, /openSettings\("appearance"\)/);
   assert.match(app, /byId\("account-dock"\)\?\.addEventListener\("click", openAccountSettings\)/);

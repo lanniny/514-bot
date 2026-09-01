@@ -53,12 +53,13 @@ test("idle templates ride the real idle queue, not a manual placeholder", () => 
 });
 
 test("automations is a first-class create view, not a dialog-only leftover", async () => {
-  const [html, app, state, css, panel] = await Promise.all([
+  const [html, app, state, css, panel, settingsRailChrome] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
     readFile(`${appRoot}/public/state.js`, "utf8"),
     readFile(`${appRoot}/public/forge/automations.css`, "utf8"),
     readFile(`${appRoot}/public/modules/automations-page.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/settings-rail-chrome.js`, "utf8"),
   ]);
   assert.doesNotMatch(html, /id="view-automations"|data-view-panel="automations"/);
   assert.match(html, /id="rail-search-row"[\s\S]*id="rail-automations-row"[\s\S]*id="rail-skills-row"/);
@@ -76,7 +77,7 @@ test("automations is a first-class create view, not a dialog-only leftover", asy
   // 面包屑分组已由 NAV_GROUPS 单源反推（2026-08-30 PM 走查：手写 FORGE_VIEW_GROUPS 与
   // 导航组漂移——team 显示「Agent 能力」而导航在「协作」）。automations 归「治理」组。
   assert.match(app, /Object\.fromEntries\(NAV_GROUPS\.flatMap/, "面包屑分组必须由 NAV_GROUPS 单源反推");
-  assert.match(app, /function revealWorkbenchAutomations\(/);
+  assert.match(settingsRailChrome, /function revealWorkbenchAutomations\(/);
   assert.match(app, /#automations\/\$\{/);
   assert.match(app, /function openAutomationManager\(/);
   assert.match(app, /__forgeAutomationsPage\?\.compose/);

@@ -607,11 +607,12 @@ test("Bot personal settings persist nickname and reuse the audited operator avat
 });
 
 test("Bot workspaces keep channels and automations on the Bot surface", async () => {
-  const [html, app, channelPanel, automations] = await Promise.all([
+  const [html, app, channelPanel, automations, settingsRailChrome] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
     readFile(`${appRoot}/public/channels-panel.js`, "utf8"),
     readFile(`${appRoot}/public/modules/automations-page.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/settings-rail-chrome.js`, "utf8"),
   ]);
   assert.match(html, /id="bot-workspace-panel"[^>]+role="dialog"[^>]+inert/);
   assert.match(html, /data-bot-workspace-tab="automations"/);
@@ -621,8 +622,8 @@ test("Bot workspaces keep channels and automations on the Bot surface", async ()
   assert.match(app, /function botOpenWorkspace\(tab = "automations"/);
   assert.match(app, /botWorkspaceMoveNode\("automations-workbench", "bot-automations-mount"\)/);
   assert.match(app, /botWorkspaceMoveNode\("channels-container", "bot-channels-mount"\)/);
-  assert.match(app, /const paneInBotWorkspace = pane\?\.closest\("#bot-workspace-panel"\)/);
-  assert.match(app, /if \(pane && !paneInBotWorkspace\)/);
+  assert.match(settingsRailChrome, /const paneInBotWorkspace = pane\?\.closest\("#bot-workspace-panel"\)/);
+  assert.match(settingsRailChrome, /if \(pane && !paneInBotWorkspace\)/);
   assert.match(app, /case "routines"[\s\S]{0,120}botOpenWorkspace\("automations"/);
   assert.match(app, /case "channels"[\s\S]{0,120}botOpenWorkspace\("channels"/);
   assert.doesNotMatch(app, /case "routines"[\s\S]{0,180}setView\("automations"/);
