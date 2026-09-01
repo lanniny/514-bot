@@ -744,25 +744,28 @@ test("Bot messages keep coherent Markdown, visible identities, compact activity 
 });
 
 test("Bot mentions keep structured member identity and Conversation-scoped routing", async () => {
-  const [html, app, css] = await Promise.all([
+  const [html, app, css, module] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
     readFile(`${appRoot}/public/forge/bot-shell.css`, "utf8"),
+    readFile(`${appRoot}/public/modules/bot-mention-menu.js`, "utf8"),
   ]);
   assert.match(html, /id="bot-mention-menu"[^>]+role="listbox"/);
   assert.match(html, /id="bot-mention-recipients"[^>]+aria-live="polite"/);
-  assert.match(app, /function botMentionScope\(conversation = botActiveConversation\(\)\)/);
-  assert.match(app, /function botMentionSelectedIds\(conversation = botActiveConversation\(\)\)/);
-  assert.match(app, /function botMentionShortId\(memberId\)/);
-  assert.match(app, /id\.length > 8 \? id\.slice\(-8\) : id/);
-  assert.match(app, /function botMentionTokenLabel\(memberId, conversation = botActiveConversation\(\)\)/);
-  assert.match(app, /duplicates > 1 \? `\$\{label\}#\$\{botMentionShortId\(id\)\}` : label/);
-  assert.match(app, /data-bot-mention-id/);
-  assert.match(app, /data-bot-mention-remove/);
+  assert.match(app, /import \{ createBotMentionMenu \} from "\.\/modules\/bot-mention-menu\.js"/);
+  assert.match(app, /const botMentionMenu = createBotMentionMenu\(/);
+  assert.match(module, /function botMentionScope\(conversation = botActiveConversation\(\)\)/);
+  assert.match(module, /function botMentionSelectedIds\(conversation = botActiveConversation\(\)\)/);
+  assert.match(module, /function botMentionShortId\(memberId\)/);
+  assert.match(module, /id\.length > 8 \? id\.slice\(-8\) : id/);
+  assert.match(module, /function botMentionTokenLabel\(memberId, conversation = botActiveConversation\(\)\)/);
+  assert.match(module, /duplicates > 1 \? `\$\{label\}#\$\{botMentionShortId\(id\)\}` : label/);
+  assert.match(module, /data-bot-mention-id/);
+  assert.match(module, /data-bot-mention-remove/);
   assert.match(app, /recipientMemberIds: botSubmission\?\.recipientMemberIds/);
   assert.match(app, /recipientMemberIds: botMentionSelectedIds\(conversation\)/);
-  assert.match(app, /botState\.mentionSelections\[botMentionContextKey\(\)\] = \[id\]/);
-  assert.match(app, /removeRequestedAgentMention\(nextValue, botMentionTokenLabel\(previousId\)\)/);
+  assert.match(module, /botState\.mentionSelections\[botMentionContextKey\(\)\] = \[id\]/);
+  assert.match(module, /removeRequestedAgentMention\(nextValue, botMentionTokenLabel\(previousId\)\)/);
   assert.match(app, /event\.key === "Escape"[\s\S]{0,180}botHideMentionMenu\(\)/);
   assert.match(css, /\.bot-mention-menu/);
   assert.match(css, /\.bot-mention-recipient/);
