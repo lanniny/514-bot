@@ -12,11 +12,13 @@ import {
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 
 test("Mission Control dock keeps registry-driven ARIA panels and the legacy live registries", async () => {
-  const [html, moduleSource, serverSource, appSource] = await Promise.all([
+  // UI-AUDIT P0-3：静态路由表已抽到 src/static-assets.mjs（可单测），server.mjs 只负责装配
+  const [html, moduleSource, serverSource, appSource, assetsSource] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/mission-control.js`, "utf8"),
     readFile(`${appRoot}/server.mjs`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/src/static-assets.mjs`, "utf8"),
   ]);
 
   assert.match(html, /id="mission-control-dock"[^>]+aria-label="Mission Control 任务投影"/);
@@ -45,7 +47,7 @@ test("Mission Control dock keeps registry-driven ARIA panels and the legacy live
   assert.match(html, /id="mission-workspace-browser"/);
   assert.match(html, /id="mission-workspace-status"[^>]+role="status"[^>]+aria-live="polite"/);
   assert.match(html, /id="mission-evidence-graph"/);
-  assert.match(serverSource, /"\/mission-control\.js": "mission-control\.js"/);
+  assert.match(assetsSource, /"\/mission-control\.js": "mission-control\.js"/);
   assert.match(serverSource, /inspectRunWorkspace/);
   assert.match(serverSource, /const run = structuredClone\(state\.orchestrator\.get\(runId\)\)/);
   assert.match(serverSource, /auditBusDiagnostics\(run, result\.diagnostics, result\.messages\.length\)/);

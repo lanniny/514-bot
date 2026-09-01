@@ -22,14 +22,14 @@
   opacity: 0;
   visibility: hidden;
   transition:
-    opacity var(--dur-fast, 100ms) var(--ease-out, cubic-bezier(0.4, 0, 0.2, 1)),
-    visibility 0s linear var(--dur-fast, 100ms);
+    opacity var(--dur-fast, var(--dur-instant)) var(--ease-out, cubic-bezier(0.4, 0, 0.2, 1)),
+    visibility 0s linear var(--dur-fast, var(--dur-instant));
 }
 
 .cmd-palette-overlay.is-open {
   opacity: 1;
   visibility: visible;
-  transition: opacity var(--dur-fast, 100ms) var(--ease-out, cubic-bezier(0.4, 0, 0.2, 1));
+  transition: opacity var(--dur-fast, var(--dur-instant)) var(--ease-out, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .cmd-palette {
@@ -38,13 +38,13 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--card, #ffffff);
+  background: var(--card, var(--on-accent));
   border: 1px solid var(--border, oklch(0.9 0 0));
   border-radius: var(--radius-2xl, 18px);
   box-shadow: var(--shadow-xl, 0 24px 64px oklch(0 0 0 / 0.25));
   transform: translateY(8px) scale(0.95);
   transform-origin: top center;
-  transition: transform var(--dur-fast, 100ms) var(--ease-out, cubic-bezier(0.4, 0, 0.2, 1));
+  transition: transform var(--dur-fast, var(--dur-instant)) var(--ease-out, cubic-bezier(0.4, 0, 0.2, 1));
 }
 
 .cmd-palette-overlay.is-open .cmd-palette {
@@ -151,7 +151,7 @@
 
 .cmd-palette-item.is-selected,
 .cmd-palette-item:hover {
-  background: var(--primary-soft, var(--rose-soft, color-mix(in oklab, var(--primary, #d97757) 10%, transparent)));
+  background: var(--primary-soft, var(--rose-soft, color-mix(in oklab, var(--primary, var(--rose)) 10%, transparent)));
 }
 
 .cmd-palette-item:active {
@@ -177,9 +177,9 @@
 }
 
 .cmd-palette-item.is-selected .cmd-palette-item-tile {
-  color: var(--primary, #b4234d);
-  border-color: color-mix(in oklab, var(--primary, #b4234d) 30%, transparent);
-  background: color-mix(in oklab, var(--primary, #b4234d) 8%, transparent);
+  color: var(--primary, var(--rose));
+  border-color: color-mix(in oklab, var(--primary, var(--rose)) 30%, transparent);
+  background: color-mix(in oklab, var(--primary, var(--rose)) 8%, transparent);
 }
 
 .cmd-palette-item-main {
@@ -315,7 +315,7 @@
 
 @keyframes forgeFlashRing {
   0% {
-    box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary, #b4234d) 45%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in oklab, var(--primary, var(--rose)) 45%, transparent);
   }
   100% {
     box-shadow: 0 0 0 14px transparent;
@@ -332,7 +332,7 @@
 .memory-browser {
   display: flex;
   flex-direction: column;
-  background: var(--card, #ffffff);
+  background: var(--card, var(--on-accent));
   border: 1px solid var(--border, oklch(0.9 0 0));
   border-radius: var(--radius-2xl, 18px);
   box-shadow: var(--shadow-sm, 0 1px 2px oklch(0 0 0 / 0.06));
@@ -355,9 +355,9 @@
   height: 32px;
   flex-shrink: 0;
   border-radius: var(--radius-lg, 10px);
-  color: var(--primary, #b4234d);
-  background: color-mix(in oklab, var(--primary, #b4234d) 10%, transparent);
-  border: 1px solid color-mix(in oklab, var(--primary, #b4234d) 24%, transparent);
+  color: var(--primary, var(--rose));
+  background: color-mix(in oklab, var(--primary, var(--rose)) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--primary, var(--rose)) 24%, transparent);
 }
 
 .mb-tile .icon {
@@ -398,8 +398,8 @@
   color: var(--muted-foreground, oklch(0.55 0 0));
   cursor: pointer;
   transition:
-    background var(--dur-fast, 100ms) var(--ease-out, ease),
-    color var(--dur-fast, 100ms) var(--ease-out, ease);
+    background var(--dur-fast, var(--dur-instant)) var(--ease-out, ease),
+    color var(--dur-fast, var(--dur-instant)) var(--ease-out, ease);
 }
 
 .mb-refresh:hover {
@@ -450,8 +450,8 @@
   border-radius: var(--radius-lg, 10px);
   outline: none;
   transition:
-    border-color var(--dur-fast, 100ms) var(--ease-out, ease),
-    box-shadow var(--dur-fast, 100ms) var(--ease-out, ease);
+    border-color var(--dur-fast, var(--dur-instant)) var(--ease-out, ease),
+    box-shadow var(--dur-fast, var(--dur-instant)) var(--ease-out, ease);
 }
 
 .mb-input::placeholder {
@@ -459,8 +459,8 @@
 }
 
 .mb-input:focus {
-  border-color: var(--ring, var(--primary, #b4234d));
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring, var(--primary, #b4234d)) 18%, transparent);
+  border-color: var(--ring, var(--primary, var(--rose)));
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring, var(--primary, var(--rose))) 18%, transparent);
 }
 
 /* 主体 */
@@ -519,7 +519,7 @@
 
 .mb-chevron {
   color: var(--muted-foreground, oklch(0.6 0 0));
-  transition: transform var(--dur-med, 150ms) var(--ease-out, ease);
+  transition: transform var(--dur-med, var(--dur-fast)) var(--ease-out, ease);
 }
 
 .mb-root.is-open > .mb-root-row .mb-chevron,
@@ -712,6 +712,43 @@ button.mb-file-row {
   color: var(--destructive, oklch(0.55 0.2 25));
 }
 
+/* W3.6 记忆编辑（仅 memory:* 根）：textarea 编辑态 + 保存条 */
+.mb-file-viewer-edit {
+  display: block;
+  width: calc(100% - 24px);
+  margin: 10px 12px;
+  padding: 10px;
+  border: 1px solid var(--border, oklch(0.87 0 0));
+  border-radius: 8px;
+  background: var(--background, oklch(0.99 0 0));
+  color: var(--foreground, oklch(0.25 0 0));
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-xs, 11px);
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.mb-file-viewer-editbar {
+  display: flex;
+  gap: 8px;
+  padding: 0 12px 12px;
+}
+
+.mb-file-viewer-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground, oklch(0.6 0 0));
+  cursor: pointer;
+  padding: 2px;
+}
+
+.mb-file-viewer-edit-btn:hover {
+  color: var(--foreground, oklch(0.25 0 0));
+}
+
 /* 搜索结果 */
 
 .mb-result-row {
@@ -822,15 +859,15 @@ button.mb-file-row {
   padding: 4px 14px;
   font-size: var(--text-xs, 11px);
   font-weight: 500;
-  color: var(--primary, #b4234d);
-  background: color-mix(in oklab, var(--primary, #b4234d) 8%, transparent);
-  border: 1px solid color-mix(in oklab, var(--primary, #b4234d) 28%, transparent);
+  color: var(--primary, var(--rose));
+  background: color-mix(in oklab, var(--primary, var(--rose)) 8%, transparent);
+  border: 1px solid color-mix(in oklab, var(--primary, var(--rose)) 28%, transparent);
   border-radius: var(--radius-md, 8px);
   cursor: pointer;
 }
 
 .mb-retry:hover {
-  background: color-mix(in oklab, var(--primary, #b4234d) 14%, transparent);
+  background: color-mix(in oklab, var(--primary, var(--rose)) 14%, transparent);
 }
 
 .mb-retry:active {

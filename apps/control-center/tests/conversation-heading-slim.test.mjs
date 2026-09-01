@@ -17,7 +17,10 @@ function assertIncludes(source, snippet, message) {
 
 test("title glyph is a class-only span before h2 (no id → no elements registry entry)", async () => {
   const html = await source("public/index.html");
-  assertIncludes(html, '<span class="conversation-title-glyph" aria-hidden="true"><svg class="icon lucide"><use href="#lucide-messages-square"></use></svg></span>\n                  <h2 id="conversation-title">');
+  assert.match(
+    html,
+    /<span class="conversation-title-glyph" aria-hidden="true"><svg[^>]*class="icon lucide"[^>]*><use href="#lucide-messages-square"><\/use><\/svg><\/span>\s*<h2 id="conversation-title">/,
+  );
   const app = await source("public/app.js");
   assert.ok(!app.includes('"conversation-title-glyph"'), "glyph 不得进 elements 清单（无 id 元素）");
 });

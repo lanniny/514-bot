@@ -92,7 +92,9 @@ test("configuration topology fuses providers, capabilities and sources into one 
   assert.match(seatManagerSource, /capabilities:\s*\["\*"\]/);
   assert.doesNotMatch(seatManagerSource, /capabilityEnvelope|runtime-seat-capabilities-wall"\)\.querySelectorAll/);
   assert.match(html, /id="config-topology-providers"[^>]+hidden/);
-  assert.match(appSource, /id="provider-unlocked-empty"|选一个走连接档案的席位后/);
+  // UI-AUDIT P0-6：散写灰字已换成规范空态（单一真源 modules/placeholders.js），id 保留以稳住 e2e 选择器
+  assert.match(appSource, /renderPlaceholder\(columns, emptyState\(\{/);
+  assert.match(appSource, /id: "provider-unlocked-empty"/);
   assert.match(seatManagerSource, /function connectionApp\(/);
   assert.match(html, /id="runtime-connection-deck"/);
   assert.match(stateSource, /configSurface:\s*"sources"/);

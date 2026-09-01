@@ -94,7 +94,7 @@
   gap: 6px;
   margin: 0;
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 #config-surface-hooks .hooks-group {
@@ -107,13 +107,13 @@
   align-items: baseline;
   gap: 8px;
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 #config-surface-hooks .hooks-group h3 em {
   font-style: normal;
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 #config-surface-hooks .hooks-card {
@@ -136,7 +136,7 @@
   height: 36px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--primary) 12%, transparent);
-  color: var(--primary);
+  color: var(--accent-ink);
   flex: 0 0 auto;
 }
 
@@ -156,7 +156,7 @@
   border-radius: 999px;
   background: var(--muted, var(--surface-muted));
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 #config-surface-hooks .hooks-tag.is-warn {
@@ -169,7 +169,7 @@
   overflow: hidden;
   color: var(--foreground, var(--text));
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -223,7 +223,7 @@
 
 #config-surface-hooks .hooks-form-bar-copy h3 {
   margin: 2px 0 4px;
-  font-size: 16px;
+  font-size: var(--text-lg);
   font-weight: 650;
 }
 
@@ -256,7 +256,7 @@
 #config-surface-hooks .hooks-form-section h4 {
   margin: 0;
   color: var(--foreground, var(--text));
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 650;
 }
 
@@ -293,7 +293,7 @@
   min-height: 112px;
   resize: vertical;
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 #config-surface-hooks .hooks-form .field > small,
@@ -360,7 +360,7 @@
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--card);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 #config-surface-hooks .hooks-store-chip em {
@@ -392,7 +392,7 @@
 #config-surface-hooks .hooks-store-path {
   margin: 0;
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 12px;
+  font-size: var(--text-xs);
   word-break: break-all;
 }
 
@@ -403,7 +403,7 @@
 #config-surface-hooks .hooks-readonly-note {
   margin: 0;
   color: var(--warning, #c4a35a);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 #config-surface-remote .config-remote-hooks {

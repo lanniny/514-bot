@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+// UI-AUDIT P0-6：app.js 里被本测试 eval 的段落现在会调用占位组件（骨架屏/空态），
+// evaluateSection 用 new Function 求值，不会继承模块 import，必须显式注入。
+import { skeleton } from "../public/modules/placeholders.js";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 // 归一化行尾：Windows 工作区 checkout 后 app.js 是 CRLF，而 sourceSection 的 marker 用 LF；
@@ -217,6 +220,7 @@ function configSyncDialogHarness({
       loadConfigRemoteRecoveries: loadRecoveries,
       configRemoteResult: result,
       escapeHtml: (value) => String(value),
+      skeleton,
       toast,
     },
   ).openConfigSyncDialog;

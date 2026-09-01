@@ -151,9 +151,9 @@ test("environment routes are authenticated API branches and Git execution is arg
   assert.match(server, /pathname === "\/api\/workbench\/git\/plan"/);
   assert.match(server, /pathname === "\/api\/workbench\/git\/execute"/);
   assert.match(server, /\/api\\\/runs\\\/\(\[\^\/\]\+\)\\\/sources\$\//);
-  assert.match(server, /"\/environment-panel\.js": "environment-panel\.js"/);
+  assert.match(await source("src/static-assets.mjs"), /"\/environment-panel\.js": "environment-panel\.js"/);
   // 根级 ESM 漏进白名单会 404 并让整页脚本停载（codex 2026-08-07 实测），每新增一个都必须锁住
-  assert.match(server, /"\/rail-tools\.js": "rail-tools\.js"/);
+  assert.match(await source("src/static-assets.mjs"), /"\/rail-tools\.js": "rail-tools\.js"/);
   assert.match(server, /runForPublic\(await state\.automations\.trigger/);
   assert.match(server, /runForPublic\(await state\.automations\.cancel/);
   assert.match(backend, /gitArgs\(plan\.cwd, \["commit", "-m", plan\.message\]\)/);

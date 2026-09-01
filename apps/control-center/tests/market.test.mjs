@@ -352,3 +352,28 @@ test("market: 仓库添加/扫描/目录，skillPath 能从多 skill zip 里取�
   const staged = await service.skillsStage({ url: `https://local.fixture/${zipPath}`, skillPath: "skills/pdf" });
   assert.equal(staged.review.name, "pdf");
 });
+
+test("W3.12 team template library: stage → install → templates → pack", async (t) => {
+  const { service } = await fixture(t);
+  const pack = {
+    format: "514cc-team-pack",
+    version: 1,
+    exportedAt: "2026-08-30T00:00:00.000Z",
+    team: { name: "示例小队", description: "W3.12 测试包", members: [], skills: [], mcp: [], providers: {}, systemPrompt: "", coordinator: "" },
+    members: { custom: [], builtinRefs: ["claude-fable", "codex-technical"] },
+  };
+  const staged = await service.teamStage({ pack });
+  assert.ok(staged.stageId);
+  await assert.rejects(() => service.teamInstall({ stageId: staged.stageId }), { code: "MARKET_NOT_CONFIRMED" });
+  const installed = await service.teamInstall({ stageId: staged.stageId, confirmed: true });
+  assert.equal(installed.name, "示例小队");
+
+  const templates = await service.teamTemplates();
+  assert.equal(templates.templates.length, 1);
+  assert.equal(templates.templates[0].memberCount, 2);
+  const fetched = await service.teamPack({ id: "示例小队" });
+  assert.equal(fetched.pack.format, "514cc-team-pack");
+
+  await assert.rejects(() => service.teamStage({ pack: { format: "x" } }), { code: "MARKET_TEAM_PACK_INVALID" });
+  await assert.rejects(() => service.teamPack({ id: "不存在" }), { code: "MARKET_TEAM_NOT_FOUND" });
+});

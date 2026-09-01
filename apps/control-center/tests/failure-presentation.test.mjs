@@ -14,7 +14,7 @@ test("Cloudflare 524 becomes a bounded user summary with the original detail ret
     kind: "origin-timeout",
     status: 524,
     title: "上游响应超时",
-    summary: "服务已建立连接，但未在代理等待窗口内返回完整响应。提交状态仍不明确，系统已阻止自动重放。",
+    summary: "服务已建立连接，但未在代理等待窗口内返回完整响应。请查看当前运行状态后再决定是否继续。",
     detail: CLOUDFLARE_524,
   });
   assert.ok(!result.summary.includes("developers.cloudflare.com"));

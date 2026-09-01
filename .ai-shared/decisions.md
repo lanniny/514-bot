@@ -4758,3 +4758,16 @@ __DELTA__: 独立只读探子 | 2 | 证据：`apps/control-center/public/styles.
 - 边界：push、decisions 分卷、P0 token 轮换均待 LO；qa:delivery --strict 与 npm test 全量在本轮波次收尾执行。
 
 __DELTA__: 烛(Verdent) | 1 | 证据：scripts/archive-handoff.mjs:42 以文件名日期替代被污染 mtime，修复了归档脚本首版 planned=0 的静默失效。
+
+#### 本轮波次（W2 收尾 + W3 能力拓展，2026-08-30 烛/ZCode）
+
+- **W2.5 三导航合一**：nav-config.js 单一真源生成侧栏/topbar/mobile 三表面（统一 12 视图超集），index.html 只留挂载点。
+- **W2.8 回放 scrubber**：run-replay-scrubber.js 消费悬空的 /replay 端点，拖拽回看事件流。
+- **W3.4 at: 定时**：automations 支持 `at:HH:mm[@周几]`，水位线语义防双发；W3.10 worktree 台账（worktrees.jsonl + 观测视图清理入口）；W3.11 用户宏（macros.json + 原生命令兜底 + palette 出项）。
+- **W3 新能力后端**：guardrails 测试器 / weekly-report / run-compare(+shadow pair) / monthly-budget / secret-sweep / memory 写入 / adapter SDK 契约校验，各带独立测试文件。
+- **真源收口**：版本 4.0.0 五文件补齐（AGENTS/CLAUDE/README/plugin.json/rules.md 标题）；module.yaml 清除 web-intel 幽灵；lucide sprite 补 pause。
+- **既有测试债修复**：预算下限 0.05 合同对齐（orchestrator/conversations-http）、steer id 契约、524 文案、socialOptIn 结构断言、qa 白名单契约。
+
+__DELTA__: 烛(Claude) | 1 | 证据：src/monthly-budget.mjs:33 null 成本误计为 0 的边界（Number(null)=0），summarizeMonthlySpend 修正为跳过无成本 run
+__DELTA__: 烛(Claude) | 1 | 证据：tests/social-orchestration.test.mjs:344 手动入队 steer 缺 id 与 queueSteer 契约错位（activeSteer.steerId 变 "undefined"），修复暴露 injectNextSteer ack 水位线校验的真实约束
+__DELTA__: 烛(Claude) | 1 | 证据：src/guardrails.mjs globToRegExp 尾缀 /** 不匹配目录本身的 glob 语义缺口，修正为目录与其下内容一体拒绝

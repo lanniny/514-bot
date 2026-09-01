@@ -201,7 +201,8 @@ test("conversation HTTP API persists direct and workspace identities with CAS", 
   assert.equal(continuedRun.buildApproval, null);
   assert.equal(continuedRun.remote, null);
   assert.equal(continuedRun.contextInheritedFromRunId, null);
-  assert.ok(continuedRun.maxBudgetUsdPerTurn < 2);
+  // 预算合同（LO 2026-08-30）：硬上限门槛已废，客户端显式给出的 maxBudgetUsdPerTurn 按实接受
+  assert.equal(continuedRun.maxBudgetUsdPerTurn, 2);
 
   const sameProjectDuplicate = await request(`/api/conversations/${group.id}/duplicate`, {
     method: "POST",

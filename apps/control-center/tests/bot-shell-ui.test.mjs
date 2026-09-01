@@ -15,14 +15,15 @@ test("514 Bot starts on the restored 514cc workbench while the Bot conversation 
     readFile(`${appRoot}/public/forge/art-direction.css`, "utf8"),
   ]);
   assert.match(html, /id="view-bot"[^>]+data-view-panel="bot"/);
-  assert.match(html, /data-view="bot"/);
-  assert.match(html, /data-view="workbench"/);
   assert.match(html, /id="bot-surface-tabs"[^>]+role="tablist"/);
   assert.match(html, /data-bot-surface-tab="chats"/);
   assert.match(html, /data-bot-surface-tab="contacts"/);
   assert.match(html, /id="bot-contact-list"[^>]+role="list"/);
-  assert.match(html, /class="topnav-item is-active"[^>]+data-view="workbench"[^>]+aria-current="page"/);
-  assert.match(html, /class="mobile-nav-item is-active"[^>]+data-view="workbench"[^>]+aria-current="page"/);
+  // W2.5 三套导航由 nav-config.js 单一真源生成；index.html 只保留挂载点
+  assert.match(html, /data-nav-surface="primary"/);
+  assert.match(html, /data-nav-surface="topbar"/);
+  assert.match(html, /data-nav-surface="mobile"/);
+  assert.match(app, /renderNavigation\(\)/);
   assert.match(html, /id="view-workbench"[^>]+data-view-panel="workbench"[^>]+aria-labelledby="workbench-title"/);
   assert.doesNotMatch(html, /id="view-workbench"[^>]+hidden/);
   assert.match(html, /id="view-bot"[^>]+hidden/);
@@ -36,10 +37,14 @@ test("514 Bot starts on the restored 514cc workbench while the Bot conversation 
   assert.match(css, /html\.is-bot-surface \.main-content[\s\S]*padding: 8px 10px 9px !important[\s\S]*overflow: hidden/);
   assert.match(state, /bot: "514 Bot"/);
   assert.match(app, /const view = routeView \|\| "workbench"/);
-  assert.match(app, /setView\(FORGE_VIEW_TITLES\[initialRoute\.view\] \? initialRoute\.view : "workbench"/);
+  assert.match(app, /setView\(initialView/);
   assert.match(app, /function initBotShell\(/);
   assert.match(app, /if \(view === "bot"\) initBotShell\(\)/);
-  assert.match(palette, /bot: "messages-square"/);
+  // UI-AUDIT P0-5：命令面板图标改由导航单一真源派生（此前双写一份图标表，
+  // 导航换图标时面板仍显示旧的）。锁住"派生关系"，而不是锁死某个字面量。
+  assert.match(palette, /import \{ NAV_ITEMS \} from "\.\/modules\/nav-config\.js"/);
+  assert.match(palette, /\.\.\.Object\.fromEntries\(Object\.entries\(NAV_ITEMS\)/);
+  assert.match(await readFile(`${appRoot}/public/modules/nav-config.js`, "utf8"), /bot: \{ icon: "messages-square"/);
   assert.match(css, /\.bot-shell-grid/);
   assert.doesNotMatch(artDirection, /html\.is-bot-surface \.topbar[\s\S]{0,220}display: none !important/);
   assert.match(artDirection, /Bot 重新嵌入 514cc 单界面控制台/);
@@ -865,6 +870,8 @@ test("Bot conversation bootstrap waits for the access token before querying the 
   const tokenReady = app.indexOf("await initializeAccessToken();");
   const conversationLoad = app.indexOf("await botLoadConversations();", tokenReady);
   assert.ok(tokenReady >= 0 && conversationLoad > tokenReady, "对话索引不能早于认证态加载");
+  assert.match(app, /const initialConversationRoute = Boolean\(state\.deepLinkConversationId\)/);
+  assert.match(app, /const initialView = initialConversationRoute[\s\S]{0,160}\? "bot"[\s\S]{0,180}setView\(initialView/);
 });
 
 test("Bot conversation navigation exposes stable IDs, deep links, and server-backed historical runs", async () => {

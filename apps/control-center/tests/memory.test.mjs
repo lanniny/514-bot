@@ -100,3 +100,42 @@ test("memory read serves enumerated files only (root+name and rel path), never r
   await assert.rejects(() => service.read({ path: "../../package.json" }), { code: "MEMORY_FILE_NOT_FOUND" });
   await assert.rejects(() => service.read({ root: "nope", name: "x.md" }), { code: "MEMORY_FILE_NOT_FOUND" });
 });
+
+test("W3.6 memory write updates memory:* files and refuses governance roots", async (t) => {
+  const { root: repoRoot, aiShared } = await seedRepo(t);
+  t.after(() => rm(repoRoot, { recursive: true, force: true }));
+  const service = new MemoryService({ repoRoot, aiSharedRoot: aiShared });
+
+  const roots = await service.roots();
+  const memoryRoot = roots.roots.find((root) => root.name.startsWith("memory:"));
+  assert.ok(memoryRoot, "fixture must expose a MEMORY.md root");
+  const file = memoryRoot.files[0];
+
+  const written = await service.write({
+    root: memoryRoot.name,
+    name: file.name,
+    content: "# MEMORY\n\n- LO 偏好：简体中文回复\n",
+  });
+  assert.ok(written.mtime);
+  const reread = await service.read({ root: memoryRoot.name, name: file.name });
+  assert.match(reread.content, /LO 偏好/);
+
+  // 治理账本拒绝写入
+  const sharedRoot = roots.roots.find((root) => root.name === "ai-shared");
+  if (sharedRoot?.files?.length) {
+    await assert.rejects(
+      () => service.write({ root: "ai-shared", name: sharedRoot.files[0].name, content: "tamper" }),
+      { code: "MEMORY_ROOT_READ_ONLY" },
+    );
+  }
+  // 乐观锁：mtime 不符拒绝
+  await assert.rejects(
+    () => service.write({ root: memoryRoot.name, name: file.name, content: "x", expectedMtime: "2000-01-01T00:00:00.000Z" }),
+    { code: "MEMORY_WRITE_CONFLICT" },
+  );
+  // 超限拒绝
+  await assert.rejects(
+    () => service.write({ root: memoryRoot.name, name: file.name, content: "a".repeat(600 * 1024) }),
+    { code: "MEMORY_FILE_TOO_LARGE" },
+  );
+});

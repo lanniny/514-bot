@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { createStaticServer } from "./src/static-assets.mjs";
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { chmod, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -59,6 +60,12 @@ import {
 import { claimPendingClipboardUpload } from "./src/clipboard-lifecycle.mjs";
 import { SearchService } from "./src/search.mjs";
 import { MemoryService } from "./src/memory.mjs";
+import { createGuardrailsService } from "./src/guardrails.mjs";
+import { createWeeklyReportService } from "./src/weekly-report.mjs";
+import { createMonthlyBudgetService } from "./src/monthly-budget.mjs";
+import { createSecretSweepService } from "./src/secret-sweep.mjs";
+import { compareRuns, renderCompareMarkdown } from "./src/run-compare.mjs";
+import { renderDiffMarkdown } from "./src/run-diff.mjs";
 import { scaffoldProject, scaffoldRemoteProject } from "./src/bootstrap.mjs";
 import { createAvatarStore, MAX_AVATAR_REQUEST_BYTES, MAX_TEAM_BACKGROUND_REQUEST_BYTES } from "./src/avatars.mjs";
 import { registerChannelsRoutes } from "./src/channels/routes.mjs";
@@ -121,6 +128,10 @@ function maskSensitivePreview(value) {
   return result;
 }
 const token = process.env.CONTROL_CENTER_TOKEN || randomBytes(32).toString("base64url");
+// W3.15 只读观察者模式：设置 CONTROL_CENTER_OBSERVER_TOKEN 后，第二设备/移动端可用该
+// token 建立只读看板——观察者 token 可过 /api 鉴权门，但仅限幂等方法（GET/HEAD），
+// 任何写操作一律 403 OBSERVER_READ_ONLY。未设置该环境变量时观察者通道完全不存在。
+const observerToken = process.env.CONTROL_CENTER_OBSERVER_TOKEN || null;
 const bootstrapNonce = randomBytes(32).toString("base64url");
 const bootstrapExpiresAt = Date.now() + 2 * 60_000;
 let bootstrapConsumed = false;
@@ -809,6 +820,25 @@ state.collectPulse = collectPulse; // AutomationStore 注入 prompt 用（app �
 const aiSharedRoot = join(state.repoRoot, ".ai-shared");
 const searchService = new SearchService({ repoRoot: state.repoRoot, aiSharedRoot, sessions: state.sessions });
 const memoryService = new MemoryService({ repoRoot: state.repoRoot, aiSharedRoot });
+// W3.7 Guardrails 测试器：deny-paths 只读加载 + 路径命中预览（每请求重读文件，改完即生效）
+const guardrailsService = createGuardrailsService({ repoRoot: state.repoRoot });
+// W3.18 周报生成器：handoff/DELTA/run 聚合快照（runs 经惰性取用，orchestrator 后于本行初始化）
+const weeklyReportService = createWeeklyReportService({
+  aiSharedRoot,
+  listRuns: () => (typeof state.orchestrator?.list === "function" ? state.orchestrator.list() : []),
+});
+// W3.1 月度预算告警：成本报表面已有，补预算设定与 warn/exceeded 观测状态
+const monthlyBudgetService = createMonthlyBudgetService({
+  dataRoot: state.dataRoot,
+  listRuns: () => (typeof state.orchestrator?.list === "function" ? state.orchestrator.list() : []),
+});
+// W3.8 安全巡检：启动后台扫一次 + 手动触发（报告只含规则名，不回传密钥内容）
+const secretSweepService = createSecretSweepService({
+  dataRoot: state.dataRoot,
+  aiSharedRoot,
+  eventStore: state.eventStore ?? null,
+});
+void secretSweepService.sweep().catch(() => {});
 
 const securityHeaders = {
   // media-src 需要 blob:：团队背景视频经 requestBlob → URL.createObjectURL 喂给 <video>，
@@ -989,7 +1019,13 @@ async function rawBody(request, maxBytes = 6 * 1024 * 1024) {
 
 function authorized(request) {
   // 常数时间比较，与 bootstrap nonce 的 secretEquals 同基线
-  return secretEquals(request.headers.authorization, `Bearer ${token}`);
+  if (observerToken && secretEquals(request.headers.authorization, `Bearer ${observerToken}`)) {
+    return { observer: true };
+  }
+  if (secretEquals(request.headers.authorization, `Bearer ${token}`)) {
+    return { observer: false };
+  }
+  return null;
 }
 
 function secretEquals(left, right) {
@@ -1051,7 +1087,7 @@ function statusFor(error) {
   if (["SOURCE_NOT_FOUND", "RUN_NOT_FOUND", "PROJECT_NOT_FOUND", "CONVERSATION_NOT_FOUND", "VERSION_NOT_FOUND", "APPROVAL_NOT_FOUND", "LEASE_NOT_FOUND", "AUTOMATION_NOT_FOUND", "RUNTIME_SEAT_NOT_FOUND", "REMOTE_HOST_NOT_FOUND", "BACKUP_NOT_FOUND", "MODEL_FETCH_NOT_FOUND", "AVATAR_NOT_FOUND", "BACKGROUND_NOT_FOUND", "SSH_NOT_FOUND"].includes(error.code)) return 404;
   if (["STALE_BASE", "RUN_ACTIVE", "RUN_TERMINAL", "RUN_INTERRUPTING", "TURN_ACTIVE", "CONTROL_TRANSITION_FORBIDDEN", "APPROVAL_HASH_MISMATCH", "APPROVAL_IN_PROGRESS", "PLAN_REQUIRED", "PLAN_MISMATCH", "PLAN_EXPIRED", "PLAN_STALE", "APPROVAL_REQUIRED", "RECOVERY_REQUIRED", "RUNTIME_BUSY", "AGENT_ACTION_BUSY", "AUTOMATION_BUSY", "AUTOMATION_RECOVERY_REQUIRED", "PREFS_REVISION_MISMATCH", "PROJECT_REVISION_MISMATCH", "PROJECT_ID_CONFLICT", "PROJECT_DEFAULT_CONVERSATION_CONFLICT", "PROJECT_ARCHIVED", "CONVERSATION_REVISION_MISMATCH", "CONVERSATION_STORE_REVISION_MISMATCH", "WORKSPACE_CONVERSATION_CONFLICT", "RUN_CONVERSATION_CONFLICT", "CONVERSATION_DELETED", "CONVERSATION_MEMBERS_CHANGED", "MCP_RESTORE_CONFLICT", "MCP_QUARANTINE_CONFLICT", "MCP_SOURCE_CONFLICT", "SKILL_EXISTS", "TEAM_CATALOG_CONFLICT", "MEMBER_IN_USE", "MEMBER_RUNTIME_CONFLICT", "RUNTIME_SEAT_EXISTS", "RUNTIME_SEAT_IN_USE", "PROVIDER_IN_USE", "PROVIDER_RESERVED_NAME", "ASK_NOT_PENDING", "ASK_MISMATCH", "ASK_OWNER_MISMATCH", "ANSWER_IN_PROGRESS", "DUPLICATE_MESSAGE", "GIT_ACTION_FAILED", "REMOTE_HOST_DISABLED", "BACKUP_TARGET_CHANGED", "CODEX_MODEL_CATALOG_CONFLICT", "SSH_HOST_DISABLED", "OFFICE_FILE_EXISTS", "WORKSPACE_VERSION_CONFLICT"].includes(error.code)) return 409;
   if (["CONFIRMATION_REQUIRED", "DEPLOYMENT_REQUIRED", "READ_ONLY_SOURCE", "FROZEN_BLOCK", "SFTP_PATH_BOUNDARY", "SFTP_BAD_PATH"].includes(error.code)) return 403;
-  if (["VALIDATION_FAILED", "CLI_HANDOFF_UNSUPPORTED", "PROVIDER_CREDENTIAL_SCOPE_MISMATCH", "CODEX_MODEL_CATALOG_REQUIRED", "MODEL_FETCH_URL_INVALID", "MODEL_FETCH_HTTPS_REQUIRED", "MODEL_FETCH_INVALID_RESPONSE", "RUNTIME_GRAPH_INVALID", "ADAPTER_MANIFEST_INVALID", "RUNTIME_CATALOG_INVALID", "RUNTIME_PROFILE_NOT_FOUND", "RUNTIME_PROFILE_INELIGIBLE", "AGENT_ACTION_UNSUPPORTED", "PATH_BOUNDARY", "INVALID_PROMPT", "INVALID_JSON", "INVALID_DECISION", "INVALID_CWD", "INVALID_MODEL", "INVALID_EFFORT", "INVALID_IMAGE_DATA", "IMAGE_TYPE_MISMATCH", "UNSUPPORTED_IMAGE_TYPE", "CLIPBOARD_CLAIM_INVALID", "NOT_TEAM_MEMBER", "PROVIDER_NOT_FOUND", "PROVIDER_UNAVAILABLE", "NO_ROUTE", "NO_INDEPENDENT_ROUTE", "ROUND_LIMIT", "INTERACTION_STEP_LIMIT", "INTERACTION_INVALID", "INSUFFICIENT_ROUNDS", "SENSITIVE_PROMPT", "UNSUPPORTED_APPROVAL", "UNSUPPORTED_PERMISSION", "POLICY_VIOLATION", "ADAPTER_UNAVAILABLE", "GIT_STATE_UNAVAILABLE", "NOTHING_STAGED", "NOTHING_TO_PUSH", "NO_UPSTREAM", "MULTIPLE_PUSH_TARGETS", "PUSH_URL_REWRITE", "DETACHED_HEAD", "WORKTREE_NOT_READY", "WORKTREE_INVALID", "INVALID_REMOTE", "INVALID_REMOTE_PATH", "REMOTE_ADAPTER_UNSUPPORTED", "BACKUP_NAME_INVALID", "BACKUP_TARGET_UNRESOLVED"].includes(error.code)) return 422;
+  if (["VALIDATION_FAILED", "CLI_HANDOFF_UNSUPPORTED", "PROVIDER_CREDENTIAL_SCOPE_MISMATCH", "CODEX_MODEL_CATALOG_REQUIRED", "MODEL_FETCH_URL_INVALID", "MODEL_FETCH_HTTPS_REQUIRED", "MODEL_FETCH_INVALID_RESPONSE", "RUNTIME_GRAPH_INVALID", "ADAPTER_MANIFEST_INVALID", "RUNTIME_CATALOG_INVALID", "RUNTIME_PROFILE_NOT_FOUND", "RUNTIME_PROFILE_INELIGIBLE", "AGENT_ACTION_UNSUPPORTED", "PATH_BOUNDARY", "INVALID_PROMPT", "INVALID_JSON", "INVALID_DECISION", "INVALID_CWD", "INVALID_MODEL", "INVALID_EFFORT", "INVALID_IMAGE_DATA", "IMAGE_TYPE_MISMATCH", "UNSUPPORTED_IMAGE_TYPE", "CLIPBOARD_CLAIM_INVALID", "NOT_TEAM_MEMBER", "PROVIDER_NOT_FOUND", "PROVIDER_UNAVAILABLE", "NO_ROUTE", "NO_INDEPENDENT_ROUTE", "ROUND_LIMIT", "INTERACTION_STEP_LIMIT", "INTERACTION_INVALID", "INSUFFICIENT_ROUNDS", "SENSITIVE_PROMPT", "UNSUPPORTED_APPROVAL", "UNSUPPORTED_PERMISSION", "POLICY_VIOLATION", "ADAPTER_UNAVAILABLE", "GIT_STATE_UNAVAILABLE", "NOTHING_STAGED", "NOTHING_TO_PUSH", "NO_UPSTREAM", "MULTIPLE_PUSH_TARGETS", "PUSH_URL_REWRITE", "DETACHED_HEAD", "WORKTREE_NOT_READY", "WORKTREE_INVALID", "INVALID_REMOTE", "INVALID_REMOTE_PATH", "REMOTE_ADAPTER_UNSUPPORTED", "BACKUP_NAME_INVALID", "BACKUP_TARGET_UNRESOLVED", "SOCIAL_UNLIMITED_BUDGET_REJECTED"].includes(error.code)) return 422;
   if (["BODY_TOO_LARGE", "IMAGE_TOO_LARGE", "MODEL_FETCH_RESPONSE_TOO_LARGE"].includes(error.code)) return 413;
   if (["EVENT_TOO_LARGE", "EVENT_HISTORY_TOO_LARGE"].includes(error.code)) return 413;
   if (error.code === "CLIPBOARD_STORAGE_QUOTA_EXCEEDED") return 507;
@@ -1134,80 +1170,10 @@ function selectRunHistoryRepresentation(header) {
   return "json"; // Equal wildcards retain the backward-compatible JSON default.
 }
 
-const PUBLIC_ASSET_PREFIXES = ["/forge/", "/modules/", "/vendor/"];
-const PUBLIC_ASSET_EXTS = new Set([".css", ".js", ".mjs", ".svg", ".json"]);
-function resolvePublicAsset(pathname) {
-  if (!PUBLIC_ASSET_PREFIXES.some((prefix) => pathname.startsWith(prefix))) return null;
-  const segments = pathname.split("/").filter(Boolean);
-  if (segments.length < 2) return null;
-  if (segments.some((segment) => segment === ".." || segment.includes("\\") || segment.includes("\0"))) return null;
-  if (!PUBLIC_ASSET_EXTS.has(extname(segments.at(-1) || ""))) return null;
-  const resolved = resolve(publicRoot, ...segments);
-  if (resolved !== publicRoot && !resolved.startsWith(`${publicRoot}${sep}`)) return null;
-  return segments.join("/");
-}
+// UI-AUDIT P0-3：静态资源服务（brotli/gzip 压缩 + ETag 条件请求 + 路径白名单）
+// 已抽出为可单测模块 src/static-assets.mjs，见 tests/static-assets.test.mjs
+const { serveStatic } = createStaticServer({ publicRoot, securityHeaders });
 
-async function serveStatic(pathname, response) {
-  if (pathname === "/favicon.ico") {
-    response.writeHead(204, { ...securityHeaders, "cache-control": "public, max-age=86400" });
-    response.end();
-    return true;
-  }
-
-  const paths = {
-    "/": "index.html",
-    "/index.html": "index.html",
-    "/app.js": "app.js",
-    "/mission-control.js": "mission-control.js",
-    "/environment-panel.js": "environment-panel.js",
-    "/rail-tools.js": "rail-tools.js",
-    "/path-key.js": "path-key.js",
-    "/markdown.js": "markdown.js",
-    "/theme.js": "theme.js",
-    "/styles.css": "styles.css",
-    "/atelier.css": "atelier.css",
-    "/atelier-canvas.js": "atelier-canvas.js",
-    "/lucide.js": "lucide.js",
-    "/lucide-sprite.svg": "lucide-sprite.svg",
-    "/modules/stream-epoch.js": "modules/stream-epoch.js",
-    "/modules/welcome-tips.js": "modules/welcome-tips.js",
-    "/modules/resume-hints.js": "modules/resume-hints.js",
-    "/modules/agent-roles.js": "modules/agent-roles.js",
-    "/rich-render.js": "rich-render.js",
-    "/command-palette.js": "command-palette.js",
-    "/team-panel.js": "team-panel.js",
-    "/channels-panel.js": "channels-panel.js",
-    "/office-panel.js": "office-panel.js",
-    "/terminal-panel.js": "terminal-panel.js",
-    "/market-panel.js": "market-panel.js",
-    "/hosts-panel.js": "hosts-panel.js",
-    "/splitter.js": "splitter.js",
-    "/workbench-chrome.js": "workbench-chrome.js",
-    "/hero-starmap.js": "hero-starmap.js",
-    "/delta-timeline.js": "delta-timeline.js",
-    "/project-bootstrapper.js": "project-bootstrapper.js",
-    "/collab-flow.js": "collab-flow.js",
-    "/memory-browser.js": "memory-browser.js",
-    "/utils.js": "utils.js",
-    "/api.js": "api.js",
-    "/state.js": "state.js",
-  };
-  // v4.0 Forge：子目录资产（/forge/*、/modules/*）按段校验放行，拒绝逃逸与未知扩展
-  const file = paths[pathname] ?? resolvePublicAsset(pathname);
-  if (!file) return false;
-  const content = await readFile(join(publicRoot, file));
-  const ext = extname(file);
-  const type = ext === ".js" || ext === ".mjs"
-    ? "text/javascript; charset=utf-8"
-    : ext === ".css"
-      ? "text/css; charset=utf-8"
-      : ext === ".svg"
-        ? "image/svg+xml; charset=utf-8"
-        : "text/html; charset=utf-8";
-  response.writeHead(200, { ...securityHeaders, "content-type": type, "cache-control": "no-store" });
-  response.end(content);
-  return true;
-}
 
 async function api(request, response, url) {
   const { pathname } = url;
@@ -1550,6 +1516,54 @@ async function api(request, response, url) {
       name: url.searchParams.get("name") ?? "",
       path: url.searchParams.get("path") ?? "",
     }));
+  }
+  // W3.7 Guardrails 测试器：规则清单（只读）+ 路径命中预览（改权限/动文件前自测）
+  if (request.method === "GET" && pathname === "/api/guardrails/rules") {
+    return json(response, 200, await guardrailsService.rules());
+  }
+  // W3.6 记忆编辑：只允许 memory:* 根（MEMORY.md/auto-memory）；账本与 handoff 只读
+  if (request.method === "PUT" && pathname === "/api/memory/file") {
+    const payload = await body(request);
+    return json(response, 200, await memoryService.write({
+      root: payload?.root ?? "",
+      name: payload?.name ?? "",
+      path: payload?.path ?? "",
+      content: payload?.content ?? "",
+      expectedMtime: payload?.expectedMtime ?? null,
+    }));
+  }
+  if (request.method === "POST" && pathname === "/api/guardrails/test") {
+    const payload = await body(request);
+    return json(response, 200, await guardrailsService.testPath(payload?.path ?? ""));
+  }
+  // W3.18 周报生成器：近 7 天 handoff/DELTA/run 聚合快照（只读，不落文件）
+  if (request.method === "GET" && pathname === "/api/reports/weekly") {
+    return json(response, 200, await weeklyReportService.report());
+  }
+  // W3.1 月度预算：GET 状态 / PUT 设定（warn ≥80%，exceeded ≥100%；只告警不拦 run）
+  if (pathname === "/api/budget/monthly") {
+    if (request.method === "GET") return json(response, 200, await monthlyBudgetService.status());
+    if (request.method === "PUT") return json(response, 200, await monthlyBudgetService.setBudget(await body(request)));
+  }
+  // W3.8 安全巡检：POST 手动触发；GET 最近一次报告（无则 404 语义由 null 表达）
+  if (request.method === "POST" && pathname === "/api/security/sweep") {
+    return json(response, 200, await secretSweepService.sweep());
+  }
+  if (request.method === "GET" && pathname === "/api/security/sweep") {
+    return json(response, 200, { report: await secretSweepService.latest() });
+  }
+  // W3.11 用户宏 CRUD（数据源 dataRoot/macros.json；expand 在 orchestrator 原生命令 fail-closed 前兜底）
+  if (pathname === "/api/macros") {
+    const macroStore = state.orchestrator.macroStore;
+    if (!macroStore) throw Object.assign(new Error("macro store unavailable"), { code: "MACRO_STORE_UNAVAILABLE" });
+    if (request.method === "GET") return json(response, 200, { macros: await macroStore.list() });
+    if (request.method === "POST") return json(response, 200, await macroStore.create(await body(request)));
+  }
+  const macroMatch = pathname.match(/^\/api\/macros\/([^/]+)$/);
+  if (request.method === "DELETE" && macroMatch) {
+    const macroStore = state.orchestrator.macroStore;
+    if (!macroStore) throw Object.assign(new Error("macro store unavailable"), { code: "MACRO_STORE_UNAVAILABLE" });
+    return json(response, 200, await macroStore.remove(decodeURIComponent(macroMatch[1])));
   }
   // v4.0 Forge 项目脚手架：静态模板生成（零网络零安装）；dryRun 只出计划，dir 限根 home/仓库父目录
   // hostId 在场 → 远程 SFTP 写入（先过 sftp 门闸，不假装落到本机）
@@ -2239,6 +2253,28 @@ if (request.method === "DELETE" && conversationMatch) {
 
   if (request.method === "GET" && pathname === "/api/runs") return json(response, 200, { runs: runsForPublic(state.orchestrator.list()) });
   if (request.method === "POST" && pathname === "/api/runs") return json(response, 202, runForPublic(await state.orchestrator.create(await body(request))));
+  // W3.5 A/B shadow run：同一任务双成员并行（对照腿强制 plan 只读），对比走 /api/runs/compare
+  if (request.method === "POST" && pathname === "/api/runs/shadow") {
+    const payload = await body(request);
+    const { primary, shadow } = await state.orchestrator.createShadowPair(payload?.input ?? {});
+    return json(response, 202, {
+      primary: runForPublic(primary),
+      shadow: runForPublic(shadow),
+      compare: `/api/runs/compare?a=${encodeURIComponent(primary.id)}&b=${encodeURIComponent(shadow.id)}`,
+    });
+  }
+  // W3.5：双 run 元数据对比矩阵 + 可分享 Markdown 报告
+  if (request.method === "GET" && pathname === "/api/runs/compare") {
+    const aId = url.searchParams.get("a") ?? "";
+    const bId = url.searchParams.get("b") ?? "";
+    if (!aId || !bId) throw Object.assign(new Error("query params a and b are required"), { code: "VALIDATION_FAILED" });
+    if (aId === bId) throw Object.assign(new Error("a and b must differ"), { code: "VALIDATION_FAILED" });
+    const left = state.orchestrator.get(aId);
+    const right = state.orchestrator.get(bId);
+    const generatedAt = new Date().toISOString();
+    const comparison = compareRuns(left, right);
+    return json(response, 200, { schema: "514cc.run-compare/v1", generatedAt, ...comparison, markdown: renderCompareMarkdown({ generatedAt, comparison }) });
+  }
   if (request.method === "POST" && pathname === "/api/runs/clear-finished") return json(response, 200, await state.orchestrator.clearFinished());
   const runMatch = pathname.match(/^\/api\/runs\/([0-9a-fA-F-]+)$/);
   if (request.method === "GET" && runMatch) {
@@ -2251,7 +2287,12 @@ if (request.method === "DELETE" && conversationMatch) {
   if (request.method === "GET" && runDiffMatch) {
     const run = state.orchestrator.get(runDiffMatch[1]);
     if (!run) throw Object.assign(new Error(`run not found: ${runDiffMatch[1]}`), { code: "RUN_NOT_FOUND" });
-    return json(response, 200, await runDiffForRun(run));
+    const diff = await runDiffForRun(run);
+    // W3.17 会话对比报告：?format=markdown 渲染可分享报告（同一只读数据源）
+    if (url.searchParams.get("format") === "markdown") {
+      return json(response, 200, { runId: diff.runId, format: "markdown", markdown: renderDiffMarkdown(diff) });
+    }
+    return json(response, 200, diff);
   }
   const runSettlementMatch = pathname.match(/^\/api\/runs\/([0-9a-fA-F-]+)\/settlement$/);
   if (request.method === "GET" && runSettlementMatch) {
@@ -2415,7 +2456,32 @@ if (request.method === "DELETE" && conversationMatch) {
     if (created.code !== 0) {
       throw Object.assign(new Error(`git worktree add 失败：${created.stderr.trim().slice(0, 200)}`), { code: "VALIDATION_FAILED" });
     }
+    await state.orchestrator.worktreeLedger?.recordCreated({ path: worktreePath, base: repoTop, runId: null, source: "manual" }).catch(() => {});
     return json(response, 200, { worktree: worktreePath, base: repoTop });
+  }
+  // W3.10 worktree 台账视图：折叠后的建树/清树记录（只读，供 UI 列表与孤儿核对）
+  if (request.method === "GET" && pathname === "/api/system/worktrees") {
+    const ledger = state.orchestrator.worktreeLedger;
+    if (!ledger) return json(response, 200, { schema: "514cc.worktree-ledger/v1", total: 0, activeCount: 0, worktrees: [] });
+    return json(response, 200, await ledger.list());
+  }
+  // W3.10 清理入口：只允许清理台账内"活跃"的工作树（fail-closed：不在台账 = 不认识 = 不动）
+  if (request.method === "DELETE" && pathname === "/api/system/worktrees") {
+    const target = String(url.searchParams.get("path") ?? "").trim();
+    if (!target) throw Object.assign(new Error("query param path is required"), { code: "VALIDATION_FAILED" });
+    const ledger = state.orchestrator.worktreeLedger;
+    const view = ledger ? await ledger.list() : { worktrees: [] };
+    const entry = view.worktrees.find((item) => item.path === target);
+    if (!entry || entry.removedAt) {
+      throw Object.assign(new Error("该工作树不在活跃台账中，拒绝清理（防误删未知目录）"), { code: "WORKTREE_UNKNOWN" });
+    }
+    const base = entry.base || dirname(target);
+    const removed = await runProcess("git", ["-C", base, "worktree", "remove", "--force", target], { timeoutMs: 60_000, maxOutputBytes: 64 * 1024 });
+    if (removed.code !== 0) {
+      throw Object.assign(new Error(`git worktree remove 失败：${removed.stderr.trim().slice(0, 200)}`), { code: "WORKTREE_REMOVE_FAILED" });
+    }
+    await ledger?.recordRemoved({ path: target }).catch(() => {});
+    return json(response, 200, { ok: true, path: target });
   }
   if (pathname === "/api/projects/prefs") {
     // 项目侧栏偏好（置顶/重命名/隐藏）：dataRoot 下单文件，键=归一化项目路径
@@ -3060,12 +3126,17 @@ const server = createServer(async (request, response) => {
       // 入站 webhook 是给外部系统回调的：它们拿不到本地 Bearer token，
       // 安全边界由渠道自身的 HMAC 验签 + 限流承担（channels.mjs receiveWebhook）。
       const inboundWebhook = request.method === "POST" && /^\/api\/channels\/webhook\/[\w-]+$/.test(url.pathname);
-      if (!inboundWebhook && !authorized(request)) {
+      const auth = inboundWebhook ? { observer: false } : authorized(request);
+      if (!auth) {
         return json(response, 401, { error: { code: "UNAUTHORIZED", message: "Missing or invalid local access token", requestId } });
+      }
+      // W3.15 观察者 token：只放行幂等读，写操作一律拒绝（fail-closed）
+      if (auth.observer && request.method !== "GET" && request.method !== "HEAD") {
+        return json(response, 403, { error: { code: "OBSERVER_READ_ONLY", message: "Observer token is read-only; writes are not permitted", requestId } });
       }
       return await api(request, response, url);
     }
-    if (request.method === "GET" && (await serveStatic(url.pathname, response))) return;
+    if ((request.method === "GET" || request.method === "HEAD") && (await serveStatic(url.pathname, response, request))) return;
     return json(response, 404, { error: { code: "NOT_FOUND", message: "Not found", requestId } });
   } catch (error) {
     const disconnected = error?.code === "CLIENT_DISCONNECTED" || (

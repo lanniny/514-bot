@@ -795,6 +795,138 @@ pre,
   white-space: nowrap;
 }
 
+.permission-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.permission-overview-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.permission-overview-card > span,
+.permission-overview-card > small {
+  display: block;
+  color: var(--text-soft);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.permission-overview-card > strong {
+  display: block;
+  margin: 6px 0 4px;
+  color: var(--text);
+  font-size: var(--text-lg);
+}
+
+.permission-overview-card.is-ok { border-color: color-mix(in srgb, var(--green) 38%, var(--border)); }
+.permission-overview-card.is-warning { border-color: color-mix(in srgb, var(--amber) 48%, var(--border)); }
+.permission-overview-card.is-error { border-color: color-mix(in srgb, var(--red) 55%, var(--border)); }
+
+.permission-instance-context {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 84%, transparent);
+  color: var(--text-soft);
+  font-size: var(--text-xs);
+}
+
+.permission-instance-context code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permission-overview-blockers {
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--red) 48%, var(--border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--red) 7%, var(--surface));
+  color: var(--text);
+  font-size: var(--text-xs);
+}
+
+.permission-overview-blockers[hidden] { display: none; }
+
+.permission-overview-blockers ul {
+  margin: 5px 0 0;
+  padding-left: 18px;
+}
+
+.permission-seat-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.permission-seat-row {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(380px, 2fr) 36px;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.permission-seat-main,
+.permission-seat-main > * { min-width: 0; }
+
+.permission-seat-main strong,
+.permission-seat-main span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permission-seat-main span,
+.permission-seat-facts dt {
+  color: var(--text-soft);
+  font-size: var(--text-xs);
+}
+
+.permission-seat-facts {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.permission-seat-facts div,
+.permission-seat-facts dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.permission-seat-facts dd {
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .overview-grid,
 .security-grid {
   display: grid;
@@ -4907,8 +5039,26 @@ input::placeholder {
 
   .overview-grid,
   .security-grid,
+  .permission-overview-grid,
   .router-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .permission-seat-row { grid-template-columns: minmax(0, 1fr) 36px; }
+
+  .permission-seat-main,
+  .permission-seat-facts { grid-column: 1 / -1; }
+
+  .permission-seat-row > .icon-button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .permission-instance-context { grid-template-columns: minmax(0, 1fr); }
+
+  .permission-instance-context code {
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
 
   /* 移动端恢复文档流整页滚（触屏惯例）——桌面的视口锁定只在宽屏生效 */
@@ -5119,6 +5269,19 @@ input::placeholder {
   .approval-row {
     grid-template-columns: 1fr;
   }
+
+  .permission-overview-section .section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .permission-overview-section .heading-actions {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .permission-seat-facts { grid-template-columns: minmax(0, 1fr); }
 
   .approval-actions .button {
     flex: 1;

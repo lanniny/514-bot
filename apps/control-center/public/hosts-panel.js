@@ -629,6 +629,50 @@ async function createFromDialog(root, dialog) {
 
 /* —— v41 波一：远程环境探测卡 / CLI 安装 / 一键同步本机配置 —— */
 
+// W3.9 远程主机资源仪表：探针已采集的数值指标（CPU/内存/磁盘占用、负载、在线时长）进主机卡。
+// 数据全部来自既有 parseProbeOutput 的 metrics 段；缺数如实留空，不伪造读数。
+function metricsHtml(metrics) {
+  if (!metrics) return "";
+  const gauge = (label, percent, text) => {
+    if (!Number.isFinite(percent)) return "";
+    const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+    const tone = clamped >= 90 ? "is-critical" : clamped >= 70 ? "is-warn" : "is-ok";
+    return `<div class="hostmeter">
+      <span class="hostmeter-label">${esc(label)}</span>
+      <span class="hostmeter-bar"><i class="${tone}" style="width:${clamped}%"></i></span>
+      <b>${clamped}%</b>
+      <span class="hostmeter-text">${esc(text)}</span>
+    </div>`;
+  };
+  const bytes = (value) => {
+    if (!Number.isFinite(value) || value < 0) return "";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let current = value;
+    let unit = 0;
+    while (current >= 1024 && unit < units.length - 1) { current /= 1024; unit += 1; }
+    return `${current.toFixed(current >= 10 || unit === 0 ? 0 : 1)}${units[unit]}`;
+  };
+  const parts = [];
+  parts.push(gauge("CPU", metrics.cpu?.usagePercent, metrics.cpu?.cores ? `${metrics.cpu.cores} 核` : ""));
+  parts.push(gauge("内存", metrics.memory?.usagePercent, bytes(metrics.memory?.usedBytes) && bytes(metrics.memory?.totalBytes) ? `${bytes(metrics.memory?.usedBytes)} / ${bytes(metrics.memory?.totalBytes)}` : ""));
+  parts.push(gauge("磁盘", metrics.disk?.usagePercent, bytes(metrics.disk?.usedBytes) && bytes(metrics.disk?.totalBytes) ? `${bytes(metrics.disk?.usedBytes)} / ${bytes(metrics.disk?.totalBytes)}` : ""));
+  const load = metrics.load;
+  const loadText = load && Number.isFinite(load.one) ? `${load.one.toFixed(2)} · ${Number.isFinite(load.five) ? load.five.toFixed(2) : "–"} · ${Number.isFinite(load.fifteen) ? load.fifteen.toFixed(2) : "–"}` : "";
+  const uptime = Number.isFinite(metrics.uptimeSeconds)
+    ? (() => {
+        const days = Math.floor(metrics.uptimeSeconds / 86400);
+        const hours = Math.floor((metrics.uptimeSeconds % 86400) / 3600);
+        return days > 0 ? `${days} 天 ${hours} 时` : `${hours} 时`;
+      })()
+    : "";
+  const extras = [];
+  if (loadText) extras.push(`load ${esc(loadText)}`);
+  if (Number.isFinite(metrics.processes)) extras.push(`${metrics.processes} 进程`);
+  if (uptime) extras.push(`在线 ${esc(uptime)}`);
+  const rendered = parts.join("") + (extras.length ? `<p class="hostmeter-extras">${extras.join(" · ")}</p>` : "");
+  return rendered ? `<div class="hostmeters">${rendered}</div>` : "";
+}
+
 function detailHtml(host) {
   if (!state.envExpanded.has(host.id)) return "";
   const env = state.envProbes.get(host.id);
@@ -647,6 +691,7 @@ function detailHtml(host) {
         <span>磁盘</span><b>${esc(probe.disk ?? "?")}</b>
         <span>内存</span><b>${esc(probe.memory ?? "?")}</b>
       </div>
+      ${metricsHtml(probe.metrics)}
       <div class="sshconn-clis">
         ${(probe.clis ?? []).map((cli) => `
           <div class="sshconn-cli${cli.installed ? "" : " is-missing"}">
@@ -1035,6 +1080,15 @@ if (typeof window !== "undefined") {
       void sftpList(root); // sftpList 从 input 读路径，render 已填好
     });
   });
+
+  // W3.9 展开中的主机卡 30s 轻刷新（仅已展开的 env 探测，避免对全量主机轮询打 ssh）
+  window.setInterval(() => {
+    const root = document.getElementById("hosts-container");
+    if (!root || !state.envExpanded.size) return;
+    for (const id of state.envExpanded) {
+      void probeHostEnv(root, id);
+    }
+  }, 30_000);
 }
 
 bootWhenReady();

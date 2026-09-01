@@ -2,13 +2,14 @@
 
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
 import { spawnTestServer, stopTestServer, testModelProfiles, waitForUrl } from "../tests/server-fixture.mjs";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
-const outputDir = resolve(appRoot, ".qa-output", "bot-p0");
+const outputDir = resolve(tmpdir(), `514cc-qa-bot-p0-artifacts-${Date.now()}-${process.pid}`);
 const token = "bot-p0-qa-token-0123456789abcdef";
 
 function removeTree(path) {
@@ -78,13 +79,12 @@ async function writeConfig(repoRoot) {
 }
 
 async function main() {
-  const root = await mkdtemp(resolve(appRoot, ".qa-bot-p0-"));
+  const root = await mkdtemp(resolve(tmpdir(), "514cc-qa-bot-p0-"));
   const repoRoot = resolve(root, "repo");
   const dataRoot = resolve(root, "data");
   const fakeHome = resolve(root, "home");
   await writeConfig(repoRoot);
   await mkdir(fakeHome, { recursive: true });
-  await removeTree(outputDir);
   await mkdir(outputDir, { recursive: true });
 
   const child = spawnTestServer({
@@ -267,7 +267,12 @@ async function main() {
       null,
       { timeout: 30_000 },
     );
-    await page.waitForSelector(`[data-bot-conversation="${conversationB.id}"]`, { timeout: 20_000 });
+    await page.waitForFunction((conversationId) => {
+      const view = document.querySelector("#view-bot");
+      const chats = document.querySelector("#bot-surface-chats");
+      const row = document.querySelector(`[data-bot-conversation="${conversationId}"]`);
+      return Boolean(view && !view.hidden && chats && !chats.hidden && row && !row.hidden && row.offsetParent !== null);
+    }, conversationB.id, { timeout: 20_000 });
     await rowB.click({ timeout: 3_000 });
     await page.waitForFunction((marker) => document.querySelector("#bot-message-stream")?.textContent?.includes(marker), "P0_B_ACTIVE_MARKER");
 

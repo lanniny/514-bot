@@ -152,22 +152,36 @@ function stripScalar(raw) {
   return value;
 }
 
-async function readSkillDescription(dir) {
+// W3.3 Skill 管理器补缺：SKILL.md frontmatter 的 version + 文件 mtime 一并提取（版本展示与内容级新鲜度）
+async function readSkillMeta(dir) {
+  let version = null;
+  let mtimeMs = null;
+  try {
+    mtimeMs = (await stat(join(dir, "SKILL.md"))).mtimeMs;
+  } catch {
+    mtimeMs = null;
+  }
   try {
     const text = await readFile(join(dir, "SKILL.md"), "utf8");
     const head = text.slice(0, 4096);
     const front = head.match(/^---\r?\n([\s\S]*?)\r?\n---/);
     if (front) {
+      const ver = front[1].match(/^version:\s*(.+)$/m);
+      if (ver) version = ver[1].trim().replace(/^["']|["']$/g, "").slice(0, 40) || null;
       const desc = front[1].match(/^description:\s*(.+)$/m);
-      if (desc) return desc[1].trim().replace(/^["']|["']$/g, "").slice(0, 200);
+      if (desc) return { description: desc[1].trim().replace(/^["']|["']$/g, "").slice(0, 200), version, mtimeMs };
       const name = front[1].match(/^name:\s*(.+)$/m);
-      if (name) return name[1].trim().replace(/^["']|["']$/g, "").slice(0, 200);
+      if (name) return { description: name[1].trim().replace(/^["']|["']$/g, "").slice(0, 200), version, mtimeMs };
     }
     const heading = head.match(/^#\s+(.+)$/m);
-    return heading ? heading[1].trim().slice(0, 200) : "";
+    return { description: heading ? heading[1].trim().slice(0, 200) : "", version, mtimeMs };
   } catch {
-    return ""; // 无 SKILL.md 或读失败：描述留空如实呈现（存在性由目录名承担）
+    return { description: "", version, mtimeMs }; // 无 SKILL.md 或读失败：描述留空如实呈现（存在性由目录名承担）
   }
+}
+
+async function readSkillDescription(dir) {
+  return (await readSkillMeta(dir)).description;
 }
 
 async function scanSkillDirs(repoRoot) {
@@ -186,21 +200,27 @@ async function scanSkillDirs(repoRoot) {
         const entries = await readdir(join(base, category.name), { withFileTypes: true }).catch(() => []);
         for (const entry of entries) {
           if (!entry.isDirectory()) continue;
+          const meta = await readSkillMeta(join(base, category.name, entry.name));
           skills.push({
             code: entry.name,
             category: category.name,
             scope,
             path: join(dir, category.name, entry.name),
-            description: await readSkillDescription(join(base, category.name, entry.name)),
+            description: meta.description,
+            version: meta.version,
+            mtimeMs: meta.mtimeMs,
           });
         }
       } else if (category.isDirectory()) {
+        const meta = await readSkillMeta(join(base, category.name));
         skills.push({
           code: category.name,
           category: scope,
           scope,
           path: join(dir, category.name),
-          description: await readSkillDescription(join(base, category.name)),
+          description: meta.description,
+          version: meta.version,
+          mtimeMs: meta.mtimeMs,
         });
       }
     }

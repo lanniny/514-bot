@@ -1,0 +1,119 @@
+/* ==========================================================================
+   placeholders.css — 空状态 / 骨架屏 / 行内空提示（UI-AUDIT P0-6）
+   配套 public/modules/placeholders.js。所有取值走 forge/tokens.css 令牌，
+   不引入任何裸色值（受 scripts/ui-lint.mjs 门禁约束）。
+   ========================================================================== */
+
+/* —— 空状态三分类 —— */
+
+.empty-state--compact {
+  min-height: 120px;
+  padding: var(--space-5) var(--space-4);
+  gap: var(--space-2);
+}
+
+.empty-state--first-run .empty-state-icon {
+  color: color-mix(in srgb, var(--muted-foreground, var(--text-muted)) 55%, transparent);
+}
+
+.empty-state--no-result .empty-state-icon {
+  color: color-mix(in srgb, var(--muted-foreground, var(--text-muted)) 60%, transparent);
+}
+
+.empty-state--error .empty-state-icon {
+  color: var(--danger, var(--red));
+  opacity: 0.85;
+}
+
+.empty-state--error .empty-state-title {
+  color: var(--foreground, var(--text-strong));
+}
+
+.empty-state-action {
+  margin-top: var(--space-2);
+}
+
+/* 行内极简空提示：表格单元、键值列表等放不下插画的位置唯一合法出口 */
+.inline-empty {
+  margin: 0;
+  color: var(--muted-foreground, var(--text-muted));
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
+}
+
+/* —— 骨架屏 —— */
+
+.skeleton {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4) 0;
+}
+
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.skeleton-row--card {
+  align-items: flex-start;
+}
+
+.skeleton-lines {
+  display: grid;
+  flex: 1 1 auto;
+  gap: var(--space-2);
+}
+
+.skeleton-bar,
+.skeleton-block {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-sm, 6px);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--muted-foreground, var(--text-muted)) 12%, transparent) 0%,
+    color-mix(in srgb, var(--muted-foreground, var(--text-muted)) 22%, transparent) 50%,
+    color-mix(in srgb, var(--muted-foreground, var(--text-muted)) 12%, transparent) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer var(--dur-slow, 360ms) steps(1, end) infinite;
+  animation-duration: 1400ms; /* 骨架呼吸节奏独立于交互动效 token */
+}
+
+.skeleton-bar {
+  flex: 0 1 auto;
+  min-width: 48px;
+}
+
+.skeleton-block--avatar {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+
+.skeleton--table .skeleton-row {
+  padding-block: var(--space-2);
+  border-bottom: 1px solid var(--border, var(--border-subtle));
+}
+
+@keyframes skeleton-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+/* 无障碍：系统级与用户级动效开关双保险 */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-bar,
+  .skeleton-block {
+    animation: none;
+    background: color-mix(in srgb, var(--muted-foreground, var(--text-muted)) 16%, transparent);
+  }
+}
+
+:root[data-motion="reduce"] .skeleton-bar,
+:root[data-motion="reduce"] .skeleton-block {
+  animation: none;
+  background: color-mix(in srgb, var(--muted-foreground, var(--text-muted)) 16%, transparent);
+}

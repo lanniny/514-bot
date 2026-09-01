@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { isAbsolute, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createCapabilities } from "../src/capabilities.mjs";
@@ -13,7 +14,7 @@ const TEST_TEAMS = [{
 }];
 
 async function fixture(t, { claudeJson = null, codexToml = null, teams = TEST_TEAMS, members = null, sourceIdForPath = null } = {}) {
-  const root = await mkdtemp(resolve(appRoot, ".test-caps-"));
+  const root = await mkdtemp(join(tmpdir(), "514cc-caps-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const home = join(root, "home");
   await rm(home, { recursive: true, force: true }).catch(() => {});
@@ -48,7 +49,7 @@ async function assertNoAtomicTemps(...directories) {
 }
 
 async function skillRepoFixture(t) {
-  const root = await mkdtemp(resolve(appRoot, ".test-skill-create-"));
+  const root = await mkdtemp(join(tmpdir(), "514cc-skill-create-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repoRoot = join(root, "repo");
   const dataRoot = join(root, "data");
@@ -584,7 +585,7 @@ test("MCP source stat permission failures are unavailable, not false 404s", asyn
 // 编排接线实证：成员轮提示词只含该成员启用中的 skill（禁用=不进提示词，不是 UI 摆设）
 test("social loop injects only enabled skills into member prompts", async (t) => {
   const { Orchestrator } = await import("../src/orchestrator.mjs");
-  const root = await mkdtemp(resolve(appRoot, ".test-caps-orch-"));
+  const root = await mkdtemp(join(tmpdir(), "514cc-caps-orch-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const calls = [];
   const replies = { "claude-fable": ["[[msg:codex-technical]] 看看", "收敛。"], "codex-technical": ["嗯。"] };
@@ -632,7 +633,7 @@ test("social loop injects only enabled skills into member prompts", async (t) =>
 
 test("real corrupt capability config blocks social, pipeline, and terminal continue with zero provider calls", async (t) => {
   const { Orchestrator } = await import("../src/orchestrator.mjs");
-  const root = await mkdtemp(resolve(appRoot, ".test-caps-orch-degraded-"));
+  const root = await mkdtemp(join(tmpdir(), "514cc-caps-orch-degraded-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const team = { id: "team-514cc", name: "514cc", coordinator: "claude-fable", members: ["claude-fable", "codex-technical"], skills: ["co-review", "docx"] };
 

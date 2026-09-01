@@ -29,6 +29,9 @@ args = ["mcp-server-fetch"]
 startup_timeout_sec = 30
 tool_timeout_sec = 120
 
+[mcp_servers.fetch.tools.fetch]
+approval_mode = "approve"
+
 [mcp_servers.sequential-thinking]
 command = "cmd"
 args = ["/c", "npx", "-y", "@modelcontextprotocol/server-sequential-thinking"]

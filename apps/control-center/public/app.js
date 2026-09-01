@@ -40,6 +40,7 @@ import {
   normalizeMemberModelOptions,
 } from "./modules/member-library.js";
 import { createRuntimeSeatManager } from "./modules/runtime-seat-manager.js";
+import { buildPermissionOverviewModel, paintPermissionOverview } from "./modules/permission-overview.js";
 import {
   attachmentContextKey,
   bindClipboardImagePaste,
@@ -97,6 +98,8 @@ import {
 } from "./modules/avatars.js";
 // UI-AUDIT P0-6：空状态 / 骨架屏单一真源，替代散写的 `<p class="subtle">` 与文字 loading
 import { emptyState, inlineEmpty, renderPlaceholder, skeleton } from "./modules/placeholders.js";
+// UI-AUDIT Wave B 抽取：右键菜单展示层（显隐/钳位/键盘/焦点），内容构建仍在 app.js
+import { createContextMenu } from "./modules/context-menu.js";
 // UI-AUDIT P1-6：异步按钮忙态统一处理（防连点 + 失败必恢复 + aria-busy）
 import { runAsyncAction } from "./modules/async-action.js";
 import {
@@ -824,6 +827,11 @@ function cacheElements() {
     "model-table-body",
     "security-summary",
     "security-posture",
+    "permission-overview-summary",
+    "permission-instance-context",
+    "permission-overview-blockers",
+    "permission-overview-grid",
+    "permission-seat-list",
     "policy-list",
     "secret-list",
     "remote-gates-summary",
@@ -3080,6 +3088,8 @@ let approvalSnapshotRevision = 0;
 
 async function loadApprovals() {
   const generation = ++approvalsLoadGeneration;
+  state.approvalsLoading = true;
+  renderPermissionOverview();
   const [approvalResult, leaseResult] = await Promise.allSettled([
     request(API.approvals),
     request(API.leases),
@@ -3090,18 +3100,26 @@ async function loadApprovals() {
   if (generation !== approvalsLoadGeneration) return payload;
   if (approvalResult.status === "fulfilled") {
     const applied = applyApprovalSnapshot(payload, { source: "审批快照" });
+    state.approvalSnapshotError = applied.invalid ? "审批快照版本无效" : null;
     if (applied.invalid) state.approvals = [];
   } else {
     // 读取失败时清掉旧 pending，避免把不再确认的新鲜度当成可执行授权。
     state.approvals = [];
+    state.approvalSnapshotError = approvalResult.reason?.message || String(approvalResult.reason || "审批快照读取失败");
     appendDiagnostic(`审批快照读取失败：${approvalResult.reason?.message || approvalResult.reason || "unknown"}`, "warning");
   }
-  if (leaseResult.status === "fulfilled") state.leases = unwrapList(leaseResult.value, ["leases"]);
+  if (leaseResult.status === "fulfilled") {
+    state.leases = unwrapList(leaseResult.value, ["leases"]);
+    state.leaseSnapshotError = null;
+  }
   else {
     state.leases = [];
+    state.leaseSnapshotError = leaseResult.reason?.message || String(leaseResult.reason || "租约快照读取失败");
     appendDiagnostic(`租约快照读取失败：${leaseResult.reason?.message || leaseResult.reason || "unknown"}`, "warning");
   }
+  state.approvalsLoading = false;
   renderApprovals();
+  renderPermissionOverview();
   renderSelectedRun(); // 内联审批卡挂在协作台会话流末尾，与安全诊断列表同一份数据同步刷新
   missionControlDock?.refresh();
   if (state.view === "bot" && botState.agentId) void botSyncConversation(botState.agentId);
@@ -3467,6 +3485,7 @@ function setView(view, {
   if (view === "security") {
     void loadApprovals();
     void loadRemoteGates();
+    if (!state.runtimeSeatsData && !state.runtimeSeatsLoading) void runtimeSeatManager?.load();
     if (state.diagnostics.length === 0) void runDiagnostics();
   }
   if (view === "observability" && !state.obsLoaded) void loadObservability();
@@ -7534,91 +7553,23 @@ const MENU_ICONS = {
   info: "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 8h.01M12 11v5",
 };
 
-let contextMenuCleanup = null;
-let lastMenuPos = { x: 0, y: 0 }; // 二级菜单（如「从属团队」）在原位重开
+// 右键菜单展示层实例（Wave B 抽取到 modules/context-menu.js）：app.js 只保留委托与内容构建
+const contextMenu = createContextMenu({ getMenuRoot: () => elements["context-menu"], icons: MENU_ICONS });
 
 function menuTriggerMarkup(kind, id, label) {
-  const attribute = kind === "run" ? "data-run-menu" : "data-project-menu";
-  // 「…」用填充圆点：stroke 零长段在 12px 下不足 1px 视觉隐形（LO 2026-08-11「图标还是没有显示」）；
-  // path 级 fill/stroke 属性压过 .icon 的继承值（fill:none / stroke:currentColor）
-  return `<button class="row-action row-menu-action" type="button" ${attribute}="${escapeHtml(id)}"
-    data-context-menu-trigger aria-haspopup="menu" aria-expanded="false" aria-controls="context-menu"
-    title="更多操作" aria-label="${escapeHtml(label)}">
-    <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${MENU_ICONS.more}" fill="currentColor" stroke="none" /></svg>
-  </button>`;
+  return contextMenu.triggerMarkup(kind, id, label);
 }
 
 function hideContextMenu(options) {
-  contextMenuCleanup?.(options);
+  contextMenu.hide(options);
 }
 
-function showContextMenu(items, x, y, { restoreFocus = document.activeElement } = {}) {
-  hideContextMenu({ restoreFocus: false });
-  lastMenuPos = { x, y };
-  const menu = elements["context-menu"];
-  const returnFocus = restoreFocus instanceof HTMLElement ? restoreFocus : null;
-  const trigger = returnFocus?.matches("[data-context-menu-trigger]") ? returnFocus : null;
-  menu.innerHTML = items
-    .map((item, index) =>
-      item === "---"
-        ? `<div class="menu-separator" role="separator"></div>`
-        : `<button type="button" role="menuitem" data-menu-index="${index}"${item.danger ? ' class="is-danger"' : ""}${item.disabled ? " disabled" : ""}>
-            <svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="${MENU_ICONS[item.icon] ?? MENU_ICONS.plus}" /></svg>
-            <span>${escapeHtml(item.label)}</span>
-          </button>`,
-    )
-    .join("");
-  menu.hidden = false;
-  trigger?.setAttribute("aria-expanded", "true");
-  const rect = menu.getBoundingClientRect();
-  menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - rect.width - 8))}px`;
-  menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))}px`;
-  const focusables = () => [...menu.querySelectorAll("[data-menu-index]:not(:disabled)")];
-  focusables()[0]?.focus();
-  const onPick = (event) => {
-    const button = event.target.closest("[data-menu-index]");
-    if (!button || button.disabled) return;
-    const item = items[Number(button.dataset.menuIndex)];
-    hideContextMenu();
-    item?.action?.();
-  };
-  const onDismiss = (event) => {
-    if (!menu.contains(event.target)) hideContextMenu();
-  };
-  const onKey = (event) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      hideContextMenu();
-      return;
-    }
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
-    const list = focusables();
-    if (!list.length) return;
-    event.preventDefault();
-    const current = list.indexOf(document.activeElement);
-    const next = event.key === "ArrowDown" ? (current + 1) % list.length : (current - 1 + list.length) % list.length;
-    list[next].focus();
-  };
-  const onWindowBlur = () => hideContextMenu({ restoreFocus: false });
-  menu.addEventListener("click", onPick);
-  document.addEventListener("pointerdown", onDismiss, true);
-  document.addEventListener("keydown", onKey);
-  window.addEventListener("blur", onWindowBlur, { once: true });
-  contextMenuCleanup = ({ restoreFocus: shouldRestore = true } = {}) => {
-    menu.hidden = true;
-    trigger?.setAttribute("aria-expanded", "false");
-    menu.removeEventListener("click", onPick);
-    document.removeEventListener("pointerdown", onDismiss, true);
-    document.removeEventListener("keydown", onKey);
-    window.removeEventListener("blur", onWindowBlur);
-    contextMenuCleanup = null;
-    if (shouldRestore && returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
-  };
+function showContextMenu(items, x, y, options) {
+  contextMenu.show(items, x, y, options);
 }
 
 function showContextMenuFromTrigger(trigger, items) {
-  const rect = trigger.getBoundingClientRect();
-  showContextMenu(items, rect.left, rect.bottom + 4, { restoreFocus: trigger });
+  contextMenu.showFromTrigger(trigger, items);
 }
 
 async function patchRunMeta(id, patch, message) {
@@ -7772,8 +7723,8 @@ function sessionContextItems(project, sessionId, cli = "claude", scope = "") {
       action: () => {
         showContextMenu(
           teamPickContextItems(effectiveSessionTeamId(project, session ?? { id: sessionId, cli }), (teamId) => updateSessionPref(cli, project.id, sessionId, { teamId })),
-          lastMenuPos.x,
-          lastMenuPos.y,
+          contextMenu.lastPosition().x,
+          contextMenu.lastPosition().y,
         );
       },
     },
@@ -8948,8 +8899,8 @@ function projectContextItems(project) {
         action: () => {
           showContextMenu(
             teamPickContextItems(effectiveProjectTeamId(project), (teamId) => updateProjectPref(project, { teamId })),
-            lastMenuPos.x,
-            lastMenuPos.y,
+            contextMenu.lastPosition().x,
+            contextMenu.lastPosition().y,
           );
         },
       },
@@ -9018,8 +8969,8 @@ function projectContextItems(project) {
       action: () => {
         showContextMenu(
           teamPickContextItems(effectiveProjectTeamId(project), (teamId) => updateProjectPref(project, { teamId })),
-          lastMenuPos.x,
-          lastMenuPos.y,
+          contextMenu.lastPosition().x,
+          contextMenu.lastPosition().y,
         );
       },
     },
@@ -18225,8 +18176,8 @@ function botConversationContextItems(conversation, opener) {
         projectTargets.length
           ? projectTargets.map((project) => ({ icon: "folder", label: project.title, action: () => void botAddDirectMemberToProject(conversation, project) }))
           : [{ icon: "folder", label: "没有可用项目", disabled: true }],
-        lastMenuPos.x,
-        lastMenuPos.y,
+        contextMenu.lastPosition().x,
+        contextMenu.lastPosition().y,
         { restoreFocus: opener },
       ),
     },
@@ -23150,7 +23101,7 @@ function renderRecoveryBar(run) {
     <div class="recovery-bar-content">
       <div class="recovery-bar-heading">
         ${lucideIcon("circle-alert", "icon lucide")}
-        <div><strong>${acked ? "恢复已确认" : "需要恢复确认"}</strong><span>${acked ? "下一条消息将续接当前会话。" : "自动重放已阻止，避免重复执行。"}</span></div>
+        <div><strong>${acked ? "恢复已确认" : "需要恢复确认"}</strong><span>${acked ? "下一条消息将续接当前会话。" : "本轮已停止、不会重复执行；已产生的部分产出与证据均已保留。"}</span></div>
       </div>
       ${acked ? "" : `<div class="recovery-reasons">${notes.map((note) => failureReasonMarkup(note)).join("")}</div>${hintsHtml}`}
     </div>
@@ -27708,6 +27659,37 @@ function connectEvents() {
   void consumeEvents(controller);
 }
 
+function renderPermissionOverview() {
+  const host = elements["permission-overview-grid"];
+  if (!host) return;
+  const model = buildPermissionOverviewModel({
+    runtimeSeatsData: state.runtimeSeatsData,
+    runtimeSeatsLoading: state.runtimeSeatsLoading,
+    approvals: state.approvals,
+    approvalsLoading: state.approvalsLoading,
+    leases: state.leases,
+    approvalSnapshotError: state.approvalSnapshotError,
+    leaseSnapshotError: state.leaseSnapshotError,
+    remoteGates: state.remoteGates,
+    remoteGatesLoading: state.remoteGatesLoading,
+    remoteGatesError: state.remoteGatesError,
+    apiState: state.apiState,
+    transactionBlocked: state.config?.transactionBlocked,
+    configRecoveryError: state.configRemoteRecoveryLoadError,
+    repoRoot: state.bootstrap?.repoRoot,
+    runtimeGeneration: state.runtimeSeatsData?.runtime?.generation ?? state.bootstrap?.runtime?.generation,
+  });
+  paintPermissionOverview({
+    host,
+    summary: elements["permission-overview-summary"],
+    instance: elements["permission-instance-context"],
+    blockers: elements["permission-overview-blockers"],
+    seatList: elements["permission-seat-list"],
+    model,
+    seatsLoading: state.runtimeSeatsLoading,
+  });
+}
+
 function renderApprovals() {
   if (!elements["approval-list"] || !elements["approval-summary"]) return;
   const pending = state.approvals.filter((item) => (item.status ?? "pending") === "pending");
@@ -27788,14 +27770,23 @@ function paintRemoteGates() {
   const openCount = gates.filter((gate) => gate.status === "open").length;
   const grantedCount = gates.filter((gate) => gate.status === "granted").length;
   if (summary) {
-    summary.textContent = gates.length
-      ? `${openCount} 面开放 · ${grantedCount} 面已授权未实现 · ${gates.length - openCount - grantedCount} 面关闭`
-      : "尚未读取";
-    summary.className = `status-label is-${openCount ? "warning" : grantedCount ? "pending" : gates.length ? "ok" : "neutral"}`;
+    summary.textContent = state.remoteGatesLoading
+      ? "读取中"
+      : state.remoteGatesError
+        ? "读取失败"
+        : gates.length
+          ? `${openCount} 面开放 · ${grantedCount} 面已授权未实现 · ${gates.length - openCount - grantedCount} 面关闭`
+          : "尚未读取";
+    summary.className = `status-label is-${state.remoteGatesError ? "error" : openCount ? "warning" : grantedCount ? "pending" : gates.length ? "ok" : "neutral"}`;
   }
   if (!host) return;
-  host.innerHTML = gates.length
-    ? gates.map((gate) => {
+  host.setAttribute("aria-busy", String(state.remoteGatesLoading));
+  host.innerHTML = state.remoteGatesLoading
+    ? emptyMarkup("正在读取远程门闩", "旧快照已失效")
+    : state.remoteGatesError
+      ? emptyMarkup("远程门闩读取失败", state.remoteGatesError)
+      : gates.length
+        ? gates.map((gate) => {
       const status = gate.status || "blocked";
       const grantedAt = gate.grant?.grantedAt ? formatDate(gate.grant.grantedAt) : "";
       const action = status === "blocked"
@@ -27811,24 +27802,41 @@ function paintRemoteGates() {
           <span class="subtle">上游参考：${escapeHtml(gate.upstream || "—")}${grantedAt ? ` · 授权于 ${escapeHtml(grantedAt)}` : ""}</span>
           <div class="remote-gate-actions">${action}</div>
         </article>`;
-    }).join("")
-    : emptyMarkup("远程能力门闩未返回", "控制面 fail-closed");
+        }).join("")
+        : emptyMarkup("远程能力门闩未返回", "控制面 fail-closed");
 }
 
+let remoteGatesLoadPromise = null;
 async function loadRemoteGates() {
   const host = byId("remote-gates-list");
   if (!host) return;
-  try {
-    const data = await request(API.remoteGates);
-    state.remoteGates = Array.isArray(data?.gates) ? data.gates : [];
-    paintRemoteGates();
-    paintSecurityPosture();
-  } catch (error) {
-    host.innerHTML = emptyMarkup("远程门闩读取失败", error.message);
-    if (elements["remote-gates-summary"]) {
-      elements["remote-gates-summary"].textContent = "读取失败";
-      elements["remote-gates-summary"].className = "status-label is-error";
+  if (remoteGatesLoadPromise) return remoteGatesLoadPromise;
+  state.remoteGates = null;
+  state.remoteGatesError = null;
+  state.remoteGatesLoading = true;
+  paintRemoteGates();
+  renderPermissionOverview();
+  const operation = (async () => {
+    try {
+      const data = await request(API.remoteGates);
+      state.remoteGates = Array.isArray(data?.gates) ? data.gates : [];
+      return data;
+    } catch (error) {
+      state.remoteGates = null;
+      state.remoteGatesError = error.message || "远程门闩读取失败";
+      return failedLoadResult(error);
+    } finally {
+      state.remoteGatesLoading = false;
+      paintRemoteGates();
+      renderPermissionOverview();
+      paintSecurityPosture();
     }
+  })();
+  remoteGatesLoadPromise = operation;
+  try {
+    return await operation;
+  } finally {
+    if (remoteGatesLoadPromise === operation) remoteGatesLoadPromise = null;
   }
 }
 
@@ -27935,7 +27943,8 @@ function renderSecurity() {
       : emptyMarkup("Secret 引用尚未加载", "前端只显示引用状态，不显示明文");
   }
   renderApprovals();
-  if (Array.isArray(state.remoteGates) && state.remoteGates.length) paintRemoteGates();
+  renderPermissionOverview();
+  if (state.remoteGates !== null || state.remoteGatesLoading || state.remoteGatesError) paintRemoteGates();
   else void loadRemoteGates();
   paintSecurityPosture();
 }
@@ -28105,7 +28114,15 @@ async function refreshCurrentView() {
     );
     if (window.__forgeCcSwitchPanel?.refresh) jobs.push(window.__forgeCcSwitchPanel.refresh());
   }
-  if (state.view === "security") jobs.push(runDiagnostics(), loadBootstrap(), loadApprovals(), loadRemoteGates());
+  if (state.view === "security") jobs.push(
+    runDiagnostics(),
+    loadBootstrap(),
+    loadApprovals(),
+    loadRemoteGates(),
+    runtimeSeatManager?.load({ fresh: true }).then((ok) => ok === false
+      ? failedLoadResult(new Error("运行席位读取失败"))
+      : successfulLoadResult(state.runtimeSeatsData)),
+  );
   if (state.view === "observability") { state.obsLoaded = false; jobs.push(loadObservability()); }
   if (state.view === "sessions") jobs.push(loadSessions());
   if (state.view === "team") {
@@ -31858,6 +31875,7 @@ async function start() {
   });
   await initializeAccessToken(); // 一次性 bootstrap 必须先兑换，后续 API 与 SSE 才能携带当前 tab 会话态
   await botLoadConversations(); // Bot 对话索引依赖认证态；不能在 initBotShell 的首帧抢跑请求
+  const initialConversationRoute = Boolean(state.deepLinkConversationId);
   if (state.deepLinkConversationId) {
     const conversationId = state.deepLinkConversationId;
     state.deepLinkConversationId = null;
@@ -32014,6 +32032,7 @@ async function start() {
       renderConfigTopology();
       reconcileProviderLivePoll();
     },
+    onLoadStateChanged: () => renderPermissionOverview(),
     cliIconMarkup,
     onOpenMember: (memberId) => {
       if (botState.workspaceTab === "seats" && byId("bot-workspace-panel")?.hidden === false) {
@@ -32138,7 +32157,12 @@ async function start() {
     state.configMemberFocusId = initialRoute.memberId;
     state.configRuntimeFocusId = initialRoute.runtimeProfileId;
   }
-  setView(FORGE_VIEW_TITLES[initialRoute.view] ? initialRoute.view : "workbench", {
+  // `#conversation=<id>` 不是 Forge 视图名。上面的 deep-link 消费已经精确打开
+  // Bot Conversation，不能再被这里的未知路由 fallback 压回 Workbench。
+  const initialView = initialConversationRoute
+    ? "bot"
+    : (FORGE_VIEW_TITLES[initialRoute.view] ? initialRoute.view : "workbench");
+  setView(initialView, {
     updateHash: false,
     focus: false,
     configSurface: initialRoute.configSurface,

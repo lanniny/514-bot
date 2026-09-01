@@ -94,8 +94,8 @@
   border-radius: var(--radius-md, 8px);
   font-size: var(--text-base, 14px);
   color: var(--foreground, var(--text));
-  transition: border-color var(--dur-med, 150ms) var(--ease-out, ease),
-    box-shadow var(--dur-med, 150ms) var(--ease-out, ease);
+  transition: border-color var(--dur-med, var(--dur-fast)) var(--ease-out, ease),
+    box-shadow var(--dur-med, var(--dur-fast)) var(--ease-out, ease);
 }
 
 .boot-input::placeholder {
@@ -138,10 +138,10 @@
   cursor: pointer;
   position: relative;
   text-align: left;
-  transition: transform var(--dur-med, 150ms) var(--ease-out, ease),
-    border-color var(--dur-med, 150ms) var(--ease-out, ease),
-    box-shadow var(--dur-med, 150ms) var(--ease-out, ease),
-    background-color var(--dur-med, 150ms) var(--ease-out, ease);
+  transition: transform var(--dur-med, var(--dur-fast)) var(--ease-out, ease),
+    border-color var(--dur-med, var(--dur-fast)) var(--ease-out, ease),
+    box-shadow var(--dur-med, var(--dur-fast)) var(--ease-out, ease),
+    background-color var(--dur-med, var(--dur-fast)) var(--ease-out, ease);
 }
 
 .boot-option:hover {
@@ -169,9 +169,9 @@
   border: 1px solid var(--border);
   background: var(--muted, var(--surface-muted, transparent));
   color: var(--muted-foreground, var(--text-muted));
-  transition: border-color var(--dur-med, 150ms) var(--ease-out, ease),
-    background-color var(--dur-med, 150ms) var(--ease-out, ease),
-    color var(--dur-med, 150ms) var(--ease-out, ease);
+  transition: border-color var(--dur-med, var(--dur-fast)) var(--ease-out, ease),
+    background-color var(--dur-med, var(--dur-fast)) var(--ease-out, ease),
+    color var(--dur-med, var(--dur-fast)) var(--ease-out, ease);
 }
 
 .boot-glyph {
@@ -214,7 +214,7 @@
   top: 8px;
   right: 8px;
   padding: 2px 6px;
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
   color: var(--primary, var(--rose));
   background: color-mix(in oklab, var(--primary, var(--rose)) 10%, transparent);
@@ -252,9 +252,9 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg, 10px);
   cursor: pointer;
-  transition: transform var(--dur-med, 150ms) var(--ease-out, ease),
-    border-color var(--dur-med, 150ms) var(--ease-out, ease),
-    box-shadow var(--dur-med, 150ms) var(--ease-out, ease);
+  transition: transform var(--dur-med, var(--dur-fast)) var(--ease-out, ease),
+    border-color var(--dur-med, var(--dur-fast)) var(--ease-out, ease),
+    box-shadow var(--dur-med, var(--dur-fast)) var(--ease-out, ease);
 }
 
 .boot-theme:hover {
@@ -439,7 +439,7 @@
   width: 30px;
   height: 30px;
   border-radius: var(--radius-md, 8px);
-  color: var(--primary-foreground, #fff);
+  color: var(--primary-foreground, var(--on-accent));
   background: var(--primary, var(--rose));
 }
 
@@ -728,7 +728,7 @@
 }
 
 .boot-step-label {
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 640;
   color: var(--text-soft);
 }
@@ -752,7 +752,7 @@
   background: var(--card, var(--surface));
   text-align: left;
   cursor: pointer;
-  transition: border-color 120ms ease, box-shadow 120ms ease;
+  transition: border-color var(--dur-instant) ease, box-shadow var(--dur-instant) ease;
 }
 
 .boot-type-card:hover:not(:disabled) {
@@ -799,7 +799,7 @@
   align-items: center;
   gap: 6px;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 640;
 }
 
@@ -808,13 +808,13 @@
   border-radius: 999px;
   background: var(--surface-muted);
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 560;
 }
 
 .boot-type-desc {
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .boot-flip {
@@ -870,9 +870,9 @@
   border-radius: 12px;
   background: var(--surface-muted);
   color: var(--text-soft);
-  font-size: 12px;
+  font-size: var(--text-xs);
   cursor: pointer;
-  transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
+  transition: border-color var(--dur-instant) ease, color var(--dur-instant) ease, background-color var(--dur-instant) ease;
 }
 
 .boot-dirpick-main:hover {
@@ -888,7 +888,7 @@
 
 .boot-dirpick-main code {
   overflow: hidden;
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -927,20 +927,20 @@
 }
 
 .boot-summary-name {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 640;
   color: var(--foreground, var(--text-strong));
 }
 
 .boot-summary-meta {
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--muted-foreground, var(--text-muted));
 }
 
 .boot-summary code {
   margin-left: auto;
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   padding: 2px 7px;
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -957,7 +957,7 @@
 }
 
 .boot-step {
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 640;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1005,7 +1005,7 @@
 
 .boot-honest code {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   padding: 1px 5px;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -1049,7 +1049,7 @@
   width: 14px;
   height: 14px;
   color: var(--muted-foreground, var(--text-muted));
-  transition: transform 120ms ease;
+  transition: transform var(--dur-instant) ease;
 }
 
 .boot-advanced[open] > summary .icon {
@@ -1058,7 +1058,7 @@
 
 .boot-advanced-meta {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 500;
   color: var(--muted-foreground, var(--text-muted));
 }
@@ -1093,7 +1093,7 @@
   border: 1px dashed var(--border);
   border-radius: var(--radius-md, 8px);
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.7;
   color: var(--muted-foreground, var(--text-muted));
 }
@@ -1112,13 +1112,13 @@
 
 .boot-preview-cardish strong,
 .boot-preview-dash strong {
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 .boot-preview-cardish em,
 .boot-preview-dash em {
   font-style: normal;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--muted-foreground, var(--text-muted));
 }
 
@@ -1127,8 +1127,8 @@
   padding: 4px 10px;
   border-radius: 6px;
   background: var(--primary, var(--rose));
-  color: var(--primary-foreground, #fff);
-  font-size: 11px;
+  color: var(--primary-foreground, var(--on-accent));
+  font-size: var(--text-xs);
 }
 
 .boot-preview-dash {
@@ -1147,7 +1147,7 @@
 .boot-preview-dash aside span {
   padding: 4px 6px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--muted-foreground, var(--text-muted));
 }
 

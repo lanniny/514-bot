@@ -1,6 +1,6 @@
 {
   "name": "514cc",
-  "version": "3.5.0",
+  "version": "4.0.0",
   "description": "Skill 驱动的 AI 能力放大系统。5 命名 Agent（烛/织/匠/策/鉴）+ 14 个 Claude skill + 7 个 Codex 仓库 skill + harness hook 硬扳机 + 三层 customize.toml + 异构多 CLI 协作。",
   "type": "claude-code-plugin",
   "license": "personal",

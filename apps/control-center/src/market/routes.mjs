@@ -76,6 +76,22 @@ export function registerMarketRoutes(router, ctx) {
     ctx.json(response, 200, { ok: true, items: await market.installedList() });
   }));
 
+  // W3.12 团队模板库：上架（stage）→ 安装（install，进 installed 台账）→ 模板清单/取包
+  router.post("/api/market/team/stage", guarded("skills_marketplace", async (request, response) => {
+    const payload = await ctx.body(request);
+    ctx.json(response, 200, await market.teamStage(payload ?? {}));
+  }));
+  router.post("/api/market/team/install", guarded("skills_marketplace", async (request, response) => {
+    const payload = await ctx.body(request);
+    ctx.json(response, 200, await market.teamInstall(payload ?? {}));
+  }));
+  router.get("/api/market/team/templates", guarded("skills_marketplace", async (request, response) => {
+    ctx.json(response, 200, { ok: true, ...await market.teamTemplates() });
+  }));
+  router.get("/api/market/team/pack", guarded("skills_marketplace", async (request, response, url) => {
+    ctx.json(response, 200, await market.teamPack({ id: url.searchParams.get("id") || "" }));
+  }));
+
   router.get("/api/market/skills", guarded("skills_marketplace", async (request, response) => {
     ctx.json(response, 200, { ok: true, skills: await market.skillsList() });
   }));

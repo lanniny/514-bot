@@ -733,10 +733,74 @@ export function createMarketService({
     return skillsStage({ url: zipUrl, skillPath });
   }
 
+  // W3.12 团队模板库：团队包（514cc-team-pack/v1，buildTeamPack 产物）上架→安装→模板清单。
+  // 安装 = 写入 installed.json 台账（kind:"team"），应用包仍走 team 视图既有 importTeamPack 流程
+  // （模板库只做分发与版本留痕，不绕过团队配置的校验链）。
+  function validateTeamPack(pack) {
+    if (!pack || typeof pack !== "object" || Array.isArray(pack)) {
+      throw marketError("MARKET_TEAM_PACK_INVALID", "team pack must be an object", 400);
+    }
+    if (pack.format !== "514cc-team-pack" || pack.version !== 1) {
+      throw marketError("MARKET_TEAM_PACK_INVALID", "team pack must be format '514cc-team-pack' version 1", 400);
+    }
+    const name = String(pack.team?.name ?? "").trim();
+    if (!name) throw marketError("MARKET_TEAM_PACK_INVALID", "team pack requires team.name", 400);
+    if (!Array.isArray(pack.team?.members) && !Array.isArray(pack.members?.custom) && !Array.isArray(pack.members?.builtinRefs)) {
+      throw marketError("MARKET_TEAM_PACK_INVALID", "team pack requires members", 400);
+    }
+    return name;
+  }
+
+  async function teamStage({ pack } = {}) {
+    const name = validateTeamPack(pack);
+    const stageId = randomUUID().slice(0, 12);
+    await mkdir(stagingDir, { recursive: true });
+    await writeFile(join(stagingDir, `team-${stageId}.json`), JSON.stringify({
+      kind: "team",
+      stageId,
+      review: { id: name, name, description: pack.team?.description ?? "", memberCount: (pack.members?.custom?.length ?? 0) + (pack.members?.builtinRefs?.length ?? 0), exportedAt: pack.exportedAt ?? null },
+      pack,
+      stagedAt: new Date().toISOString(),
+    }, null, 2), "utf8");
+    audit("market.stage", { kind: "team", id: name });
+    return { ok: true, stageId, review: { id: name, name, description: pack.team?.description ?? "" } };
+  }
+
+  async function teamInstall({ stageId: rawStageId, confirmed } = {}) {
+    if (confirmed !== true) throw marketError("MARKET_NOT_CONFIRMED", "install requires confirmed: true", 409);
+    const stageId = safeStageId(rawStageId);
+    let staged = null;
+    try {
+      staged = JSON.parse(await readFile(join(stagingDir, `team-${stageId}.json`), "utf8"));
+    } catch {
+      throw marketError("MARKET_STAGE_NOT_FOUND", `staging entry not found: ${stageId}`, 404);
+    }
+    validateTeamPack(staged.pack);
+    await appendInstalled({ kind: "team", id: staged.review.id, name: staged.review.name, pack: staged.pack, installedAt: new Date().toISOString() });
+    audit("market.install", { kind: "team", id: staged.review.id });
+    return { ok: true, id: staged.review.id, name: staged.review.name };
+  }
+
+  async function teamTemplates() {
+    const items = (await readInstalled()).filter((entry) => entry.kind === "team");
+    return { templates: items.map((entry) => ({ id: entry.id, name: entry.name, installedAt: entry.installedAt ?? null, memberCount: (entry.pack?.members?.custom?.length ?? 0) + (entry.pack?.members?.builtinRefs?.length ?? 0) })) };
+  }
+
+  async function teamPack({ id: packId } = {}) {
+    const clean = String(packId ?? "").trim();
+    const item = (await readInstalled()).find((entry) => entry.kind === "team" && entry.id === clean);
+    if (!item) throw marketError("MARKET_TEAM_NOT_FOUND", `team template not found: ${clean}`, 404);
+    return { id: item.id, pack: item.pack };
+  }
+
   return {
     mcpSearch,
     mcpStage,
     mcpInstall,
+    teamStage,
+    teamInstall,
+    teamTemplates,
+    teamPack,
     skillsStage,
     skillsStageFromRepo,
     skillsInstall,

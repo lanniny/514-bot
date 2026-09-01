@@ -8,11 +8,18 @@
  * 视图集合是三表面的统一超集；is-active/aria-current 由 app.js setView 统一同步。
  */
 
+/**
+ * UI-AUDIT P0-5：automations / security 此前只存在于 VIEW_TITLES 与深层入口
+ * （workbench 侧栏行、config 设置轨），主导航里完全没有入口——高价值的定时编排
+ * 与安全体检对新用户等于不存在。此处提级为第五组「治理」，主导航即产品地图。
+ * terminal / browser / appearance 保持工具定位（底栏终端 + 设置轨），不占导航位。
+ */
 export const NAV_GROUPS = [
   { id: "collab", label: "协作", views: ["bot", "workbench", "team", "channels"] },
   { id: "create", label: "创建", views: ["bootstrapper", "office"] },
   { id: "observe", label: "观测", views: ["overview", "observability", "sessions"] },
   { id: "resources", label: "资源", views: ["market", "hosts", "config"] },
+  { id: "govern", label: "治理", views: ["automations", "security"] },
 ];
 
 export const NAV_ITEMS = {
@@ -28,6 +35,8 @@ export const NAV_ITEMS = {
   market: { icon: "store", label: "市场", short: "市场", tooltip: "市场" },
   hosts: { icon: "server", label: "远程主机", short: "主机", tooltip: "远程主机" },
   config: { icon: "settings", label: "配置", short: "配置", tooltip: "配置" },
+  automations: { icon: "timer", label: "自动化", short: "自动化", tooltip: "定时任务与编排（原深埋于协作台侧栏）" },
+  security: { icon: "shield-check", label: "安全诊断", short: "安全", tooltip: "权限、密钥与暴露面体检（原深埋于设置轨）" },
 };
 
 export function navViews() {
@@ -39,7 +48,7 @@ function buttonMarkup(view, item, { labelKey, className, extraClass = "" }) {
   const aria = ` aria-label="${item.tooltip}"`;
   const title = ` title="${item.tooltip}"`;
   return `        <button class="${className}${item.primary ? ` ${extraClass}` : ""}" type="button" data-view="${view}"${title}${aria}>\n`
-    + `          <svg class="icon lucide"><use href="#lucide-${item.icon}"></use></svg><span>${label}</span>\n`
+    + `          <svg aria-hidden="true" class="icon lucide"><use href="#lucide-${item.icon}"></use></svg><span>${label}</span>\n`
     + `        </button>`;
 }
 

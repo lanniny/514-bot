@@ -2,7 +2,8 @@
 // handoff 目录 / .ai-shared 顶层文档 / 仓库内 MEMORY.md 三类根的统一只读视图。
 // 全部路径由 repoRoot/aiSharedRoot 派生（MEMORY 发现不跟随 symlink 目录），天然限根在仓库内；
 // 任何源缺失都如实降级为空根，不报错不伪造。
-import { readFile, stat } from "node:fs/promises";
+// W3.6：write() 补编辑能力——仅限 memory:* 根（MEMORY.md / auto-memory 类），治理账本仍只读。
+import { readFile, stat, writeFile, rename } from "node:fs/promises";
 import { basename, join, sep } from "node:path";
 import { findMemoryFiles, listMarkdownFiles } from "./search.mjs";
 
@@ -130,6 +131,59 @@ export class MemoryService {
       mtime: file.mtime,
       truncated: false,
       content,
+    };
+  }
+
+  /**
+   * W3.6 记忆编辑：只允许写 memory:* 根（MEMORY.md / auto-memory 类文件）——
+   * handoff 是只增治理产物、.ai-shared 顶层是账本（decisions.md），一律不开放写。
+   * 路径白名单、大小上限与 read() 同源；expectedMtime 提供乐观锁防并发覆盖。
+   */
+  async write({ root: rootName = "", name: fileName = "", path: relPath = "", content = "", expectedMtime = null } = {}) {
+    const body = String(content ?? "");
+    if (Buffer.byteLength(body, "utf8") > MAX_FILE_BYTES) {
+      throw Object.assign(new Error(`content exceeds ${Math.round(MAX_FILE_BYTES / 1024)} KB write cap`), { code: "MEMORY_FILE_TOO_LARGE", httpStatus: 413 });
+    }
+    const roots = await this.#enumerate();
+    let file = null;
+    let foundRoot = null;
+    if (relPath) {
+      const wanted = String(relPath).replaceAll("\\", "/").replace(/^\.\//, "");
+      for (const root of roots) {
+        const hit = root.files.find((entry) => [root.path, entry.name].filter((part) => part && part !== ".").join("/") === wanted);
+        if (hit) {
+          file = hit;
+          foundRoot = root;
+          break;
+        }
+      }
+    } else {
+      const root = roots.find((entry) => entry.name === String(rootName));
+      file = root?.files.find((entry) => entry.name === String(fileName)) ?? null;
+      foundRoot = root ?? null;
+    }
+    if (!file || !foundRoot) {
+      throw Object.assign(new Error(`memory file not found: ${relPath || `${rootName}/${fileName}`}`), { code: "MEMORY_FILE_NOT_FOUND", httpStatus: 404 });
+    }
+    if (!String(foundRoot.name).startsWith("memory:")) {
+      throw Object.assign(new Error(`root '${foundRoot.name}' is read-only (only memory:* roots are writable)`), { code: "MEMORY_ROOT_READ_ONLY", httpStatus: 403 });
+    }
+    if (expectedMtime) {
+      const current = await stat(file.abs);
+      if (current.mtime.toISOString() !== String(expectedMtime)) {
+        throw Object.assign(new Error("file changed since read; reload before writing"), { code: "MEMORY_WRITE_CONFLICT", httpStatus: 409 });
+      }
+    }
+    const tempPath = `${file.abs}.${Date.now()}.tmp`;
+    await writeFile(tempPath, body, "utf8");
+    await rename(tempPath, file.abs);
+    const info = await stat(file.abs);
+    return {
+      root: foundRoot.name,
+      name: file.name,
+      path: [foundRoot.path, file.name].filter((part) => part && part !== ".").join("/"),
+      size: info.size,
+      mtime: info.mtime.toISOString(),
     };
   }
 

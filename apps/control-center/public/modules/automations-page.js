@@ -83,20 +83,35 @@ export function parseAutomationRoute(hashValue = "") {
   return { mode: "list", id: null };
 }
 
+const DOW_LABELS = { 1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "日" };
+
 export function scheduleLabel(schedule) {
   const value = String(schedule || "manual");
   if (value === "manual") return "仅手动";
   if (value === "idle") return "闲时";
-  const match = /^every:(\d+)([mhd])$/.exec(value);
-  if (!match) return value;
-  const unit = { m: "分钟", h: "小时", d: "天" }[match[2]];
-  return match[1] === "1" && match[2] === "d" ? "每天" : `每 ${match[1]} ${unit}`;
+  const every = /^every:(\d+)([mhd])$/.exec(value);
+  if (every) {
+    const unit = { m: "分钟", h: "小时", d: "天" }[every[2]];
+    return every[1] === "1" && every[2] === "d" ? "每天" : `每 ${every[1]} ${unit}`;
+  }
+  // W3.4 at: 定时计划（与 src/automations.mjs parseAtSchedule 语法对齐；浏览器端本地化渲染）
+  const at = /^at:(\d{2}):(\d{2})(?:@([1-7](?:,[1-7])*))?$/.exec(value);
+  if (at) {
+    const time = `${at[1]}:${at[2]}`;
+    if (!at[3]) return `每天 ${time}`;
+    if (at[3] === "1,2,3,4,5") return `工作日 ${time}`;
+    const days = at[3].split(",").map((day) => `周${DOW_LABELS[Number(day)] ?? day}`);
+    return `${days.join("·")} ${time}`;
+  }
+  return value;
 }
 
 export function scheduleIssue(schedule) {
   const value = String(schedule || "manual").trim();
   if (!value || value === "manual" || value === "idle") return "";
-  return /^every:\d{1,4}[mhd]$/.test(value) ? "" : "计划必须是 manual、idle 或 every:<n>m/h/d";
+  if (/^every:\d{1,4}[mhd]$/.test(value)) return "";
+  if (/^at:([01]\d|2[0-3]):([0-5]\d)(@[1-7](,[1-7])*)?$/.test(value)) return "";
+  return "计划必须是 manual、idle、every:<n>m/h/d 或 at:HH:mm[@周几]";
 }
 
 export function isAutomationWritable(status = {}) {
@@ -373,6 +388,9 @@ export function mountAutomationsPage({
               <button class="chip" type="button" data-auto-schedule="every:30m">每 30 分钟</button>
               <button class="chip" type="button" data-auto-schedule="every:6h">每 6 小时</button>
               <button class="chip" type="button" data-auto-schedule="every:1d">每天</button>
+              <button class="chip" type="button" data-auto-schedule="at:09:00">每天 9 点</button>
+              <button class="chip" type="button" data-auto-schedule="at:09:00@1,2,3,4,5">工作日 9 点</button>
+              <button class="chip" type="button" data-auto-schedule="at:21:00@7">每周日 21 点</button>
             </div>
           </div>
           <label class="auto-field auto-prompt-field"><span>指令</span>

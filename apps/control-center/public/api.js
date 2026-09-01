@@ -31,6 +31,7 @@ const API = Object.freeze({
   obsHandoffs: "/api/observability/handoffs",
   obsDrift: "/api/observability/drift",
   obsOps: "/api/observability/ops",
+  worktrees: "/api/system/worktrees",
   sessions: "/api/sessions",
   sessionProjects: "/api/sessions/projects",
   capabilities: "/api/capabilities",

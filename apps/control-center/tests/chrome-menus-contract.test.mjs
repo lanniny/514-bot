@@ -110,6 +110,10 @@ test("unified chrome color + floating conversation card styles", async () => {
   assertIncludes(wave, ".workbench-shell.rail-collapsed .conversation-pane {\n  margin-left: 0;\n  border-top-left-radius: 0;\n}");
   assertIncludes(wave, "@media (min-width: 821px) {");
   assertIncludes(wave, "justify-self: end;");
+  assertIncludes(css, "@media (max-width: 560px) {");
+  assertIncludes(css, ".topbar-brand,\n  .chrome-menus,");
+  assertIncludes(css, ".topbar-actions #global-mc-toggle {");
+  assertIncludes(css, ".topbar-actions {\n    flex: 0 0 auto;\n    overflow: hidden;");
 });
 
 test("wave-9 icons exist in the lucide manifest", async () => {

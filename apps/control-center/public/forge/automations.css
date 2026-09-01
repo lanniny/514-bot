@@ -58,7 +58,7 @@
 
 #automations-workbench .auto-heading h1 {
   margin: 0 0 6px;
-  font-size: 28px;
+  font-size: var(--text-3xl);
   font-weight: 700;
   letter-spacing: -0.03em;
 }
@@ -88,7 +88,7 @@
 
 #automations-workbench .auto-section-label {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 650;
 }
 
@@ -100,14 +100,14 @@
   border-radius: 999px;
   background: var(--muted, var(--surface-muted));
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 11.5px;
+  font-size: var(--text-xs);
   font-weight: 650;
 }
 
 #automations-workbench .auto-section-hint {
   margin-left: auto;
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 12px;
+  font-size: var(--text-xs);
   opacity: 0.85;
 }
 
@@ -129,7 +129,7 @@
   height: 40px;
   border-radius: 12px;
   background: var(--primary-soft, var(--muted, var(--surface-muted)));
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 #automations-workbench .auto-empty-icon .icon {
@@ -139,12 +139,12 @@
 
 #automations-workbench .auto-empty strong {
   color: var(--foreground, var(--text-strong));
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 
 #automations-workbench .auto-empty p {
   margin: 0;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 #automations-workbench .auto-form-actions,
@@ -198,7 +198,7 @@
   border-radius: 12px;
   background: var(--card);
   text-align: left;
-  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease, transform var(--dur-fast) ease;
 }
 
 #automations-workbench .auto-card {
@@ -258,7 +258,7 @@
   height: 32px;
   border-radius: 9px;
   background: var(--primary-soft, var(--muted, var(--surface-muted)));
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 #automations-workbench .auto-template-icon .icon {
@@ -274,9 +274,9 @@
 #automations-workbench .auto-template-go {
   display: grid;
   place-items: center;
-  color: var(--primary);
+  color: var(--accent-ink);
   opacity: 0;
-  transition: opacity 140ms ease, transform 140ms ease;
+  transition: opacity var(--dur-fast) ease, transform var(--dur-fast) ease;
 }
 
 #automations-workbench .auto-template-go .icon {
@@ -303,7 +303,7 @@
   border-radius: 999px;
   background: var(--muted, var(--surface-muted));
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 11.5px;
+  font-size: var(--text-xs);
   font-weight: 600;
   line-height: 1.5;
 }
@@ -330,7 +330,7 @@
 
 #automations-workbench .auto-card-main strong,
 #automations-workbench .auto-template strong {
-  font-size: 14px;
+  font-size: var(--text-base);
   font-weight: 650;
 }
 
@@ -338,7 +338,7 @@
 #automations-workbench .auto-template .auto-template-blurb,
 #automations-workbench .auto-template em {
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   font-style: normal;
   line-height: 1.45;
 }
@@ -348,7 +348,7 @@
   padding: 2px 8px;
   border-radius: 999px;
   background: var(--muted, var(--surface-muted));
-  font-size: 11.5px;
+  font-size: var(--text-xs);
 }
 
 #automations-workbench .auto-error-dot {
@@ -420,7 +420,7 @@
 
 #automations-workbench .auto-field > span {
   color: var(--muted-foreground, var(--text-muted));
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 #automations-workbench .auto-field > input,

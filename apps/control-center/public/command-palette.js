@@ -19,26 +19,24 @@ import { lucideIcon } from "./lucide.js";
 import { escapeHtml } from "./utils.js";
 import { request as apiRequest } from "./api.js";
 import { VIEW_TITLES } from "./state.js";
+import { NAV_ITEMS } from "./modules/nav-config.js";
 
-const NAV_ICON_BY_VIEW = {
-  bot: "messages-square",
-  workbench: "messages-square",
-  overview: "layout-dashboard",
-  config: "settings",
+// 不在主导航里的深链视图（hero 星图 / router 路由 / terminal 终端 / capabilities 能力…）
+// 由命令面板兜底；其余一律以导航单一真源 NAV_ITEMS 为准，避免"导航换了图标、
+// 命令面板还显示旧的"这类双写漂移（UI-AUDIT P0-5）。
+const PALETTE_ONLY_ICONS = {
   router: "route",
-  security: "shield",
-  observability: "activity",
-  sessions: "history",
-  team: "users",
+  terminal: "terminal",
+  capabilities: "puzzle",
+  memory: "brain",
   hero: "orbit",
-  bootstrapper: "rocket",
-  office: "file-type",
-  automations: "timer",
   appearance: "palette",
   browser: "globe",
-  market: "puzzle",
-  hosts: "server",
-  channels: "satellite-dish",
+};
+
+const NAV_ICON_BY_VIEW = {
+  ...PALETTE_ONLY_ICONS,
+  ...Object.fromEntries(Object.entries(NAV_ITEMS).map(([view, item]) => [view, item.icon])),
 };
 
 const NAV_KEYWORDS_BY_VIEW = {

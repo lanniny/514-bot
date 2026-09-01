@@ -98,7 +98,7 @@
 }
 
 .text-button {
-  color: var(--primary);
+  color: var(--accent-ink);
   font-size: var(--text-xs);
 }
 
@@ -309,7 +309,7 @@ kbd {
 .forge-badge-primary {
   border-color: color-mix(in oklch, var(--primary) 35%, transparent);
   background: var(--primary-soft);
-  color: var(--primary);
+  color: var(--accent-ink);
 }
 
 .forge-badge-success {
@@ -375,7 +375,7 @@ kbd {
 }
 
 .forge-glass {
-  background: color-mix(in oklab, var(--glass-tint, var(--card, #ffffff)) var(--forge-glass-alpha, 86%), transparent);
+  background: color-mix(in oklab, var(--glass-tint, var(--card, var(--on-accent))) var(--forge-glass-alpha, 86%), transparent);
   -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
   backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
 }
@@ -395,7 +395,7 @@ kbd {
 /* 侧栏玻璃化：选择器对齐 shell.css 的 .atelier .sidebar（同特 0,2,0），但 shell.css 后加载会赢，
    故此处只留工具族，真正生效的规则在 shell.css 内联修正。 */
 .forge-glass-sidebar {
-  background: color-mix(in oklab, var(--glass-tint, var(--card, #ffffff)) var(--forge-glass-alpha, 86%), transparent);
+  background: color-mix(in oklab, var(--glass-tint, var(--card, var(--on-accent))) var(--forge-glass-alpha, 86%), transparent);
   -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
   backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
 }
@@ -404,7 +404,7 @@ kbd {
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .forge-glass,
   .forge-glass-sidebar {
-    background: var(--glass-tint, var(--card, #ffffff));
+    background: var(--glass-tint, var(--card, var(--on-accent)));
   }
   .forge-glass-muted {
     background: var(--glass-tint, var(--muted, #f5f4f2));
@@ -429,9 +429,9 @@ kbd {
   padding: 0 4px;
   border-radius: 5px;
   background: color-mix(in oklch, var(--primary) 10%, transparent);
-  color: var(--primary);
+  color: var(--accent-ink);
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;
@@ -440,7 +440,7 @@ kbd {
 /* hover/focus 揭示（父行挂 .forge-kbd-parent；默认隐藏防视觉噪音） */
 .forge-kbd-reveal {
   opacity: 0;
-  transition: opacity var(--dur-med, 150ms) var(--ease-out, ease);
+  transition: opacity var(--dur-med, var(--dur-fast)) var(--ease-out, ease);
 }
 .forge-kbd-parent:hover .forge-kbd-reveal,
 .forge-kbd-parent:focus-visible .forge-kbd-reveal {
@@ -451,7 +451,7 @@ kbd {
 .forge-collapsible-content {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows var(--dur-slow, 240ms) var(--ease-out, ease);
+  transition: grid-template-rows var(--dur-slow, var(--dur-base)) var(--ease-out, ease);
 }
 .forge-collapsible[data-state="open"] > .forge-collapsible-content {
   grid-template-rows: 1fr;

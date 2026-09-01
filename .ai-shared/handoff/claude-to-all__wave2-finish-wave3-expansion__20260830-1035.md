@@ -68,9 +68,11 @@
 ## 五、验证
 
 - `npm run validate` ✓（repository-truth 全绿：版本 4.0.0 五真源对齐 + web-intel 幽灵清除 + adapter-sdk 豁免）
-- 新增测试文件 10 个（nav-config / run-replay-scrubber / guardrails / automations-at-schedule / reports / worktree-ledger / macros / monthly-budget / secret-sweep / adapter-sdk / hosts-metrics-ui）共 **35 用例全绿**
-- `npm test` 全量：**1857+ pass**（详见收尾输出；两处契约测试随白名单/SDK 豁免同步更新：team-workspace-qa-safety 的 ALLOWED_GATE_BLOCKS 集合、bot-shell-ui 的导航断言）
-- `qa:environment` 四视口实拍：token 归并/导航合一/worktree 表格/记忆编辑改动后 **ok:true**
+- 新增测试文件 11 个（nav-config / run-replay-scrubber / guardrails / automations-at-schedule / reports / worktree-ledger / macros / monthly-budget / secret-sweep / adapter-sdk / hosts-metrics-ui）共 **38 用例全绿**
+- `npm test` 全量：1871 用例，确定性失败 **0**。满载并发下仍有 ~11 个时序敏感用例波动（real-git fixture / SSE backpressure / bus lease 类，两轮失败集合轮换互证），**全部隔离复跑绿**；其中 1 个确定性失败（conversations-http 预算断言）已按新预算合同修复——客户端显式 maxBudgetUsdPerTurn 按实接受（硬顶已废）。
+- 两处契约测试随本轮决策同步：team-workspace-qa-safety 的 ALLOWED_GATE_BLOCKS 集合（+壁纸 HEAD 空态）、bot-shell-ui 导航断言（迁 nav-config 契约）
+- `qa:environment` 四视口实拍：导航合一/worktree 表格/记忆编辑改动后 **ok:true**
+- `qa:delivery --strict`：**pass**（status: clean; strict: pass，新产物已 git add 申报）
 - 顺手修复既有债务：lucide sprite 缺 `pause` 符号（vendor 清单补齐再生 143 符号，icon 契约测试恢复绿）
 
 ## 六、遗留与下一步

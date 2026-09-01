@@ -125,6 +125,61 @@ test("runner records failed exits instead of throwing", async () => {
   }
 });
 
+test("W1.1 stopOnFailure halts the chain after the first non-passed command and records skipped evidence", async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), "cc-runner-"));
+  try {
+    const store = createReleaseCommandEvidenceStore({ dataRoot });
+    let npmCalls = 0;
+    const runner = fakeRunner({
+      get npm() {
+        npmCalls += 1;
+        return { code: npmCalls === 1 ? 0 : 4, stdout: "", stderr: npmCalls === 1 ? "" : "focused boom" };
+      },
+    });
+    const service = createTestReleaseCommandRunner({
+      appRoot: "I:/514claude/514cc/apps/control-center",
+      evidenceStore: store,
+      runner,
+    });
+    const result = await service.run({
+      commandIds: ["validate", "focusedTests", "fullTests", "browserQa"],
+      stopOnFailure: true,
+    });
+    // validate 通过，focusedTests 失败即停
+    assert.equal(result.evidence.validate.status, "passed");
+    assert.equal(result.evidence.focusedTests.status, "failed");
+    assert.equal(result.evidence.focusedTests.exitCode, 4);
+    assert.equal(result.evidence.fullTests.status, "skipped");
+    assert.equal(result.evidence.browserQa.status, "skipped");
+    assert.match(String(result.evidence.fullTests.note), /stop-on-failure after "focusedTests"/);
+    // 实际只执行了两个 npm 命令（validate + focusedTests），后两个未跑
+    const npmCount = runner.calls.filter((call) => call.command === "npm").length;
+    assert.equal(npmCount, 2);
+    // skipped 落账且不构成 release-ready 证据
+    const snapshot = await store.snapshot();
+    assert.equal(snapshot.fullTests.status, "skipped");
+  } finally {
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
+test("W1.1 default stopOnFailure=false runs the full selection (backward compatible)", async () => {
+  const dataRoot = await mkdtemp(join(tmpdir(), "cc-runner-"));
+  try {
+    const store = createReleaseCommandEvidenceStore({ dataRoot });
+    const service = createTestReleaseCommandRunner({
+      appRoot: "I:/514claude/514cc/apps/control-center",
+      evidenceStore: store,
+      runner: fakeRunner({ npm: { code: 2, stdout: "", stderr: "always fails" } }),
+    });
+    const result = await service.run({ commandIds: ["validate", "focusedTests"] });
+    assert.equal(result.evidence.validate.status, "failed");
+    assert.equal(result.evidence.focusedTests.status, "failed");
+  } finally {
+    await rm(dataRoot, { recursive: true, force: true });
+  }
+});
+
 test("runner refuses invalid selections, duplicate ids, and missing source commit", async () => {
   const dataRoot = await mkdtemp(join(tmpdir(), "cc-runner-"));
   try {

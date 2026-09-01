@@ -2459,7 +2459,7 @@ test("known primary failure cost reaches the interaction cap before fallback dis
     prompt: "route only",
     execute: false,
     permissionMode: "plan",
-    maxBudgetUsdPerTurn: 0.04,
+    maxBudgetUsdPerTurn: 0.05, // 预算合同下限 0.05（resolveBudgetUsdPerTurn floor）
   });
   const primary = fx.orchestrator.adapters.get("codex-technical");
   const fallback = fx.orchestrator.adapters.get("codex-technical-fallback");
@@ -4710,6 +4710,28 @@ test("unlimited budget run stores the sentinel, withholds the numeric cap from a
   assert.equal(fx.orchestrator.get(created.id).maxBudgetUsdPerTurn, "unlimited");
   await assert.rejects(
     () => fx.orchestrator.updateRunControls(created.id, { maxBudgetUsdPerTurn: 0.01 }),
+    { code: "VALIDATION_FAILED" },
+  );
+});
+
+test("W3.5 shadow pair forks a second read-only run with shadowOf linkage", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const { primary, shadow } = await fx.orchestrator.createShadowPair({
+    prompt: "shadow task",
+    execute: false,
+    permissionMode: "plan",
+    startAgentId: "claude-fable",
+    shadowAgentId: "codex-technical",
+  });
+  assert.notEqual(primary.id, shadow.id);
+  assert.equal(shadow.shadowOf, primary.id);
+  assert.equal(shadow.startAgentId, "codex-technical");
+  assert.equal(shadow.permissionMode, "plan");
+  assert.equal(primary.permissionMode, "plan");
+
+  await assert.rejects(
+    () => fx.orchestrator.createShadowPair({ prompt: "no shadow target", execute: false }),
     { code: "VALIDATION_FAILED" },
   );
 });

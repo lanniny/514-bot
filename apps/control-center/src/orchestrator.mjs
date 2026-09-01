@@ -13,6 +13,7 @@ import { normalizeRunSources, promptWithRunSources, visualSourceType } from "./r
 import { withManagedClipboardSourceRegistration } from "./clipboard-lifecycle.mjs";
 import { isAbnormalProviderTurnStop } from "./provider-turn-outcome.mjs";
 import { isPromptTransportError } from "./prompt-transport.mjs";
+import { createWorktreeLedger } from "./worktree-ledger.mjs";
 import {
   classifyAgentRoute,
   projectSocialContract,
@@ -423,6 +424,7 @@ export class Orchestrator {
     modelDiscovery = null,
     capabilities = null,
     storage = null,
+    macroStore = null, // W3.11 用户宏（/token 展开为普通提示词轮）；null=宏不可用
     remoteRunner = null, // v41 波二：远程 run 桥（ssh/remote-run.mjs）；null=远程 run 如实不可用
     repoRoot = null, // 远程 adapter 工厂表的 assertWithin 锚点（claude settings/grok 脚本 containment）
     interruptTimeoutMs = 30_000,
@@ -431,6 +433,8 @@ export class Orchestrator {
     this.adapters = adapters;
     this.eventStore = eventStore;
     this.dataRoot = dataRoot;
+    // W3.10 worktree 台账：建树/清树打点（append-only JSONL；dataRoot 缺失时如实退化为无台账）
+    this.worktreeLedger = dataRoot ? createWorktreeLedger({ dataRoot }) : null;
     this.policy = policy;
     this.approvalBroker = approvalBroker;
     this.teams = teams;
@@ -447,6 +451,7 @@ export class Orchestrator {
     this.models = models; // 可选：models.json 注册表（modelOptions 目录校验）；缺省回退 claude 白名单正则
     this.modelDiscovery = modelDiscovery; // 可选：CLI 原生动态目录（优先于静态 modelOptions/effortLevels）
     this.capabilities = capabilities; // dispatch 必需：缺失时 turn() fail-closed，不静默放行
+    this.macroStore = macroStore; // W3.11 用户宏：原生命令未命中时兜底展开（null=不可用）
     this.runs = new Map();
     this.controllers = new Map();
     this.executions = new Map();
@@ -4334,6 +4339,7 @@ export class Orchestrator {
       throw error;
     }
     await this.emitEvent(run, "run.worktree_created", { worktree: worktreePath, base: repoTop }, { runId: run.id });
+    await this.worktreeLedger?.recordCreated({ path: worktreePath, base: repoTop, runId: run.id, source: "run" }).catch(() => {});
     return worktreePath;
   }
 
@@ -4345,6 +4351,7 @@ export class Orchestrator {
     } catch {
       await execFileAsync("git", ["-C", run.worktreeBase, "worktree", "prune"], { timeout: 30_000 }).catch(() => {});
     }
+    await this.worktreeLedger?.recordRemoved({ path: run.worktreePath }).catch(() => {});
   }
 
   async claimResumeItem(run) {
@@ -5271,6 +5278,40 @@ ${rosterLine}
     return drain;
   }
 
+  /**
+   * W3.5 A/B shadow run：同一任务双成员并行。A 按原始输入创建；B 改派 shadowAgentId
+   * 并强制 plan（只读对照，不双写工作树），shadowOf 反向指路。两 run 各自走完整治理链，
+   * 对比报告走 GET /api/runs/compare?a=&b=。
+   */
+  async createShadowPair(input = {}) {
+    const { shadowAgentId, ...baseInput } = input;
+    const shadowTarget = String(shadowAgentId || "").trim();
+    if (!shadowTarget) {
+      throw Object.assign(new Error("shadowAgentId is required for shadow pair"), { code: "VALIDATION_FAILED" });
+    }
+    const primary = await this.create(baseInput);
+    let shadow;
+    try {
+      shadow = await this.create({
+        ...baseInput,
+        startAgentId: shadowTarget,
+        requestedProvider: undefined, // 防止 A 的 provider 与 B 的 startAgentId 不一致被一致性门拒绝
+        permissionMode: "plan",
+      });
+      shadow.shadowOf = primary.id;
+      await this.save(shadow);
+    } catch (error) {
+      // 对照腿建不出来时不留孤儿主腿：如实失败，让调用方决定是否重试
+      try {
+        await this.cancel(primary.id);
+      } catch {
+        // 取消失败不影响原始错误抛出
+      }
+      throw error;
+    }
+    return { primary, shadow };
+  }
+
   async continue(id, request = {}) {
     const run = this.get(id);
     if (run.status === "cancelled") {
@@ -5348,7 +5389,7 @@ ${rosterLine}
     const pendingAskOwnerId = String(run.pendingAsk?.from || "").trim();
     agentId = agentId || (run.pendingAsk && messageIntent !== "steer" ? pendingAskOwnerId : executionOwnerIdOf(run));
     if (this.closing) throw Object.assign(new Error("control plane is shutting down"), { code: "CONTROL_PLANE_CLOSING" });
-    const nextPrompt = String(prompt || "").trim();
+    let nextPrompt = String(prompt || "").trim();
     if (!nextPrompt) throw Object.assign(new Error("prompt is required"), { code: "INVALID_PROMPT" });
     if (Buffer.byteLength(nextPrompt, "utf8") > 256 * 1024) throw Object.assign(new Error("prompt exceeds 256 KiB"), { code: "INVALID_PROMPT" });
     if (findSecretCandidates(nextPrompt).length) throw Object.assign(new Error("prompt contains secret-like material"), { code: "SENSITIVE_PROMPT" });
@@ -5394,7 +5435,14 @@ ${rosterLine}
       const template = adapterTemplateForRuntimeProfileId(runtimeProfileId);
       const resolved = resolveNativeCommand(template, nextPrompt);
       if (!resolved.ok) {
-        throw Object.assign(new Error(resolved.message), { code: resolved.code || "NATIVE_COMMAND_UNSUPPORTED" });
+        // W3.11 用户宏兜底：不是 CLI 原生命令时先查宏表，命中即降级为普通提示词轮；
+        // 未命中保持原样 fail-closed（不假装任何 /token 都能执行）
+        const expanded = this.macroStore ? await this.macroStore.expand(nextPrompt) : null;
+        if (expanded == null) {
+          throw Object.assign(new Error(resolved.message), { code: resolved.code || "NATIVE_COMMAND_UNSUPPORTED" });
+        }
+        nextPrompt = expanded;
+        nativeCommand = false;
       }
     }
     // 显式 answerToAskId 是 answer 所有权凭据；messageIntent 区分新客户端的 answer/steer。

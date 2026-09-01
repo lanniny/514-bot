@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import {
   assertPackageLockConsistent,
   classifyOwnedPath,
@@ -12,8 +13,18 @@ import {
   renderDeliveryReport,
 } from "../scripts/qa-delivery-manifest.mjs";
 
+async function rmRetry(path, attempts = 3) {
+  for (let i = 0; i < attempts; i++) {
+    try { return await rm(path, { recursive: true, force: true }); }
+    catch (err) {
+      if (err.code !== "EBUSY" || i === attempts - 1) throw err;
+      await new Promise((r) => setTimeout(r, 100 * (i + 1)));
+    }
+  }
+}
+
 async function createGitFixture() {
-  const root = await mkdtemp(resolve(process.cwd(), ".test-delivery-manifest-"));
+  const root = await mkdtemp(join(tmpdir(), "514cc-delivery-manifest-"));
   const files = [
     "apps/control-center/src/kept.mjs",
     "apps/control-center/tests/kept.test.mjs",
@@ -34,7 +45,7 @@ async function createGitFixture() {
 
 test("delivery manifest reports untracked source/tests and deleted tracked files", async (t) => {
   const root = await createGitFixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rmRetry(root));
   await writeFile(resolve(root, "apps/control-center/src/new.mjs"), "export default false;\n", "utf8");
   await writeFile(resolve(root, "apps/control-center/tests/new.test.mjs"), "// untracked test\n", "utf8");
   await writeFile(resolve(root, "apps/control-center/public/preview.png"), "not a code file\n", "utf8");
@@ -63,7 +74,7 @@ test("delivery manifest reports untracked source/tests and deleted tracked files
 
 test("desktop manifest closes the Tauri source tree and excludes target/ build artifacts", async (t) => {
   const root = await createGitFixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rmRetry(root));
   const desktop = [
     "apps/desktop/src-tauri/Cargo.toml",
     "apps/desktop/src-tauri/src/main.rs",
@@ -99,7 +110,7 @@ test("desktop manifest closes the Tauri source tree and excludes target/ build a
 });
 test("delivery manifest is clean when physical focus files equal Git delivery set", async (t) => {
   const root = await createGitFixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rmRetry(root));
   const manifest = await collectDeliveryManifest({
     repoRoot: root,
     focusPaths: ["apps/control-center/src", "apps/control-center/public", "apps/control-center/tests"],
@@ -111,7 +122,7 @@ test("delivery manifest is clean when physical focus files equal Git delivery se
 
 test("delivery manifest excludes Git-ignored local artifacts from the delivery set", async (t) => {
   const root = await createGitFixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rmRetry(root));
   await writeFile(resolve(root, ".gitignore"), "apps/control-center/public/scratch-preview-*.html\n", "utf8");
   await writeFile(
     resolve(root, "apps/control-center/public/scratch-preview-local.html"),
@@ -138,7 +149,7 @@ test("delivery manifest rejects focus paths outside repository root", async () =
 
 test("delivery manifest CLI contract keeps report mode non-blocking and strict mode blocking", async (t) => {
   const root = await createGitFixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rmRetry(root));
   await writeFile(resolve(root, "apps/control-center/src/untracked.mjs"), "export default false;\n", "utf8");
   const stdout = { value: "", write(chunk) { this.value += chunk; } };
   const stderr = { value: "", write(chunk) { this.value += chunk; } };
@@ -154,7 +165,7 @@ test("delivery manifest CLI contract keeps report mode non-blocking and strict m
 
 test("delivery manifest deduplicates repeated focus roots and rejects a symlinked root outside the repository", async (t) => {
   const root = await createGitFixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rmRetry(root));
   const manifest = await collectDeliveryManifest({
     repoRoot: root,
     focusPaths: ["apps/control-center/src", "apps/control-center/src"],
@@ -162,8 +173,8 @@ test("delivery manifest deduplicates repeated focus roots and rejects a symlinke
   assert.equal(manifest.focusPaths.length, 1);
   assert.equal(manifest.physicalFiles.length, 1);
 
-  const outside = await mkdtemp(resolve(process.cwd(), ".test-delivery-outside-"));
-  t.after(() => rm(outside, { recursive: true, force: true }));
+  const outside = await mkdtemp(join(tmpdir(), "514cc-delivery-outside-"));
+  t.after(() => rmRetry(outside));
   const linkPath = resolve(root, "apps/control-center/outside-link");
   const { symlink } = await import("node:fs/promises");
   await symlink(outside, linkPath, process.platform === "win32" ? "junction" : "dir");
@@ -173,16 +184,17 @@ test("delivery manifest deduplicates repeated focus roots and rejects a symlinke
   );
 });
 
-test("delivery ownership treats declared scratch as intentional and undeclared source as strict fail", async (t) => {
+test("delivery ownership separates declared must-ship, intentional scratch, and undeclared source", async (t) => {
   const root = await createGitFixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rmRetry(root));
   await writeFile(resolve(root, "apps/control-center/src/new.mjs"), "export default false;\n", "utf8");
   await writeFile(resolve(root, "apps/control-center/src/local-scratch.mjs"), "export default false;\n", "utf8");
+  await writeFile(resolve(root, "apps/control-center/src/unowned.mjs"), "export default false;\n", "utf8");
   await writeFile(resolve(root, "apps/control-center/delivery-ownership.json"), `${JSON.stringify({
     schema: "514cc.delivery-ownership/v1",
     cut: { id: "fixture", formalRelease: false },
     rules: [
-      { pattern: "apps/control-center/src/**", class: "must_ship", owner: "control-center", kind: "source" },
+      { pattern: "apps/control-center/src/new.mjs", class: "must_ship", owner: "control-center", kind: "source" },
       { pattern: "apps/control-center/src/local-scratch.mjs", class: "scratch", owner: "qa", kind: "scratch" },
     ],
   }, null, 2)}\n`, "utf8");
@@ -192,11 +204,15 @@ test("delivery ownership treats declared scratch as intentional and undeclared s
     focusPaths: ["apps/control-center/src"],
   });
   assert.deepEqual(manifest.ownership.intentionalUntracked, ["apps/control-center/src/local-scratch.mjs"]);
-  assert.deepEqual(manifest.ownership.undeclaredSourceOrTests, ["apps/control-center/src/new.mjs"]);
+  assert.deepEqual(manifest.ownership.declaredMustShipSourceOrTests, ["apps/control-center/src/new.mjs"]);
+  assert.deepEqual(manifest.ownership.undeclaredSourceOrTests, ["apps/control-center/src/unowned.mjs"]);
   assert.equal(manifest.strictFailure, true);
+  const report = renderDeliveryReport(manifest);
+  assert.match(report, /declared but untracked source\/test: 1[\s\S]*src\/new\.mjs/);
+  assert.match(report, /undeclared source\/test: 1[\s\S]*src\/unowned\.mjs/);
   assert.equal(classifyOwnedPath("apps/control-center/src/local-scratch.mjs", manifest.ownership && {
     rules: [
-      { pattern: "apps/control-center/src/**", class: "must_ship", owner: "control-center", kind: "source" },
+      { pattern: "apps/control-center/src/new.mjs", class: "must_ship", owner: "control-center", kind: "source" },
       { pattern: "apps/control-center/src/local-scratch.mjs", class: "scratch", owner: "qa", kind: "scratch" },
     ],
   }).class, "scratch");
@@ -217,7 +233,7 @@ test("package-lock consistency rejects missing declared packages", () => {
 });
 
 test("delivery manifest CLI reports repository probe failures with exit code 2", async (t) => {
-  const root = await mkdtemp(resolve(process.cwd(), ".test-delivery-not-git-"));
+  const root = await mkdtemp(join(tmpdir(), "514cc-delivery-not-git-"));
   t.after(async () => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       try {

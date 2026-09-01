@@ -45,6 +45,7 @@ export function createRuntimeSeatManager({
   ensureProviders,
   onCatalogChanged,
   onModeChanged,
+  onLoadStateChanged,
   onSelectionChanged,
   onOpenMember,
   onConnectionContextChanged,
@@ -158,7 +159,7 @@ export function createRuntimeSeatManager({
       const coordinator = live?.coordinatorEligible === true;
       const brand = seatBrand(seat.adapter);
       const logo = typeof cliIconMarkup === "function" ? cliIconMarkup(brand, "runtime-seat-logo") : "";
-      const icon = logo || '<svg class="icon lucide"><use href="#lucide-cpu"></use></svg>';
+      const icon = logo || '<svg aria-hidden="true" class="icon lucide"><use href="#lucide-cpu"></use></svg>';
       return `<button class="runtime-seat-item${active ? " is-active" : ""}" type="button" role="option" aria-selected="${active}" data-runtime-seat-id="${escapeHtml(seat.id)}" data-brand="${escapeHtml(brand)}">
         <span class="runtime-seat-item-icon" aria-hidden="true">${icon}</span>
         <span class="runtime-seat-item-copy"><strong>${escapeHtml(seat.label || seat.id)}</strong><span>${escapeHtml(live?.adapterLabel || seat.adapter || "未选择 Adapter")}</span></span>
@@ -795,7 +796,7 @@ export function createRuntimeSeatManager({
       }
       return result;
     }
-    if (!fresh && state.runtimeSeatsData && state.adapterTemplatesData) {
+    if (!fresh && state.runtimeSeatsData && !state.runtimeSeatsData.error && state.adapterTemplatesData) {
       renderList();
       if (preferredId) await focus(preferredId);
       return true;
@@ -804,6 +805,7 @@ export function createRuntimeSeatManager({
     const operation = (async () => {
       state.runtimeSeatsLoading = true;
       renderList();
+      onLoadStateChanged?.();
       try {
         const [templatePayload, seatPayload] = await Promise.all([
           request(api.adapterTemplates),
@@ -816,6 +818,7 @@ export function createRuntimeSeatManager({
         state.runtimeSeatsData = Array.isArray(seatPayload)
           ? { seats: seatPayload, runtimeProfiles: seatPayload }
           : { ...seatPayload, seats: seatPayload?.seats || [], runtimeProfiles: seatPayload?.runtimeProfiles || [] };
+        onLoadStateChanged?.();
         renderList();
         const targetId = preferredId || state.configRuntimeFocusId || source?.id || state.selectedRuntimeSeatId;
         if (!preserveDraft || !dirty) {
@@ -827,13 +830,15 @@ export function createRuntimeSeatManager({
         }
         return true;
       } catch (error) {
-        state.runtimeSeatsData = state.runtimeSeatsData || { seats: [], runtimeProfiles: [], error: error.message };
+        state.runtimeSeatsData = { seats: [], runtimeProfiles: [], error: error.message };
+        onLoadStateChanged?.();
         setStatus("读取失败", "error");
         toast(`运行席位读取失败：${error.message}`, "error", 7000);
         return false;
       } finally {
         state.runtimeSeatsLoading = false;
         renderList();
+        onLoadStateChanged?.();
       }
     })();
     loadPromise = operation;
@@ -870,7 +875,7 @@ export function createRuntimeSeatManager({
 
   async function focus(id, { scroll = true } = {}) {
     setMode("seats", { focus: false });
-    if (!state.runtimeSeatsData || !state.adapterTemplatesData) await load();
+    if (!state.runtimeSeatsData || state.runtimeSeatsData.error || !state.adapterTemplatesData) await load();
     const target = seatById(id) || seats()[0] || null;
     if (!target) {
       showEmpty();
@@ -884,7 +889,7 @@ export function createRuntimeSeatManager({
 
   async function create() {
     setMode("seats", { focus: false });
-    if (!state.runtimeSeatsData || !state.adapterTemplatesData) await load();
+    if (!state.runtimeSeatsData || state.runtimeSeatsData.error || !state.adapterTemplatesData) await load();
     if (!await canDiscard()) return false;
     renderEditor(blankSeat(), { isNew: true });
     requestAnimationFrame(() => byId("runtime-seat-id-input")?.focus({ preventScroll: true }));

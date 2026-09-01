@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex, TryLockError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use serde::Deserialize;
 use tauri::{
     webview::PageLoadEvent, AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindowBuilder,
 };
@@ -1102,6 +1103,67 @@ fn start_stdout_reader(
     spawned
 }
 
+/// 实例锁文件结构（与 kernel 端 instance-lock.mjs 写入的 JSON 对齐）。
+#[derive(Deserialize)]
+struct LockOwner {
+    pid: u32,
+    #[serde(default)]
+    image: String,
+}
+
+/// 启动前清理上一代残留的孤儿内核。
+///
+/// 桌面端崩溃 / 被任务管理器强杀 / 断电时，内核进程可能未被清理，仍持有实例锁。
+/// 新桌面端启动后，内核读取到锁文件中 PID 仍在运行 → INSTANCE_ACTIVE → stdout EOF →
+/// 桌面端重试 2 次后弹 "内核多次在握手前退出" 错误框。
+///
+/// 此函数在 supervisor 启动内核之前执行：读锁文件 → 杀残留 PID → 删锁文件。
+/// 安全性：单实例插件保证只有一个桌面端；如果我们要启动内核，不应有已存在的内核。
+fn kill_orphan_kernel() {
+    let lock_path = repo_root()
+        .join(".ai-shared")
+        .join("control-center")
+        .join("control-center.lock");
+    let content = match std::fs::read_to_string(&lock_path) {
+        Ok(c) => c,
+        Err(_) => return, // 无锁文件 = 无孤儿
+    };
+    let owner: LockOwner = match serde_json::from_str(&content) {
+        Ok(o) => o,
+        Err(_) => {
+            boot_log("malformed lock file; removing");
+            let _ = std::fs::remove_file(&lock_path);
+            return;
+        }
+    };
+    if owner.pid == std::process::id() {
+        return; // 自己不动
+    }
+    boot_log(&format!(
+        "stale lock found (PID {}, image {}); killing orphan",
+        owner.pid, owner.image
+    ));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let _ = Command::new("taskkill")
+            .args(["/PID", &owner.pid.to_string(), "/T", "/F"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = Command::new("kill")
+            .args(["-9", &owner.pid.to_string()])
+            .status();
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    let _ = std::fs::remove_file(&lock_path);
+    boot_log(&format!("orphan kernel PID {} cleaned", owner.pid));
+}
+
 /// supervisor：独占 Child，事件驱动。返回前保证内核树已清理（有界）。
 /// exit_requested：主线程在 RunEvent::ExitRequested 时提早置位的共享退出意图——
 /// 早于 Exit 阶段的 Shutdown 消息，堵"内核死亡与关窗竞速导致误记异常退出码"（烛 R3）。
@@ -1112,6 +1174,7 @@ fn supervisor(
     exit_requested: Arc<AtomicBool>,
     window_launch_state: Arc<WindowLaunchState>,
 ) {
+    kill_orphan_kernel();
     // 每次内核启动都挑当次空闲端口（重试时再换新端口），从构造上避开僵尸/残留进程的端口占用。
     let mut kernel_port = pick_free_kernel_port();
     let mut retries_left = KERNEL_START_RETRIES;

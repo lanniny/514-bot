@@ -202,7 +202,7 @@ test("terminal mount waits for token bootstrap and offers a retry", async () => 
   // 错误文案来自后端，进 innerHTML 前必须转义
   assert.match(terminal, /escapeHtml\(String\(error\?\.message/);
   assert.match(terminal, /import \{ escapeHtml \} from "\.\/utils\.js"/);
-  assert.match(server, /"\/utils\.js": "utils\.js"/);
+  assert.match(await source("src/static-assets.mjs"), /"\/utils\.js": "utils\.js"/);
 });
 
 // LO 2026-08-08：打开终端后打不出字。输入失败被 `.catch(() => {})` 静默吞掉，

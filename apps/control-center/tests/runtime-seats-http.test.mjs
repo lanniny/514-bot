@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnTestServer, stopTestServer, waitForUrl } from "./server-fixture.mjs";
@@ -62,7 +63,7 @@ async function createIsolatedRepo(root) {
 }
 
 test("Provider -> runtime seat -> member -> non-Claude coordinator is editable without JSON", { timeout: 120_000 }, async (t) => {
-  const root = await mkdtemp(resolve(appRoot, ".test-runtime-seats-http-"));
+  const root = await mkdtemp(resolve(tmpdir(), "514cc-runtime-seats-http-"));
   const repoRoot = await createIsolatedRepo(root);
   const dataRoot = resolve(root, "data");
   const runtimeHome = resolve(root, "home");

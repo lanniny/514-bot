@@ -231,8 +231,11 @@ export async function collectDeliveryManifest({
     path,
     ...(classifyOwnedPath(path, ownership) || { class: "undeclared", owner: "unassigned", kind: "source" }),
   }));
+  const declaredMustShipSourceOrTests = classifiedUntracked
+    .filter((item) => item.class === "must_ship")
+    .map((item) => item.path);
   const undeclaredSourceOrTests = classifiedUntracked
-    .filter((item) => item.class === "undeclared" || item.class === "must_ship")
+    .filter((item) => item.class === "undeclared")
     .map((item) => item.path);
   const intentionalUntracked = classifiedUntracked
     .filter((item) => INTENTIONAL_UNTRACKED.has(item.class))
@@ -244,7 +247,7 @@ export async function collectDeliveryManifest({
     doc: [...trackedFiles].filter((path) => classifyOwnedPath(path, ownership)?.kind === "doc").length,
   };
   const strictFailure = ownership
-    ? undeclaredSourceOrTests.length > 0 || missingSourceOrTests.length > 0
+    ? declaredMustShipSourceOrTests.length > 0 || undeclaredSourceOrTests.length > 0 || missingSourceOrTests.length > 0
     : untrackedSourceOrTests.length > 0 || missingSourceOrTests.length > 0;
 
   return {
@@ -260,6 +263,7 @@ export async function collectDeliveryManifest({
       ? {
         schema: ownership.schema || null,
         cut: ownership.cut || null,
+        declaredMustShipSourceOrTests,
         undeclaredSourceOrTests,
         intentionalUntracked,
         classifiedUntracked,
@@ -305,7 +309,8 @@ export function renderDeliveryReport(manifest, { json = false, desktop = false }
     `associations: source=${manifest.associations?.source ?? 0} test=${manifest.associations?.test ?? 0} config=${manifest.associations?.config ?? 0} doc=${manifest.associations?.doc ?? 0}`,
     `status: ${manifest.clean ? "clean" : "drift"}; strict: ${manifest.strictFailure ? "fail" : "pass"}`,
     `excluded targets: ${desktop ? DESKTOP_EXCLUDE_SCOPE_PATHS.join(", ") : "none"}`,
-    formatList("undeclared source/test", manifest.ownership?.undeclaredSourceOrTests || manifest.untrackedSourceOrTests),
+    formatList("declared but untracked source/test", manifest.ownership?.declaredMustShipSourceOrTests || []),
+    formatList("undeclared source/test", manifest.ownership?.undeclaredSourceOrTests || (manifest.ownership ? [] : manifest.untrackedSourceOrTests)),
     formatList("intentional untracked", manifest.ownership?.intentionalUntracked || []),
     formatList("untracked source/test", manifest.untrackedSourceOrTests),
     formatList("untracked other focus files", manifest.untrackedFiles.filter((entry) => !manifest.untrackedSourceOrTests.includes(entry))),

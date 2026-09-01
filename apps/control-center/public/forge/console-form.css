@@ -20,7 +20,7 @@
   padding: 0 10px;
   gap: 9px;
   border-radius: 8px;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   font-weight: 500;
   letter-spacing: 0;
 }
@@ -44,7 +44,7 @@
   background: transparent;
   color: var(--text-soft);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 9.5px;
+  font-size: var(--text-xs);
   line-height: 1.4;
   opacity: 0.75;
 }
@@ -79,7 +79,7 @@
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
-  font-size: 10.5px;
+  font-size: var(--text-xs);
 }
 
 .run-rail .rail-run-sub .rail-run-state {
@@ -89,7 +89,7 @@
 .run-rail .rail-run-sub .rail-run-time {
   color: var(--text-soft);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--text-xs);
 }
 
 .run-rail .account-dock {
@@ -110,7 +110,7 @@
 }
 
 #view-workbench .conversation-heading h2 {
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -127,7 +127,7 @@
   background: var(--surface-muted);
   color: var(--text-soft);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -160,15 +160,15 @@
   width: 24px;
   height: 24px;
   border-radius: 7px;
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .conversation-stream .message-head {
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .conversation-stream .message-body {
-  font-size: 13px;
+  font-size: var(--text-sm);
   line-height: 1.7;
 }
 
@@ -181,7 +181,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .process-card.is-error {
@@ -192,7 +192,7 @@
   gap: 7px;
   padding: 4px 8px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -208,7 +208,7 @@
 }
 
 .process-card .process-summary-text {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
@@ -222,7 +222,7 @@
   display: inline-flex;
   gap: 6px;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-style: normal;
   line-height: 1.5;
 }
@@ -257,7 +257,7 @@
   margin: 10px auto;
   padding: 3px 16px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-align: center;
 }
 
@@ -342,7 +342,7 @@
   border-radius: 7px;
   background: transparent;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-xs);
   text-align: left;
   cursor: pointer;
 }
@@ -394,7 +394,7 @@
   border-radius: 999px;
   background: transparent;
   color: var(--text);
-  font-size: 11.5px;
+  font-size: var(--text-xs);
   line-height: 1;
   cursor: pointer;
 }
@@ -413,7 +413,7 @@
 .pick-pill-kicker {
   flex: 0 0 auto;
   color: var(--text-soft);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
 }
 
 .pick-pill-label {
@@ -460,7 +460,7 @@
   border-radius: 10px;
   background: transparent;
   color: var(--text);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   line-height: 1.35;
   text-align: left;
   cursor: pointer;
@@ -471,7 +471,7 @@
   display: block;
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   line-height: 1.4;
 }
 
@@ -479,7 +479,7 @@
   display: inline-block;
   margin-right: 5px;
   color: var(--info);
-  font-size: 13px;
+  font-size: var(--text-sm);
   font-weight: 700;
   line-height: 1;
 }
@@ -506,7 +506,7 @@
 .budget-menu-editor-prefix {
   flex: 0 0 auto;
   color: var(--text-soft);
-  font-size: 11.5px;
+  font-size: var(--text-xs);
 }
 
 .budget-menu-editor input {
@@ -518,7 +518,7 @@
   border-radius: 7px;
   background: var(--surface);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .budget-menu-editor input:focus {
@@ -530,7 +530,7 @@
   flex: 0 0 auto;
   min-height: 26px;
   padding: 0 10px;
-  font-size: 11.5px;
+  font-size: var(--text-xs);
 }
 
 .pick-menu-row:hover,
@@ -555,7 +555,7 @@
 .pick-menu-check {
   flex: 0 0 auto;
   display: inline-flex;
-  color: var(--rose);
+  color: var(--accent-ink);
 }
 
 .composer-footer .composer-session-controls {
@@ -566,7 +566,7 @@
   border-radius: 999px;
   background: transparent;
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .composer-footer .composer-session-controls .icon {
@@ -648,7 +648,7 @@
   background: transparent;
   color: var(--text-soft);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   line-height: 1.5;
   white-space: nowrap;
 }
@@ -697,7 +697,7 @@ button.conv-chip:hover {
   border-radius: 999px;
   background: var(--surface-muted);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--text-xs);
   cursor: pointer;
 }
 
@@ -713,7 +713,7 @@ button.conv-chip:hover {
 
 #changes-pill em {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10.5px;
+  font-size: var(--text-xs);
   font-style: normal;
 }
 
@@ -747,7 +747,7 @@ button.conv-chip:hover {
   background: transparent;
   color: var(--text-soft);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 10px;
+  font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -779,7 +779,7 @@ button.conv-chip:hover {
   background: transparent;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 120ms ease;
+  transition: opacity var(--dur-instant) ease;
 }
 
 /* 横杠本体：居中 8px 发丝线 */
@@ -814,8 +814,8 @@ button.conv-chip:hover {
 .message-row.is-collapsed .message-content {
   max-height: 22px;
   overflow: hidden;
-  -webkit-mask-image: linear-gradient(to right, #000 62%, transparent);
-  mask-image: linear-gradient(to right, #000 62%, transparent);
+  -webkit-mask-image: linear-gradient(to right, var(--ink-absolute) 62%, transparent);
+  mask-image: linear-gradient(to right, var(--ink-absolute) 62%, transparent);
 }
 
 .message-row.is-collapsed .message-head time {
@@ -860,7 +860,7 @@ button.conv-chip:hover {
   border-radius: 50%;
   background: transparent;
   color: var(--text-soft);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1;
   cursor: pointer;
   opacity: 0.55;
@@ -888,7 +888,7 @@ button.conv-chip:hover {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: var(--text-xs);
 }
 
 .approval-fact > span {
@@ -898,7 +898,7 @@ button.conv-chip:hover {
 
 .approval-fact > code {
   font-family: var(--mono);
-  font-size: 11px;
+  font-size: var(--text-xs);
   overflow-wrap: anywhere;
 }
 
@@ -909,7 +909,7 @@ button.conv-chip:hover {
 .approval-tech > summary {
   cursor: pointer;
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--text-xs);
   user-select: none;
 }
 
@@ -939,7 +939,7 @@ button.conv-chip:hover {
   gap: 7px;
   padding: 4px 8px;
   border-radius: 8px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -949,14 +949,14 @@ button.conv-chip:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
 .live-process-row .live-elapsed {
   flex: 0 0 auto;
   color: var(--text-soft);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 .live-process-spin {
@@ -969,7 +969,7 @@ button.conv-chip:hover {
 /* 步进进度条：与过程行同律的扁平行；有文件段时可展开 per-file 明细 */
 .turn-progress {
   margin-block: 2px;
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 .turn-progress-line,
@@ -1016,7 +1016,7 @@ button.conv-chip:hover {
   display: inline-flex;
   margin-left: auto;
   color: var(--text-soft);
-  transition: transform var(--dur-fast, 100ms) ease;
+  transition: transform var(--dur-fast, var(--dur-instant)) ease;
 }
 
 .turn-progress-caret .icon {
@@ -1041,7 +1041,7 @@ button.conv-chip:hover {
   display: flex;
   align-items: center;
   gap: 7px;
-  font-size: 11.5px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -1049,7 +1049,7 @@ button.conv-chip:hover {
   flex: 1 1 auto;
   min-width: 0;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   overflow-wrap: anywhere;
 }
@@ -1183,7 +1183,7 @@ button.conv-chip:hover {
 /* 关闭钮 hover 玫瑰红（Windows 惯例），其余两钮保持中性 */
 .window-control-button.is-close:hover {
   background: var(--rose-bright);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* 拖拽区手感：topbar 空白处禁止文本选择，避免拖动时选中面包屑文字 */
@@ -1241,15 +1241,15 @@ button.conv-chip:hover {
   color: var(--text-soft);
   cursor: pointer;
   transition:
-    background var(--dur-fast, 100ms) var(--ease-out, ease),
-    color var(--dur-fast, 100ms) var(--ease-out, ease),
-    transform var(--dur-fast, 100ms) var(--ease-out, ease),
-    opacity var(--dur-fast, 100ms) var(--ease-out, ease);
+    background var(--dur-fast, var(--dur-instant)) var(--ease-out, ease),
+    color var(--dur-fast, var(--dur-instant)) var(--ease-out, ease),
+    transform var(--dur-fast, var(--dur-instant)) var(--ease-out, ease),
+    opacity var(--dur-fast, var(--dur-instant)) var(--ease-out, ease);
 }
 
 .chrome-icon-button .icon {
   display: block;
-  transition: transform var(--dur-med, 150ms) var(--ease-out, ease);
+  transition: transform var(--dur-med, var(--dur-fast)) var(--ease-out, ease);
 }
 
 .chrome-icon-button:hover:not(:disabled) {
@@ -1328,7 +1328,7 @@ button.conv-chip:hover {
   border-radius: 6px;
   background: transparent;
   color: var(--text-soft);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   white-space: nowrap;
 }
 
@@ -1356,7 +1356,7 @@ body.atelier .topbar {
 /* 工作台壳铺 chrome 底色：卡片三边缝隙与圆角缺口透出同一色调（取代八轮 ::before 补丁） */
 .atelier .workbench-shell {
   background: var(--sidebar);
-  transition: grid-template-columns 280ms cubic-bezier(0.32, 0.72, 0, 1);
+  transition: grid-template-columns var(--dur-base) cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 /* 对话卡片立体浮起：顶部 8px 缝隙 + 投影；右/下不留空贴齐窗口边缘（LO 第九轮追加指令），
@@ -1366,8 +1366,8 @@ body.atelier .topbar {
   border-radius: 12px 0 0 0;
   box-shadow: 0 1px 2px rgba(59, 48, 38, 0.06), 0 10px 28px rgba(59, 48, 38, 0.10);
   transition:
-    margin-left 280ms cubic-bezier(0.32, 0.72, 0, 1),
-    border-radius 280ms cubic-bezier(0.32, 0.72, 0, 1);
+    margin-left var(--dur-base) cubic-bezier(0.32, 0.72, 0, 1),
+    border-radius var(--dur-base) cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 [data-theme="dark"] .atelier .conversation-pane {
@@ -1402,3 +1402,31 @@ body.atelier .topbar {
 }
 
 /* Bot 工作面的最终视觉所有权在 bot-shell.css；这里不再撤下 514cc chrome。 */
+
+/* 移动顶栏只保留导航、当前视图、命令与连接状态。桌面菜单簇和低频工具
+ * 在 390px 会把 topbar 撑出视口；它们仍可通过汉堡、命令面板和视图内入口访问。 */
+@media (max-width: 560px) {
+  body.atelier .topbar {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .topbar-brand,
+  .chrome-menus,
+  .topbar-actions #theme-toggle,
+  .topbar-actions #refresh-button,
+  .topbar-actions #global-terminal-toggle,
+  .topbar-actions #global-mc-toggle {
+    display: none;
+  }
+
+  .topbar-title,
+  .topbar-actions {
+    min-width: 0;
+  }
+
+  .topbar-actions {
+    flex: 0 0 auto;
+    overflow: hidden;
+  }
+}

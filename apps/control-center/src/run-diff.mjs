@@ -112,3 +112,36 @@ export async function runDiffForRun(run, { runner = runProcess } = {}) {
     truncated,
   };
 }
+
+// W3.17 会话对比报告：把 runDiffForRun 的结果渲染成可分享 Markdown（进 artifact 预览体系）。
+// 纯投影：输入即 run-diff 输出，不重新执行 git。
+export function renderDiffMarkdown(diff, { generatedAt = new Date().toISOString() } = {}) {
+  const runId = String(diff?.runId || "?");
+  const lines = [];
+  lines.push("# Run 产物对比报告");
+  lines.push("");
+  lines.push(`- 生成时间：${generatedAt}`);
+  lines.push(`- Run：\`${runId}\``);
+  lines.push(`- 工作树：${diff?.worktree ?? "–"}（基线 ${diff?.base ?? "–"}）`);
+  lines.push(`- 截断：${diff?.truncated ? "是（diff 超 200KB）" : "否"}`);
+  lines.push("");
+  lines.push("## 变更统计");
+  lines.push("");
+  lines.push("```");
+  lines.push(String(diff?.stat || "（无变更）"));
+  lines.push("```");
+  lines.push("");
+  lines.push("## 工作树状态");
+  lines.push("");
+  lines.push("```");
+  lines.push(String(diff?.status || "clean"));
+  lines.push("```");
+  lines.push("");
+  lines.push("## Diff");
+  lines.push("");
+  lines.push("```diff");
+  lines.push(String(diff?.diff || "（无变更）"));
+  lines.push("```");
+  lines.push("");
+  return lines.join("\n");
+}

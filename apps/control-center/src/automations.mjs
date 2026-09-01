@@ -83,6 +83,63 @@ export function scheduleIntervalMs(schedule) {
   return amount * UNIT_MS[match[2]];
 }
 
+// W3.4 定时派工：`at:HH:mm`（每日）| `at:HH:mm@<周几列表>`（1=周一…7=周日）。
+// 与间隔制互斥；水位线语义 = lastRunAt 之前的槽位视为已消费，重启/漏跑不双发、
+// 错过的槽位在下个 tick 至多补跑一次。本地时区语义（DST 侧漏由水位线兜底，不重复触发）。
+const AT_SCHEDULE_PATTERN = /^at:(\d{2}):(\d{2})(?:@([1-7](?:,[1-7])*))?$/;
+
+export function parseAtSchedule(schedule) {
+  const match = AT_SCHEDULE_PATTERN.exec(String(schedule ?? "").trim());
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour > 23 || minute > 59) return null;
+  return { hour, minute, dows: match[3] ? match[3].split(",").map(Number) : null };
+}
+
+function slotMsForDay(base, hour, minute, dayOffset) {
+  const slot = new Date(base);
+  slot.setHours(hour, minute, 0, 0);
+  slot.setDate(slot.getDate() + dayOffset);
+  return slot.getTime();
+}
+
+/** 最近的"待消费"触发槽位：watermark < slot <= now；漏跑多天合并取最新槽位；无则 null。 */
+export function dueAtFireMs(schedule, watermarkMs, nowMs) {
+  const parsed = parseAtSchedule(schedule);
+  if (!parsed) return null;
+  const watermark = Number.isFinite(watermarkMs) ? watermarkMs : 0;
+  const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+  let latest = null;
+  for (let dayOffset = -8; dayOffset <= 1; dayOffset += 1) {
+    const slot = slotMsForDay(now, parsed.hour, parsed.minute, dayOffset);
+    if (slot <= watermark || slot > now) continue;
+    if (parsed.dows) {
+      const dow = ((slot === 0 ? 7 : new Date(slot).getDay()) || 7); // 1=周一…7=周日
+      if (!parsed.dows.includes(dow)) continue;
+    }
+    if (latest === null || slot > latest) latest = slot;
+  }
+  return latest;
+}
+
+/** 下一个将到来的触发槽位（UI 预览用）：slot > afterMs。 */
+export function nextAtFireMs(schedule, afterMs = Date.now()) {
+  const parsed = parseAtSchedule(schedule);
+  if (!parsed) return null;
+  const after = Number.isFinite(afterMs) ? afterMs : Date.now();
+  for (let dayOffset = 0; dayOffset <= 8; dayOffset += 1) {
+    const slot = slotMsForDay(after, parsed.hour, parsed.minute, dayOffset);
+    if (slot <= after) continue;
+    if (parsed.dows) {
+      const dow = ((slot === 0 ? 7 : new Date(slot).getDay()) || 7);
+      if (!parsed.dows.includes(dow)) continue;
+    }
+    return slot;
+  }
+  return null;
+}
+
 function validateInput(input = {}) {
   const name = String(input.name ?? "").trim().slice(0, 80);
   if (!name) throw Object.assign(new Error("automation name is required"), { code: "VALIDATION_FAILED" });
@@ -97,8 +154,8 @@ function validateInput(input = {}) {
     throw Object.assign(new Error("automation prompt contains secret-like material"), { code: "SENSITIVE_PROMPT" });
   }
   const schedule = String(input.schedule ?? "manual").trim();
-  if (!["manual", "idle"].includes(schedule) && !SCHEDULE_PATTERN.test(schedule)) {
-    throw Object.assign(new Error("schedule must be 'manual', 'idle' or 'every:<n>m|h|d'"), { code: "VALIDATION_FAILED" });
+  if (!["manual", "idle"].includes(schedule) && !SCHEDULE_PATTERN.test(schedule) && !parseAtSchedule(schedule)) {
+    throw Object.assign(new Error("schedule must be 'manual', 'idle', 'every:<n>m|h|d' or 'at:HH:mm[@1-7]'"), { code: "VALIDATION_FAILED" });
   }
   return { name, prompt, schedule, sources: normalizedContent.sources };
 }
@@ -596,6 +653,29 @@ export class AutomationStore {
             current.runHistory = pruned;
             return current;
           });
+        }
+      }
+
+      // W3.4 定时派工触发（at: 指定时刻）：水位线 = lastRunAt，到期槽位触发；
+      // 与间隔制同一失败账（BUSY 跳过 / 其余落账 + 事件 + 前移 lastRunAt 防重试风暴）
+      for (const item of this.items.values()) {
+        if (!item.enabled) continue;
+        const dueSlot = dueAtFireMs(item.schedule, Date.parse(item.lastRunAt ?? "") || 0, now);
+        if (dueSlot == null) continue;
+        try {
+          await this.trigger(item.id, { source: "schedule" });
+        } catch (error) {
+          if (error.code === "AUTOMATION_BUSY") continue;
+          const message = String(error.message ?? error).slice(0, 300);
+          if (this.storeStatus.writable) {
+            await this.#commit("record at-schedule automation failure", () => {
+              const current = this.get(item.id);
+              current.lastRunAt = new Date().toISOString();
+              current.lastError = message;
+              return current;
+            });
+          }
+          await this.#emit("automation.trigger_failed", { id: item.id, name: item.name, message });
         }
       }
 

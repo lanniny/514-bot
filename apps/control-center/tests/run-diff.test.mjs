@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runDiffForRun, summarizeRunDiff } from "../src/run-diff.mjs";
@@ -9,7 +10,7 @@ import { runProcess } from "../src/process-runner.mjs";
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 
 async function gitRepoWithWorktree(t) {
-  const root = await mkdtemp(resolve(appRoot, ".test-rundiff-"));
+  const root = await mkdtemp(join(tmpdir(), "514cc-rundiff-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const repo = join(root, "demo-repo");
   await mkdir(repo, { recursive: true });
@@ -32,7 +33,7 @@ test("run diff rejects runs without a worktree", async () => {
 });
 
 test("run diff rejects tampered worktree path naming (fail-closed)", async (t) => {
-  const root = await mkdtemp(resolve(appRoot, ".test-rundiff-guard-"));
+  const root = await mkdtemp(join(tmpdir(), "514cc-rundiff-guard-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   for (const evil of ["C:\\Windows", join(root, "random-dir"), join(root, "demo-wt-123")] ) {
     await assert.rejects(

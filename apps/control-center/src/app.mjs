@@ -35,6 +35,7 @@ import { createReleaseCommandRunner } from "./release-command-runner.mjs";
 import { createRemoteGateService } from "./security/remote-gates.mjs";
 import { createRemoteRunner } from "./ssh/remote-run.mjs";
 import { getSshService } from "./ssh/routes.mjs";
+import { createMacroStore } from "./macros.mjs";
 
 async function readJson(path) {
   return JSON.parse(await readFile(path, "utf8"));
@@ -330,6 +331,8 @@ export async function createControlCenter(options = {}) {
     eventStore,
     sourceIdForPath: (path) => configManager?.sourceIdForPath(path) ?? null,
   });
+  // W3.11 用户宏存储：/token 展开，原生命令 fail-closed 前兜底（DI 进 orchestrator）
+  const macroStore = createMacroStore({ dataRoot });
   const orchestrator = await new Orchestrator({
     router: runtime.router,
     adapters: runtime.adapters,
@@ -348,6 +351,7 @@ export async function createControlCenter(options = {}) {
     repoRoot, // v41：远程 adapter 工厂表 assertWithin 锚点
     // v41 波二：远程 run 桥——懒解析 ssh service 单例（registerSshRoutes 建），ssh 门闸随 assertRunnable
     remoteRunner: createRemoteRunner({ getService: getSshService, gates: remoteGates }),
+    macroStore,
   }).init();
   let generation = 1;
   let closed = false;

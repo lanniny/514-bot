@@ -65,7 +65,7 @@ export const VIEW_TITLES = Object.freeze({
   channels: "渠道",
   config: "配置图谱",
   router: "模型路由",
-  security: "安全诊断",
+  security: "权限与审批",
   observability: "体系观测",
   sessions: "会话聚合",
   bootstrapper: "项目启动器",
@@ -118,6 +118,7 @@ export const DEFAULT_SECRETS = Object.freeze([
  */
 export const state = {
   view: "workbench",
+  customMacros: [], // W3.11 用户宏（/api/macros；palette 出项 + 原生命令兜底展开）
   bootstrap: {},
   health: null,
   components: [...DEFAULT_COMPONENTS],
@@ -169,8 +170,13 @@ export const state = {
   policies: [...DEFAULT_POLICIES],
   secrets: [...DEFAULT_SECRETS],
   approvals: [],
+  approvalsLoading: false,
+  approvalSnapshotError: null,
   leases: [],
+  leaseSnapshotError: null,
   remoteGates: null,
+  remoteGatesLoading: false,
+  remoteGatesError: null,
   diagnostics: [],
   diagnosticLog: [],
   diagnosticLogFilter: "all",

@@ -18,7 +18,7 @@ const names = [
   "git-branch", "git-commit-horizontal", "globe", "grid-2x2", "hammer", "heart-pulse", "hexagon", "history", "import", "info",
   "key-round", "layers", "layout-dashboard", "library", "lightbulb", "link", "list", "loader-circle", "lock",
   "log-in", "log-out", "message-circle", "message-square", "messages-square", "mic", "minus", "monitor", "moon", "network", "orbit", "package",
-  "package-plus", "palette", "panel-left", "panel-right", "paperclip", "pencil", "pin", "play", "plug-zap", "plus", "puzzle",
+  "package-plus", "palette", "panel-left", "panel-right", "paperclip", "pencil", "pin", "pause", "play", "plug-zap", "plus", "puzzle",
   "radar", "refresh-ccw", "refresh-cw", "repeat", "rocket", "rotate-ccw", "route", "satellite-dish", "save",
   "scan-search", "search", "send", "server", "settings", "shield", "shield-alert", "shield-check", "shopping-bag", "sparkles",
   "square", "square-terminal", "star", "store", "sun", "telescope", "terminal", "timer", "trash-2",

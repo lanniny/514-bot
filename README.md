@@ -1,6 +1,6 @@
 # 514cc — Skill 驱动的 AI 能力放大系统
 
-v3.5.0 | 2026-07-17 | 深度对话协作 + 模型优势路由 v2 + Console 接电
+v4.0.0 | 2026-08-30 | Forge 设计体系 + 多 CLI 协作 Console + 交付闸门 + Bot 入口
 
 > 正式发布版本以 `rules.md` §八和 `CHANGELOG.md` 最新条目为准。工作记录中的 v3.6/v3.7/v4.0 是未发布功能波次，不是新的 framework release。
 

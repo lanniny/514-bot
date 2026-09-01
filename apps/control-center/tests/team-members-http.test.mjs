@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnTestServer, stopTestServer, waitForUrl } from "./server-fixture.mjs";
@@ -21,7 +22,7 @@ async function jsonRequest(origin, path, token, { method = "GET", body = undefin
 }
 
 test("team member CRUD, team assignment and restart persistence share one executable identity graph", { timeout: 90_000 }, async (t) => {
-  const dataRoot = await mkdtemp(resolve(appRoot, ".test-team-members-http-"));
+  const dataRoot = await mkdtemp(resolve(tmpdir(), "514cc-team-members-http-"));
   const token = "e2e-team-members-token-0123456789";
   const env = {
     CONTROL_CENTER_TOKEN: token,
@@ -204,6 +205,8 @@ test("team member CRUD, team assignment and restart persistence share one execut
       execute: false,
       permissionMode: "plan",
       orchestrationMode: "social",
+      maxRounds: 5,
+      maxBudgetUsdPerTurn: 0.10,
       startAgentId: "codex-technical",
       requestedProvider: "codex-technical",
       requestedAgentIds: [ephemeralOnlyMemberId],

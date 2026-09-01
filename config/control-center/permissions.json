@@ -3,19 +3,92 @@
   "version": 1,
   "defaultMode": "plan",
   "modes": {
-    "plan": {"write": false, "shell": false, "network": false, "approvalRequired": false},
-    "review": {"write": false, "shell": "read-only", "network": false, "approvalRequired": false},
-    "build": {"write": "workspace", "shell": "workspace", "network": "prompt", "approvalRequired": true},
-    "ask": {"write": "workspace", "shell": "workspace", "network": "approval", "approvalRequired": false},
-    "auto": {"write": "workspace", "shell": "workspace", "network": "approval", "approvalRequired": false},
-    "full-access": {"write": true, "shell": true, "network": true, "approvalRequired": false},
-    "config": {"write": "config.toml", "shell": "config.toml", "network": "config.toml", "approvalRequired": false},
-    "native:auto": {"write": false, "shell": "read-only", "network": false, "approvalRequired": false},
-    "native:acceptEdits": {"write": true, "shell": false, "network": false, "approvalRequired": true},
-    "native:always-approve": {"write": true, "shell": true, "network": true, "approvalRequired": true}
+    "plan": {
+      "write": false,
+      "shell": false,
+      "network": false,
+      "approvalRequired": false
+    },
+    "review": {
+      "write": false,
+      "shell": "read-only",
+      "network": false,
+      "approvalRequired": false
+    },
+    "build": {
+      "write": "workspace",
+      "shell": "workspace",
+      "network": "prompt",
+      "approvalRequired": true
+    },
+    "ask": {
+      "write": "workspace",
+      "shell": "workspace",
+      "network": "approval",
+      "approvalRequired": false
+    },
+    "auto": {
+      "write": "workspace",
+      "shell": "workspace",
+      "network": "approval",
+      "approvalRequired": false
+    },
+    "full-access": {
+      "write": true,
+      "shell": true,
+      "network": true,
+      "approvalRequired": false
+    },
+    "config": {
+      "write": "config.toml",
+      "shell": "config.toml",
+      "network": "config.toml",
+      "approvalRequired": false
+    },
+    "native:auto": {
+      "write": false,
+      "shell": "read-only",
+      "network": false,
+      "approvalRequired": false
+    },
+    "native:acceptEdits": {
+      "write": true,
+      "shell": false,
+      "network": false,
+      "approvalRequired": true
+    },
+    "native:always-approve": {
+      "write": true,
+      "shell": true,
+      "network": true,
+      "approvalRequired": true
+    }
   },
-  "limits": {"turnTimeoutMs": 1800000, "turnIdleTimeoutMs": 300000, "maxRounds": 6, "maxDepth": 2, "maxParallelAgents": 4, "defaultBudgetUsdPerTurn": 2, "maxBudgetUsdPerTurn": 2},
-  "runtimeWrites": {"allowed": false, "requiresApproval": true, "requiresBackup": true, "requiresReadback": true},
-  "secrets": {"exposeValues": false, "persistValues": false, "allowedReferences": ["env", "os-credential-store"]},
-  "approval": {"ttlMs": 300000, "bindToActionSha256": true, "defaultDecision": "deny"}
+  "limits": {
+    "turnTimeoutMs": 1800000,
+    "turnIdleTimeoutMs": 300000,
+    "maxRounds": 6,
+    "maxDepth": 2,
+    "maxParallelAgents": 4,
+    "defaultBudgetUsdPerTurn": "unlimited"
+  },
+  "runtimeWrites": {
+    "allowed": false,
+    "requiresApproval": true,
+    "requiresBackup": true,
+    "requiresReadback": true
+  },
+  "secrets": {
+    "exposeValues": false,
+    "persistValues": false,
+    "allowedReferences": [
+      "env",
+      "os-credential-store"
+    ]
+  },
+  "approval": {
+    "ttlMs": 300000,
+    "bindToActionSha256": true,
+    "defaultDecision": "deny"
+  }
 }

@@ -90,6 +90,7 @@ test("team QA only allows explicit read-only remote gate 501 responses", () => {
     "GET /api/pty",
     "GET /api/ssh/hosts",
     "GET /api/ssh/hosts/recoveries",
+    "HEAD /api/wallpapers/global",
   ]);
   assert.equal(httpFailureDiagnostic({
     method: "GET",

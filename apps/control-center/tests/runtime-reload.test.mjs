@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createControlCenter, validateRuntimeGraph } from "../src/app.mjs";
@@ -37,7 +38,7 @@ test("runtime graph rejects unauditable or unknown routing references", async ()
 });
 
 test("committing core routing atomically activates a new runtime generation", async (t) => {
-  const root = await mkdtemp(resolve(appRoot, ".test-runtime-reload-"));
+  const root = await mkdtemp(resolve(tmpdir(), "514cc-runtime-reload-"));
   const repoRoot = resolve(root, "repo");
   const configRoot = resolve(repoRoot, "config/control-center");
   const schemaRoot = resolve(repoRoot, "schemas/control-center");

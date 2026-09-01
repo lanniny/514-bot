@@ -57,12 +57,12 @@
   max-width: min(72%, 420px);
   padding: 5px 12px;
   border-radius: 9999px;
-  background: color-mix(in oklab, var(--card, #fff) 80%, transparent);
+  background: color-mix(in oklab, var(--card, var(--on-accent)) 80%, transparent);
   -webkit-backdrop-filter: blur(10px) saturate(150%);
   backdrop-filter: blur(10px) saturate(150%);
   box-shadow: inset 0 0 0 1px var(--border, #e4e1ea);
   color: var(--foreground, #1c1917);
-  font-size: 12px;
+  font-size: var(--text-xs);
   font-weight: 500;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -70,7 +70,7 @@
   text-overflow: ellipsis;
   pointer-events: none;
   opacity: 0;
-  transition: opacity var(--dur-med, 150ms) var(--ease-out, ease);
+  transition: opacity var(--dur-med, var(--dur-fast)) var(--ease-out, ease);
 }
 
 .hero-tip.is-visible {
@@ -104,7 +104,7 @@
   writing-mode: vertical-rl;
   max-height: 220px;
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.32em;
   line-height: 1.7;
@@ -134,7 +134,7 @@
 
 .hero-count-label {
   max-width: 72px;
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
   letter-spacing: 0.22em;
   line-height: 1.6;
@@ -159,9 +159,9 @@
     min-height: 240px;
   }
   .hero-type-vertical {
-    font-size: 32px;
+    font-size: var(--text-4xl);
   }
   .hero-count-num {
-    font-size: 44px;
+    font-size: var(--text-5xl);
   }
 }

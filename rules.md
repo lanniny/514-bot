@@ -1,4 +1,4 @@
-# 514cc 体系宪法 v3.5
+# 514cc 体系宪法 v4.0
 
 > Skill 驱动的能力放大系统。本文件是最高优先级规约，不可被任何 skill/customize 覆盖。
 >
@@ -107,6 +107,7 @@
 
 > 完整变更史（每版详细条目 + 回退路径）见 `CHANGELOG.md`。本节只留最近两版详情 + 更早版本压缩索引，避免治理正文随版本膨胀。
 
+- **v4.0.0**（2026-08-30）— **Forge 设计体系 + 多 CLI 协作 Console + 交付闸门 + Bot 入口**：①Forge 设计系统（24 CSS 分层，OKLCH 令牌，暗夜玫瑰/暖墨双主题，零 CDN 零 emoji）②Console 多 CLI 协作面（9 adapter、团队层级树、多源会话聚合、审批 broker fail-closed、bus 社会模拟、automations/市场/SSH/PTY/Channels、配置图谱回退闭环、模型档位动态发现）③Tauri 2 桌面薄壳（updater 显式禁用）④v42 交付闸门 R0-R3（releaseTruth/v1 证据分级、QA runner 无 shell fail-closed；**R3-01 partial**：formal release 未正式执行）⑤v43 Bot Shell 默认入口（审批/提问/结算卡）⑥2026-08-30 治理收口（Git 证据链重建、pre-commit 密钥闸门、egress-guard、事件哈希链、handoff 归档、mirror-gate 新鲜度哨兵、测试残留自清）。**partial 如实标注**：formalRelease=false，不构成 GitHub Release 或正式实例激活。源：`D-2026-08-30-*` + CHANGELOG 2026-08-30 条目。
 - **v3.5.0**（2026-07-17）— **深度对话协作 + 模型优势路由 v2 + Console 接电**：①Claude↔Codex 对话桥三层通道（MCP `codex-agent` 主路：codex/codex-reply + threadId 跨轮记忆本地实测；exec resume 降级；app-server 留 Console 深路），烛 SKILL 加 DL 模式 + reflection 同会话续聊，`.ai-shared/roster.json` 会话花名册②Codex 双角色 profile（review=read-only+never / executor=workspace-write），新增"技术执行者"🟡 路由（LO：codex 作为技术）③§三路由表 v2 按模型优势标注 + 织反代无 server-side 搜索如实化④`apps/control-center`（4100 行控制面，46/47 测试通过）补治理账并注册 module.yaml。8 路调研（AionUI/LiveAgent/pi/codeg/Codex桌面端/多agent格局/grok生态/本地盘点）依据见 `proposals/v35-deep-collab-design.md`。源：`D-2026-07-17-001`。
 - **v3.4.3**（2026-07-16）— **mirror-gate 契约驱动重构 + 织换 grok 驱动**：①SOUL 送达连撞五轮单点补丁后上策抽契约驱动（单一输出点 + 9 条机械可判定 INV + 回归基线 + buggy必变红元验收），烛 R6 AST/动态双实证肯定核心结构、R7 SECURE，终结六轮循环②织情报驱动 gemini→grok-4.5 完全替代（514claude.xyz OpenAI 端点，key 走环境变量 GROK_API_KEY，速度+搜索强，烛 dogfood）。源：`D-2026-07-16-004` + `D-2026-07-16-005`。
 - **v3.4.0–v3.4.2**（2026-06-14 ~ 07-16）— 全面审查优化落地（36-agent 审查）→ MCP/skill 审计诚实债勘误 → 双地落漂移哨兵接电。详见 `CHANGELOG.md`。

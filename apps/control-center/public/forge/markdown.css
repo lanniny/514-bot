@@ -13,6 +13,9 @@
 
 .md-body p {
   overflow-wrap: break-word;
+  /* 行长上限（UI-AUDIT P2-1）：宽屏下正文不再被拉到 100+ 字符/行——
+     行长超过约 75 字符后，读到行尾回扫下一行行首的失误率显著上升。 */
+  max-inline-size: var(--measure, 68ch);
 }
 
 /* ===== 标题（h1–h4，weight 600 + 紧字距；h2/h3 发丝下划线） ===== */
@@ -215,8 +218,8 @@
   background: transparent;
   color: var(--muted-foreground, var(--text-muted));
   cursor: pointer;
-  transition: background var(--dur-fast, 100ms) var(--ease-out, ease),
-    color var(--dur-fast, 100ms) var(--ease-out, ease);
+  transition: background var(--dur-fast, var(--dur-instant)) var(--ease-out, ease),
+    color var(--dur-fast, var(--dur-instant)) var(--ease-out, ease);
 }
 
 .rich-copy-btn:hover {
@@ -271,7 +274,7 @@
   font-size: var(--text-xs, 11px);
   font-weight: 600;
   cursor: pointer;
-  transition: color var(--dur-fast, 100ms) var(--ease-out, ease);
+  transition: color var(--dur-fast, var(--dur-instant)) var(--ease-out, ease);
 }
 
 .rich-expand-btn:hover {
@@ -285,7 +288,7 @@
 .rich-expand-btn svg {
   width: 12px;
   height: 12px;
-  transition: transform var(--dur-med, 150ms) var(--ease-out, ease);
+  transition: transform var(--dur-med, var(--dur-fast)) var(--ease-out, ease);
 }
 
 .rich-code.is-expanded .rich-expand-btn svg {

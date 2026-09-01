@@ -1,0 +1,68 @@
+/* ==========================================================================
+   density.css — 信息密度三档（UI-AUDIT P1-1）
+   tokens.css 提供 --density-space / --density-leading 两个乘数，本文件负责把密度
+   落到"数据面"的行高与内边距上：表格、列表行、卡片、区块。
+
+   约束：所有规则只写在 [data-density] 限定下，默认档（default）完全不受影响，
+   与改前逐像素一致；只有用户在外观面板主动切换后才生效。
+   ========================================================================== */
+
+/* —— 紧凑档：单屏多看 20~30% 内容，给专家用户与观测类视图 —— */
+
+:root[data-density="compact"] .view .data-table th,
+:root[data-density="compact"] .view .data-table td {
+  padding: 5px 10px;
+  line-height: calc(1.5 * var(--density-leading));
+}
+
+:root[data-density="compact"] .content-section {
+  padding: var(--space-3) var(--space-4);
+}
+
+:root[data-density="compact"] .section-heading {
+  margin-bottom: var(--space-2);
+}
+
+:root[data-density="compact"] .empty-state {
+  min-height: 140px;
+}
+
+:root[data-density="compact"] .policy-list,
+:root[data-density="compact"] .secret-list,
+:root[data-density="compact"] .settings-rail-nav {
+  gap: var(--space-1);
+}
+
+:root[data-density="compact"] .settings-rail-item,
+:root[data-density="compact"] .nav-item {
+  min-height: 28px;
+}
+
+/* —— 舒适档：给阅读为主、触控为主或大屏远距离场景 —— */
+
+:root[data-density="comfortable"] .view .data-table th,
+:root[data-density="comfortable"] .view .data-table td {
+  padding: 11px 18px;
+  line-height: calc(1.6 * var(--density-leading));
+}
+
+:root[data-density="comfortable"] .content-section {
+  padding: var(--space-5) var(--space-6);
+}
+
+:root[data-density="comfortable"] .empty-state {
+  min-height: 240px;
+}
+
+:root[data-density="comfortable"] .settings-rail-item,
+:root[data-density="comfortable"] .nav-item {
+  min-height: 38px;
+}
+
+/* —— 无障碍兜底：无论哪一档，触控目标不得小于 32px（P2-4 触控可达性）—— */
+
+:root[data-density="compact"] .nav-item,
+:root[data-density="compact"] .settings-rail-item,
+:root[data-density="compact"] button.button {
+  min-height: 32px;
+}

@@ -150,7 +150,7 @@
         "max",
         "ultra"
       ],
-      "defaultEffort": null
+      "defaultEffort": "xhigh"
     },
     {
       "id": "gemini-research",

@@ -36,7 +36,7 @@
 .ccswitch-workbench .ccs-heading-sub {
   margin: 4px 0 0;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -68,7 +68,7 @@
 .ccswitch-workbench .ccs-capability-bridge h3 {
   margin: 2px 0 3px;
   color: var(--foreground);
-  font-size: 14px;
+  font-size: var(--text-base);
   font-weight: 650;
 }
 
@@ -76,7 +76,7 @@
   max-width: 70ch;
   margin: 0;
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -111,7 +111,7 @@
   background: transparent;
   color: var(--muted-foreground);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-xs);
   cursor: pointer;
 }
 
@@ -134,7 +134,7 @@
   border-radius: 999px;
   background: color-mix(in oklab, var(--muted) 70%, transparent);
   color: var(--muted-foreground);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-style: normal;
   font-weight: 650;
   line-height: 18px;
@@ -187,7 +187,7 @@
   display: block;
   margin-bottom: 4px;
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 #view-config .ccswitch-workbench .ccs-metrics strong,
@@ -195,7 +195,7 @@
   display: block;
   overflow: hidden;
   color: var(--foreground);
-  font-size: 15px;
+  font-size: var(--text-md);
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   text-overflow: ellipsis;
@@ -206,7 +206,7 @@
 .ccswitch-workbench .ccs-hint {
   margin: 0 0 12px;
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
   line-height: 1.5;
 }
 
@@ -221,13 +221,13 @@
 #view-config .ccswitch-workbench .ccs-section-label strong,
 .ccswitch-workbench .ccs-section-label strong {
   color: var(--foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 #view-config .ccswitch-workbench .ccs-section-label span,
 .ccswitch-workbench .ccs-section-label span {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 #view-config .ccswitch-workbench .ccs-tool,
@@ -251,12 +251,12 @@
 .ccswitch-workbench .ccs-empty p {
   margin: 0;
   color: var(--foreground);
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 #view-config .ccswitch-workbench .ccs-empty small,
 .ccswitch-workbench .ccs-empty small {
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 #view-config .ccswitch-workbench .ccs-takeover-grid,
@@ -307,13 +307,13 @@
 #view-config .ccswitch-workbench .ccs-takeover strong,
 .ccswitch-workbench .ccs-takeover strong {
   display: block;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 
 #view-config .ccswitch-workbench .ccs-takeover small,
 .ccswitch-workbench .ccs-takeover small {
   color: var(--muted-foreground);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 #view-config .ccswitch-workbench .ccs-app-chip span,
@@ -344,7 +344,7 @@
 .ccswitch-workbench .ccs-mini-apps em,
 .ccswitch-workbench .ccs-app-chip em {
   font-style: normal;
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 #view-config .ccswitch-workbench .ccs-path-grid label span,
@@ -373,7 +373,7 @@
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--card);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 #view-config .ccswitch-workbench .ccs-pulse .is-ok strong { color: var(--success); }
@@ -424,7 +424,7 @@
   background: color-mix(in oklab, var(--muted) 40%, transparent);
   color: var(--foreground);
   font-family: var(--mono, ui-monospace, monospace);
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 #view-config .ccswitch-workbench .ccs-quota,
@@ -441,7 +441,7 @@
   gap: 12px;
   padding: 6px 0;
   border-bottom: 1px solid var(--border);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 #view-config .ccswitch-workbench .ccs-quota dt,

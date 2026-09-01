@@ -23,6 +23,17 @@
   --primary-soft: color-mix(in oklch, var(--primary) 10%, var(--background));
   --ring: var(--primary);
 
+  /* —— 绝对中性色（两态同值）——
+     用于彩色填充之上的文字/图标（--on-accent）与纯黑遮罩/描边（--ink-absolute）。
+     此前这两类值以 #fff / #000 裸写 58 处，收进来后可在 token 层统一管理。 */
+  --on-accent: #ffffff;
+  --ink-absolute: #000;
+
+  /* —— 对比度安全的"文字档"主色（UI-AUDIT P1-4）——
+     #D97757 在暖纸底实测仅 2.94:1，不达 WCAG AA 4.5:1，仅可用于图形/填充/大字号。
+     任何「文字、链接、小图标描边」场景必须使用 --accent-ink（实测 4.92:1）。 */
+  --accent-ink: #a95430;
+
   /* —— Semantic —— */
   --success: oklch(0.62 0.17 155);
   --warning: oklch(0.68 0.16 70);
@@ -58,16 +69,68 @@
   --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.06);
   --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.25);
 
-  /* —— Type scale (headings: weight 600, letter-spacing -0.02em) —— */
-  --text-xs: 11px;
-  --text-sm: 12.5px;
+  /* —— Type scale (headings: weight 600, letter-spacing -0.02em) ——
+     UI-AUDIT P0-2：12px 为硬下限（中文 10px 以下字形糊化、不可读）。
+     全库 8/8.5/9/9.5/10/10.5/11/11.5px 共 ~700 处已由 scripts/ui-tokens.mjs
+     收敛到本 scale；新增样式禁止裸 font-size（由 scripts/ui-lint.mjs 门禁拦截）。
+     映射表：8–12→xs ｜ 12.5–13→sm ｜ 13.5–14→base ｜ 15–15.5→md
+             16–17→lg ｜ 18–20→xl ｜ 21–26→2xl ｜ 28–30→3xl ｜ 32–36→4xl ｜ 44→5xl */
+  --text-xs: 12px;
+  --text-sm: 13px;
   --text-base: 14px;
+  --text-md: 15px;
   --text-lg: 16px;
-  --ui-font-size: 14px;
-  --code-font-size: 12.5px;
+  --ui-font-size: var(--text-base);
+  --code-font-size: var(--text-sm);
   --text-xl: 20px;
   --text-2xl: 24px;
   --text-3xl: 30px;
+  --text-4xl: 36px;
+  --text-5xl: 44px;
+
+  /* —— Line height & measure（UI-AUDIT P2-1 排版规范）—— */
+  --leading-tight: 1.25;
+  --leading-snug: 1.4;
+  --leading-normal: 1.6;
+  --measure: 68ch; /* 正文行长上限，防止宽屏 100+ 字符/行 */
+
+  /* —— Spacing scale（4 的倍数，替换此前 20 种离散 gap 值）——
+     乘上 --density-space，让"紧凑 / 默认 / 舒适"三档只改一个数就整站生效，
+     不必为每个组件写三套规则（此前密度开关只作用于 3 个选择器≈形同虚设）。 */
+  --space-1: calc(4px * var(--density-space));
+  --space-2: calc(8px * var(--density-space));
+  --space-3: calc(12px * var(--density-space));
+  --space-4: calc(16px * var(--density-space));
+  --space-5: calc(20px * var(--density-space));
+  --space-6: calc(24px * var(--density-space));
+  --space-8: calc(32px * var(--density-space));
+  --space-10: calc(40px * var(--density-space));
+
+  /* —— Density（UI-AUDIT P1-1）——
+     三档乘数：间距与行高。默认档恒为 1（与改前逐像素一致）。 */
+  --density-space: 1;
+  --density-leading: 1;
+
+  /* —— Motion（UI-AUDIT P1-5：207 处 transition 归位到统一 token）——
+     语义约束：状态反馈 ≤160ms ｜ 视图转场 ≤240ms ｜ 引导性动效 ≤360ms ｜ 禁止 >400ms */
+  --dur-instant: 100ms;
+  --dur-fast: 160ms;
+  --dur-base: 240ms;
+  --dur-slow: 360ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasis: cubic-bezier(0.2, 0, 0, 1.2);
+
+  /* —— Breakpoints（UI-AUDIT P0-4：22 档实测断点收敛为四档）——
+     标准档：--bp-sm 560（手机）｜ --bp-md 820（平板/折叠）｜ --bp-lg 1100（笔电）｜ --bp-xl 1440（宽屏）
+     约定：min-width 侧写 N+1（min-width:821px 配合 max-width:820px）是正确的互补写法，
+     用于避免同一像素同时命中两条互斥规则，门禁已同时放行 N 与 N+1。
+     CSS 媒体查询不支持 var()，此处仅供文档与脚本读取；人工编写请直接写字面值。
+     存量非标准档（420/520/640/680/700/720/860/900/1000/1024/1080/1120/1280/1500 等）
+     列入迁移 backlog：由 scripts/ui-lint.mjs 冻结存量、禁止新增。 */
+  --bp-sm: 560px;
+  --bp-md: 820px;
+  --bp-lg: 1100px;
+  --bp-xl: 1440px;
 
   /* —— z-index scale (toast=1100 / skip-link=1000 already in app) —— */
   --z-base: 0;
@@ -99,6 +162,10 @@
   --primary-hover: oklch(0.77 0.11 42);
   --primary-soft: color-mix(in oklch, var(--primary) 16%, var(--background));
   --ring: var(--primary);
+  /* 暗态文字档主色：#f0a483 on #1e1c17 ≈ 8.5:1 */
+  --accent-ink: #f0a483;
+  --on-accent: #ffffff;
+  --ink-absolute: #000;
 
   --success: oklch(0.72 0.16 155);
   --warning: oklch(0.79 0.15 75);
@@ -116,10 +183,37 @@
   --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.7);
 }
 
+/* —— Density 档位（UI-AUDIT P1-1）——
+   此前 514cc-density 只作用于 settings-row 与 message-row 三个选择器，用户在外观面板
+   切了几乎看不出变化——"设置了没反应"比没有这个设置更伤信任。这里把密度提升为
+   整站乘数，并补上数据面的行高/内边距规则（详见 forge/density.css）。 */
+:root[data-density="compact"] {
+  --density-space: 0.78;
+  --density-leading: 0.92;
+}
+
+:root[data-density="comfortable"] {
+  --density-space: 1.28;
+  --density-leading: 1.1;
+}
+
 /* —— Token-driven utilities —— */
 
 /* Tabular numerals for metrics/timestamps/counters. */
 .num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 数据面等宽数字（UI-AUDIT P2-1）：表格、状态标签、指标与时间戳的数字列纵向对齐，
+   否则数字跳动会让"扫一眼对不对"变成"逐行看个位"。只影响数字的横向占位，不改变字形。 */
+.data-table,
+.data-table th,
+.data-table td,
+.status-label,
+.metric-value,
+.metric,
+time,
+.kbd {
   font-variant-numeric: tabular-nums;
 }
 
@@ -235,7 +329,7 @@
   --rose: #e8916f;
   --rose-bright: #f0a483;
   --rose-deep: #d97757;
-  /* styles.css 暗色块未定义 --rose-fill 族（继承亮主题 #b4234d 玫瑰红），
+  /* styles.css 暗色块未定义 --rose-fill 族（继承亮主题 #d97757 玫瑰红），
      亮 bridge 有、暗 bridge 漏 → 暗色下选中卡/发送钮/徽标全玫瑰粉，此处补坑 */
   --rose-fill: #d97757;
   --rose-fill-bright: #e8916f;

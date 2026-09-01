@@ -191,9 +191,9 @@
             <svg aria-hidden="true" class="icon lucide"><use href="#lucide-timer"></use></svg>
             <span>自动化</span>
           </button>
-          <button class="settings-rail-item" type="button" data-view="security" title="安全诊断" aria-label="安全诊断">
+          <button class="settings-rail-item" type="button" data-view="security" title="权限与审批" aria-label="权限与审批">
             <svg aria-hidden="true" class="icon lucide"><use href="#lucide-shield"></use></svg>
-            <span>安全诊断</span>
+            <span>权限与审批</span>
           </button>
 
           <p class="settings-rail-label">Agent 能力</p>
@@ -2662,13 +2662,32 @@
         <section class="view" id="view-security" data-view-panel="security" aria-labelledby="security-title" hidden>
           <div class="page-heading compact-heading">
             <div>
-              <p class="eyebrow">审批与可观测性</p>
-              <h1 id="security-title">安全诊断</h1>
-              <p>权限门禁、Secret 隔离、远程门闩、审批租约与端点状态。授权会写审计账本。</p>
+              <p class="eyebrow">权限治理 · 审批与可观测性</p>
+              <h1 id="security-title">权限与审批</h1>
+              <p>统一查看运行席位权限、待审批动作、临时授权与审计阻断状态。所有授权仍由服务端账本决定。</p>
             </div>
             <span class="status-label is-pending" id="security-summary">检查中</span>
           </div>
           <div class="security-posture" id="security-posture" aria-live="polite"></div>
+          <section class="content-section permission-overview-section" aria-labelledby="permission-overview-title">
+            <div class="section-heading">
+              <div>
+                <h2 id="permission-overview-title">权限状态总览</h2>
+                <p>运行席位只读状态与高风险授权可见性；变更仍回到受控配置与审批链。</p>
+              </div>
+              <div class="heading-actions">
+                <span class="status-label is-neutral" id="permission-overview-summary" role="status">读取中</span>
+                <button class="button secondary compact" type="button" data-config-surface-jump="sources">
+                  <svg aria-hidden="true" class="icon lucide"><use href="#lucide-settings"></use></svg>
+                  管理运行席位
+                </button>
+              </div>
+            </div>
+            <div class="permission-instance-context" id="permission-instance-context" aria-live="polite"></div>
+            <div class="permission-overview-blockers" id="permission-overview-blockers" role="alert" hidden></div>
+            <div class="permission-overview-grid" id="permission-overview-grid" aria-live="polite" aria-busy="true"></div>
+            <div class="permission-seat-list" id="permission-seat-list" aria-label="运行席位权限明细" aria-live="polite" aria-busy="true"></div>
+          </section>
 
           <div class="security-grid">
             <section class="content-section" aria-labelledby="policy-title">

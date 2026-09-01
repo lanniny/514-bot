@@ -40,7 +40,7 @@ test("social contract requires recipient, budget, depth and loop caps", () => {
 
 test("composer submit sends social only after /social", async () => {
   const app = await readFile(resolve(import.meta.dirname, "../public/app.js"), "utf8");
-  assert.match(app, /const socialOptIn = \/\^\\\/social/);
+  assert.match(app, /const socialOptIn = pickMode === "social" \|\| \/\^\\\/social/);
   assert.match(app, /const botSocialOptIn = botSubmissionCandidate\?\.orchestrationMode === "social"/);
   assert.match(app, /orchestrationMode: socialMode \? "social" : "pipeline"/);
   assert.match(app, /includeRequestedAgents: !legacy/);

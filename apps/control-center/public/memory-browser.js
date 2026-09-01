@@ -36,6 +36,12 @@ let _fileState = "idle";   // idle | loading | done | error
 let _fileContent = "";
 let _fileError = "";
 let _fileSeq = 0;
+let _fileMtime = "";       // W3.6 乐观锁基线
+let _writable = false;     // W3.6 仅 memory:* 根可写
+let _editMode = false;
+let _editContent = "";
+let _editSaving = false;
+let _editError = "";
 
 /** 挂载并初始化（幂等）。容器不存在时返回 false。 */
 export function initMemoryBrowser(container) {
@@ -174,6 +180,27 @@ function onBodyClick(event) {
     renderBody();
     return;
   }
+  // W3.6 编辑入口/保存/取消
+  const editBtn = event.target.closest("[data-mb-edit-file]");
+  if (editBtn) {
+    _editMode = true;
+    _editContent = _fileContent;
+    _editError = "";
+    renderBody();
+    return;
+  }
+  const cancelBtn = event.target.closest("[data-mb-cancel-edit]");
+  if (cancelBtn) {
+    _editMode = false;
+    _editError = "";
+    renderBody();
+    return;
+  }
+  const saveBtn = event.target.closest("[data-mb-save-file]");
+  if (saveBtn) {
+    void saveMemoryFile();
+    return;
+  }
   const resultRow = event.target.closest("[data-mb-result]");
   if (resultRow) {
     const idx = Number(resultRow.dataset.mbResult);
@@ -201,17 +228,51 @@ async function openMemoryFile({ root, name, path }) {
   _fileState = "loading";
   _fileContent = "";
   _fileError = "";
+  _fileMtime = "";
+  _writable = false;
+  _editMode = false;
+  _editError = "";
   renderBody();
   try {
     const params = path ? `path=${encodeURIComponent(path)}` : `root=${encodeURIComponent(root)}&name=${encodeURIComponent(name)}`;
     const data = await apiRequest(`/api/memory/file?${params}`);
     if (seq !== _fileSeq) return;
     _fileContent = String(data?.content ?? "");
+    _fileMtime = String(data?.mtime ?? "");
+    _writable = String(data?.root ?? "").startsWith("memory:");
     _fileState = "done";
   } catch (error) {
     if (seq !== _fileSeq) return;
     _fileError = error?.message || String(error);
     _fileState = "error";
+  }
+  renderBody();
+}
+
+// W3.6 记忆编辑：memory:* 根的文件可编辑（乐观锁防并发覆盖；账本/handoff 服务端拒绝）
+async function saveMemoryFile() {
+  if (!_openFile || _editSaving) return;
+  const textarea = _root?.querySelector("[data-mb-edit-textarea]");
+  const content = textarea ? textarea.value : _editContent;
+  _editSaving = true;
+  _editError = "";
+  renderBody();
+  try {
+    const payload = _openFile.path
+      ? { path: _openFile.path }
+      : { root: _openFile.root, name: _openFile.name };
+    const data = await apiRequest("/api/memory/file", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...payload, content, expectedMtime: _fileMtime || null }),
+    });
+    _fileContent = String(data?.content ?? content);
+    _fileMtime = String(data?.mtime ?? "");
+    _editMode = false;
+  } catch (error) {
+    _editError = error?.message || String(error);
+  } finally {
+    _editSaving = false;
   }
   renderBody();
 }
@@ -302,12 +363,24 @@ function renderFileViewer() {
   let inner = "";
   if (_fileState === "loading") inner = `<div class="mb-file-viewer-state">读取中…</div>`;
   else if (_fileState === "error") inner = `<div class="mb-file-viewer-state is-error">读取失败：${escapeHtml(_fileError)}</div>`;
-  else if (_fileState === "done") inner = `<pre class="mb-file-viewer-pre">${escapeHtml(_fileContent)}</pre>`;
+  else if (_editMode) {
+    inner = `
+      ${_editError ? `<div class="mb-file-viewer-state is-error">${escapeHtml(_editError)}</div>` : ""}
+      <textarea class="mb-file-viewer-edit" data-mb-edit-textarea rows="16" spellcheck="false" aria-label="编辑记忆内容">${escapeHtml(_editContent)}</textarea>
+      <div class="mb-file-viewer-editbar">
+        <button type="button" class="button primary compact" data-mb-save-file${_editSaving ? " disabled" : ""}>${_editSaving ? "保存中…" : "保存"}</button>
+        <button type="button" class="button secondary compact" data-mb-cancel-edit${_editSaving ? " disabled" : ""}>取消</button>
+      </div>`;
+  } else if (_fileState === "done") inner = `<pre class="mb-file-viewer-pre">${escapeHtml(_fileContent)}</pre>`;
+  const editButton = _writable && _fileState === "done" && !_editMode
+    ? `<button type="button" class="mb-file-viewer-edit-btn" data-mb-edit-file title="编辑此记忆文件" aria-label="编辑">${lucideIcon("pencil", "icon lucide")}</button>`
+    : "";
   return `
     <section class="mb-file-viewer" aria-label="文件内容">
       <header class="mb-file-viewer-head">
         ${lucideIcon("file-text", "icon lucide")}
         <span class="mb-file-viewer-title">${escapeHtml(title)}</span>
+        ${editButton}
         <button type="button" class="mb-file-viewer-close" data-mb-close-file title="关闭" aria-label="关闭文件内容">
           ${lucideIcon("x", "icon lucide")}
         </button>

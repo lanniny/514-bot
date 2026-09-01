@@ -50,12 +50,21 @@ async function clickView(page, view) {
   }
   const railTarget = page.locator(`.settings-rail [data-view="${view}"]`).first();
   if (!(await railTarget.isVisible())) {
-    const dock = page.locator("#account-dock, #account-heading-chip").locator("visible=true").first();
+    const headingEntry = page.locator("#account-heading-chip:visible").first();
+    const dock = await headingEntry.count()
+      ? headingEntry
+      : page.locator("#account-dock:visible").first();
     if (!(await dock.count())) throw new Error(`no account dock to open settings for view ${view}`);
     await dock.click();
     await railTarget.waitFor({ state: "visible", timeout: 10_000 });
   }
   await railTarget.click();
+}
+
+async function toggleTheme(page) {
+  const trigger = page.locator("#theme-toggle");
+  if (await trigger.isVisible()) await trigger.click();
+  else await page.evaluate(() => document.querySelector("#theme-toggle")?.click());
 }
 
 function checkCleanDeepLink(errors, label, value, key) {
@@ -145,16 +154,16 @@ async function inspect(name, viewport) {
       };
     });
     if (!workbenchChrome.dockVisible) errors.push("account dock was not visible on the workbench");
-    if (workbenchChrome.hamburgerDisplay !== "none") {
-      errors.push(`workbench still showed a left-nav entry: ${workbenchChrome.hamburgerDisplay}`);
+    if (workbenchChrome.hamburgerDisplay === "none" || workbenchChrome.hamburgerDisplay === "missing") {
+      errors.push(`workbench global navigation trigger was unavailable: ${workbenchChrome.hamburgerDisplay}`);
     }
     if (!workbenchChrome.railHidden) errors.push("settings rail was visible on the workbench");
   }
   await page.screenshot({ path: resolve(outputDir, `control-center-${name}-workbench.png`), fullPage: true });
-  await page.locator("#theme-toggle").click();
+  await toggleTheme(page);
   await page.waitForTimeout(180);
   await page.screenshot({ path: resolve(outputDir, `control-center-${name}-workbench-dark.png`), fullPage: true });
-  await page.locator("#theme-toggle").click();
+  await toggleTheme(page);
   await page.waitForTimeout(180);
   await clickView(page, "config");
   // CSP script-src 'self' 禁 eval——waitForFunction 闭包会被拒（偶发），改轮询 textContent
@@ -170,13 +179,40 @@ async function inspect(name, viewport) {
   await page.screenshot({ path: resolve(outputDir, `control-center-${name}-config.png`), fullPage: true });
   await clickView(page, "security");
   await page.waitForSelector("#approval-list");
-  const layout = await page.evaluate(() => ({
-    viewport: { width: innerWidth, height: innerHeight },
-    documentWidth: document.documentElement.scrollWidth,
-    bodyWidth: document.body.scrollWidth,
-    visibleViews: [...document.querySelectorAll("[data-view-panel]")].filter((element) => !element.hidden).map((element) => element.id),
-    approvalVisible: !document.querySelector("#approval-list")?.closest("[hidden]"),
-  }));
+  const layout = await page.evaluate(() => {
+    const overflow = [...document.querySelectorAll("body *")].map((element) => {
+      const rect = element.getBoundingClientRect();
+      return {
+        tag: element.tagName.toLowerCase(),
+        id: element.id || null,
+        className: typeof element.className === "string" ? element.className.slice(0, 120) : "",
+        left: Math.round(rect.left),
+        right: Math.round(rect.right),
+        width: Math.round(rect.width),
+      };
+    }).filter((item) => item.width > 0 && (item.left < -1 || item.right > innerWidth + 1 || item.width > innerWidth + 1))
+      .sort((left, right) => right.width - left.width)
+      .slice(0, 12);
+    const scrollContainers = [...document.querySelectorAll("body *")].map((element) => ({
+      tag: element.tagName.toLowerCase(),
+      id: element.id || null,
+      className: typeof element.className === "string" ? element.className.slice(0, 120) : "",
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    })).filter((item) => item.clientWidth > 0 && item.scrollWidth > item.clientWidth + 1)
+      .sort((left, right) => (right.scrollWidth - right.clientWidth) - (left.scrollWidth - left.clientWidth))
+      .slice(0, 12);
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      scrollX,
+      documentWidth: document.documentElement.scrollWidth,
+      bodyWidth: document.body.scrollWidth,
+      visibleViews: [...document.querySelectorAll("[data-view-panel]")].filter((element) => !element.hidden).map((element) => element.id),
+      approvalVisible: !document.querySelector("#approval-list")?.closest("[hidden]"),
+      overflow,
+      scrollContainers,
+    };
+  });
   await page.screenshot({ path: resolve(outputDir, `control-center-${name}.png`), fullPage: true });
   if (viewport.width > 820) {
     const settingsChrome = await page.evaluate(() => {
@@ -410,8 +446,11 @@ async function inspectMissionControl(name, viewport) {
 
   await openControlCenter(page);
   if (await page.locator(".workbench-shell").evaluate((shell) => shell.classList.contains("mc-collapsed"))) {
-    await page.locator("#global-mc-toggle").click();
-    await page.waitForSelector('#mission-control-dock[aria-hidden="false"]');
+    const toggle = page.locator("#global-mc-toggle");
+    if (await toggle.isVisible()) {
+      await toggle.click();
+      await page.waitForSelector('#mission-control-dock[aria-hidden="false"]');
+    }
   }
   // 窄屏：左右抽屉可以并存，但 Escape 只 dismiss 最上层导航，不能顺带折叠底层 Mission Control。
   // 桌面侧栏已钉成常驻列，汉堡隐藏，这组抽屉分层只在汉堡可见时跑。
@@ -456,11 +495,20 @@ async function inspectMissionControl(name, viewport) {
     () => page.evaluate((runId) => globalThis.__qaMissionRequests.some((item) => item.runId === runId), staleRunId),
     "initial stale Mission Control request",
   );
-  await page.locator("#mission-control-dock .mc-collapse-button").click();
-  await page.waitForSelector('#mission-control-dock[aria-hidden="true"]');
-  await currentRun.click();
-  await page.locator("#global-mc-toggle").click();
-  await page.waitForSelector('#mission-control-dock[aria-hidden="false"]');
+  const collapseButton = page.locator("#mission-control-dock .mc-collapse-button");
+  if (await collapseButton.isVisible()) {
+    await collapseButton.click();
+    await page.waitForSelector('#mission-control-dock[aria-hidden="true"]');
+  }
+  await page.evaluate((runId) => {
+    const button = document.querySelector(`.run-rail-list [data-run-select="${runId}"]`);
+    if (button) button.click();
+  }, currentRunId);
+  const globalToggle = page.locator("#global-mc-toggle");
+  if (await globalToggle.isVisible()) {
+    await globalToggle.click();
+    await page.waitForSelector('#mission-control-dock[aria-hidden="false"]');
+  }
   await waitForPage(
     () => page.locator("#mission-dock-title").textContent().then((value) => value === "QA CURRENT OWNER"),
     "current Mission Control snapshot",

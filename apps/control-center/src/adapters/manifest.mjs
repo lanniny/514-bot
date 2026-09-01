@@ -43,6 +43,8 @@ const nativeCommand = (token, execution, extra = {}) => Object.freeze({
 
 const template = (definition) => Object.freeze({
   ...definition,
+  approvalChannel: definition.approvalChannel
+    || (definition.permissionModes.includes("workspace-write") ? "governed-build" : "unavailable"),
   selectable: definition.selectable !== false,
   permissionModes: Object.freeze([...definition.permissionModes]),
   effortLevels: Object.freeze([...(definition.effortLevels || [])]),
@@ -96,6 +98,7 @@ export const ADAPTER_TEMPLATES = Object.freeze([
     fallbackAdapterId: "codex-exec-json", fallbackFactoryKey: "codex-cli",
     commandMode: "executable-only", promptMode: "rpc", modelMode: "thread-start", effortMode: "turn-start",
     permissionModes: ["plan", "read-only", "workspace-write", "workspace-write:on-failure", "danger-full-access", "config-default"], defaultPermissionMode: "read-only",
+    approvalChannel: "broker-action",
     effortLevels: ["low", "medium", "high", "xhigh", "max", "ultra"], cwdMode: "process-fixed",
     routingDefaults: { quality: 0.97, speed: 0.74, costTier: 4 },
     commandHelp: "本机 codex 可执行文件名或完整路径；Adapter 会自行追加 app-server 参数。",
@@ -164,6 +167,7 @@ export const ADAPTER_TEMPLATES = Object.freeze([
     defaultCommand: null, defaultProvider: "xai-compatible",
     commandMode: "none", promptMode: "rpc", modelMode: "none", effortMode: "none",
     permissionModes: ["read-only"], defaultPermissionMode: "read-only",
+    approvalChannel: "broker-action",
     effortLevels: [], cwdMode: "process-fixed",
     commandHelp: "由隔离的 Codex MCP 主机管理，不接受席位级执行命令。",
     controlNotes: ["MCP 工具通道而非 CLI 执行后端——仅供内置 grok-search 席位固定绑定，新建席位不可选。"],

@@ -30,6 +30,8 @@ export const ALLOWED_GATE_BLOCKS = new Set([
   "GET /api/ssh/hosts",
   "GET /api/ssh/hosts/recoveries",
   "GET /api/pty",
+  // 全局壁纸 HEAD 探测的 404 是合法空态（客户端启动对账 hasCustom 用）
+  "HEAD /api/wallpapers/global",
 ]);
 
 function rejectUrl(value) {
@@ -200,6 +202,8 @@ export function httpFailureDiagnostic({ method = "GET", pathname = "/", status =
   const key = `${String(method).toUpperCase()} ${pathname}`;
   const code = errorCode(payload);
   if (status === 501 && ALLOWED_GATE_BLOCKS.has(key) && code === "REMOTE_GATE_BLOCKED") return null;
+  // 全局壁纸 HEAD 探测的 404 是合法空态：客户端启动对账 hasCustom 用，404 = 未配置自定义壁纸。
+  if (status === 404 && key === "HEAD /api/wallpapers/global") return null;
   return `${key} -> HTTP ${status}${code ? ` (${code})` : ""}`;
 }
 

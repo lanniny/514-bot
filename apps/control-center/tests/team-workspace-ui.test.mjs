@@ -276,7 +276,8 @@ test("team UI derives coordinator identity instead of branding Claude as the per
   assert.match(app, /const coordinatorName = coordinatorId \? agentLabel\(coordinatorId\) : "团队主脑"/);
   assert.doesNotMatch(app, /run\.coordinatorId \|\| "claude-fable"|members\[0\] \?\? "claude-fable"/);
   assert.doesNotMatch(app, /builtin\?\.members \?\? \["claude-fable"\]/);
-  assert.match(app, /team-catalog-loading/);
+  // UI-AUDIT P0-6：文字 loading 已换成骨架屏（单一真源 modules/placeholders.js）
+  assert.match(app, /renderPlaceholder\(list, skeleton\(\{ variant: "list"/);
   assert.match(app, /catalog\.find\(\(profile\) => profile\.id === id\)\?\.label/);
   assert.match(app, /const brand = resolveCatalogBrand\(provider,/);
   assert.doesNotMatch(app, /const cli = agentCli\(id\) \|\| meta\.provider/);

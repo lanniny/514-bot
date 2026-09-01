@@ -63,7 +63,7 @@
 
 1. **release exe 重编**：等 LO 退出应用后 `cd apps/desktop/src-tauri && cargo build --release`（秒级）；splash 页在 `apps/desktop/dist/index.html`（该目录在 .gitignore 内，随盘构建，原占位页同惯例未入库）。
 2. 全量套件满载波动族（real-git fixture / SSE backpressure / bus lease 类）建议下一轮加串行标记（承前轮建议，未动）。
-3. **上一轮 index.html WIP 收口**：工作树 126 条未提交条目（含 ui-lint.mjs/static-assets.mjs 等未跟踪新产物 + index.html 473 行改动）是 wave0-3 的在途工作；`conversation-heading-slim` 的 title-glyph 失败待其收口修复。
+3. **上一轮 index.html WIP 收口**：工作树 126 条未提交条目（含 ui-lint.mjs/static-assets.mjs 等未跟踪新产物 + index.html 473 行改动）是 wave0-3 的在途工作；`conversation-heading-slim` 的 title-glyph 失败待其收口修复。**更重要的发现**：`public/*.js` 前端层（api.js/state.js/utils.js/36 个 modules）**从未进版本库**——HEAD 任意提交都无法新 checkout 跑起来（PM 审查「Git 断链」的实体）；本轮提交让 app.js/styles.css 首次入库，但整个前端层的收口（把 126 条工作树产物按 wave 归并提交）仍待专门一轮。
 4. picker 后续候选（未做，避免本轮面铺太宽）：主脑卡「主脑」pill 徽标、@ 点名面板同款职责副行、picker 打开时 bootstrap 晚到且 refreshAvatarSurfaces 未触发的极端窗口补一次显式重渲。
 
 __DELTA__: 烛(Claude) | 1 | 证据：public/app.js reconcileGlobalWallpaperMedia 在空 localStorage 上写默认快照抢在水合前，既挡服务端 preset:"custom" 回填又被偏好双写 PUT 降级真源——「换壳后自定义壁纸丢失」的真实根因，v8.3 的水合重挂修复防不住这条

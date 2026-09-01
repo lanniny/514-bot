@@ -147,6 +147,24 @@ Console 另有 Grok Build、Kimi 前端和 Pi resident 等执行 profile；它�
 - **完善蓝图**：`proposals/v44-completion-blueprint.md`，92 条完善点 + 35 条拓展点，六波次执行计划。
 - **操作前备份**：`I:/514claude/_git-backup/514cc-git-20260829-2339`（65MB，操作前 `.git` 完整副本）。
 
+### 2026-08-30 午后产品波（LO 三指令：壁纸丢失 / 启动加载 / 协作界面）
+
+- **壁纸启动丢失根因修复（v8.5）**：非数据丢失——`reconcileGlobalWallpaperMedia` 的 HEAD 对账与偏好水合竞态，在空 localStorage 写 `{preset:none,hasCustom:true}` 默认快照，挡服务端 `preset:custom` 回填且被双写 PUT 降级真源（丢失跨重启粘滞）。修复：对账只对已有本地偏好做存在性修复 + 串到 `hydratePreferencesFromServer().finally` 之后；契约 16b 四断言锁死。证据 `claude-to-all__startup-wallpaper-picker-wave__20260830-1434.md`、提交 `d713d97`。
+- **桌面启动反馈**：Tauri 壳握手前展示内置 splash 窗（`dist/index.html` 暗夜玫瑰主题，gitignore 内随盘构建），主窗口 Live 自动关闭、失败路径统一收尾；cargo test 22/22。release exe 重编待 LO 退出应用（旧 exe 进程持锁）。
+- **协作 picker 完善**：「发送给谁」卡片副行接成员真实职责（BOT_MEMBER_ROLE_LABELS 归一化）、团队上下文行、1-9 数字键直达（与点击共用 `pickComposerAgent` 出口、编辑控件聚焦不抢输入）；`scripts/qa-agent-picker.mjs` Playwright 探针全绿 + composer-target-ui 契约 13/13。
+- **Git 状态要点**：本轮以显式 pathspec 提交 `d713d97`（7 文件）；工作树另有 ~126 条 wave0-3 在途产物未提交，其中 **`public/*.js` 前端层（api/state/utils/36 modules）从未入库**——任意 HEAD 均无法新 checkout 运行（PM 审查「Git 断链」实体），前端层收口是下一轮独立事项。全量套件 1902 用例除 1 个既有失败（title-glyph，随上轮 index.html WIP）外全绿或满载波动（隔离复跑绿）。
+
+### 2026-08-30 傍晚 PM 走查波（LO 指令：产品缺陷深查 + 玻璃统一 + 顺手度）
+
+- **方法论升级**：新增 `scripts/qa-pm-walk.mjs`（壁纸激活态 14 视图逐张实拍走查）与 `scripts/qa-glass-audit.mjs`（运行时玻璃审计：扫描大面积不透明表面，覆盖 oklch/渐变/伪元素）——UI 质量从「源码契约绿」升级到「运行时 computed 可验」。证据 `claude-to-all__pm-walk-glass-v9-usability__20260830-1919.md`，提交 `32a07bb`。
+- **玻璃质感 v9/v9b（LO 点名项）**：修复前 40+ 处大面实底；三层根因——①v7/v8 玻璃配方运行时静默失效（composer-shell 悬案：规则命中但 computed 实底，CDP 证据在案）；②设置族被 `:is(#view-*)` 等 ID 级实底规则压住（特异性战争）；③真漏补（settings-rail/channel-deck/memory-browser/席位工作区等）。统一吃 `--forge-card-alpha` 令牌，审计现全视图清零。
+- **全局导航修复（最大可用性缺陷）**：experience-polish 无条件 `!important` 休眠块把汉堡/抽屉全域杀掉，14 视图桌面唯一入口是 Ctrl+K。现汉堡全尺寸常显、抽屉 nav-open 滑出、「视图」菜单承载 14 视图导航（NAV_GROUPS 单源）；端到端验收通过。bot 表面维持无 chrome。
+- **七项使用逻辑缺陷**：安全页 `shell undefined` 泄漏、渠道门闩拦截无放行入口、bot 空态文案误导、观测页「未知」大字三行溢出、面包屑分组与导航两张皮（FORGE_VIEW_GROUPS 改 NAV_GROUPS 单源反推）、命名统一「系统总览」、门闩空态可操作化。
+- **待 LO 拍板**：协作星图黑板是否玻璃化（疑为有意星空视觉）；设置轨 IA 与 NAV_GROUPS 两套分类学的收口。
+- **续篇（同日，LO「继续」授权）**：styles.css **44 处声明行丢分号**（CSS 错误恢复连吞下一条声明，赤陶点睛色/强调边框从未生效）机械修复；◆ 兜底装饰收窄到裸空态；星图黑板→壁纸态深色玻璃（夜空身份保留）；设置轨 IA 与 NAV_GROUPS 同构（观测/资源/治理分组、自动化入轨、插件/市场去重）。提交 `04ac1ae`；全量 1891/1902（9 失败均既有/波动族）。
+- **晚间：壁纸「启动失效」真因二层修复 + 能力面 UI**（LO 报障 + MCP/Skill 布局指令）：LO 换了 60MB 视频壁纸后启动又丢——真因不是水合（v8.5 那层仍对），是**预览缩略图旁路**：外观面板 meta 行每次渲染全量 requestBlob 拉字节，冷启动重放 14 个 apply = 14 个并发 60MB GET ≈ 900MB 瞬时流量打爆磁盘。`fetchGlobalWallpaperMediaRef` 模块级单飞 + 预览/挂载共享 + 签名幂等：15 次 GET→1、挂载 5.3s→0.9s（真实偏好+真实字节复现探针 `qa-wallpaper-repro` 验证）。能力面（MCP/Skill）：矩阵描述单行化+行距收紧、映射 chip 流→三列条目卡（修 flex 内 grid 收缩 bug）、sticky 首列表头玻璃化。提交 `fec7929`；全量 1890/1902（既有/波动族）。
+- **验证**：qa-glass-audit 12 视图 0 违规；qa-pm-walk 端到端 + 零页面错误；契约 82/82；ui-lint 无新增；npm test 1889/1902（11 失败均既有/波动族）。
+
 ## 当前风险
 
 - **🔴 P0-2026-08-30 凭证泄露（公开仓库，当前仍在线）**：`lanniny/514-bot` 是 **GitHub 公开仓库**（`private=false`）。`.ai-shared/control-center-preview/data/ccswitch-proxy.json` 内的 CC-Switch 本地代理 token（`tEP1_` 前缀 43 字符，监听 `127.0.0.1:15721`）。**2026-08-30 02:00 复核（证据链）**：

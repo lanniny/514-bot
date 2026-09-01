@@ -16,7 +16,8 @@ test("nav-config covers every setView-able chrome view exactly once across group
     assert.ok(item.label && item.short && item.tooltip, `${view} missing label/short/tooltip`);
   }
   // 历史漂移修复：协作台/配置此前只在部分导航出现
-  for (const mustHave of ["bot", "workbench", "team", "channels", "bootstrapper", "office", "overview", "observability", "sessions", "market", "hosts", "config"]) {
+  // UI-AUDIT P0-5：自动化与安全诊断提级入主导航，不再做"隐形视图"
+  for (const mustHave of ["bot", "workbench", "team", "channels", "bootstrapper", "office", "overview", "observability", "sessions", "market", "hosts", "config", "automations", "security"]) {
     assert.ok(views.includes(mustHave), `unified nav must include ${mustHave}`);
   }
 });

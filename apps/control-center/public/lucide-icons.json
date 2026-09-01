@@ -1,5 +1,5 @@
 {
-  "count": 142,
+  "count": 143,
   "icons": [
     "activity",
     "archive",
@@ -93,6 +93,7 @@
     "panel-left",
     "panel-right",
     "paperclip",
+    "pause",
     "pencil",
     "pin",
     "play",

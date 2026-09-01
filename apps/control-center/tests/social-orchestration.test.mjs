@@ -341,7 +341,9 @@ test("social direct continuation and queued steer remain in the run bus", async 
   await orchestrator.continue(created.id, { prompt: "继续核对", agentId: "codex-technical" });
 
   const run = orchestrator.get(created.id);
-  run.pendingSteer = [{ prompt: "补一条排队意见", agentId: "claude-fable", queuedAt: new Date().toISOString() }];
+  // queueSteer 生产路径恒分配 id；手动入队必须对齐该契约，否则 activeSteer.steerId 与
+  // steer.id 在 ack 校验（injectNextSteer 尾段）必然失配。
+  run.pendingSteer = [{ id: "steer-fixture-queued-1", prompt: "补一条排队意见", agentId: "claude-fable", queuedAt: new Date().toISOString() }];
   const steerController = new AbortController();
   orchestrator.controllers.set(created.id, steerController);
   try {

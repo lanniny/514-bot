@@ -55,6 +55,9 @@ export function createArtifactCard({ request } = {}) {
     activeHandoff: null,
     handoffContent: null,
     handoffError: null,
+    activeReport: null, // "weekly"
+    reportContent: null,
+    reportError: null,
     data: null, // { delta, handoffs, record, errors: { delta, handoffs, record } }
   };
 
@@ -124,18 +127,36 @@ export function createArtifactCard({ request } = {}) {
       ${record.nextAction ? `<p class="bot-artifact-next">${escapeHtml(String(record.nextAction))}</p>` : ""}</section>`;
   }
 
+  function reportSection() {
+    const rows = [
+      { id: "weekly", label: "周报（近 7 天）", icon: "gauge", hint: "handoff · DELTA · run 聚合" },
+    ];
+    return `<section class="bot-artifact-section"><h4>报表 <span>点击生成预览</span></h4>
+      ${rows.map((row) => `<button class="bot-artifact-row is-clickable${ui.activeReport === row.id ? " is-active" : ""}" type="button" data-artifact-report="${row.id}">
+        ${lucide(row.icon)}<span class="bot-artifact-copy">${escapeHtml(row.label)}</span>
+        <span class="bot-artifact-meta">${escapeHtml(row.hint)}</span>
+      </button>`).join("")}</section>`;
+  }
+
   function bodyMarkup() {
     if (!ui.expanded) return "";
     if (!ui.data) {
       return `<div class="bot-artifact-body"><p class="bot-artifact-empty">${ui.loading ? "读取三源中…" : "未加载数据"}</p></div>`;
     }
-    const preview = ui.activeHandoff
-      ? ui.handoffError
+    let preview;
+    if (ui.activeReport) {
+      preview = ui.reportError
+        ? `<p class="bot-artifact-error">报表生成失败：${escapeHtml(ui.reportError)}</p>`
+        : `<h4>周报（近 7 天）</h4><pre class="bot-artifact-preview">${escapeHtml(String(ui.reportContent || "生成中…"))}</pre>`;
+    } else if (ui.activeHandoff) {
+      preview = ui.handoffError
         ? `<p class="bot-artifact-error">预览失败：${escapeHtml(ui.handoffError)}</p>`
-        : `<h4>${escapeHtml(ui.activeHandoff)}</h4><pre class="bot-artifact-preview">${escapeHtml(String(ui.handoffContent || "").slice(0, HANDOFF_PREVIEW_CHARS))}${String(ui.handoffContent || "").length > HANDOFF_PREVIEW_CHARS ? "\n…" : ""}</pre>`
-      : '<p class="bot-artifact-empty">从左侧选择 handoff 预览内容</p>';
+        : `<h4>${escapeHtml(ui.activeHandoff)}</h4><pre class="bot-artifact-preview">${escapeHtml(String(ui.handoffContent || "").slice(0, HANDOFF_PREVIEW_CHARS))}${String(ui.handoffContent || "").length > HANDOFF_PREVIEW_CHARS ? "\n…" : ""}</pre>`;
+    } else {
+      preview = '<p class="bot-artifact-empty">从左侧选择 handoff 预览内容</p>';
+    }
     return `<div class="bot-artifact-body">
-      <div class="bot-artifact-list">${deltaSection()}${handoffSection()}${gateSection()}</div>
+      <div class="bot-artifact-list">${deltaSection()}${handoffSection()}${gateSection()}${reportSection()}</div>
       <div class="bot-artifact-detail" aria-live="polite">${preview}</div>
     </div>`;
   }
@@ -180,6 +201,22 @@ export function createArtifactCard({ request } = {}) {
     render();
   }
 
+  async function loadReport(kind) {
+    if (kind !== "weekly") return;
+    ui.activeReport = kind;
+    ui.activeHandoff = null;
+    ui.reportContent = null;
+    ui.reportError = null;
+    render();
+    try {
+      const payload = await request("/api/reports/weekly");
+      ui.reportContent = payload?.markdown ?? "";
+    } catch (error) {
+      ui.reportError = error.message || "unknown";
+    }
+    render();
+  }
+
   async function toggle() {
     ui.expanded = !ui.expanded;
     render();
@@ -194,7 +231,13 @@ export function createArtifactCard({ request } = {}) {
         return;
       }
       const handoffButton = event.target.closest("[data-artifact-handoff]");
-      if (handoffButton) void loadHandoff(handoffButton.dataset.artifactHandoff);
+      if (handoffButton) {
+        ui.activeReport = null;
+        void loadHandoff(handoffButton.dataset.artifactHandoff);
+        return;
+      }
+      const reportButton = event.target.closest("[data-artifact-report]");
+      if (reportButton) void loadReport(reportButton.dataset.artifactReport);
     });
   }
 

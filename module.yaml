@@ -1,6 +1,6 @@
 code: 514cc
 name: "514cc — AI 能力放大系统"
-version: "3.5.0"
+version: "4.0.0"
 description: "Skill 驱动的多 AI 协作能力放大系统。5 命名 Agent + 结构化工作流 + 三层定制 + Codex 一等公民 + 富渲染 + 命令面板 + 团队可视化。"
 license: personal
 
@@ -165,12 +165,6 @@ skills:
     phase: research
     description: "grok-4.5 快速搜索 / Web 调研 / 长文档摘读 / 多模态分析"
 
-  - code: web-intel
-    path: skills/research/web-intel
-    type: task
-    phase: research
-    description: "MCP 驱动 Web 情报——exa + deepwiki + web-search 编排"
-
   # -- 领域层 --
   - code: embedded-expert
     path: skills/domain/embedded-expert
@@ -281,7 +275,7 @@ control_center:
   pipeline: "config validate/plan/apply/rollback（乐观锁 + 备份 + 原子替换 + parse readback + 审计事件）"
   tests: "npm test + npm run validate（结果以当轮命令输出为准，注册表不固化易漂移计数）"
   start: "cd apps/control-center; npm start"
-  release_status: "正式 framework version 为 3.5.0；工作记录中的 v3.6/v3.7/v4.0 仅表示未发布功能波次"
+  release_status: "正式 framework version 为 4.0.0（2026-08-30 升格，partial 如实标注：R3-01 formal release 未正式执行、formalRelease=false）；更早工作记录中的波次号仅表示历史功能波次"
   provider_contracts:
     kimi:
       cli_version: "0.31.1"
