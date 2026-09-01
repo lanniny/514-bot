@@ -34,6 +34,8 @@ import { mountCcSwitchPanel } from "./modules/ccswitch-panel.js";
 import { mountHooksPanel } from "./modules/hooks-panel.js";
 import { mountAutomationsPage } from "./modules/automations-page.js";
 import { attachJsonEditor } from "./modules/json-editor.js";
+import { createStatusline } from "./modules/statusline.js";
+import { createPromptDialog } from "./modules/prompt-dialog.js";
 import {
   createMemberLibrary,
   memberRuntimeFactValues,
@@ -7479,45 +7481,6 @@ function pinnedProjectMarkup(project, index) {
   </div>`;
 }
 
-// ===== 体系内输入对话框（替代原生 prompt，语言与 action-dialog 一致）=====
-function promptDialog({ eyebrow = "重命名", title, value = "", confirmLabel = "保存", placeholder = "" }) {
-  return new Promise((resolveDialog) => {
-    const dialog = elements["input-dialog"];
-    elements["input-dialog-eyebrow"].textContent = eyebrow;
-    elements["input-dialog-title"].textContent = title;
-    elements["input-dialog-confirm"].textContent = confirmLabel;
-    const input = elements["input-dialog-value"];
-    const form = byId("input-dialog-form");
-    const cancel = elements["input-dialog-cancel"];
-    input.value = value;
-    input.placeholder = placeholder;
-    let settled = false;
-    const finish = (result) => {
-      if (settled) return;
-      settled = true;
-      form.removeEventListener("submit", onSubmit);
-      cancel.removeEventListener("click", onCancel);
-      dialog.removeEventListener("cancel", onEscape);
-      dialog.close();
-      resolveDialog(result);
-    };
-    const onSubmit = (event) => {
-      event.preventDefault();
-      finish(input.value.trim());
-    };
-    const onCancel = () => finish(null);
-    const onEscape = (event) => {
-      event.preventDefault(); // 关闭统一走 finish，避免 dialog 默认关闭与清理竞争
-      finish(null);
-    };
-    form.addEventListener("submit", onSubmit);
-    cancel.addEventListener("click", onCancel);
-    dialog.addEventListener("cancel", onEscape);
-    dialog.showModal();
-    input.select();
-  });
-}
-
 // ===== 右键菜单（项目 / 会话）=====
 // 菜单图标：24 viewBox 线性 path，与体系 icon 语言一致（12px 展示尺寸下保持简练）
 const MENU_ICONS = {
@@ -7561,6 +7524,29 @@ const MENU_ICONS = {
 
 // 右键菜单展示层实例（Wave B 抽取到 modules/context-menu.js）：app.js 只保留委托与内容构建
 const contextMenu = createContextMenu({ getMenuRoot: () => elements["context-menu"], icons: MENU_ICONS });
+const renderStatusline = createStatusline({
+  getBar: () => elements["rail-statusline"],
+  getModelInput: () => elements["task-model"],
+  getPermissionInput: () => elements["task-permission"],
+  getSelectedRun: () => selectedRun(),
+  getPendingCwd: () => state.pendingCwd,
+  getProjectPrefsStatus: () => state.projectPrefsStatus,
+  getProjectPrefsError: () => state.projectPrefsError,
+  getProjectPrefsPendingSave: () => projectPrefsPendingSave,
+  getCurrentTeam: () => currentTeam(),
+  getTeamPulseMembers: () => teamPulseMembers(),
+  lucideIcon,
+  renderTeamPulse,
+});
+const promptDialog = createPromptDialog({
+  getDialog: () => elements["input-dialog"],
+  getEyebrow: () => elements["input-dialog-eyebrow"],
+  getTitle: () => elements["input-dialog-title"],
+  getConfirm: () => elements["input-dialog-confirm"],
+  getInput: () => elements["input-dialog-value"],
+  getForm: () => byId("input-dialog-form"),
+  getCancel: () => elements["input-dialog-cancel"],
+});
 
 function menuTriggerMarkup(kind, id, label) {
   return contextMenu.triggerMarkup(kind, id, label);
@@ -22651,55 +22637,6 @@ function renderTeamPulse() {
     global.innerHTML = `${chips}<span class="team-pulse-count">${live}/${members.length}</span>`;
     global.title = members.map((item) => `${item.label}: ${item.tone}`).join(" · ");
   }
-}
-
-// ===== ccline 式状态条：模型 · 📁目录 · 用量 · 团队（数据取真实 run 回执） =====
-function renderStatusline() {
-  const bar = elements["rail-statusline"];
-  if (!bar) return;
-  const run = selectedRun();
-  // 模型：选中 run 最后一轮的实际生效模型 > /model 选择 > 默认 fable
-  const lastTurn = run?.turns?.length ? run.turns[run.turns.length - 1] : null;
-  const model = lastTurn?.effectiveModel || run?.modelOverride || elements["task-model"]?.value || "fable";
-  const modelShort = String(model).replace(/^claude-/, "").replace(/-\d{8}$/, "");
-  // 目录：续聊=run 地址；新任务=待选地址；默认控制面根
-  const cwd = run?.cwd || state.pendingCwd || "I:\\514claude\\514cc";
-  const cwdShort = String(cwd).replace(/[\\/]+$/, "").split(/[\\/]/).pop() || cwd;
-  // 用量：选中 run 各轮累计 token（对 200k 上下文的百分比）+ 成本（后端 costUsdTotal 权威值优先）
-  const totalTokens = (run?.turns || []).reduce((sum, turn) => sum + (Number(turn.tokens) || 0), 0);
-  const totalCost = Number(run?.costUsdTotal) || (run?.turns || []).reduce((sum, turn) => sum + (Number(turn.costUsd) || 0), 0);
-  const tokensText = totalTokens
-    ? `${((totalTokens / 200000) * 100).toFixed(1)}% · ${(totalTokens / 1000).toFixed(1)}k tokens${totalCost ? ` · $${totalCost.toFixed(2)}` : ""}`
-    : "0 tokens";
-  const team = currentTeam();
-  const memberCount = team?.members?.length || teamPulseMembers().length;
-  const permission = run?.permissionMode || elements["task-permission"]?.value || "plan";
-  // 2026-08-09 侧栏工程波⑤：值统一包 .sl-text 供 CSS 省略；团队段独占一行（全量信息本就在 bar.title）
-  const seg = (icon, text, cls = "") =>
-    `<span class="sl-seg${cls}"><span class="sl-icon">${lucideIcon(icon)}</span><span class="sl-text">${escapeHtml(text)}</span></span>`;
-  const segments = [
-    seg("cpu", modelShort, " sl-seg-model"),
-    seg("folder", cwdShort),
-    `<span class="sl-seg sl-seg-tokens"><span class="sl-icon">${lucideIcon("gauge")}</span><span class="sl-text sl-dim">${escapeHtml(tokensText)}</span></span>`,
-    seg("users", `${team?.name ?? "514cc"} · ${memberCount} CLI`, " sl-seg-team"),
-    seg("shield", permission, " sl-seg-perm"),
-  ];
-  if (run?.worktreePath) {
-    segments.push(seg("git-branch", String(run.worktreePath).split(/[\\/]/).pop(), " sl-seg-worktree"));
-  }
-  if (state.projectPrefsStatus === "loading") {
-    segments.push(`<span class="sl-seg" data-project-prefs-lock><span class="sl-icon">${lucideIcon("refresh-cw")}</span><span class="sl-text">偏好读取中</span></span>`);
-  } else if (state.projectPrefsStatus === "error") {
-    segments.push(`<span class="sl-seg" data-project-prefs-lock><span class="sl-icon">${lucideIcon("shield")}</span><span class="sl-text">${projectPrefsPendingSave ? "偏好写入锁定 · 本地修改待重试" : "偏好写入锁定"}</span></span>`);
-  }
-  bar.innerHTML = segments.join("");
-  bar.dataset.projectPrefsStatus = state.projectPrefsStatus;
-  bar.title = [
-    `模型 ${model} · 地址 ${cwd} · 团队 ${team?.name ?? "514cc"} · 权限 ${permission}`,
-    run?.worktreePath ? `工作树 ${run.worktreePath}` : "",
-    state.projectPrefsStatus === "error" ? `项目偏好写入锁定：${state.projectPrefsError || "权威状态不可用"}` : "",
-  ].filter(Boolean).join("\n");
-  renderTeamPulse();
 }
 
 // ===== 协作台会话流增强：内联审批卡 / 恢复条 / 终态原因 =====
