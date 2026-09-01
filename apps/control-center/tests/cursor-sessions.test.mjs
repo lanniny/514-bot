@@ -4,7 +4,12 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { DatabaseSync } from "node:sqlite";
+let DatabaseSync;
+try {
+  ({ DatabaseSync } = await import("node:sqlite"));
+} catch {
+  DatabaseSync = null;
+}
 import { SessionAggregator } from "../src/sessions.mjs";
 import { spawnTestServer, stopTestServer, testModelProfiles, waitForUrl } from "./server-fixture.mjs";
 
@@ -41,7 +46,7 @@ const B = (n) => `b0000000-0000-4000-8000-00000000000${n}`;
 
 // v3.7 codeg 对标 P2：Cursor 编辑器历史会话（state.vscdb 只读）按 cwd 归并进项目树。
 // 格式来源：2026-07-20 本机 globalStorage 实测（composerHeaders 91 条 / composerData + bubbleId 点查）。
-test("projects tree merges cursor sessions by cwd with archived/draft filtered", { timeout: 60_000 }, async (t) => {
+test("projects tree merges cursor sessions by cwd with archived/draft filtered", { timeout: 60_000, skip: !DatabaseSync }, async (t) => {
   const root = await mkdtemp(resolve(appRoot, ".test-cursor-"));
   const repoRoot = resolve(root, "repo");
   const dataRoot = resolve(root, "data");
@@ -182,7 +187,7 @@ test("projects tree merges cursor sessions by cwd with archived/draft filtered",
 });
 
 // 缺权威 key → cursor 源 fail-closed 不合并（整树不受影响）；库损坏同理。
-test("cursor source degrades fail-closed when composer key missing or malformed", async () => {
+test("cursor source degrades fail-closed when composer key missing or malformed", { skip: !DatabaseSync }, async () => {
   for (const [name, setup] of [
     ["missing-key", { includeHeadersKey: false }],
     ["malformed-json", { headersRaw: "not-json{{{" }],

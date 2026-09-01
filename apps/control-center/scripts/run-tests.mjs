@@ -69,7 +69,9 @@ function parseTimeoutMs(forwarded) {
 const timeoutMs = parseTimeoutMs(forwarded);
 const flagsWithoutTimeout = forwarded.filter((argument) => !argument.startsWith("--timeout="));
 const hasExplicitTarget = flagsWithoutTimeout.some((argument) => !argument.startsWith("-") && !argument.startsWith("--"));
+const hasConcurrency = flagsWithoutTimeout.some((argument) => argument.startsWith("--test-concurrency"));
 const args = [sqliteFlag, "--test", ...flagsWithoutTimeout];
+if (!hasConcurrency) args.push("--test-concurrency=4");
 if (!hasExplicitTarget) args.push("tests/*.test.mjs");
 
 // NODE_OPTIONS is inherited by server/worker Node processes spawned from tests.
