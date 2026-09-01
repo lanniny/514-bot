@@ -182,14 +182,16 @@ test("Bot composer uses the compact capsule layout without changing send semanti
 });
 
 test("Structured Bot cards are runtime-generated and the stream ships no demo content", async () => {
-  const [html, app] = await Promise.all([
+  const [html, app, settlementModule] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/bot-settlement.js`, "utf8"),
   ]);
   // 卡片真源在 app.js 的动态 markup；静态 HTML 不再携带演示对话或死卡片。
-  for (const kind of ["question", "approval", "settlement"]) {
+  for (const kind of ["question", "approval"]) {
     assert.match(app, new RegExp(`data-bot-card="${kind}" data-bot-card-source`));
   }
+  assert.match(settlementModule, /data-bot-card="settlement" data-bot-card-source/);
   assert.doesNotMatch(html, /demo-run-1|ask-demo-1/);
   assert.doesNotMatch(html, /data-bot-card=/);
   assert.match(html, /id="bot-message-stream"[^>]*><\/div>/);
@@ -964,47 +966,51 @@ test("Approval refreshes are latest-wins and refresh the visible Bot conversatio
 });
 
 test("Bot settlement cards consume the real settlement contract and fail closed on unknown payloads", async () => {
-  const [app, css] = await Promise.all([
+  const [app, css, module] = await Promise.all([
     readFile(`${appRoot}/public/app.js`, "utf8"),
     readFile(`${appRoot}/public/forge/bot-shell.css`, "utf8"),
+    readFile(`${appRoot}/public/modules/bot-settlement.js`, "utf8"),
   ]);
-  assert.match(app, /const BOT_SETTLEMENT_SCHEMA = "514cc\.run-settlement\/v1"/);
-  assert.match(app, /function botSettlementMarkup\(run\)/);
-  assert.match(app, /data-bot-card="settlement" data-bot-card-source="settlement"/);
-  assert.match(app, /schema !== BOT_SETTLEMENT_SCHEMA/);
-  assert.match(app, /function botSettlementArtifactMarkup\(artifact\)/);
-  assert.match(app, /artifacts\.slice\(0, 16\)/);
-  assert.match(app, /requestSettlement\("bot", rid\)/);
-  assert.match(app, /data-bot-settlement-diff/);
-  assert.match(app, /不会自动 merge、commit 或 push/);
+  assert.match(app, /import \{[^}]*createBotSettlement[^}]*\} from "\.\/modules\/bot-settlement\.js"/);
+  assert.match(app, /const botSettlement = createBotSettlement\(/);
+  assert.match(module, /export const BOT_SETTLEMENT_SCHEMA = "514cc\.run-settlement\/v1"/);
+  assert.match(module, /function botSettlementMarkup\(run\)/);
+  assert.match(module, /data-bot-card="settlement" data-bot-card-source="settlement"/);
+  assert.match(module, /schema !== BOT_SETTLEMENT_SCHEMA/);
+  assert.match(module, /function botSettlementArtifactMarkup\(artifact\)/);
+  assert.match(module, /artifacts\.slice\(0, 16\)/);
+  assert.match(module, /requestSettlement\("bot", rid\)/);
+  assert.match(module, /data-bot-settlement-diff/);
+  assert.match(module, /不会自动 merge、commit 或 push/);
   assert.match(css, /\.bot-settlement-card/);
   assert.match(css, /\.bot-artifact-row/);
 });
 
 test("Bot settlement validation requires complete ownership, diff, artifact, and no-auto-land fields", async () => {
-  const app = await readFile(`${appRoot}/public/app.js`, "utf8");
-  assert.match(app, /function validateBotSettlementEnvelope\(value, expectedRunId = null\)/);
-  assert.match(app, /结算响应的 run 归属不一致/);
-  assert.match(app, /BOT_SETTLEMENT_REQUIRED_ACTIONS/);
-  assert.match(app, /value\.autoLanding\[action\] !== false/);
-  assert.match(app, /typeof value\.diff\.available !== "boolean"/);
-  assert.match(app, /artifact\.published !== false/);
-  assert.match(app, /view\.status === "invalid"/);
+  const module = await readFile(`${appRoot}/public/modules/bot-settlement.js`, "utf8");
+  assert.match(module, /export function validateBotSettlementEnvelope\(value, expectedRunId = null\)/);
+  assert.match(module, /结算响应的 run 归属不一致/);
+  assert.match(module, /BOT_SETTLEMENT_REQUIRED_ACTIONS/);
+  assert.match(module, /value\.autoLanding\[action\] !== false/);
+  assert.match(module, /typeof value\.diff\.available !== "boolean"/);
+  assert.match(module, /artifact\.published !== false/);
+  assert.match(module, /view\.status === "invalid"/);
 });
 
 test("Bot settlement views refresh after run changes or the bounded TTL expires", async () => {
-  const [app, module] = await Promise.all([
+  const [app, projModule, settlementModule] = await Promise.all([
     readFile(`${appRoot}/public/app.js`, "utf8"),
     readFile(`${appRoot}/public/modules/conversation-run-projection.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/bot-settlement.js`, "utf8"),
   ]);
-  assert.match(app, /const BOT_SETTLEMENT_TTL_MS = 15_000/);
+  assert.match(settlementModule, /const BOT_SETTLEMENT_TTL_MS = 15_000/);
   assert.match(app, /import \{[^}]*settlementRunSignature[^}]*\} from "\.\/modules\/conversation-run-projection\.js"/);
   assert.match(app, /import \{[^}]*settlementViewNeedsRefresh[^}]*\} from "\.\/modules\/conversation-run-projection\.js"/);
-  assert.match(module, /export function settlementRunSignature\(run\)/);
-  assert.match(module, /export function settlementViewNeedsRefresh\(view, run, ttlMs\)/);
-  assert.match(module, /signature && view\.runSignature && signature !== view\.runSignature/);
-  assert.match(module, /Date\.now\(\) - loadedAt >= ttlMs/);
-  assert.match(app, /loadBotSettlement\(runId, \{ force = false, runSignature = "", skipLoadingGuard = false \}/);
+  assert.match(projModule, /export function settlementRunSignature\(run\)/);
+  assert.match(projModule, /export function settlementViewNeedsRefresh\(view, run, ttlMs\)/);
+  assert.match(projModule, /signature && view\.runSignature && signature !== view\.runSignature/);
+  assert.match(projModule, /Date\.now\(\) - loadedAt >= ttlMs/);
+  assert.match(settlementModule, /async function loadBotSettlement\(runId, \{ force = false, runSignature = "", skipLoadingGuard = false \}/);
   assert.match(app, /loadRunSettlement\(runId, \{ force = false, runSignature = "", skipLoadingGuard = false \}/);
 });
 
