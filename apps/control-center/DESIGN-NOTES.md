@@ -1188,3 +1188,41 @@ LO 圈图指出对话卡片右边与下边"不用留空"。`.atelier .conversati
 viewport宽）""下缘贴状态栏（pane.bottom == .global-statusbar.top）"两条几何断言，
 圆角断言改 12/0/0/0。探针 27/27 全绿；契约 17/17；全量 **1381 测试 1380 pass /
 0 fail / 1 skipped**（本轮一次通过）。
+
+---
+
+## HX-02: 版本化事件协议 envelope（v46 Wave 1, 2026-09-01）
+
+事件 envelope 的 `schemaVersion: 1` 从装饰性常量升级为真实运转的版本门控。
+
+### 单一真源
+
+`public/modules/event-protocol.js`——server（event-store.mjs / server.mjs）与 client（app.js）
+共用同一常量。纯 ESM，无 DOM/Node 依赖，仿 `stream-epoch.js` 风格。
+
+### Fail-closed 语义
+
+- **Server 出口**（`eventForPublic()`）：遇到 present-but-unknown `schemaVersion` → 返回
+  tombstone（`protocol.unsupported_envelope`），保留 sequence/runId/timestamp，不泄露原始 data。
+- **Client 入口**（`normalizeEvent()`）：遇到 present-but-unknown → 返回 null，丢弃事件 +
+  节流告警（每 distinct version 只报一次，防止降级场景刷屏）。
+- **Absent schemaVersion 容忍**：server 合成帧（`replay_error`/`ready`）无此字段，不触发 gate。
+
+### Ready payload 协商
+
+SSE ready 帧增加 `eventSchema` + `eventSchemaVersions` 声明。client 收到后检查是否有
+交集，无交集时输出诊断警告「服务端事件协议版本不受支持，部分事件可能丢失」。
+
+### Schema 漂移修复
+
+`contracts.schema.json` eventEnvelope 补回 `sourceRefs`/`prev`/`hash` 三个已有代码写入
+但 schema 遗漏的 optional 字段。新增漂移哨兵测试：emit 真实事件 → 断言 schema properties
+覆盖所有实际 envelope keys。
+
+### 测试覆盖（tests/event-protocol.test.mjs, 16 tests）
+
+1. 共享模块单元：version 判定、三路分类、tombstone 形状、negotiation
+2. Producer 一致性：EventStore.emit schemaVersion === EVENT_ENVELOPE_SCHEMA_VERSION
+3. Schema 漂移哨兵：contracts.schema.json 覆盖实际 envelope keys
+4. Fail-closed 行为：unknown version → tombstone，原始 data 不泄露
+5. Client/Server 契约：源码 assertIncludes 验证 gate 存在

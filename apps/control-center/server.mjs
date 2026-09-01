@@ -33,6 +33,7 @@ import { ResponseLeaseLimiter } from "./src/response-limiter.mjs";
 import { collectPulseSnapshot } from "./src/pulse.mjs";
 import { handleHealthz, handleReadyz, createReadinessChecker, traceIdFromRequest, collectCrashSnapshot, writeCrashSnapshot } from "./src/observability-probes.mjs";
 import { eventForUi } from "./src/event-view.mjs";
+import { EVENT_ENVELOPE_SCHEMA, EVENT_PROTOCOL_FAULT_TYPE, SUPPORTED_EVENT_SCHEMA_VERSIONS, unsupportedEventEnvelope } from "./public/modules/event-protocol.js";
 import { auditBusDiagnostics, MISSION_CONTROL_LIMITS, projectMissionControl } from "./src/mission-control.mjs";
 import { collectTeamInbox, INBOX_LIMITS } from "./src/collaboration-inbox.mjs";
 import { collectTeamAttention } from "./src/team-attention.mjs";
@@ -928,7 +929,16 @@ function automationsForPublic(automations) {
   return (Array.isArray(automations) ? automations : []).map(automationForPublic);
 }
 
+const eventProtocolFaults = { count: 0, lastSequence: null, lastSchemaVersion: null };
+
 function eventForPublic(event, run, uiView = false) {
+  if (event && typeof event === "object" && event.schemaVersion !== undefined
+      && !SUPPORTED_EVENT_SCHEMA_VERSIONS.includes(event.schemaVersion)) {
+    eventProtocolFaults.count++;
+    eventProtocolFaults.lastSequence = event.sequence ?? null;
+    eventProtocolFaults.lastSchemaVersion = event.schemaVersion;
+    return unsupportedEventEnvelope(event);
+  }
   const sourceRefs = Array.isArray(run?.sources) && run.sources.length
     ? run.sources
     : event?.sourceRefs;
@@ -3075,7 +3085,7 @@ if (request.method === "DELETE" && conversationMatch) {
     });
     response.once("error", closeStream);
     response.once("close", closeStream);
-    if (!(await writeChunk(`retry: 3000\nevent: ready\ndata: ${JSON.stringify({ requestId: randomUUID(), afterSequence, streamEpoch })}\n\n`))) return;
+    if (!(await writeChunk(`retry: 3000\nevent: ready\ndata: ${JSON.stringify({ requestId: randomUUID(), afterSequence, streamEpoch, eventSchema: EVENT_ENVELOPE_SCHEMA, eventSchemaVersions: [...SUPPORTED_EVENT_SCHEMA_VERSIONS] })}\n\n`))) return;
     try {
       if (afterSequence > 0) {
         for await (const event of state.eventStore.iterate({ afterSequence, signal: replayAbort.signal })) {

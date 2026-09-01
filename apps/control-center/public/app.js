@@ -26,6 +26,11 @@ import {
   readStreamEpochFromHeaders,
   readStreamEpochFromReadyPayload,
 } from "./modules/stream-epoch.js";
+import {
+  isSupportedEventSchemaVersion,
+  EVENT_PROTOCOL_FAULT_TYPE,
+  readServerEventSchemaVersions,
+} from "./modules/event-protocol.js";
 import { welcomeTipMarkup as buildWelcomeTipMarkup } from "./modules/welcome-tips.js";
 import { resumeHintsFromSessions, resumeHintsMarkup } from "./modules/resume-hints.js";
 import { failurePresentation, providerFailurePresentation } from "./modules/failure-presentation.js";
@@ -27180,6 +27185,9 @@ function renderConversationAgents(run) {
 
 function normalizeEvent(raw, eventName = "message", { sourceCharacters = 0 } = {}) {
   const envelope = raw?.event ?? raw ?? {};
+  if (envelope.schemaVersion !== undefined && !isSupportedEventSchemaVersion(envelope.schemaVersion)) {
+    return null;
+  }
   const payloadRaw = envelope.data ?? envelope.payload ?? {};
   const payload = payloadRaw && typeof payloadRaw === "object" ? payloadRaw : {};
   const type = String(envelope.type ?? envelope.event_type ?? eventName ?? "message");
@@ -27445,6 +27453,14 @@ function scheduleSourcesReload() {
   sourcesReloadTimer = window.setTimeout(() => void loadSources().catch(() => {}), 450);
 }
 
+const droppedProtocolVersions = new Map();
+function noteDroppedProtocolVersion(version) {
+  const key = String(version ?? "unknown");
+  const prev = droppedProtocolVersions.get(key) ?? 0;
+  droppedProtocolVersions.set(key, prev + 1);
+  if (prev === 0) appendDiagnostic(`丢弃不受支持的事件协议版本 (${key})`, "warning");
+}
+
 function parseSseFrame(frame) {
   let eventName = "message";
   let id = "";
@@ -27463,9 +27479,17 @@ function parseSseFrame(frame) {
   const parsed = JSON.parse(serialized);
   if (eventName === "ready") {
     applyStreamEpoch(readStreamEpochFromReadyPayload(parsed), { source: "ready" });
+    const serverVersions = readServerEventSchemaVersions(parsed);
+    if (serverVersions.length && !serverVersions.some((v) => isSupportedEventSchemaVersion(v))) {
+      appendDiagnostic("服务端事件协议版本不受支持，部分事件可能丢失", "warning");
+    }
     return;
   }
   const event = normalizeEvent(parsed, eventName, { sourceCharacters: serialized.length });
+  if (!event) {
+    noteDroppedProtocolVersion(parsed?.schemaVersion);
+    return;
+  }
   if (id && event.seq === "--") event.seq = Number(id) || id;
   pushEvent(event);
 }

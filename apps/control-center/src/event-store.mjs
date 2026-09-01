@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { dirname } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { sanitizeForPersistence } from "./redaction.mjs";
+import { EVENT_ENVELOPE_SCHEMA_VERSION } from "../public/modules/event-protocol.js";
 
 const DEFAULT_RECENT_LIMIT = 2000;
 const DEFAULT_PER_RUN_LIMIT = 10_000;
@@ -573,7 +574,7 @@ export class EventStore {
       })).filter((source) => source.path)
       : [];
     const event = sanitizeForPersistence({
-      schemaVersion: 1,
+      schemaVersion: EVENT_ENVELOPE_SCHEMA_VERSION,
       eventId: randomUUID(),
       sequence: ++this.sequence,
       timestamp: new Date().toISOString(),

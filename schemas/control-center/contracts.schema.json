@@ -776,6 +776,37 @@
         },
         "data": {
           "type": "object"
+        },
+        "sourceRefs": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "required": [
+              "kind",
+              "path",
+              "name"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string",
+                "maxLength": 180
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "prev": {
+          "type": "string"
+        },
+        "hash": {
+          "type": "string"
         }
       },
       "additionalProperties": false
