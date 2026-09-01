@@ -207,10 +207,12 @@ export async function collectRunSettlement({
   handoffs = [],
   deltas = [],
   evidenceSource = null,
+  asOfSequence = null,
+  worktreeDigest = null,
   summarizeDiff = summarizeRunDiff,
   now = () => new Date().toISOString(),
 } = {}) {
-  const cards = artifacts || collectRunEvidenceArtifacts({ run, handoffs, deltas });
+  const cards = artifacts || collectRunEvidenceArtifacts({ run, handoffs, deltas, asOfSequence, worktreeDigest });
   let diffSummary = null;
   if (includeDiff === true && run?.worktreePath && !run?.remote) {
     try {

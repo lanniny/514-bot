@@ -404,6 +404,7 @@ export function projectMissionControl({
   eventsMayBeTruncated = false,
   busDiagnostics = null,
   evidenceArtifacts = [],
+  asOfSequence = null,
 } = {}) {
   if (!run || typeof run !== "object" || !run.id) {
     throw Object.assign(new Error("run is required for a mission snapshot"), { code: "VALIDATION_FAILED" });
@@ -795,6 +796,7 @@ export function projectMissionControl({
     schema: MISSION_CONTROL_SCHEMA,
     schemaVersion: 3,
     asOf,
+    asOfSequence,
     runId,
     task,
     tasks,

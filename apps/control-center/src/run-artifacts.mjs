@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import { scrub } from "./redaction.mjs";
 
 export const RUN_ARTIFACT_SCHEMA = "514cc.run-artifact/v1";
@@ -21,8 +22,8 @@ function digestOf(parts) {
   return createHash("sha256").update(parts.filter(Boolean).join("\0"), "utf8").digest("hex").slice(0, 16);
 }
 
-function artifactId(runId, kind, identity) {
-  return `artifact-${digestOf(["514cc.run-artifact/v1", runId, kind, identity])}`;
+function artifactId(runId, kind, identity, asOfSequence = null, worktreeDigest = null) {
+  return `artifact-${digestOf(["514cc.run-artifact/v1", runId, kind, identity, String(asOfSequence ?? ""), worktreeDigest || ""])}`;
 }
 
 export function artifactAvailability({
@@ -53,8 +54,10 @@ export function projectEvidenceArtifact(input = {}) {
     sourceRunId: input.sourceRunId || null,
     runId,
   });
+  const asOfSequence = Number.isSafeInteger(input.asOfSequence) ? input.asOfSequence : null;
+  const worktreeDigest = input.worktreeDigest ? shortText(input.worktreeDigest, 64) : null;
   return {
-    id: artifactId(runId, kind, input.id || name || digest),
+    id: artifactId(runId, kind, input.id || name || digest, asOfSequence, worktreeDigest),
     kind,
     label: name,
     availability,
@@ -66,6 +69,8 @@ export function projectEvidenceArtifact(input = {}) {
     attemptId: shortText(input.attemptId, 80) || null,
     published: false,
     sourceRunId: input.sourceRunId ? shortText(input.sourceRunId, 80) : null,
+    asOfSequence,
+    worktreeDigest,
   };
 }
 
@@ -102,6 +107,8 @@ export function collectRunEvidenceArtifacts({
   run,
   handoffs = [],
   deltas = [],
+  asOfSequence = null,
+  worktreeDigest = null,
 } = {}) {
   if (!run?.id) return [];
   const cards = [];
@@ -120,6 +127,8 @@ export function collectRunEvidenceArtifacts({
       content: file.content,
       verifyCommand: "rg \"^__DELTA__:\" .ai-shared/handoff",
       endpoint: `/api/observability/handoffs/${encodeURIComponent(file.name || "")}`,
+      asOfSequence,
+      worktreeDigest,
     }));
   }
   for (const entry of deltas) {
@@ -133,7 +142,26 @@ export function collectRunEvidenceArtifacts({
       generatedAt: entry.ts,
       verifyCommand: "rg \"^__DELTA__:\" .ai-shared/handoff .ai-shared/decisions.md",
       sourceRunId: entry.runId || null,
+      asOfSequence,
+      worktreeDigest,
     }));
   }
   return cards.slice(0, 16);
+}
+
+export async function computeWorktreeDigest(run) {
+  const worktreePath = String(run?.worktreePath || "").trim();
+  if (!worktreePath) return null;
+  try {
+    const head = await new Promise((resolve, reject) => {
+      execFile("git", ["-C", worktreePath, "rev-parse", "HEAD"], { timeout: 5000 }, (error, stdout) => {
+        if (error) reject(error);
+        else resolve(String(stdout || "").trim());
+      });
+    });
+    if (!head) return null;
+    return createHash("sha256").update(`${run.id}\0${head}`, "utf8").digest("hex").slice(0, 16);
+  } catch {
+    return null;
+  }
 }

@@ -691,6 +691,10 @@ export class EventStore {
     this.subscribers.clear();
   }
 
+  sequenceTip() {
+    return this.sequence;
+  }
+
   async list(limit = 200, { afterSequence = 0 } = {}) {
     this.#throwIfClosed();
     const cappedLimit = Math.max(1, Math.min(Math.floor(Number(limit) || 1), DEFAULT_RECENT_LIMIT));

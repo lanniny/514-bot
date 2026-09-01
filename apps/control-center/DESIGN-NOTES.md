@@ -1261,3 +1261,45 @@ emit() 在 prev/hash 附加后、哈希链计算前，检查所有 required 字�
 5. Schema 生成：buildEventEnvelopeSchema() 结构正确，properties 匹配字段定义
 6. 生成一致性：contracts.schema.json eventEnvelope 与 buildEventEnvelopeSchema() 深比较一致
 7. Producer 一致性：EventStore.emit() 产生的事件符合 shape
+
+---
+
+## OB-01/02/03: 可观测性三件套
+
+### OB-01: 全链路 trace id
+
+HTTP 请求触发的事件，其 envelope `correlationId` = 该请求的 `x-request-id`。
+
+**机制**：模块级 `WeakMap<run, correlationId>`（`src/orchestrator.mjs`）。
+- `server.mjs` 的 `api()` 接收 `requestId`，5 处路由（create/shadow-pair/inbox/cancel/conversationMessage）传给 orchestrator 入口
+- orchestrator 入口方法（`create`/`cancel`/`conversationMessage`/`createShadowPair`）在 run 对象上设置 WeakMap
+- `emitEvent()` 读取 WeakMap，写入 event envelope 的 `correlationId`
+- 显式 `context.correlationId` 优先于 WeakMap 值
+
+**为什么 WeakMap**：不改 `emitEvent` 签名（60+ 调用点），不引入 AsyncLocalStorage（项目无此基础设施），run 对象在 orchestrator Map 中持续存在不会提前 GC。
+
+**测试**：`tests/orchestrator-trace.test.mjs`（5 tests）
+
+### OB-02: event cursor + asOfSequence
+
+快照端点返回事件水位标记，events 端点支持游标续页。
+
+**asOfSequence**：`EventStore.sequenceTip()` 返回当前 sequence 计数器。replay/mission/settlement 三个端点在快照瞬间捕获，作为"拍摄时间"水位。
+
+**游标分页**：`GET /api/runs/:id/events?after=<seq>` 在 server 层按 `event.sequence > after` 过滤。响应格式 `{ events, hasMore, asOfSequence, nextCursor }`。
+
+**向后兼容**：`listByRun()` 返回类型不变（裸数组），`afterSequence` 过滤在 server 层做。
+
+**测试**：`tests/ob02-cursor-sequence.test.mjs`（6 tests）
+
+### OB-03: EvidenceIndex 证据强绑定
+
+证据 artifact card 显式绑定 `{ runId, asOfSequence, worktreeDigest }`，替代纯启发式归属。
+
+**worktreeDigest**：`computeWorktreeDigest(run)` — 若 `run.worktreePath` 存在，`git rev-parse HEAD` 取 commit hash，与 `run.id` 组合 sha256 → 16 hex。无 worktree 或 git 失败时返回 null（fail-closed）。
+
+**artifactId 确定性**：`digestOf(["514cc.run-artifact/v1", runId, kind, identity, asOfSequence, worktreeDigest])` — 包含水位和 worktree 状态，同一快照产生相同 id，不同快照产生不同 id。
+
+**集成**：mission 和 settlement 端点捕获 `asOfSequence` + `worktreeDigest`，传给 `collectRunEvidenceArtifacts` / `collectRunSettlement`。
+
+**测试**：`tests/evidence-index.test.mjs`（9 tests）

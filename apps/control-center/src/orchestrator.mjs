@@ -407,6 +407,11 @@ async function closeWithin(adapter, timeoutMs = 10_000) {
   return result;
 }
 
+// OB-01 全链路 trace id：HTTP 请求级 correlationId 暂存。
+// 入口方法（create/cancel/conversationMessage）设置，emitEvent 读取。
+// WeakMap<run, correlationId> 确保 run GC 后条目自动回收。
+const requestCorrelationMap = new WeakMap();
+
 export class Orchestrator {
   constructor({
     router,
@@ -2061,8 +2066,10 @@ export class Orchestrator {
 
   async emitEvent(run, type, data = {}, context = {}) {
     try {
+      const correlationId = context.correlationId || requestCorrelationMap.get(run) || null;
       return await this.eventStore.emit(type, data, {
         ...context,
+        correlationId,
         sourceRefs: normalizeRunSources(run?.sources),
       });
     } catch (error) {
@@ -2138,10 +2145,12 @@ export class Orchestrator {
     return run;
   }
 
-  async create(input = {}) {
+  async create(input = {}, options = {}) {
     const idempotencyKey = input.idempotencyKey == null ? "" : String(input.idempotencyKey).trim();
     if (!idempotencyKey || idempotencyKey.length > 200 || !/^[A-Za-z0-9:._-]+$/.test(idempotencyKey)) {
-      return this.#createOnce(input);
+      const run = await this.#createOnce(input);
+      if (options.correlationId) requestCorrelationMap.set(run, options.correlationId);
+      return run;
     }
     const conversationScope = input.conversationId == null ? "global" : String(input.conversationId).trim();
     const claimKey = `${conversationScope}\0${idempotencyKey}`;
@@ -2150,7 +2159,9 @@ export class Orchestrator {
     const operation = this.#createOnce(input);
     this.createClaims.set(claimKey, operation);
     try {
-      return await operation;
+      const run = await operation;
+      if (options.correlationId) requestCorrelationMap.set(run, options.correlationId);
+      return run;
     } finally {
       if (this.createClaims.get(claimKey) === operation) this.createClaims.delete(claimKey);
     }
@@ -2159,12 +2170,15 @@ export class Orchestrator {
   async conversationMessage(conversationId, request = {}) {
     const id = String(conversationId || "").trim();
     if (!id) throw Object.assign(new Error("conversationId is required"), { code: "VALIDATION_FAILED" });
+    const { correlationId, ...innerRequest } = request;
     const previous = this.conversationMessageChains.get(id) || Promise.resolve();
-    const operation = previous.catch(() => {}).then(() => this.#conversationMessageOnce(id, request));
+    const operation = previous.catch(() => {}).then(() => this.#conversationMessageOnce(id, innerRequest));
     const tail = operation.catch(() => {});
     this.conversationMessageChains.set(id, tail);
     try {
-      return await operation;
+      const result = await operation;
+      if (correlationId && result?.run) requestCorrelationMap.set(result.run, correlationId);
+      return result;
     } finally {
       if (this.conversationMessageChains.get(id) === tail) this.conversationMessageChains.delete(id);
     }
@@ -5283,13 +5297,13 @@ ${rosterLine}
    * 并强制 plan（只读对照，不双写工作树），shadowOf 反向指路。两 run 各自走完整治理链，
    * 对比报告走 GET /api/runs/compare?a=&b=。
    */
-  async createShadowPair(input = {}) {
+  async createShadowPair(input = {}, options = {}) {
     const { shadowAgentId, ...baseInput } = input;
     const shadowTarget = String(shadowAgentId || "").trim();
     if (!shadowTarget) {
       throw Object.assign(new Error("shadowAgentId is required for shadow pair"), { code: "VALIDATION_FAILED" });
     }
-    const primary = await this.create(baseInput);
+    const primary = await this.create(baseInput, options);
     let shadow;
     try {
       shadow = await this.create({
@@ -5297,7 +5311,7 @@ ${rosterLine}
         startAgentId: shadowTarget,
         requestedProvider: undefined, // 防止 A 的 provider 与 B 的 startAgentId 不一致被一致性门拒绝
         permissionMode: "plan",
-      });
+      }, options);
       shadow.shadowOf = primary.id;
       await this.save(shadow);
     } catch (error) {
@@ -6235,8 +6249,9 @@ ${rosterLine}
     }
   }
 
-  async cancel(id) {
+  async cancel(id, options = {}) {
     const run = this.get(id);
+    if (options.correlationId) requestCorrelationMap.set(run, options.correlationId);
     // Cancellation ownership must cross the in-memory execution boundary before any
     // broker or persistence await; otherwise an active provider can still complete.
     const cancelEpoch = this.cancelEpoch(id) + 1;

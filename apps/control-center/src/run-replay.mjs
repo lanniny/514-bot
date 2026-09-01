@@ -137,6 +137,7 @@ export function projectRunReplay({
   approvals = [],
   eventsMayBeTruncated = false,
   busTruncated = false,
+  asOfSequence = null,
 } = {}) {
   const runId = shortText(run?.id, 80);
   if (!runId) {
@@ -161,6 +162,7 @@ export function projectRunReplay({
     runId,
     status: statusOf(run),
     generatedAt: new Date().toISOString(),
+    asOfSequence,
     actionability: replayActionability(run),
     taskGraph: run?.taskGraph
       ? {

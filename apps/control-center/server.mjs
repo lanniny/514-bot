@@ -48,7 +48,7 @@ import { collectReleaseRecord, summarizeServerObservedValidation } from "./src/r
 import { collectOpsMetrics } from "./src/ops-metrics.mjs";
 import { collectProjectBridge } from "./src/project-bridge.mjs";
 import { projectRunReplay } from "./src/run-replay.mjs";
-import { collectRunEvidenceArtifacts } from "./src/run-artifacts.mjs";
+import { collectRunEvidenceArtifacts, computeWorktreeDigest } from "./src/run-artifacts.mjs";
 import { collectRunSettlement } from "./src/run-settlement.mjs";
 import { collectFirstRunReadiness } from "./src/first-run-readiness.mjs";
 import { attestRunWorkspace, resolveRunWorkspace } from "./src/run-workspace.mjs";
@@ -1185,7 +1185,7 @@ function selectRunHistoryRepresentation(header) {
 const { serveStatic } = createStaticServer({ publicRoot, securityHeaders });
 
 
-async function api(request, response, url) {
+async function api(request, response, url, requestId) {
   const { pathname } = url;
   if (request.method === "POST" && pathname === "/api/test/shutdown" && process.env.CONTROL_CENTER_TEST_MODE === "1") {
     json(response, 202, { status: "shutting_down" });
@@ -1936,7 +1936,7 @@ async function api(request, response, url) {
     await state.eventStore.emit(
       `inbox.${action}`,
       { runId, messageId, teamId: team.id, state: record.state, ackMeansProviderSuccess: false },
-      { runId, sensitivity: "internal", agentId: "lo" },
+      { runId, sensitivity: "internal", agentId: "lo", correlationId: requestId },
     ).catch(() => {});
     return json(response, 200, {
       schema: "514cc.inbox-lifecycle/v1",
@@ -2224,6 +2224,7 @@ async function api(request, response, url) {
     const result = await state.orchestrator.conversationMessage(conversationId, {
       ...input,
       waitForTurn: false,
+      correlationId: requestId,
     });
     return json(response, result.created ? 202 : 200, runForPublic(result.run));
   }
@@ -2262,11 +2263,11 @@ if (request.method === "DELETE" && conversationMatch) {
   }
 
   if (request.method === "GET" && pathname === "/api/runs") return json(response, 200, { runs: runsForPublic(state.orchestrator.list()) });
-  if (request.method === "POST" && pathname === "/api/runs") return json(response, 202, runForPublic(await state.orchestrator.create(await body(request))));
+  if (request.method === "POST" && pathname === "/api/runs") return json(response, 202, runForPublic(await state.orchestrator.create(await body(request), { correlationId: requestId })));
   // W3.5 A/B shadow run：同一任务双成员并行（对照腿强制 plan 只读），对比走 /api/runs/compare
   if (request.method === "POST" && pathname === "/api/runs/shadow") {
     const payload = await body(request);
-    const { primary, shadow } = await state.orchestrator.createShadowPair(payload?.input ?? {});
+    const { primary, shadow } = await state.orchestrator.createShadowPair(payload?.input ?? {}, { correlationId: requestId });
     return json(response, 202, {
       primary: runForPublic(primary),
       shadow: runForPublic(shadow),
@@ -2334,13 +2335,20 @@ if (request.method === "DELETE" && conversationMatch) {
         ? `证据源 ${id} 不可用（${String(result.error.code).slice(0, 80)}）`
         : `证据源 ${id} 不可用`,
     }));
-    return json(response, 200, await collectRunSettlement({
-      run,
-      includeDiff,
-      handoffs: handoffs.map((file) => ({ ...file, exists: true })),
-      deltas: Array.isArray(deltaLedger?.deltas) ? deltaLedger.deltas : [],
-      evidenceSource: { status: evidenceIssues.length ? "unavailable" : "available", issues: evidenceIssues },
-    }));
+    const asOfSequence = state.eventStore.sequenceTip();
+    const worktreeDigest = await computeWorktreeDigest(run);
+    return json(response, 200, {
+      ...(await collectRunSettlement({
+        run,
+        includeDiff,
+        handoffs: handoffs.map((file) => ({ ...file, exists: true })),
+        deltas: Array.isArray(deltaLedger?.deltas) ? deltaLedger.deltas : [],
+        evidenceSource: { status: evidenceIssues.length ? "unavailable" : "available", issues: evidenceIssues },
+        asOfSequence,
+        worktreeDigest,
+      })),
+      asOfSequence,
+    });
   }
   if (request.method === "POST" && pathname === "/api/system/clipboard-image") {
     const input = await body(request, MAX_CLIPBOARD_IMAGE_REQUEST_BYTES);
@@ -2561,13 +2569,18 @@ if (request.method === "DELETE" && conversationMatch) {
           code: "NOT_ACCEPTABLE",
         });
       }
+      const afterSequence = Math.max(0, Math.floor(Number(url.searchParams.get("after") || 0)));
       const events = await state.eventStore.listByRun(runId, 5000, { signal });
+      const asOfSequence = state.eventStore.sequenceTip();
+      const filtered = afterSequence > 0 ? events.filter((event) => event.sequence > afterSequence) : events;
+      const hasMore = false;
+      const nextCursor = filtered.length ? filtered[filtered.length - 1].sequence : null;
       const uiView = url.searchParams.get("view") === "ui";
       const projectEvent = (event) => eventForPublic(event, run, uiView);
       if (representation === "ndjson") {
-        return ndjson(response, events, { transform: projectEvent });
+        return ndjson(response, filtered, { transform: projectEvent });
       }
-      return json(response, 200, { events: events.map(projectEvent) });
+      return json(response, 200, { events: filtered.map(projectEvent), hasMore, asOfSequence, nextCursor });
     }, { request });
   }
   const replayMatch = pathname.match(/^\/api\/runs\/([^/]+)\/replay$/);
@@ -2584,6 +2597,7 @@ if (request.method === "DELETE" && conversationMatch) {
         }),
         state.eventStore.listByRun(runId, 500, { signal }),
       ]);
+      const asOfSequence = state.eventStore.sequenceTip();
       return json(response, 200, projectRunReplay({
         run,
         events,
@@ -2591,6 +2605,7 @@ if (request.method === "DELETE" && conversationMatch) {
         approvals: relatedApprovals,
         eventsMayBeTruncated: events.length === 500,
         busTruncated: busRead.diagnostics?.truncated?.bytes === true || busRead.diagnostics?.truncated?.messages === true,
+        asOfSequence,
       }));
     }, { request });
   }
@@ -2636,6 +2651,8 @@ if (request.method === "DELETE" && conversationMatch) {
           return state.healthService.all({ signal });
         })(),
       ]);
+      const asOfSequence = state.eventStore.sequenceTip();
+      const worktreeDigest = await computeWorktreeDigest(run);
       return json(response, 200, projectMissionControl({
         run,
         busMessages: busRead.messages,
@@ -2646,6 +2663,7 @@ if (request.method === "DELETE" && conversationMatch) {
         // The store deliberately reads at most 200. A full window is conservatively marked
         // truncated because proving otherwise would require an unbounded/counting scan.
         eventsMayBeTruncated: events.length === MISSION_CONTROL_LIMITS.events,
+        asOfSequence,
         evidenceArtifacts: collectRunEvidenceArtifacts({
           run,
           handoffs: (await state.observability.handoffs({ limit: 80 }).catch(() => [])).map((file) => ({
@@ -2653,6 +2671,8 @@ if (request.method === "DELETE" && conversationMatch) {
             exists: true,
           })),
           deltas: (await state.observability.deltaLedger({ recent: 80 }).catch(() => ({ deltas: [] }))).deltas || [],
+          asOfSequence,
+          worktreeDigest,
         }),
       }));
     }, { request });
@@ -2892,7 +2912,7 @@ if (request.method === "DELETE" && conversationMatch) {
       })));
     }
     return json(response, 200, runForPublic(action === "cancel"
-      ? await state.orchestrator.cancel(id)
+      ? await state.orchestrator.cancel(id, { correlationId: requestId })
       : await state.orchestrator.interrupt(id)));
   }
   match = pathname.match(/^\/api\/runs\/([^/]+)\/sources$/);
@@ -3144,7 +3164,7 @@ const server = createServer(async (request, response) => {
       if (auth.observer && request.method !== "GET" && request.method !== "HEAD") {
         return json(response, 403, { error: { code: "OBSERVER_READ_ONLY", message: "Observer token is read-only; writes are not permitted", requestId } });
       }
-      return await api(request, response, url);
+      return await api(request, response, url, requestId);
     }
     if ((request.method === "GET" || request.method === "HEAD") && (await serveStatic(url.pathname, response, request))) return;
     return json(response, 404, { error: { code: "NOT_FOUND", message: "Not found", requestId } });
