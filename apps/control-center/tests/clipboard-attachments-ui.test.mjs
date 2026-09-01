@@ -318,27 +318,30 @@ test("composer wires image paste into attachment state and blocks send while upl
 });
 
 test("Bot composer accepts paste, drop, file selection, and isolates attachments per conversation", async () => {
-  const [app, html, css] = await Promise.all([
+  const [app, html, css, module] = await Promise.all([
     readFile(resolve(import.meta.dirname, "../public/app.js"), "utf8"),
     readFile(resolve(import.meta.dirname, "../public/index.html"), "utf8"),
     readFile(resolve(import.meta.dirname, "../public/forge/bot-shell.css"), "utf8"),
+    readFile(resolve(import.meta.dirname, "../public/modules/bot-attachments.js"), "utf8"),
   ]);
-  assert.match(app, /function botAttachmentContextKeyFor\(conversation = botActiveConversation\(\), agentId = botState\.agentId\)/);
-  assert.match(app, /return conversation\?\.id\s*\? `bot:conversation:\$\{String\(conversation\.id\)\}`/);
+  assert.match(app, /import \{ createBotAttachments \} from "\.\/modules\/bot-attachments\.js"/);
+  assert.match(app, /const botAttachments = createBotAttachments\(/);
+  assert.match(module, /function botAttachmentContextKeyFor\(conversation = botActiveConversation\(\), agentId = botState\.agentId\)/);
+  assert.match(module, /return conversation\?\.id\s*\? `bot:conversation:\$\{String\(conversation\.id\)\}`/);
   assert.match(app, /bindClipboardImagePaste\(botInput, queueBotImages\)/);
   assert.match(app, /botInput\?\.addEventListener\("dragover"/);
   assert.match(app, /botInput\?\.addEventListener\("drop"/);
   assert.match(app, /bot-attachment-file.*change/);
-  assert.match(app, /bot-attach-chips.*data-bot-detach/s);
+  assert.match(module, /bot-attach-chips.*data-bot-detach/s);
   assert.match(app, /if \(botAttachmentUploadInFlight\(\)\)/);
-  assert.match(app, /botEnsureAttachmentPreviewMaps\(context\)/);
-  assert.match(app, /botSafeAttachmentPreviewUrl/);
-  assert.match(app, /class="bot-attach-preview-frame"/);
-  assert.match(app, /<img class="bot-attach-preview-trigger" src="\$\{escapeHtml\(preview\)\}/);
-  assert.match(app, /botRemoveAttachmentPreview\(context, path\)/);
-  assert.match(app, /function botOpenImagePreview\(previewUrl, name/);
-  assert.match(app, /dialog\.showModal\(\)/);
-  assert.match(app, /data-bot-preview/);
+  assert.match(module, /botEnsureAttachmentPreviewMaps\(context\)/);
+  assert.match(module, /botSafeAttachmentPreviewUrl/);
+  assert.match(module, /class="bot-attach-preview-frame"/);
+  assert.match(module, /<img class="bot-attach-preview-trigger" src="\$\{escapeHtml\(preview\)\}/);
+  assert.match(module, /botRemoveAttachmentPreview\(context, path\)/);
+  assert.match(module, /function botOpenImagePreview\(previewUrl, name/);
+  assert.match(module, /dialog\.showModal\(\)/);
+  assert.match(module, /data-bot-preview/);
   assert.match(app, /bot-image-preview-dialog.*addEventListener\("close"/);
   assert.match(app, /imagePreviewOpenerUrl/);
   assert.match(app, /find\(\(element\) => element\.dataset\.botPreview === openerUrl\)/);

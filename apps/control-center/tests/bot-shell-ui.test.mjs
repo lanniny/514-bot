@@ -883,10 +883,11 @@ test("Bot conversation bootstrap waits for the access token before querying the 
 });
 
 test("Bot conversation navigation exposes stable IDs, deep links, and server-backed historical runs", async () => {
-  const [app, api, server] = await Promise.all([
+  const [app, api, server, module] = await Promise.all([
     readFile(`${appRoot}/public/app.js`, "utf8"),
     readFile(`${appRoot}/public/api.js`, "utf8"),
     readFile(`${appRoot}/server.mjs`, "utf8"),
+    readFile(`${appRoot}/public/modules/bot-attachments.js`, "utf8"),
   ]);
   assert.match(app, /const conversationId = fragment\.get\("conversation"\)\?\.trim\(\) \|\| null/);
   assert.match(app, /conversationDeepLink\?\.conversationId/);
@@ -897,7 +898,9 @@ test("Bot conversation navigation exposes stable IDs, deep links, and server-bac
   assert.match(app, /复制会话链接/);
   assert.match(app, /request\(API\.run\(id\)\)/);
   assert.match(app, /仅保留 Conversation 审计引用/);
-  assert.match(app, /async function queueBotImages\(files\)[\s\S]{0,180}botConversationReadOnlyReason\(\)/);
+  assert.match(app, /import \{ createBotAttachments \} from "\.\/modules\/bot-attachments\.js"/);
+  assert.match(app, /const botAttachments = createBotAttachments\(/);
+  assert.match(module, /async function queueBotImages\(files\)[\s\S]{0,180}botConversationReadOnlyReason\(\)/);
   assert.match(app, /if \(conversation\?\.deletedAt\) \{[\s\S]{0,260}复制会话链接/);
   assert.match(api, /run: \(id\) => `\/api\/runs\/\$\{encodeURIComponent\(id\)\}`/);
   assert.match(server, /request\.method === "GET" && runMatch/);
