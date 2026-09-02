@@ -8378,6 +8378,9 @@ function startTeamsLoad() {
       refreshTeamData();
       renderTeamActivation();
       applyActiveTeamBackground();
+      // boot 时 loadProjects 与 loadTeams 并发：teams 晚到时 projectTreeModel 的 teamById
+      // 查空，显式归属项目会降级进「未归属」组且不再自愈——teams 就绪后必须重渲项目树。
+      if (state.view === "workbench") renderProjects();
       if (elements["team-switch-select"]) {
         const editing = teamById(state.editingTeamId);
         if (state.editingTeamId && !editing) {
