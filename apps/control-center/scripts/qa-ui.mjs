@@ -27,6 +27,20 @@ const QA_APPROVAL_EPOCH = "00000000-0000-4000-8000-000000000515";
 const browser = await chromium.launch({ headless: true });
 const findings = [];
 
+// 展开 Mission Control 右栏（幂等：已展开则不动）：优先顶栏开关；≤560px 顶栏开关被
+// 有意隐藏（console-form.css，移动端 topbar 减负），此时派发应用自身的展开事件通道
+// （openRailTerminal / rail tools 同款，workbench-chrome.js 监听后 setCollapsed(false)）。
+async function expandMissionDock(page) {
+  const collapsed = await page.locator(".workbench-shell").evaluate((shell) => shell.classList.contains("mc-collapsed"));
+  if (!collapsed) return;
+  const toggle = page.locator("#global-mc-toggle");
+  if (await toggle.isVisible()) {
+    await toggle.click();
+    return;
+  }
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent("forge:expand-mission-control")));
+}
+
 async function openControlCenter(page) {
   if (sharedAccessToken) {
     await page.addInitScript((token) => {
@@ -446,11 +460,8 @@ async function inspectMissionControl(name, viewport) {
 
   await openControlCenter(page);
   if (await page.locator(".workbench-shell").evaluate((shell) => shell.classList.contains("mc-collapsed"))) {
-    const toggle = page.locator("#global-mc-toggle");
-    if (await toggle.isVisible()) {
-      await toggle.click();
-      await page.waitForSelector('#mission-control-dock[aria-hidden="false"]');
-    }
+    await expandMissionDock(page);
+    await page.waitForSelector('#mission-control-dock[aria-hidden="false"]');
   }
   // 窄屏：左右抽屉可以并存，但 Escape 只 dismiss 最上层导航，不能顺带折叠底层 Mission Control。
   // 桌面侧栏已钉成常驻列，汉堡隐藏，这组抽屉分层只在汉堡可见时跑。
@@ -504,11 +515,8 @@ async function inspectMissionControl(name, viewport) {
     const button = document.querySelector(`.run-rail-list [data-run-select="${runId}"]`);
     if (button) button.click();
   }, currentRunId);
-  const globalToggle = page.locator("#global-mc-toggle");
-  if (await globalToggle.isVisible()) {
-    await globalToggle.click();
-    await page.waitForSelector('#mission-control-dock[aria-hidden="false"]');
-  }
+  await expandMissionDock(page);
+  await page.waitForSelector('#mission-control-dock[aria-hidden="false"]');
   await waitForPage(
     () => page.locator("#mission-dock-title").textContent().then((value) => value === "QA CURRENT OWNER"),
     "current Mission Control snapshot",
@@ -700,9 +708,17 @@ async function inspectWorkbenchStateMachine(name, viewport) {
   const railFiltersToggle = page.locator("#rail-filters-toggle");
   if (await railFiltersToggle.getAttribute("aria-expanded") !== "true") await railFiltersToggle.click();
   await page.waitForSelector("#team-rail-filters:not([hidden])");
-  // 环境自洽：聚合项目可能被全部隐藏（2026-07-20 LO 视图清零）——树为空先开「已隐藏」开关让项目回树
+  // 环境自洽：聚合项目可能被全部隐藏（2026-07-20 LO 视图清零）——树为空先开「已隐藏」开关让项目回树。
+  // 另有竞速：fixture 内核的 CLI-env 初始化（.claude 等会话文件落盘）可能晚于 UI 首轮项目扫描，
+  // 首扫得到「项目扫描不可用」。空树时周期性触发顶栏「刷新数据」（workbench 视图会 loadProjects
+  // 重扫），直到项目树就绪；show-hidden 检查保留兜底。
   await page.waitForTimeout(1000);
-  if (!(await page.locator("#workbench-project-tree [data-project-toggle]").count())) {
+  const treeToggleLocator = page.locator("#workbench-project-tree [data-project-toggle]");
+  for (let attempt = 0; attempt < 8 && !(await treeToggleLocator.count()); attempt += 1) {
+    await page.locator("#refresh-button").click().catch(() => {});
+    await page.waitForTimeout(5_000);
+  }
+  if (!(await treeToggleLocator.count())) {
     await page.locator("#show-hidden-toggle").check().catch(() => {});
   }
   await page.waitForSelector("#workbench-project-tree [data-project-toggle]", { timeout: 45_000 }); // 团队树依赖项目扫描（含 codex 归并），给足余量
@@ -721,9 +737,12 @@ async function inspectWorkbenchStateMachine(name, viewport) {
   const firstToggle = page.locator("#workbench-project-tree [data-project-toggle]").first();
   await firstToggle.scrollIntoViewIfNeeded();
   await firstToggle.click();
+  // rail-toggle 的 input 是 sr-only 视觉隐藏样式（workbench.css:1867），input 中心命中会被
+  // label 内的 <span> 拦截——真实用户路径是点 label（label 语义原生联动 checkbox）。
   const summariesToggle = page.locator("#project-summaries-toggle");
-  await summariesToggle.check(); // 慢请求在途
-  await summariesToggle.uncheck(); // 立即关闭 + 触发无摘要的快请求
+  const summariesLabel = page.locator('label.rail-toggle:has(#project-summaries-toggle)');
+  await summariesLabel.click(); // 慢请求在途
+  await summariesLabel.click(); // 立即关闭 + 触发无摘要的快请求
   await page.waitForTimeout(2500); // 慢响应此时已返回，必须被序号判定为过期
   // 隐私不变量精确化（2026-07-19）：关闭摘要后 DOM 不得渲染任何 summary 内容——
   // 看 data-has-summary 属性而非文本形状（codex 会话的日期 label/别名是合法非摘要标题）
@@ -797,6 +816,9 @@ async function inspectWorkbenchStateMachine(name, viewport) {
   if (!conversationTitle?.includes("QA")) errors.push(`conversation did not switch to the new run: ${conversationTitle}`);
   const connectionsTab = page.locator('[data-registry-tab="connections"]');
   if (await connectionsTab.count()) {
+    // dock 默认折叠（514cc-mc-collapsed-v2 无持久态时 collapse），连接 tab 在折叠栏内不可见
+    await expandMissionDock(page);
+    await page.waitForSelector('#mission-control-dock[aria-hidden="false"]');
     await connectionsTab.click();
     const connectionsPanel = page.locator('[data-registry-panel="connections"]');
     if (await connectionsTab.getAttribute("aria-selected") !== "true" || await connectionsPanel.isHidden()) {
@@ -935,7 +957,7 @@ async function inspectSseDomStability(name, viewport) {
     occurred_at: new Date(now + sequence).toISOString(),
     sequence,
     runId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: {
       results: [{ isError: false, text: Array.from({ length: lineCount }, (_, index) => `${text} line ${index + 1}`).join("\n") }],
     },
@@ -981,7 +1003,9 @@ async function inspectSseDomStability(name, viewport) {
   });
 
   await openControlCenter(page);
-  await page.locator(`.run-rail [data-run-select=${JSON.stringify(runId)}]`).first().click();
+  // 390px 视口下左栏是抽屉，rail 按钮在视口外，locator.click 会永远重试；
+  // 与 mission 套件同款：程序化点击 rail 条目（测试目标是流渲染，不是 rail 命中测试）。
+  await page.evaluate((id) => document.querySelector(`.run-rail [data-run-select="${id}"]`)?.click(), runId);
   const seedEntry = page.locator(`[data-stream-key="qa-seed-tool-8"]`);
   await seedEntry.waitFor({ state: "visible", timeout: 10_000 });
   await seedEntry.locator("summary").click();
@@ -1067,7 +1091,9 @@ async function inspectContinuousDeltaIsolation(name, viewport) {
     occurred_at: new Date(now).toISOString(),
     sequence: 1,
     runId,
-    agentId: "codex-technical",
+    // 会话流按成员分页渲染（conversation-tabs：默认页=默认收件人=主脑 claude-fable），
+    // 流式内容必须挂在默认收件人名下，否则会被 agent 页过滤掉。
+    agentId: "claude-fable",
     data: { text: "seed message before deltas" },
   };
 
@@ -1103,7 +1129,7 @@ async function inspectContinuousDeltaIsolation(name, viewport) {
           occurred_at: new Date(Date.now()).toISOString(),
           sequence,
           runId: streamRunId,
-          agentId: "codex-technical",
+          agentId: "claude-fable",
           data: { delta: `piece-${sent}` },
         };
         streamController.enqueue(encoder.encode(`id: ${sequence}\nevent: ${envelope.type}\ndata: ${JSON.stringify(envelope)}\n\n`));
@@ -1158,7 +1184,9 @@ async function inspectContinuousDeltaIsolation(name, viewport) {
   );
 
   await openControlCenter(page);
-  await page.locator(`.run-rail [data-run-select=${JSON.stringify(runId)}]`).first().click();
+  // 390px 视口下左栏是抽屉，rail 按钮在视口外，locator.click 会永远重试；
+  // 与 mission 套件同款：程序化点击 rail 条目（测试目标是流渲染，不是 rail 命中测试）。
+  await page.evaluate((id) => document.querySelector(`.run-rail [data-run-select="${id}"]`)?.click(), runId);
   await page.waitForSelector('[data-stream-key="qa-delta-seed"]', { timeout: 10_000 });
   await page.waitForTimeout(100);
   await page.requestGC();
@@ -1227,7 +1255,7 @@ async function inspectDeltaTrackingBoundary(name, viewport) {
     occurred_at: new Date(now).toISOString(),
     sequence: 1,
     runId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: { text: "delta boundary seed" },
   };
   await page.addInitScript((streamRunId) => {
@@ -1243,7 +1271,7 @@ async function inspectDeltaTrackingBoundary(name, viewport) {
         runId: streamRunId,
         sessionId: "qa-boundary-missing-session",
         correlationId: "qa-boundary-missing-correlation",
-        agentId: "codex-technical",
+        agentId: "claude-fable",
         data: { delta: `m${index + 1}|` },
       }));
       const replayFirst = { ...missing[0] };
@@ -1255,7 +1283,7 @@ async function inspectDeltaTrackingBoundary(name, viewport) {
         runId: streamRunId,
         sessionId: "qa-boundary-session-a",
         correlationId: "qa-boundary-correlation-a",
-        agentId: "codex-technical",
+        agentId: "claude-fable",
         data: { delta: "stream-a" },
       };
       const streamB = {
@@ -1273,7 +1301,7 @@ async function inspectDeltaTrackingBoundary(name, viewport) {
         runId: streamRunId,
         sessionId: "qa-boundary-gap-session",
         correlationId: "qa-boundary-gap-correlation",
-        agentId: "codex-technical",
+        agentId: "claude-fable",
         data: { delta: `gap-${sequence}` },
       }));
       const gate = {
@@ -1315,7 +1343,9 @@ async function inspectDeltaTrackingBoundary(name, viewport) {
 
   await openControlCenter(page);
   await page.waitForFunction(() => window.__qaDeltaBoundaryReady === true);
-  await page.locator(`.run-rail [data-run-select=${JSON.stringify(runId)}]`).first().click();
+  // 390px 视口下左栏是抽屉，rail 按钮在视口外，locator.click 会永远重试；
+  // 与 mission 套件同款：程序化点击 rail 条目（测试目标是流渲染，不是 rail 命中测试）。
+  await page.evaluate((id) => document.querySelector(`.run-rail [data-run-select="${id}"]`)?.click(), runId);
   await page.waitForSelector('[data-stream-key="qa-delta-boundary-seed"]', { timeout: 10_000 });
   await page.evaluate(() => window.__qaEmitDeltaBoundary());
   await page.waitForFunction(() => [...document.querySelectorAll("#workbench-event-list .timeline-item span")]
@@ -1380,7 +1410,9 @@ async function inspectRunHistoryCache(name, viewport) {
   await page.route((candidate) => candidate.pathname.endsWith("/api/events"), (route) => route.abort("failed"));
 
   await openControlCenter(page);
-  await page.locator(`.run-rail [data-run-select=${JSON.stringify(runId)}]`).first().click();
+  // 390px 视口下左栏是抽屉，rail 按钮在视口外，locator.click 会永远重试；
+  // 与 mission 套件同款：程序化点击 rail 条目（测试目标是流渲染，不是 rail 命中测试）。
+  await page.evaluate((id) => document.querySelector(`.run-rail [data-run-select="${id}"]`)?.click(), runId);
   await page.waitForSelector('#member-strip [data-open-agent="codex-technical"]', { timeout: 10_000 });
   await page.locator('#member-strip [data-open-agent="codex-technical"]').click();
   await page.locator('#member-strip [data-open-agent="grok-build"]').click();
@@ -1397,7 +1429,9 @@ async function inspectRunHistoryCache(name, viewport) {
     await page.waitForTimeout(20);
   }
   if (await page.locator("#conv-tabs [role=tab]").count()) errors.push("history cache QA could not close the last tab");
-  await page.locator(`.run-rail [data-run-select=${JSON.stringify(runId)}]`).first().click();
+  // 390px 视口下左栏是抽屉，rail 按钮在视口外，locator.click 会永远重试；
+  // 与 mission 套件同款：程序化点击 rail 条目（测试目标是流渲染，不是 rail 命中测试）。
+  await page.evaluate((id) => document.querySelector(`.run-rail [data-run-select="${id}"]`)?.click(), runId);
   await waitForNodeCondition(page, () => historyRequests >= 2, "history refetch after release", errors);
   if (historyRequests !== 2) errors.push(`history cache fetched ${historyRequests} times after one release/reopen cycle`);
   findings.push({ name, viewport, historyRequests, errors });
@@ -1773,7 +1807,9 @@ async function inspectLongHistoryWindow(name, viewport) {
   };
   await page.waitForTimeout(100);
   await page.evaluate(() => { window.__qaHistoryStartAt = performance.now(); });
-  await page.locator(`.run-rail [data-run-select=${JSON.stringify(runId)}]`).first().click();
+  // 390px 视口下左栏是抽屉，rail 按钮在视口外，locator.click 会永远重试；
+  // 与 mission 套件同款：程序化点击 rail 条目（测试目标是流渲染，不是 rail 命中测试）。
+  await page.evaluate((id) => document.querySelector(`.run-rail [data-run-select="${id}"]`)?.click(), runId);
   await page.waitForSelector("#conversation-stream .conversation-history-gate", { timeout: 15_000 });
   await waitForHistoryMount("initial long-history mount");
   await page.waitForTimeout(100);
@@ -2019,7 +2055,9 @@ async function inspectMessageChannelYieldFallback(name, viewport) {
   await page.route((candidate) => candidate.pathname.endsWith("/api/events"), (route) => route.abort("failed"));
 
   await openControlCenter(page);
-  await page.locator(`.run-rail [data-run-select=${JSON.stringify(runId)}]`).first().click();
+  // 390px 视口下左栏是抽屉，rail 按钮在视口外，locator.click 会永远重试；
+  // 与 mission 套件同款：程序化点击 rail 条目（测试目标是流渲染，不是 rail 命中测试）。
+  await page.evaluate((id) => document.querySelector(`.run-rail [data-run-select="${id}"]`)?.click(), runId);
   await page.waitForSelector('[data-stream-key="qa-message-channel-96"]', { timeout: 10_000 });
   const deadline = Date.now() + 10_000;
   while ((await page.locator("#conversation-stream").getAttribute("aria-busy")) === "true" && Date.now() < deadline) {
@@ -2106,7 +2144,9 @@ async function inspectRunHistorySseContinuity(name, viewport) {
   });
 
   await openControlCenter(page);
-  await page.locator(`.run-rail [data-run-select=${JSON.stringify(runId)}]`).first().click();
+  // 390px 视口下左栏是抽屉，rail 按钮在视口外，locator.click 会永远重试；
+  // 与 mission 套件同款：程序化点击 rail 条目（测试目标是流渲染，不是 rail 命中测试）。
+  await page.evaluate((id) => document.querySelector(`.run-rail [data-run-select="${id}"]`)?.click(), runId);
   await page.waitForSelector('[data-stream-key="qa-continuity-1"]', { timeout: 10_000 });
   releaseLive();
   await page.waitForSelector('[data-stream-key="qa-continuity-221"]', { timeout: 15_000 });
@@ -2237,7 +2277,9 @@ async function inspectRunHistorySnapshotDeltaOverlap(name, viewport) {
 
   await openControlCenter(page);
   await page.waitForFunction(() => window.__qaOverlapStreamReady === true);
-  await page.locator(`.run-rail [data-run-select=${JSON.stringify(runId)}]`).first().click();
+  // 390px 视口下左栏是抽屉，rail 按钮在视口外，locator.click 会永远重试；
+  // 与 mission 套件同款：程序化点击 rail 条目（测试目标是流渲染，不是 rail 命中测试）。
+  await page.evaluate((id) => document.querySelector(`.run-rail [data-run-select="${id}"]`)?.click(), runId);
   await waitForSignal(historyStarted, "overlap history request");
   await page.evaluate((events) => window.__qaOverlapEmit(events), [d1, d2, mergeGate]);
   await page.waitForFunction(() => {
@@ -2335,7 +2377,9 @@ async function inspectRunHistoryByteBudget(name, viewport) {
 
   await openControlCenter(page);
   for (const [index, runId] of runIds.entries()) {
-    await page.locator(`.run-rail [data-run-select=${JSON.stringify(runId)}]`).first().click();
+    // 390px 视口下左栏是抽屉，rail 按钮在视口外，locator.click 会永远重试；
+  // 与 mission 套件同款：程序化点击 rail 条目（测试目标是流渲染，不是 rail 命中测试）。
+  await page.evaluate((id) => document.querySelector(`.run-rail [data-run-select="${id}"]`)?.click(), runId);
     await page.waitForSelector(`[data-stream-key="qa-history-byte-message-${index + 1}"]`, { timeout: 20_000 });
   }
   await page.locator(`.run-rail [data-run-select=${JSON.stringify(runIds[0])}]`).first().click();
@@ -2609,7 +2653,9 @@ async function inspectActiveHistorySlidingTail(name, viewport) {
 
   await openControlCenter(page);
   await page.waitForFunction(() => window.__qaSlideStreamReady === true);
-  await page.locator(`.run-rail [data-run-select=${JSON.stringify(runId)}]`).first().click();
+  // 390px 视口下左栏是抽屉，rail 按钮在视口外，locator.click 会永远重试；
+  // 与 mission 套件同款：程序化点击 rail 条目（测试目标是流渲染，不是 rail 命中测试）。
+  await page.evaluate((id) => document.querySelector(`.run-rail [data-run-select="${id}"]`)?.click(), runId);
   await page.waitForSelector('[data-stream-key="qa-slide-message-640"]', { timeout: 30_000 });
   await page.waitForFunction(() => document.querySelector("#conversation-stream")?.getAttribute("aria-busy") !== "true");
   await page.locator("[data-load-earlier]").click();

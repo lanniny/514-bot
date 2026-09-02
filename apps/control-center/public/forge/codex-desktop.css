@@ -642,6 +642,15 @@ body.atelier .sidebar .nav-item.nav-primary.is-active {
   display: initial;
 }
 
+/* Mission Control 右栏是脱离 grid 的浮层抽屉：展开时中栏右缘的 composer 控件
+   （发送 / 新任务 / 存为自动化）正好落在浮层下方不可点。与终端抽屉同款让位
+   （rail-tools.css 终端规则），保住 UX-04「抽屉开关不破坏主工作面」的验收。 */
+@media (min-width: 821px) {
+  .workbench-shell:not(.mc-collapsed) .task-composer {
+    margin-inline-end: calc(var(--codex-context-width, 326px) + 8px);
+  }
+}
+
 .mc-expand-strip {
   display: none !important;
 }
