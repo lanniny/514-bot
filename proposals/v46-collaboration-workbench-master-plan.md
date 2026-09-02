@@ -559,7 +559,7 @@ UI Surfaces
 | ID | 状态 | 证据与判定 |
 |---|---|---|
 | SG-01 公开 token 轮换 | 部分 | 边界交付完成，轮换**本体待 LO 手动操作**；公开仓库 `lanniny/514-bot` 远端历史仍含明文 token（CC-Switch proxy token `tEP1_` 前缀）。历史重写需单独授权 |
-| EQ-01 全量测试 0 fail | 未动 | 03:20 轮 301 ok / 92 not ok 未跑完；**04:08 轮完整跑完**：失败主体仍是 B-02 safe-delete 拦截（`ccswitch-proxy.test.mjs` 大批 `hookFailed`，见 16 节 B-02 证据），且 `clean-exit:resource=fail`（测试进程 20 分钟不退出，疑似遗留 SSE/PTY/worker 句柄，`reap=ok`）。干净环境基线仍未取得，失败数不可记为 514cc 回归 |
+| EQ-01 全量测试 0 fail | 部分 | 09-03 基线数据点 #1：`npm test` **1995 tests / 1993 pass / 0 fail / 2 skipped，clean-exit 全 ok，exit 0**（B-02 safe-delete 伪影与 proxy 1215 修复均确认收敛）。EQ-01 验收=连续 5 次，第 2-5 次链式执行中 |
 | EQ-02 Bot P0 隐藏 Conversation | 闭环 | 2026-09-03 `qa:bot-p0` 隔离浏览器 exit=0，结果 0 项 false：会话恢复、短 id 搜索、联系人 picker、键盘入口、历史 run 装载、消息准入 202、mobile 横向溢出 0、inspector 四视口稳定 |
 | EQ-03 `qa:ui` 一键入口 | 部分 | 契约已修：`package.json:29` 指向 `scripts/qa-ui-fixture.mjs`（自带隔离 fixture，不再裸传 URL）。03:20 轮在 `scripts/qa-ui.mjs:37` 等待 `#api-connection-badge.is-ok` 20s 超时——04:00 轮证实这不是环境伪影，而是 **B-04 前端 TDZ 启动崩溃**；修复后隔离浏览器 `BADGE OK / API 已连接`，`--suite=layout` 全程跑通输出布局检查 JSON。剩余：`--suite=all` 完整跑通后改判闭环 |
 | EQ-13 delivery / formal 门 | 部分 | drift 18 -> 2（slice 22 的 `modules/conversation-messages.js` + `tests/conversation-messages-module.test.mjs`，均已通过测试，待提交）；`formalRelease=no`，`cut=v42-r0` 未推进 |
@@ -601,6 +601,7 @@ Wave 2（UX-01~UX-10 / CW-02）、Wave 3（HX-01、HX-04~HX-14、UX-11~UX-20）�
 
 | 项 | 状态 | 证据与判定 |
 |---|---|---|
+| EQ-01 全量基线 | **数据点 #1 全绿** | 09-03 `npm test`：1995/1993/0 fail/2 skipped，clean-exit 全 ok。第 2-5 次链式执行中，5 次全绿即改判闭环 |
 | 预算止损工作包（LO 报障「$54 流干」根治） | 闭环 | `657939f`：claude-cli 上游 403 额度文案双路径归类 `budget_exhausted`；orchestrator `continue()` 止损闸（failureKind=budget_exhausted 续聊必须 acknowledgeRecovery）；成功交互清除陈旧 failureKind；simple 任务（打招呼/闲聊）短路 pipeline 只跑主脑一轮；specialist 退化为主脑时改选其他成员；默认权限档 plan→build。测试：orchestrator 127、adapters 73、router 34、remote-run 全绿（含新增 6 个用例） |
 | EQ-02 Bot P0 | 闭环 | `qa:bot-p0` exit=0，结果 JSON 0 项 false（恢复会话/短 id 搜索/键盘入口/历史装载/消息准入 202/mobile 溢出 0/inspector 四视口） |
 | EQ-03 qa:ui 套件 | **大部分** | `50f0e8b` 修复 5 项 QA 漂移（均隔离浏览器现场证据，见 16 节 B-05）：`--suite=layout`、`mission`（4 视口）、`history`、`delta`（desktop+mobile）全绿；`workbench` 状态机套件推进至 877 行拓扑键控检查后停在成员页模型语义漂移——**需按当前成员页会话模型重设计该套件，非单点修复** |
