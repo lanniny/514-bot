@@ -1,9 +1,12 @@
 # 514cc v46 协作台产品与工程总计划
 
-> 状态：项目经理审查建议，尚未批准执行
-> 日期：2026-08-31
+> 状态：部分已执行 —— Wave 1 完成、Wave 0 部分收敛、Wave B 进行中；前端启动 P0 回归已于 2026-09-02 04:00 定位并修复（见 16 节 B-04）
+> 初稿日期：2026-08-31
+> 复测日期：2026-09-02 03:20 +08:00（第 15-16 节为复测回读；第 1-14 节保留初稿原貌不回头改写）
+> 二次复测：2026-09-02 04:00 +08:00（隔离浏览器定位 B-04 前端 TDZ 回归并修复，见 16 节）
+> 三次复测：2026-09-02 晚（归因并修复全量测试唯一真实失败 `ccswitch-proxy.test.mjs:1215` —— proxy updateConfig 内存回滚缺陷，见 16 节 B-02）
 > 范围：514cc 全项目，重点为 `apps/control-center` 协作台、Bot/Conversation、Harness、运行与交付闭环
-> 基线：当前脏工作区，只读审查；未重启正式 Tauri，未调用真实 provider/SSH，未 commit/push
+> 基线：初稿为脏工作区只读审查；复测为源码回读 + `validate` / `ui:lint` / `qa:delivery` 三个可执行门禁，未重启正式 Tauri，未调用真实 provider/SSH，未 commit/push
 > 证据等级：`source`=当前源码回读；`focused`=聚焦测试；`isolated`=隔离浏览器；`delivery`=Git/manifest；`formal`=正式桌面与真实外部能力
 
 ## 0. 项目经理结论
@@ -39,6 +42,28 @@
 | 外部能力 | 本轮未做真实 provider/SSH/remote computer | formal 未验证 |
 
 这组证据推翻“当前只剩继续加功能或做视觉抛光”的判断。当前顺序必须是：红灯收敛 -> 协议统一 -> 协作台合流 -> Harness 增强 -> 平台扩展 -> 正式发布。
+
+### 1.1 2026-09-02 复测基线
+
+复测只跑不依赖真实实例的门禁；依赖真实实例的 `focused` / `isolated` 全部被第 16 节 B-01 阻塞。
+
+| 证据 | 2026-08-31 初稿 | 2026-09-02 复测 | 判定 |
+|---|---|---|---|
+| 配置/注册表 | validate 13 项 valid | validate 全项 valid（`repository-truth` 解析） | source 通过 |
+| UI lint | inner-html 388 / 389 基线 | 全绿：inner-html 387、bare-hex 284、odd-breakpoint 56、bare-font/duration/icon 均为 0 | 无新增债 |
+| 交付清单 | tracked 460 / physical 478，18 drift | tracked 510 / physical 511，**drift 18 -> 1** | 大幅收敛 |
+| 交付漂移归属 | 18 个未跟踪 source/test | 仅 1 个：`public/modules/conversation-messages.js`（未提交的 slice 22） | 剩余项已知 |
+| `formalRelease` | no | no，`cut=v42-r0` 未变 | 待 LO 授权 |
+| Git 同步 | `ahead 28` | `origin/main...main = 0 / 15`，15 个提交未推送 | 未推送 |
+| app.js 规模 | 32,188 行 | 28,690 行（Wave B 21 切片已提交，slice 22 在工作区） | 仍在收敛 |
+| 模块数 | 37 | 已入库 57，物理 58 | — |
+| 全量测试 | 1911 / 1895 pass / 14 fail / 2 skipped | **本轮未跑完**：已产出 301 ok / 92 not ok（63 `hookFailed` + 29 `testCodeFailure`），绝大多数失败由宿主安全删除拦截器抛出，见第 16 节 B-02 | full 红灯（环境伪影主导） |
+| Bot P0 隔离浏览器 | 超时 | 未复测（B-01 阻塞） | isolated 未验证 |
+| `npm run qa:ui` | 立即 usage 失败 | 脚本契约已修（`package.json:29` -> `scripts/qa-ui-fixture.mjs`），但跑到 `#api-connection-badge.is-ok` 20s 超时 | 部分修复 |
+| 正式桌面 | 未验证 | 未验证，且桌面端当前无法启动（B-01） | formal 未验证 |
+| 外部能力 | 未验证 | 未验证 | formal 未验证 |
+
+复测结论：初稿第 8 节的 Wave 1 已全部落地并入库；Wave 0 的交付漂移从 18 收敛到 1，但 full / isolated / formal 三层仍是红灯，且新增一个阻塞全部真实实例验证的 P0（B-01）。**红灯未清零，Wave 2 不应启动。**
 
 ## 2. 已有能力地图
 
@@ -523,3 +548,175 @@ UI Surfaces
 - `apps/control-center/package.json:9-36`
 - `proposals/ui-ux-audit-plan.md:178-276`
 - `proposals/ui-triage-report.md:1-195`
+
+## 15. 执行台账（2026-09-02 回读）
+
+状态图例：`闭环`=已入库且有证据；`部分`=接口/骨架在，验收条件未达成；`未动`=源码回读确认仍是初稿描述的原状。
+
+### 15.1 Wave 0：红灯清零
+
+| ID | 状态 | 证据与判定 |
+|---|---|---|
+| SG-01 公开 token 轮换 | 部分 | 边界交付完成，轮换**本体待 LO 手动操作**；公开仓库 `lanniny/514-bot` 远端历史仍含明文 token（CC-Switch proxy token `tEP1_` 前缀）。历史重写需单独授权 |
+| EQ-01 全量测试 0 fail | 未动 | 03:20 轮 301 ok / 92 not ok 未跑完；**04:08 轮完整跑完**：失败主体仍是 B-02 safe-delete 拦截（`ccswitch-proxy.test.mjs` 大批 `hookFailed`，见 16 节 B-02 证据），且 `clean-exit:resource=fail`（测试进程 20 分钟不退出，疑似遗留 SSE/PTY/worker 句柄，`reap=ok`）。干净环境基线仍未取得，失败数不可记为 514cc 回归 |
+| EQ-02 Bot P0 隐藏 Conversation | 未动 | 被 B-01 阻塞，本轮无法启动隔离浏览器 |
+| EQ-03 `qa:ui` 一键入口 | 部分 | 契约已修：`package.json:29` 指向 `scripts/qa-ui-fixture.mjs`（自带隔离 fixture，不再裸传 URL）。03:20 轮在 `scripts/qa-ui.mjs:37` 等待 `#api-connection-badge.is-ok` 20s 超时——04:00 轮证实这不是环境伪影，而是 **B-04 前端 TDZ 启动崩溃**；修复后隔离浏览器 `BADGE OK / API 已连接`，`--suite=layout` 全程跑通输出布局检查 JSON。剩余：`--suite=all` 完整跑通后改判闭环 |
+| EQ-13 delivery / formal 门 | 部分 | drift 18 -> 2（slice 22 的 `modules/conversation-messages.js` + `tests/conversation-messages-module.test.mjs`，均已通过测试，待提交）；`formalRelease=no`，`cut=v42-r0` 未推进 |
+
+### 15.2 Wave 1：协议与投影地基
+
+| ID | 状态 | 证据与判定 |
+|---|---|---|
+| CW-01 统一 ConversationRunProjection | 闭环 | `apps/control-center/public/modules/conversation-run-projection.js`（8,719 B） |
+| HX-02 版本化协议 envelope | 闭环 | `public/modules/event-protocol.js` + `tests/event-protocol.test.mjs` |
+| HX-03 形状单源 + Schema 生成 | 闭环 | `public/modules/event-shape.js` + `scripts/generate-event-schema.mjs` + `tests/event-shape.test.mjs` |
+| OB-01 全链路 trace id | 闭环 | `correlationId` 贯通 `src/event-store.mjs`、`src/event-view.mjs`、`src/orchestrator.mjs`、`server.mjs` |
+| OB-02 event cursor + asOfSequence | **部分** | 水位已通：`server.mjs:2338,2574,2600,2654` 三端点返回 `asOfSequence`；游标参数 `after` + `nextCursor` 已在 `server.mjs:2572-2583`。**但 `server.mjs:2573` 底层仍是 `listByRun(runId, 5000)` 固定尾部，`server.mjs:2576` 的 `hasMore` 硬编码 `false`** —— 截断不会被上报，CW-15 的验收条件不成立 |
+| OB-03 EvidenceIndex | 闭环 | `worktreeDigest` 强绑定落在 `src/run-artifacts.mjs`、`src/run-settlement.mjs` |
+| CW-06 TaskGraph transition store | **未动** | `src/orchestrator.mjs:1860` tasks > 128 截断、`:1841` delegations > 200 截断**原样存在**，初稿 P1 判定不变 |
+| CW-15 历史 cursor pagination | **未动** | 依赖 CW-06 与 OB-02 收口后才能成立 |
+
+### 15.3 Wave B：app.js 解耦（初稿未列，由 LO 指定为当前主线）
+
+初稿第 7.7 节的 EQ-06 只写了“每刀小 diff”，未给出切片序列。实际执行已形成稳定方法，补记如下：
+
+| 项 | 结果 |
+|---|---|
+| 已提交切片 | 21 个（slice 1-21），当日 21 个提交 |
+| 已入库模块 | 57 个；物理 58 个（slice 22 `conversation-messages.js` 350 行未提交；04:00 轮已完成隔离浏览器验证 + 受影响测试 55/55，另含两处 TDZ 修复） |
+| app.js 规模 | 30,609 -> 28,694 行 |
+| 抽取契约 | 工厂 + DI：`create*({...})` 返回具名函数，app.js 侧只保留解构与调用点；每刀先补测试再删原函数 |
+| 安全回读 | innerHTML 209 站全扫，7 个高危站 `escapeHtml` 防护到位 |
+| 未推送 | 15 个提交停在 `origin/main` 之前 |
+| 下一刀 | 扫描 app.js 寻找下一个 100-200 行 cohesive block；**每刀之后必须跑 `qa:ui`（B-04 教训：TDZ 回归只有浏览器冒烟可见）** |
+
+### 15.4 尚未启动
+
+Wave 2（UX-01~UX-10 / CW-02）、Wave 3（HX-01、HX-04~HX-14、UX-11~UX-20）、Wave 4、Wave 5 全部未启动。初稿“Wave 0 未清零前不启动新扩展”的约束**仍然有效，且当前仍未被满足**。
+
+## 16. 当前阻塞与解锁顺序（2026-09-02）
+
+### B-01 控制面实例僵持 —— P0，已缓解（根因与残余缺口见下方两小节）
+
+LO 在 Qoder 会话中报的现象：浏览器停在 `public/index.html:722` 的“正在加载团队与项目…”；桌面端无法启动。
+
+证据链：
+
+1. `.ai-shared/control-center/control-center.lock` 属主为 `pid=41872`（`node.exe`，`startedAt=2026-09-01T15:20:33.952Z`，`nonce=bdb5eff4-…`）。
+2. 该进程**仍然存活**（`ps -W` 可见），但只监听临时端口 `127.0.0.1:50138`，**没有任何控制面 HTTP 端口**（全端口扫描 8000-9000 段只有 8031/8080/8995/8998 属于无关进程）。
+3. 因此新实例一律在 `src/instance-lock.mjs:89` 抛 `INSTANCE_ACTIVE` —— 桌面端启动失败、CLI 启动失败、`npm run smoke:collaboration` 启动失败。
+4. 旧实例不服务 HTTP —— 页面加载到骨架即停在团队/项目等待态。
+
+这两个症状是**同一个根因**，不是两个 bug。
+
+### B-01 复测中已自愈并被验证
+
+1. 复测期间 pid 41872 已自行退出；锁随后被 `qa:ui` fixture（pid 13424，`startedAt=2026-09-01T19:09:06.516Z`）短暂接管又释放，最终回到无人持锁状态。
+2. 从 HEAD 直接启动 `node --experimental-sqlite server.mjs` **成功**：两次分别绑定 `127.0.0.1:58908` 与 `127.0.0.1:59001`；`/readyz` 返回 200；`/api/health`、`/api/state` 返回 401（未带 bootstrap bearer，符合预期）。
+3. `src/instance-lock.mjs:88-96` 的僵死锁回收逻辑**是正确的** —— 属主不活跃时自动 `unlink` 后重试。因此 LO 侧直接重启即可，**不需要手工删锁或杀进程**。
+
+结论（03:20 轮）：B-01 当前**已缓解**，应用本体没有被 Wave B 切片打断。
+
+**04:00 轮更正**：上一结论只验证了服务端 `/readyz`，没有在浏览器中加载前端。隔离浏览器复测证明「页面停在加载态」还有**第二个根因**——B-04 前端 TDZ 启动崩溃，与实例锁无关，且已被本轮修复（见下节）。B-01 的锁机制判定仍然成立。
+
+**但需 LO 在真实终端复验一次桌面端启动**：复测后段的重启尝试在本工具沙箱 shell 内静默无输出（同一命令在放开沙箱时可正常启动），判定为**工具环境伪影，不作为项目缺陷记录**。
+
+### B-04 前端 TDZ 启动崩溃 —— P0，2026-09-02 04:00 定位并修复（未提交）
+
+LO 报障「正在加载团队与项目…」的**代码级根因**。隔离浏览器（qa-ui-fixture 同款环境）抓到 pageerror，逐个修复后徽标转绿：
+
+| # | 崩溃点 | 根因 | 修复 |
+|---|---|---|---|
+| 1 | `app.js` `createBotSettlement({...})` DI 传入 `normalizeRunMessages` | slice 22 把原函数声明（有提升）抽进 `modules/conversation-messages.js` 工厂，app.js 侧变成 22866 行的 const 解构；而 `createBotSettlement` 调用点（16847 行）在模块求值期更早读取该标识符 → TDZ `ReferenceError` | DI 传入点改为惰性转发 `(run, options) => normalizeRunMessages(run, options)`（bot-settlement 只在渲染期调用，转发安全） |
+| 2 | `app.js` `createWorkbenchTopology({...})` DI 传入 `eventTracksEvent` | 同类问题：slice 19 `delta-merge` 的 const 解构（24402 行）晚于 23115 行的 `createWorkbenchTopology` 调用 | 同样惰性转发 |
+
+证据链：
+
+1. 修复前隔离浏览器：`BADGE FAIL`，`badge className="connection-badge is-pending"`，pageerror `Cannot access 'normalizeRunMessages' before initialization @ app.js:16858`。
+2. 修第一个后暴露第二个：`Cannot access 'eventTracksEvent' before initialization @ app.js:23130`——**同一次报障有两个叠加根因**，修一个才露出另一个。
+3. 两个都修后：`BADGE OK`，`badge className="connection-badge is-ok"`，文本「API 已连接」；`node --check` 通过；`--suite=layout` 跑通。
+4. 静态扫描（工厂 DI 简写属性 × 更晚 const 声明交叉比对）确认再无同类隐患；受影响测试 `bot-shell-ui` + `codex-process-visibility` 55/55 通过。
+
+**为什么之前没拦住**：slice 19/22 的验证只有 node 层静态断言测试（grep 源码文本），没有浏览器启动冒烟。`qa:ui` fixture 在切片期间从未跑过——这正是 EQ-03 一键入口的价值所在。
+
+**流程结论**：Wave B 每刀切片后必须跑一次 `qa:ui`（或最小 badge 冒烟），否则 TDZ 类回归不可见。建议把「DI 简写属性不得引用更晚声明的 const」加进 ui:lint 规则（挂 EQ-04/EQ-06）。
+
+### B-01 的残余架构缺口（建议挂 EQ-05，独立 backlog 项）
+
+1. **活性判定不含 HTTP 活性证明**：`src/instance-lock.mjs:16-44` 只校验「进程存在 + 镜像名 + 启动时间」，不校验属主是否真的在监听并服务 HTTP。因此「属主活着但不服务」与「属主健康」无法区分 —— 这正是本次事故的根因，也是唯一没能被现有代码防住的一环。
+   - 建议：锁文件写入 HTTP 监听端口并定期心跳；新实例发现属主进程存活但该端口无响应时，判定为僵持锁并给出可一键接管的明确提示，而非直接 `INSTANCE_ACTIVE` 拒绝。
+2. **硬 kill 后锁不释放**：本次复测用 `kill -TERM` 终止验证实例后，`control-center.lock` 仍残留（下次启动能自动回收，但应补主动清理路径）。
+3. **QA 脚本会抢锁并留下残留**：`qa:ui` fixture 在 03:09 抢到仓库实例锁后未正常释放。隔离 QA 应使用独立 `dataRoot`，不得复用 `.ai-shared/control-center`。
+
+### B-02 全量测试被宿主安全删除拦截器污染 —— P0，阻塞 EQ-01
+
+现象：`npm test` 大量子测试在 `after` 清理钩子上失败。
+
+证据：`[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {"count":50,"threshold":50,"scope":"turn", …}`，来源 `node-safe-delete-shim.cjs:214 / 566 / 747 / 791`。失败的 92 项里 63 项是 `hookFailed`，绝大多数命中该拦截；`ccswitch-proxy.test.mjs`、`ccswitch-domain.test.mjs`、`bus-concurrency.test.mjs`、`bus-tail.test.mjs`、`capability-watcher.test.mjs` 是重灾区。
+
+判定：这是**宿主环境伪影，不是 514cc 代码回归**。测试清理时对临时目录的单轮批量删除超过 50 个目标，被拦截器拦下。初稿第 4.2 节记过的“已用 HEAD 版本复跑确认为存量问题”属于同一类。
+
+真实失败的最终归因（2026-09-02 复核修正）：
+
+- `ccswitch-proxy.test.mjs:629` 曾被当作唯一真实失败，实为**漂移抖动**（非稳定失败），整文件单独跑 36/37 时该用例通过，不构成回归。
+- 真正的稳定失败是 `tests/ccswitch-proxy.test.mjs:1215` —「close 插入 proxy 配置发布前时，updateConfig 的内存与磁盘都恢复旧快照」，4/4 稳定失败，报 `121000 !== 120000`。根因：`updateConfig` 回滚写 `#writeConfigSync(previous)` 复用了 close/stop 的 deadline（`#lifecycleDeadline`），在 Windows 上 `#commit` catch 的 `rmSync(temp)` 被实时杀毒扫描卡了 ~500ms 耗尽 deadline，导致回滚写抛 `PROXY_CONFIG_PERSIST_TIMEOUT`，旧实现随即把 `this.config` 覆盖回新值（`publishedConfig`），内存与磁盘不一致。**已于本轮修复**：回滚写不再受 deadline 约束，且移除错误的 `this.config = publishedConfig` 回退；`ccswitch-proxy.test.mjs` 整文件 37/37 通过。
+
+解锁动作：
+
+1. 在不含该拦截器的环境（或提高/关闭其批量阈值后）重跑 `npm test`，取得干净基线。
+2. 或改造 fixture 清理，使单轮递归删除目标数低于阈值（对应 EQ-05）。
+3. ~~单独归因 `ccswitch-proxy.test.mjs:629`~~ **已更正**：629 为漂移抖动；稳定失败 1215（proxy updateConfig 内存回滚缺陷）已在本轮修复，整文件 37/37 通过。
+
+在拿到干净基线之前，**不得把 92 not ok 记成 514cc 的回归数**，也不得反过来宣称“全量通过”。
+
+连带损伤：清理被拦截导致临时目录持续堆积 —— 复测时 `apps/control-center/` 下已累积 **823 个 `.test-*` 残留目录**。这批目录既污染工作区，又会让后续清理更容易再次触发批量阈值，形成正反馈。清理属删除动作，**需 LO 授权后按路径清单执行，禁止 `git clean` 或通配符批量删**。
+
+### B-03 解锁顺序
+
+```text
+B-01 已自愈 / B-04 已修复（工作区） -> LO 在真实终端复验桌面端启动（1 次操作）
+                    |
+              提交 slice 22 + TDZ 修复（pathspec：app.js、modules/conversation-messages.js、
+              tests/conversation-messages-module.test.mjs、tests/bot-shell-ui.test.mjs、
+              tests/codex-process-visibility.test.mjs）-> delivery drift=0
+                    |
+              B-02 在干净环境取 full 基线（唯一真实失败 ccswitch-proxy:1215 已修复，整文件 37/37）
+                    |
+              清理 823 个 .test-* 残留（需 LO 授权，按清单删）
+                    |
+              EQ-01/EQ-02/EQ-03 收口（EQ-03 还差 --suite=all 完整跑通）
+                    |
+              SG-01 待 LO 轮换 -> 推送 16 个提交 -> formal 授权
+                    |
+              Wave 2 才允许启动
+```
+
+约束：在上述链条走完前继续切 app.js 只会堆积无法端到端验证的 diff。初稿第 8 节“Wave 0 未清零前不启动新扩展”仍然适用。
+
+## 17. 新增待 LO 拍板项（2026-09-02）
+
+1. ~~是否授权终止 pid 41872 并清除 `control-center.lock`？~~ **已作废** —— 该进程自行退出，锁由 `instance-lock.mjs:88-96` 自动回收，复测已验证可正常启动。改为：请 LO 在真实终端复验一次桌面端启动并回读结果。
+2. 是否授权清理 `apps/control-center/` 下 823 个 `.test-*` 残留目录？**需按路径清单执行，不得用 `git clean` 或通配符批量删**。
+3. 是否授权把 15 个未推送提交推到 `origin/main`？历史重写/force push 仍需单独确认。
+4. Wave B 是否在 B-02 解开前暂停？推荐：暂停切片，先恢复可验证性 —— 继续切片只会让无法端到端验证的 diff 越堆越多。
+5. ~~slice 22 是现在提交，还是等测试跑通后与下一刀一起提交？~~ **04:00 更新**：slice 22 已通过隔离浏览器验证（BADGE OK）+ 受影响测试 55/55，且工作区还叠着两处 TDZ 修复（B-04）。推荐：**现在一并提交**（显式 pathspec 四文件），让 delivery drift 归零、前端恢复可启动；B-02 干净基线另轮再取。
+6. 是否接受把「实例锁加入 HTTP 活性证明 + QA 隔离 dataRoot」作为 EQ-05 下的两个独立 backlog 项？推荐：接受，这是本次事故唯一没有被现有代码防住的环节。
+7. 是否接受把「DI 简写属性禁止引用更晚声明的顶层 const（TDZ 静态检查）」加入 ui:lint 门禁？推荐：接受——B-04 两处崩溃都属此类，静态可查，浏览器冒烟只能兜底。
+
+## 18. 复测证据坐标
+
+- `apps/control-center/package.json:29`（`qa:ui` 脚本契约）
+- `apps/control-center/scripts/qa-ui.mjs:37`（`#api-connection-badge.is-ok` 等待点）
+- `apps/control-center/src/instance-lock.mjs:89`（`INSTANCE_ACTIVE` 抛出点）
+- `apps/control-center/server.mjs:2572-2583`（`after` 游标 + `nextCursor` + `hasMore` 硬编码 false）
+- `apps/control-center/server.mjs:2338,2600,2654`（`asOfSequence` 水位）
+- `apps/control-center/src/orchestrator.mjs:1841,1860`（delegations 200 / tasks 128 截断仍在）
+- `apps/control-center/public/modules/conversation-run-projection.js`、`event-protocol.js`、`event-shape.js`
+- `apps/control-center/src/run-artifacts.mjs`、`src/run-settlement.mjs`（`worktreeDigest`）
+- `.ai-shared/control-center/control-center.lock`（pid 41872 僵持锁）
+- `apps/control-center/public/index.html:722`（“正在加载团队与项目…”）
+- `apps/control-center/public/modules/conversation-messages.js`（slice 22，未提交）
+- `apps/control-center/public/app.js:16847-16864`（B-04 修复点 1：`createBotSettlement` 惰性转发 `normalizeRunMessages`）
+- `apps/control-center/public/app.js:23115-23135`（B-04 修复点 2：`createWorkbenchTopology` 惰性转发 `eventTracksEvent`）
+- `apps/control-center/.scratch/control-center-fatal.log`（当日 20×INSTANCE_ACTIVE、1×EADDRINUSE 8765、7×ENOENT——桌面端启动失败的服务端证据）
+- `apps/control-center/tests/bot-shell-ui.test.mjs`、`tests/codex-process-visibility.test.mjs`（slice 22 测试迁移，55/55 通过）
