@@ -720,6 +720,13 @@ B-01 已自愈 / B-04 已修复（已提交 8a36346）-> LO 复验桌面端启�
 
 处置建议：该套件是对着旧 UI 模型写的（qa-ui.mjs 自 5a2eb57 未再更新），需一次按当前产品语义的重设计（成员页 tab 模型、拓扑面板生命周期、sr-only 开关交互路径），工作量约半天，不属于单点修复。在重设计完成前，`qa:ui --suite=all` 的判定口径 =「除 workbench 外四套件全绿」。
 
+09-03 深夜进展（B-05 重设计第一批，已提交）：
+
+7. **状态机套件的拓扑/tab 段已按当前模型重写并全绿**：焦点校验 + 激活效果断言 + 重试的确定性键控（codex 卡 Space 建新 tab、claude 卡 Enter 切回）；close 级联的重开入口从已废弃的 `#member-strip [data-open-agent]` 迁到拓扑卡点击；成员条切换从 `data-open-agent` 迁到收件人 radio（`selectComposerTarget -> openTab`，history-cache/abort-reopen 两 inspector 全绿）；18 处 mock 事件归属统一挂默认收件人（成员分页过滤）；20 个 pageerror 处理器补立即 stderr 输出（诊断不再被进程退出截断）。
+8. **collapsed-project 树检查确认为结构性失效（非竞速）**：项目树已换代为「当前团队平铺会话列表 + 未归属兜底组」（projectTreeModel，LO 2026-08-04 侧栏=团队工作区），`data-team-toggle="team-514cc"` 团队折叠节点已不存在——旧折叠 DOM 断言无法成立。实测排除 teams 竞速假设（/api/teams 命中 4 次仍不渲染，因模型不再渲染该节点）。重设计与状态机套件同批进行。
+9. **性能预算边际抖动**：long-history 首开/大 payload 渲染的 >50ms 长任务断言在 53-69ms 间波动（环境敏感），两次单独复跑均仅剩此类错误。建议：该预算放宽至 100ms 或按 P95 统计，不属于语义修复。
+10. 已完成的确定性修复清单（50f0e8b 之外新增）：remote-projects mock 缺失补齐 4 处（loadProjects 渲染前会 await 真实探针）、state machine 拓扑键控/成员条/事件归属、pageerror 立即输出。
+
 09-03 深挖补充（隔离浏览器前后快照实证）：
 
 4. **拓扑激活语义已变，旧流程结构性失效**：Enter 激活拓扑成员卡（`data-topology-agent`）后，上下文切出当前 run——会话标题从「QA 状态机验证任务 · Fable」变为「会话 217a0f5c」、拓扑面板重渲 `renderTopology(null)`（"暂无会话"）。设计意图（app.js:26808 注释「点击=开该成员独立页」）与实际落点（选中上下文切换到别的会话行）之间的准确契约需要产品侧先拍板，再写断言；「Enter 后原地按 Space」的旧序列在当前实现下不可恢复。

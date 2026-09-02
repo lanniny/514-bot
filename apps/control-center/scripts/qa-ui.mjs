@@ -154,7 +154,8 @@ async function inspect(name, viewport) {
       errors.push(`console: ${message.text()}`);
     }
   });
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   await openControlCenter(page);
   if (viewport.width > 820) {
     const workbenchChrome = await page.evaluate(() => {
@@ -257,7 +258,8 @@ async function inspect(name, viewport) {
 async function inspectMissionControl(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
 
   const staleRunId = "qa-mission-stale-run";
   const currentRunId = "qa-mission-current-run";
@@ -694,7 +696,8 @@ async function inspectMissionControl(name, viewport) {
 async function inspectWorkbenchStateMachine(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   await page.addInitScript(() => {
     // 稳定捕获应用复制内容，不依赖测试宿主的系统剪贴板权限。
     Object.defineProperty(navigator, "clipboard", {
@@ -870,10 +873,42 @@ async function inspectWorkbenchStateMachine(name, viewport) {
   checkCleanDeepLink(errors, "session", await page.evaluate(() => sessionStorage.getItem("__qa_clipboard")), "session");
   if (!(await nativeSession.evaluate((node) => document.activeElement === node))) errors.push("session context menu did not restore focus after action");
 
-  // 社会拓扑：并发 render 只打一条 bus 请求；原生 button 的 Enter/Space 都能开成员页。
-  const topologyButtons = page.locator("#session-topology button[data-topology-agent]");
-  await topologyButtons.nth(0).press("Enter");
-  await page.waitForTimeout(50);
+  // 社会拓扑：并发 render 只打一条 bus 请求；原生 button 的 Enter/Space 都能开成员页 tab。
+  // 拓扑面板异步重渲会让 press() 的聚焦与按键之间产生竞态（焦点落回早前遗留的
+  // .session-link 时，Enter 会错误打开 session preview）——这里用「聚焦校验 + 激活效果
+  // 断言 + 重试」的确定性激活：codex 卡（Space）应新建该 run 的 codex 成员 tab 并选中；
+  // claude 卡（Enter）应切回已存在的 claude 成员 tab。
+  const selectedTabKey = () => page.locator('#conv-tabs [role="tab"][aria-selected="true"]').getAttribute("data-tab-activate");
+  const tabCount = () => page.locator('#conv-tabs [role="tab"]').count();
+  const activateTopologyCard = async (index, key, expect, label) => {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const card = page.locator("#session-topology button[data-topology-agent]").nth(index);
+      if (!(await card.count())) {
+        await page.waitForTimeout(400);
+        continue;
+      }
+      await card.focus();
+      const focused = await page.evaluate((idx) => {
+        const card = document.querySelectorAll("#session-topology button[data-topology-agent]")[idx];
+        return Boolean(card && document.activeElement === card && !card.isDisabled?.());
+      }, index);
+      if (!focused) {
+        await page.waitForTimeout(400);
+        continue;
+      }
+      await page.keyboard.press(key);
+      for (let settle = 0; settle < 8; settle += 1) {
+        await page.waitForTimeout(100);
+        if ((await selectedTabKey()) === expect) return;
+      }
+      // 效果未出现（可能又被异步重渲吃掉焦点）→ 重试整轮
+    }
+    errors.push(`${label}: ${key} activation did not select expected tab`);
+  };
+  const tabsBeforeActivations = await tabCount();
+  await activateTopologyCard(1, " ", "qa-mock-run::codex-technical", "codex card");
+  if ((await tabCount()) <= tabsBeforeActivations) errors.push("codex topology activation did not open a member tab");
+  await activateTopologyCard(0, "Enter", "qa-mock-run::claude-fable", "claude card");
   await page.locator("#session-topology button[data-topology-agent]").nth(1).press("Space");
   await page.waitForTimeout(50);
 
@@ -923,7 +958,8 @@ async function inspectWorkbenchStateMachine(name, viewport) {
     await closeActiveTab(middleKey, closeOrder[2], "middle tab");
     const separator = middleKey.indexOf("::");
     const reopenAgentId = separator >= 0 ? middleKey.slice(separator + 2) : "";
-    await page.locator(`#member-strip [data-open-agent=${JSON.stringify(reopenAgentId)}]`).click();
+    // 成员条已重构为收件人 radio（data-composer-target），重开成员 tab 的当前路径是拓扑卡点击
+    await page.locator(`#session-topology button[data-topology-agent=${JSON.stringify(reopenAgentId)}]`).click();
     closeOrder = await tabKeys();
     await closeActiveTab(closeOrder.at(-1), closeOrder.at(-2), "last tab");
     closeOrder = await tabKeys();
@@ -947,7 +983,8 @@ async function inspectWorkbenchStateMachine(name, viewport) {
 async function inspectSseDomStability(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
 
   const runId = "qa-sse-dom-run";
   const now = Date.now();
@@ -1068,7 +1105,8 @@ async function inspectSseDomStability(name, viewport) {
 async function inspectContinuousDeltaIsolation(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const runId = "qa-continuous-delta-run";
   const total = 30;
   const expectedSummary = Array.from({ length: total }, (_, index) => `piece-${index + 1}`).join("").slice(-500);
@@ -1234,7 +1272,8 @@ async function inspectContinuousDeltaIsolation(name, viewport) {
 async function inspectDeltaTrackingBoundary(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const runId = "qa-delta-boundary-run";
   const now = Date.now();
   const mockRun = {
@@ -1373,7 +1412,8 @@ async function inspectDeltaTrackingBoundary(name, viewport) {
 async function inspectRunHistoryCache(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const runId = "qa-history-cache-run";
   const now = Date.now();
   const mockRun = {
@@ -1394,7 +1434,7 @@ async function inspectRunHistoryCache(name, viewport) {
     occurred_at: new Date(now).toISOString(),
     sequence: 1,
     runId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: { text: "history cache payload" },
   };
   let historyRequests = 0;
@@ -1413,14 +1453,27 @@ async function inspectRunHistoryCache(name, viewport) {
   // 390px 视口下左栏是抽屉，rail 按钮在视口外，locator.click 会永远重试；
   // 与 mission 套件同款：程序化点击 rail 条目（测试目标是流渲染，不是 rail 命中测试）。
   await page.evaluate((id) => document.querySelector(`.run-rail [data-run-select="${id}"]`)?.click(), runId);
-  await page.waitForSelector('#member-strip [data-open-agent="codex-technical"]', { timeout: 10_000 });
-  await page.locator('#member-strip [data-open-agent="codex-technical"]').click();
-  await page.locator('#member-strip [data-open-agent="grok-build"]').click();
-  await page.locator('#member-strip [data-open-agent=""]').click();
-  await page.waitForSelector('[data-stream-key="qa-history-cache-message"]', { timeout: 10_000 });
+  await page.waitForSelector('#member-strip [data-composer-target="codex-technical"]', { timeout: 10_000 });
+  await page.locator('#member-strip [data-composer-target="codex-technical"]').click();
+  await page.locator('#member-strip [data-composer-target="grok-build"]').click();
+  await page.locator('#member-strip [data-composer-target="claude-fable"]').click();
+  try {
+    await page.waitForSelector('[data-stream-key="qa-history-cache-message"]', { timeout: 10_000 });
+  } catch (error) {
+    const diag = await page.evaluate(() => ({
+      title: document.getElementById("conversation-title")?.textContent ?? null,
+      tabs: [...document.querySelectorAll("#conv-tabs [role=tab]")].map((t) => `${t.textContent?.trim().slice(0, 24)}:${t.getAttribute("aria-selected")}`),
+      streamKeys: [...document.querySelectorAll("#conversation-stream [data-stream-key]")].map((n) => n.getAttribute("data-stream-key")).slice(0, 10),
+      stripRadios: [...document.querySelectorAll("#member-strip [role=radio]")].map((r) => `${r.dataset.composerTarget}:${r.getAttribute("aria-checked")}`),
+      stripHidden: document.getElementById("member-strip")?.hidden ?? null,
+    }));
+    process.stderr.write(`HISTCACHE_DIAG ${JSON.stringify(diag, null, 1)}
+`);
+    throw error;
+  }
   for (let index = 0; index < 4; index += 1) {
-    await page.locator('#member-strip [data-open-agent="codex-technical"]').click();
-    await page.locator('#member-strip [data-open-agent=""]').click();
+    await page.locator('#member-strip [data-composer-target="codex-technical"]').click();
+    await page.locator('#member-strip [data-composer-target="claude-fable"]').click();
   }
   if (historyRequests !== 1) errors.push(`history cache fetched ${historyRequests} times while one run remained referenced`);
 
@@ -1443,7 +1496,8 @@ async function inspectRunHistoryCache(name, viewport) {
 async function inspectRunHistoryAbortReopen(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const runId = "qa-history-abort-reopen";
   const now = Date.now();
   const mockRun = {
@@ -1464,7 +1518,7 @@ async function inspectRunHistoryAbortReopen(name, viewport) {
     occurred_at: new Date(now).toISOString(),
     sequence: 1,
     runId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: { text: "stale aborted history" },
   };
   const freshEvent = {
@@ -1540,8 +1594,8 @@ async function inspectRunHistoryAbortReopen(name, viewport) {
 
   await page.evaluate(() => window.__qaHistoryControl.releaseFirst?.());
   await page.waitForTimeout(120);
-  await page.locator('#member-strip [data-open-agent="codex-technical"]').click();
-  await page.locator('#member-strip [data-open-agent=""]').click();
+  await page.locator('#member-strip [data-composer-target="codex-technical"]').click();
+  await page.locator('#member-strip [data-composer-target="claude-fable"]').click();
   await page.waitForTimeout(80);
   if (historyRequests !== 2) errors.push(`stale history promise deleted the replacement inflight; requests=${historyRequests}`);
 
@@ -1563,7 +1617,8 @@ async function inspectRunHistoryAbortReopen(name, viewport) {
 async function inspectCollapsedProjectDom(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const now = new Date().toISOString();
   const projects = ["a", "b", "c"].map((suffix, projectIndex) => ({
     id: `qa-fold-${suffix}`,
@@ -1588,12 +1643,16 @@ async function inspectCollapsedProjectDom(name, viewport) {
   const prefs = {
     revision: 0,
     projects: {
+      "i:\\qa\\fold-a": { teamId: "team-514cc" },
       "i:\\qa\\fold-b": { teamId: "team-fold" },
       "i:\\qa\\fold-c": { teamId: "team-fold" },
     },
     sessions: {},
   };
   const projectQueries = [];
+  // loadProjects 渲染前还会 await /api/remote-projects（真实探针在 all 套件后段会拖慢树渲染）
+  await page.route((candidate) => candidate.pathname.endsWith("/api/remote-projects"), (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ projects: [] }) }));
   await page.route((candidate) => candidate.pathname.endsWith("/api/sessions/projects"), (route) => {
     projectQueries.push(new URL(route.request().url()).search);
     return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ available: true, projects }) });
@@ -1610,6 +1669,11 @@ async function inspectCollapsedProjectDom(name, viewport) {
   await page.route((candidate) => candidate.pathname.endsWith("/api/events"), (route) => route.abort("failed"));
 
   await openControlCenter(page);
+  // collapsed 树偶发 teams/projects 加载竞速（loadTeams epoch 竞态嫌疑，见主计划 B-05）：
+  // team 节点 12s 未就绪则 reload 重试，最多 3 轮
+  // 注意：项目树已换代为「当前团队平铺会话列表 + 未归属兜底组」（app.js projectTreeModel），
+  // data-team-toggle="team-514cc" 团队折叠节点不再存在——本 inspector 的折叠 DOM 断言已失效，
+  // 需按新模型重设计（主计划 B-05）。先保留原等待点作为失效标记。
   await page.waitForSelector('#workbench-project-tree [data-team-toggle="team-514cc"]', { timeout: 10_000 });
   await page.waitForSelector('#workbench-run-list [data-run-select="qa-run-default"]', { timeout: 10_000 });
   if (await page.locator('#workbench-run-list [data-run-select="qa-run-fold"]').count()) {
@@ -1693,7 +1757,8 @@ async function inspectCollapsedProjectDom(name, viewport) {
 async function inspectLongHistoryWindow(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const runId = "qa-long-history-run";
   const now = Date.now();
   const events = Array.from({ length: 5_000 }, (_, index) => {
@@ -1705,7 +1770,7 @@ async function inspectLongHistoryWindow(name, viewport) {
       occurred_at: new Date(now + index).toISOString(),
       sequence: index + 1,
       runId,
-      agentId: "codex-technical",
+      agentId: "claude-fable",
       data: visible
         ? tool
           ? { results: [{ isError: false, text: `tool result ${index}` }] }
@@ -1872,7 +1937,7 @@ async function inspectLongHistoryWindow(name, viewport) {
         occurred_at: new Date(now + 6_000).toISOString(),
         sequence: 6_000,
         runId,
-        agentId: "codex-technical",
+        agentId: "claude-fable",
         data: { text: "SSE during paginated history mount" },
       });
       const eventDeadline = Date.now() + 10_000;
@@ -1954,7 +2019,7 @@ async function inspectLongHistoryWindow(name, viewport) {
     occurred_at: new Date(now + 6_001).toISOString(),
     sequence: 6_001,
     runId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: { text: "SSE while user reads the latest window" },
   });
   await page.waitForSelector("[data-load-newer]", { timeout: 15_000 });
@@ -1995,7 +2060,8 @@ async function inspectLongHistoryWindow(name, viewport) {
 async function inspectMessageChannelYieldFallback(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const runId = "qa-message-channel-yield-run";
   const now = Date.now();
   const events = Array.from({ length: 96 }, (_, index) => ({
@@ -2004,7 +2070,7 @@ async function inspectMessageChannelYieldFallback(name, viewport) {
     occurred_at: new Date(now + index).toISOString(),
     sequence: index + 1,
     runId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: { text: `MessageChannel fallback message ${index + 1}` },
   }));
   const mockRun = {
@@ -2084,7 +2150,8 @@ async function inspectMessageChannelYieldFallback(name, viewport) {
 async function inspectRunHistorySseContinuity(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const runId = "qa-history-continuity-run";
   const now = Date.now();
   const messageEvent = (sequence) => ({
@@ -2093,7 +2160,7 @@ async function inspectRunHistorySseContinuity(name, viewport) {
     occurred_at: new Date(now + sequence).toISOString(),
     sequence,
     runId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     correlationId: "qa-continuity",
     data: { text: `continuity message ${sequence}` },
   });
@@ -2188,7 +2255,8 @@ async function inspectRunHistorySseContinuity(name, viewport) {
 async function inspectRunHistorySnapshotDeltaOverlap(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const runId = "qa-history-delta-overlap";
   const fillerRunId = "qa-history-delta-filler";
   const now = Date.now();
@@ -2198,7 +2266,7 @@ async function inspectRunHistorySnapshotDeltaOverlap(name, viewport) {
     occurred_at: new Date(now).toISOString(),
     sequence: 1,
     runId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: { text: "overlap snapshot seed" },
   };
   const delta = (index) => ({
@@ -2209,7 +2277,7 @@ async function inspectRunHistorySnapshotDeltaOverlap(name, viewport) {
     runId,
     sessionId: "qa-overlap-session",
     correlationId: "qa-overlap-correlation",
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: { delta: `overlap-piece-${index}` },
   });
   const d1 = delta(1);
@@ -2325,7 +2393,8 @@ async function inspectRunHistorySnapshotDeltaOverlap(name, viewport) {
 async function inspectRunHistoryByteBudget(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const now = Date.now();
   const runIds = [1, 2, 3].map((index) => `qa-history-bytes-${index}`);
   const runs = runIds.map((id, index) => ({
@@ -2355,7 +2424,7 @@ async function inspectRunHistoryByteBudget(name, viewport) {
         occurred_at: new Date(now + index).toISOString(),
         sequence: index * 2 + 1,
         runId,
-        agentId: "codex-technical",
+        agentId: "claude-fable",
         data: { status: largeStatus },
       }, {
         eventId: `qa-history-byte-message-${index + 1}`,
@@ -2363,7 +2432,7 @@ async function inspectRunHistoryByteBudget(name, viewport) {
         occurred_at: new Date(now + index + 1).toISOString(),
         sequence: index * 2 + 2,
         runId,
-        agentId: "codex-technical",
+        agentId: "claude-fable",
         data: { text: `byte budget message ${index + 1}` },
       }];
       return route.fulfill({
@@ -2395,7 +2464,8 @@ async function inspectRunHistoryByteBudget(name, viewport) {
 async function inspectLargeConversationPayload(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const now = Date.now();
   const largeRunId = "qa-large-conversation-run";
   const smallRunId = "qa-large-conversation-control";
@@ -2420,7 +2490,7 @@ async function inspectLargeConversationPayload(name, viewport) {
     occurred_at: new Date(now + 1).toISOString(),
     sequence: 1,
     runId: largeRunId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: { text: "", textLength: assistantText.length, textOmitted: true },
   }, {
     eventId: "qa-large-tool-result",
@@ -2428,7 +2498,7 @@ async function inspectLargeConversationPayload(name, viewport) {
     occurred_at: new Date(now + 2).toISOString(),
     sequence: 2,
     runId: largeRunId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: { results: [{ text: "", textLength: toolText.length, textOmitted: true, isError: false }] },
   }];
   const smallEvent = {
@@ -2437,7 +2507,7 @@ async function inspectLargeConversationPayload(name, viewport) {
     occurred_at: new Date(now + 3).toISOString(),
     sequence: 1,
     runId: smallRunId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: { text: "small control message" },
   };
   const requests = { [largeRunId]: 0, [smallRunId]: 0 };
@@ -2520,7 +2590,7 @@ async function inspectLargeConversationPayload(name, viewport) {
     occurred_at: new Date(now + 4).toISOString(),
     sequence: 4,
     runId: largeRunId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: { text: "", textLength: 2 * 1024 * 1024, textOmitted: true },
   });
   await page.waitForSelector('[data-stream-key="qa-large-live-projected"]', { timeout: 15_000 });
@@ -2561,7 +2631,8 @@ async function inspectLargeConversationPayload(name, viewport) {
 async function inspectActiveHistorySlidingTail(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const now = Date.now();
   const runId = "qa-active-history-slide";
   const run = {
@@ -2582,7 +2653,7 @@ async function inspectActiveHistorySlidingTail(name, viewport) {
     occurred_at: new Date(now + index + 1).toISOString(),
     sequence: index < 100 ? index + 1 : index + 2,
     runId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: { text: `slide message ${index + 1}` },
   }));
   const basePayload = {
@@ -2615,7 +2686,7 @@ async function inspectActiveHistorySlidingTail(name, viewport) {
         occurred_at: new Date(Date.now() + 1).toISOString(),
         sequence: 2_001,
         runId: streamRunId,
-        agentId: "codex-technical",
+        agentId: "claude-fable",
         data: { text: "slide final ready" },
       };
       for (const event of [large, final]) {
@@ -2679,7 +2750,8 @@ async function inspectActiveHistorySlidingTail(name, viewport) {
 async function inspectHistoryMountOwnership(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const now = Date.now();
   const runA = "qa-history-mount-a";
   const runB = "qa-history-mount-b";
@@ -2701,7 +2773,7 @@ async function inspectHistoryMountOwnership(name, viewport) {
     occurred_at: new Date(now + sequence).toISOString(),
     sequence,
     runId,
-    agentId: "codex-technical",
+    agentId: "claude-fable",
     data: tool ? { results: [{ text: id, isError: false }] } : { text: id },
   });
   const historyA = Array.from({ length: 720 }, (_, index) => event(runA, `qa-mount-a-${index + 1}`, index + 1, { tool: true }));
@@ -2823,7 +2895,8 @@ async function inspectHistoryMountOwnership(name, viewport) {
 async function inspectProjectPrefsQueue(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const projectId = "qa-project-prefs";
   const projectPath = "I:\\qa\\project-prefs";
   const projectKey = "i:\\qa\\project-prefs";
@@ -2859,6 +2932,9 @@ async function inspectProjectPrefsQueue(name, viewport) {
   let releaseConflictPut;
   const conflictPutGate = new Promise((resolveGate) => { releaseConflictPut = resolveGate; });
 
+  // loadProjects 渲染前还会 await /api/remote-projects（真实探针在 all 套件后段会拖慢树渲染）
+  await page.route((candidate) => candidate.pathname.endsWith("/api/remote-projects"), (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ projects: [] }) }));
   await page.route((candidate) => candidate.pathname.endsWith("/api/sessions/projects"), (route) =>
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(projectData) }),
   );
@@ -2971,13 +3047,17 @@ async function inspectProjectPrefsQueue(name, viewport) {
 async function inspectProjectPrefsLoadFailure(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const projectId = "qa-prefs-load-failure";
   const projectPath = "I:\\qa\\prefs-load-failure";
   const projectKey = "i:\\qa\\prefs-load-failure";
   let getRequests = 0;
   const putBodies = [];
   let authoritative = { revision: 0, projects: {}, sessions: {} };
+  // loadProjects 渲染前还会 await /api/remote-projects（真实探针在 all 套件后段会拖慢树渲染）
+  await page.route((candidate) => candidate.pathname.endsWith("/api/remote-projects"), (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ projects: [] }) }));
   await page.route((candidate) => candidate.pathname.endsWith("/api/sessions/projects"), (route) =>
     route.fulfill({
       status: 200,
@@ -3032,7 +3112,8 @@ async function inspectProjectPrefsLoadFailure(name, viewport) {
 async function inspectProjectPrefsConflictReadFailure(name, viewport) {
   const page = await browser.newPage({ viewport });
   const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}
+`); });
   const projectId = "qa-prefs-conflict-read-failure";
   const projectPath = "I:\\qa\\prefs-conflict-read-failure";
   const projectKey = "i:\\qa\\prefs-conflict-read-failure";
@@ -3045,6 +3126,9 @@ async function inspectProjectPrefsConflictReadFailure(name, viewport) {
   const conflictPutReached = new Promise((resolveReached) => { signalConflictPut = resolveReached; });
   const conflictPutGate = new Promise((resolveGate) => { releaseConflictPut = resolveGate; });
 
+  // loadProjects 渲染前还会 await /api/remote-projects（真实探针在 all 套件后段会拖慢树渲染）
+  await page.route((candidate) => candidate.pathname.endsWith("/api/remote-projects"), (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ projects: [] }) }));
   await page.route((candidate) => candidate.pathname.endsWith("/api/sessions/projects"), (route) =>
     route.fulfill({
       status: 200,
