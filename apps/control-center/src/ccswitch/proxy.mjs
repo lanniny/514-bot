@@ -1129,7 +1129,6 @@ export class CcSwitchProxyService {
       }
       const previous = this.config;
       this.config = this.#validateConfig({ ...this.config, ...input, circuitBreaker: { ...this.config.circuitBreaker, ...(input.circuitBreaker ?? {}) } });
-      const publishedConfig = this.config;
       this.providerStore.configureLocalProxy({ origin: this.origin || `http://${this.config.listenAddress}:${this.config.listenPort}`, token: this.config.token });
       try {
         await this.#commit(lifecycle);
@@ -1144,15 +1143,13 @@ export class CcSwitchProxyService {
         });
         if (lifecycle.controller.signal.aborted) {
           const cancellation = abortReason(lifecycle.controller.signal);
+          // 回滚写不得复用 close/stop 的 deadline：此时 #commit 的 rename 尚未发生，磁盘仍是旧快照，
+          // 回滚只是兜底保证一致性。若被已过期的 deadline 拦下抛 PROXY_CONFIG_PERSIST_TIMEOUT，
+          // 旧实现会把 this.config 覆盖回新值，导致内存与磁盘不一致（回归已由 ccswitch-proxy 测试覆盖）。
           try {
-            this.#writeConfigSync(previous, { deadline: () => this.#lifecycleDeadline(lifecycle) });
+            this.#writeConfigSync(previous);
           } catch (rollbackError) {
             cancellation.rollbackError = String(rollbackError?.message || rollbackError);
-            this.config = publishedConfig;
-            this.providerStore.configureLocalProxy({
-              origin: this.origin || `http://${publishedConfig.listenAddress}:${publishedConfig.listenPort}`,
-              token: publishedConfig.token,
-            });
           }
           if (input.upstreamProxyUrl !== undefined) {
             void configureUpstreamProxy(this.config.upstreamProxyUrl, { closeTimeoutMs: 0 }).catch((rollbackError) => {
