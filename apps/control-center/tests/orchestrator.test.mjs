@@ -92,6 +92,7 @@ async function fixture({
   interruptTimeoutMs = 30_000,
   conversationContexts = null,
   extraAdapterIds = [],
+  route: routeOverride = null,
 } = {}) {
   const root = await mkdtemp(resolve(appRoot, ".test-orchestrator-"));
   const calls = [];
@@ -123,7 +124,7 @@ async function fixture({
   };
   const events = [];
   const orchestrator = await new Orchestrator({
-    router: { preview: async ({ requestedProvider } = {}) => route(requestedProvider || "codex-technical") },
+    router: { preview: async ({ requestedProvider } = {}) => routeOverride || route(requestedProvider || "codex-technical") },
     adapters,
     eventStore: { emit: async (type, data) => { events.push({ type, data }); } },
     dataRoot: root,
@@ -215,6 +216,47 @@ test("high-risk execution performs planner, specialist and independent verifier 
   assert.equal(delegations[1].sourceAttemptId, completed.turnAttempts[1].attemptId);
   assert.equal(delegations[1].targetAttemptId, completed.turnAttempts[2].attemptId);
   assert.ok(delegations.every((edge) => edge.state === "completed"));
+});
+
+test("simple 任务短路 pipeline：打招呼只跑主脑一轮，不派工不复核", async (t) => {
+  const fx = await fixture({
+    route: {
+      taskType: "simple",
+      risk: "low",
+      selected: { id: "codex-technical", label: "codex-technical" },
+      reason: "greeting",
+    },
+  });
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({ prompt: "implement", execute: true, orchestrationMode: "pipeline", maxRounds: 3, permissionMode: "plan" });
+  const completed = await waitTerminal(fx.orchestrator, created.id);
+  assert.equal(completed.status, "succeeded");
+  assert.deepEqual(fx.calls.map((call) => call.id), ["claude-fable"], "simple 只允许一轮主脑调用，specialist/verifier 一律不跑");
+  assert.equal(completed.result.simpleShortCircuit, true);
+  assert.equal(completed.result.final, completed.result.plan);
+  assert.deepEqual(completed.taskGraph.delegations, [], "短路轮不得伪造 pipeline 委派边");
+});
+
+test("budget_exhausted 止损闸：未确认的续聊被拒，确认后放行并清除失败标记", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({ prompt: "implement", execute: false, permissionMode: "plan" });
+  const run = fx.orchestrator.get(created.id);
+  run.status = "failed";
+  run.failureKind = "budget_exhausted";
+  run.error = "API Error 403: 额度不足";
+
+  await assert.rejects(
+    () => fx.orchestrator.continue(created.id, { prompt: "继续" }),
+    { code: "BUDGET_EXHAUSTED" },
+  );
+  assert.equal(fx.calls.length, 0, "止损闸必须挡在 provider 调用之前，不能先烧一轮再失败");
+
+  const resumed = await fx.orchestrator.continue(created.id, { prompt: "余额已充值，继续", acknowledgeRecovery: true });
+  assert.equal(resumed.status, "succeeded");
+  assert.equal(fx.calls.length, 1);
+  assert.equal(resumed.failureKind, null, "成功交互必须清除止损标记，否则后续消息被陈旧值误拦");
+  assert.equal(resumed.error, null);
 });
 
 test("direct conversations dispatch only to the selected member and keep its native session", async (t) => {
@@ -2304,7 +2346,7 @@ test("an explicit start member cannot route-check a different provider", async (
   assert.equal(fx.orchestrator.list().length, 0);
 });
 
-test("unknown permission modes fail closed while omission still defaults to plan", async (t) => {
+test("unknown permission modes fail closed while omission still defaults to build", async (t) => {
   const fx = await fixture();
   t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
   await assert.rejects(() => fx.orchestrator.create({
@@ -2313,7 +2355,7 @@ test("unknown permission modes fail closed while omission still defaults to plan
     permissionMode: "superuser",
   }), { code: "VALIDATION_FAILED" });
   const created = await fx.orchestrator.create({ prompt: "route only", execute: false });
-  assert.equal(created.permissionMode, "plan");
+  assert.equal(created.permissionMode, "build");
 });
 
 // LO 2026-08-14 决策（协作台对话逻辑报障）：续聊的写权限**沿用建 run 时批过的授权**，

@@ -59,7 +59,7 @@ export class ClaudeCliAdapter {
   constructor({ command = "claude", model = "fable", systemPromptFile = null, settingsFile = null, eventStore, cwd, runProcessImpl = runProcess }) {
     this.id = "claude-stream-json";
     this.command = command;
-    this.model = model;
+    this.model = model ?? "fable";
     this.systemPromptFile = systemPromptFile;
     this.settingsFile = settingsFile;
     this.eventStore = eventStore;
@@ -169,8 +169,12 @@ export class ClaudeCliAdapter {
     if (terminalResult?.is_error) {
       const usage = claudeResultUsage(terminalResult);
       const errorText = terminalError || "Claude returned an error result";
+      // 上游 API 额度耗尽常以 403 + 余额文案出现（DeepSeek "额度不足"、Anthropic "insufficient credits" 等），
+      // 与本机 --max-budget-usd 触发的 subtype=error_max_budget_usd 同源——都是钱没了，止损策略一致。
+      const upstreamBudgetPattern = /额度不足|insufficient\s+(?:credits|balance|funds)|remaining\s+(?:credit|balance).*[¥$]-|quota\s+exceeded|rate.*limit.*exhausted/i;
       const failureKind = terminalResult.subtype === "error_max_budget_usd"
         || /reached maximum budget/i.test(errorText)
+        || upstreamBudgetPattern.test(errorText)
         ? "budget_exhausted"
         : /content block not found/i.test(errorText)
           ? "content_block_error"
@@ -206,7 +210,14 @@ export class ClaudeCliAdapter {
         message = `${message} — 在任意终端运行 claude 并完成 /login（或导出 ANTHROPIC_API_KEY）后重试。`;
       }
       const error = new Error(message);
-      error.code = "CLAUDE_FAILED";
+      // 上游额度耗尽也可能走非 result 路径（子进程被远端 403 后直接退出，无 stream event）
+      const upstreamBudgetPattern = /额度不足|insufficient\s+(?:credits|balance|funds)|remaining\s+(?:credit|balance).*[¥$]-|quota\s+exceeded|rate.*limit.*exhausted/i;
+      if (upstreamBudgetPattern.test(message)) {
+        error.code = "CLAUDE_BUDGET_EXHAUSTED";
+        error.failureKind = "budget_exhausted";
+      } else {
+        error.code = "CLAUDE_FAILED";
+      }
       throw error;
     }
     return {

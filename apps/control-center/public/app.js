@@ -8593,7 +8593,7 @@ function rememberComposerControlDraft(target = activeComposerTarget()) {
     model: elements["task-model"]?.value || "",
     effort: elements["task-effort"]?.value || "",
     budget: elements["task-budget"]?.value || "",
-    permission: elements["task-permission"]?.value || "plan",
+    permission: elements["task-permission"]?.value || "build",
   });
 }
 

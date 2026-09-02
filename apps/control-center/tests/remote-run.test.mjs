@@ -305,19 +305,19 @@ test("orchestrator.create 远程分支：remote 持久化 / 与 cwd 互斥 / 无
   t.after(() => rm(root, { recursive: true, force: true }));
   const calls = [];
   const orchestrator = await orchestratorFixture(root, { remoteRunner: fakeRunner(calls) }).init();
-  const run = await orchestrator.create({ prompt: "hello remote", remote: { hostId: "h1", path: "/srv/app" } });
+  const run = await orchestrator.create({ prompt: "hello remote", remote: { hostId: "h1", path: "/srv/app" }, permissionMode: "plan" });
   assert.deepEqual(run.remote, { hostId: "h1", path: "/srv/app" });
   assert.equal(run.cwd, null);
   assert.deepEqual(calls, [["h1", "/srv/app"]]); // 建 run 时远端 test -d 探针仅此一次
   await assert.rejects(
-    () => orchestrator.create({ prompt: "x", cwd: root, remote: { hostId: "h1", path: "/srv" } }),
+    () => orchestrator.create({ prompt: "x", cwd: root, remote: { hostId: "h1", path: "/srv" }, permissionMode: "plan" }),
     { code: "VALIDATION_FAILED" }, // 两套 cwd 语义绝不混用
   );
   await orchestrator.close();
 
   const noRunner = await orchestratorFixture(root).init();
   await assert.rejects(
-    () => noRunner.create({ prompt: "x", remote: { hostId: "h1", path: "/srv" } }),
+    () => noRunner.create({ prompt: "x", remote: { hostId: "h1", path: "/srv" }, permissionMode: "plan" }),
     { code: "REMOTE_UNAVAILABLE" },
   );
   await noRunner.close();
@@ -326,7 +326,7 @@ test("orchestrator.create 远程分支：remote 持久化 / 与 cwd 互斥 / 无
   delete legacyRunner.assertDispatchable;
   const legacyOrchestrator = await orchestratorFixture(root, { remoteRunner: legacyRunner }).init();
   await assert.rejects(
-    () => legacyOrchestrator.create({ prompt: "x", remote: { hostId: "h1", path: "/srv" } }),
+    () => legacyOrchestrator.create({ prompt: "x", remote: { hostId: "h1", path: "/srv" }, permissionMode: "plan" }),
     { code: "REMOTE_UNAVAILABLE" },
   );
   await legacyOrchestrator.close();

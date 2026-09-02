@@ -953,13 +953,13 @@
                     </div>
                     <div class="model-pick permission-pick" id="task-permission-pick" title="权限模式：Plan=只读规划；Review=只读深审；Build=可写盘（提交后经审批门）">
                       <select id="task-permission" aria-label="选择权限模式" hidden>
-                        <option value="plan" selected>Plan · 只读</option>
+                        <option value="plan">Plan · 只读</option>
                         <option value="review">Review · 深审</option>
-                        <option value="build">Build · 写盘</option>
+                        <option value="build" selected>Build · 写盘</option>
                       </select>
                       <button type="button" class="permission-pill" id="permission-pill" aria-haspopup="menu" aria-expanded="false" aria-controls="permission-menu" title="选择本次新任务的权限模式">
                         <svg class="icon lucide" aria-hidden="true"><use href="#lucide-shield"></use></svg>
-                        <span id="permission-pill-label">只读规划</span>
+                        <span id="permission-pill-label">写盘审批</span>
                         <svg class="icon lucide chevron" aria-hidden="true"><use href="#lucide-chevron-down"></use></svg>
                       </button>
                       <div class="permission-menu" id="permission-menu" role="menu" aria-label="权限模式" hidden></div>

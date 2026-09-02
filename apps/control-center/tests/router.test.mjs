@@ -160,6 +160,21 @@ test("classifyTask：提到图片的编码任务不是多模态任务；真带�
   assert.equal(classifyTask("最新的 grok 定价"), "current-research");
 });
 
+test("classifyTask：打招呼和短闲聊归入 simple，不走完整 pipeline", () => {
+  assert.equal(classifyTask("你好"), "simple");
+  assert.equal(classifyTask("hello"), "simple");
+  assert.equal(classifyTask("Hi"), "simple");
+  assert.equal(classifyTask("谢谢"), "simple");
+  assert.equal(classifyTask("嗯好的"), "simple");
+  assert.equal(classifyTask("这个怎么用"), "simple");
+  // 带任务关键词的短 prompt 不归 simple——关键词优先
+  assert.equal(classifyTask("修复bug"), "debugging");
+  assert.equal(classifyTask("帮我实现"), "coding");
+  assert.equal(classifyTask("设计方案"), "planning");
+  // 长 prompt 即使没有关键词也不归 simple（可能隐含复杂意图）
+  assert.equal(classifyTask("这个系统到底是怎么运作的能不能给我详细解释一下整个架构"), "planning");
+});
+
 test("preview：附件判据由服务端传入，含'图片'字样的编码任务照常路由到在役席位", async () => {
   const router = new ModelRouter({ profiles: models.profiles, policy, healthService: health() });
   const coding = await router.preview({ prompt: "现在协作台不能直接复制粘贴图片请你完善" });

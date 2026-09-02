@@ -10,7 +10,15 @@ export function classifyTask(prompt = "", { hasVisualAttachment = false } = {}) 
     ["coding", /实现|写代码|开发|编码|implement|code|build/i],
     ["planning", /规划|方案|架构|设计|plan|architecture/i],
   ];
-  return tests.find(([, pattern]) => pattern.test(prompt))?.[0] || "planning";
+  const matched = tests.find(([, pattern]) => pattern.test(prompt));
+  if (matched) return matched[0];
+  // 短 prompt 且不含任何任务关键词 → 打招呼/闲聊/简单问答，不值得跑完整多 agent pipeline。
+  // 15 字符阈值：中文打招呼通常 2-6 字，"这个怎么用" 5 字，"帮我看看" 4 字；
+  // 带任务意图的短 prompt（"修复 bug" 6 字、"帮我实现 X"）已被上方关键词先命中。
+  if (prompt.trim().length <= 15 && !/实现|修复|写|开发|设计|规划|搜索|分析|评审|调试|部署|测试|代码|架构|方案|bug|debug|plan|code|build|review|search/i.test(prompt)) {
+    return "simple";
+  }
+  return "planning";
 }
 
 function healthValue(providerHealth) {

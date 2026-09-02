@@ -13,7 +13,7 @@ import {
   publicCodexEvent,
 } from "../src/adapters/stream-utils.mjs";
 import { buildIsolatedMcpArgs, CodexAppServerAdapter } from "../src/adapters/codex-app-server.mjs";
-import { buildClaudeArgs } from "../src/adapters/claude-cli.mjs";
+import { buildClaudeArgs, ClaudeCliAdapter } from "../src/adapters/claude-cli.mjs";
 import { GrokMcpAdapter } from "../src/adapters/grok-mcp.mjs";
 import { PiRpcAdapter, piProviderEnvPolicy } from "../src/adapters/pi-rpc.mjs";
 import { createAdapters } from "../src/adapters/index.mjs";
@@ -1597,6 +1597,75 @@ test("Claude CLI native approval passthrough applies on read-only turns and the 
   assert.equal(valueAfter(acceptArgs, "--permission-mode"), "acceptEdits");
   // 写盘轮红线：native 覆盖完全无效，固定 acceptEdits + 审批
   assert.equal(valueAfter(writeWithNative, "--permission-mode"), "acceptEdits");
+});
+
+function fakeClaudeProcess({ stdoutEvents = [], exitCode = 0, stderr = "" } = {}) {
+  return async (_command, _args, options = {}) => {
+    if (stdoutEvents.length && options.onStdout) {
+      options.onStdout(stdoutEvents.map((event) => `${JSON.stringify(event)}\n`).join(""));
+    }
+    return { code: exitCode, stdout: "", stderr };
+  };
+}
+
+function stubClaudeAdapter(runProcessImpl) {
+  return new ClaudeCliAdapter({
+    eventStore: { emit: async () => undefined },
+    cwd: process.cwd(),
+    runProcessImpl,
+  });
+}
+
+test("Claude CLI 上游额度耗尽（result 路径）归类为 budget_exhausted 止损", async () => {
+  const adapter = stubClaudeAdapter(fakeClaudeProcess({
+    stdoutEvents: [{
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      errors: ["API Error 403: 额度不足"],
+      session_id: "upstream-budget-session",
+    }],
+  }));
+  await assert.rejects(
+    () => adapter.send({ prompt: "继续任务", runId: "run-1" }),
+    (error) => {
+      assert.equal(error.code, "CLAUDE_BUDGET_EXHAUSTED");
+      assert.equal(error.failureKind, "budget_exhausted");
+      assert.equal(error.retryable, false);
+      assert.equal(error.nativeTurnSettled, true);
+      return true;
+    },
+  );
+});
+
+test("Claude CLI 上游额度耗尽（非 result 路径）同样归类为 budget_exhausted", async () => {
+  const adapter = stubClaudeAdapter(fakeClaudeProcess({
+    exitCode: 1,
+    stderr: "403 insufficient credits",
+  }));
+  await assert.rejects(
+    () => adapter.send({ prompt: "继续任务", runId: "run-2" }),
+    (error) => {
+      assert.equal(error.code, "CLAUDE_BUDGET_EXHAUSTED");
+      assert.equal(error.failureKind, "budget_exhausted");
+      return true;
+    },
+  );
+});
+
+test("Claude CLI 普通失败不冒充 budget_exhausted", async () => {
+  const adapter = stubClaudeAdapter(fakeClaudeProcess({
+    exitCode: 1,
+    stderr: "something else went wrong",
+  }));
+  await assert.rejects(
+    () => adapter.send({ prompt: "继续任务", runId: "run-3" }),
+    (error) => {
+      assert.equal(error.code, "CLAUDE_FAILED");
+      assert.notEqual(error.failureKind, "budget_exhausted");
+      return true;
+    },
+  );
 });
 
 test("Claude CLI omits --model when the runtime has no explicit model", () => {

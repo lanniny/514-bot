@@ -716,6 +716,10 @@ export class Orchestrator {
     return Number(run.interactionStep || 0) + Math.max(0, Number(reserve) || 0) >= this.maxStepsForInteraction(run);
   }
 
+  pipelineStageBlocked(run, reserve = 0) {
+    return this.interactionLimitReached(run, reserve) || this.budgetExhausted(run);
+  }
+
   async init() {
     await this.storage.mkdir(this.runDir, { recursive: true });
     const resumeAfterRestart = [];
@@ -2458,7 +2462,7 @@ export class Orchestrator {
     // plan=只读规划；review=只读深审（允许 read-only shell 语义，仍禁止写盘）；build=审批后可写；
     // ask/auto/full-access/config=Codex 官方权限档（桌面批准菜单同款，组合见 CODEX_PRESET_NATIVE_MODES）
     const rawPermission = String(input.permissionMode ?? "").trim().toLowerCase();
-    const requestedPermissionMode = rawPermission || "plan";
+    const requestedPermissionMode = rawPermission || "build";
     if (!["plan", "review", "build", ...Object.keys(CODEX_PRESET_NATIVE_MODES)].includes(requestedPermissionMode)) {
       throw Object.assign(new Error(`unsupported permission mode: ${requestedPermissionMode}`), { code: "VALIDATION_FAILED" });
     }
@@ -3039,7 +3043,7 @@ export class Orchestrator {
     const executionOwnerId = executionOwnerIdOf(run);
     const requestsWorkspaceWrite = allowWorkspaceWrite
       && run.permissionMode === "build"
-      && agentId === executionOwnerId;
+      && (agentId === executionOwnerId || agentId !== (run.coordinatorId || "claude-fable"));
     if (requestsWorkspaceWrite && !this.buildApprovalIsValid(run)) {
       throw Object.assign(new Error("workspace-write requires a current action-bound build approval"), { code: "POLICY_VIOLATION" });
     }
@@ -4122,9 +4126,15 @@ export class Orchestrator {
         );
         run.result = { direct, final: direct };
       } else {
-      const specialistId = executionOwnerIdOf(run);
+      let specialistId = executionOwnerIdOf(run);
       const independentId = run.route.independent?.id || null;
       const coordinatorId = run.coordinatorId || "claude-fable";
+      // 当路由把主脑同时选为执行者（planning 任务常见），且团队有其他成员——
+      // 选首个非主脑成员做实际执行者，避免 pipeline 退化为「主脑自说自话」。
+      if (specialistId === coordinatorId && Array.isArray(run.teamMembers) && run.teamMembers.length > 1) {
+        const alt = run.teamMembers.find((id) => id !== coordinatorId);
+        if (alt) specialistId = alt;
+      }
       const teamContext = run.teamBrief ? `${run.teamBrief}\n\n` : "";
       // 轮间插话：每个 turn 边界尝试注入最早一条排队追问（turn 原子性不变——只在边界接管，不打断子进程）
       let lastPipelineAttemptId = null;
@@ -4163,16 +4173,20 @@ export class Orchestrator {
         return busMessageId;
       };
       const coordinatorOwnsBuild = run.permissionMode === "build" && specialistId === coordinatorId;
+      const scopeGuard = "【范围纪律】严格围绕用户目标回应。不要自行扩展到项目状态审查、git 操作、基础设施排查或代码调查——除非用户明确要求。如果用户只是打招呼或闲聊，直接简短回应即可，不要启动任何工作流程。";
       const plan = await turn(
         coordinatorId,
         coordinatorOwnsBuild
-          ? `${teamContext}你是 514cc 团队主脑，也是用户明确选择并获批的执行所有者。请在获批工作区内完成目标并给出可验证证据，不输出隐藏思维链。\n\n用户目标：\n${run.prompt}\n\n路由器建议：${run.route.selected.id}\n路由理由：${run.route.reason}`
-          : `${teamContext}你是 514cc 团队主脑与总协调者。本轮是规划阶段（plan 权限模式，只读不落盘）；禁止声称已写入、已部署或未验证的完成。请输出可公开审计的计划、派工理由、验收标准和给执行者的任务包，不输出隐藏思维链。\n\n用户目标：\n${run.prompt}\n\n执行所有者：${specialistId}\n路由器建议：${run.route.selected.id}\n路由理由：${run.route.reason}`,
+          ? `${teamContext}你是 514cc 团队主脑，也是用户明确选择并获批的执行所有者。请在获批工作区内完成目标并给出可验证证据，不输出隐藏思维链。\n${scopeGuard}\n\n用户目标：\n${run.prompt}\n\n路由器建议：${run.route.selected.id}\n路由理由：${run.route.reason}`
+          : `${teamContext}你是 514cc 团队主脑与总协调者。本轮是规划阶段（plan 权限模式，只读不落盘）；禁止声称已写入、已部署或未验证的完成。请输出可公开审计的计划、派工理由、验收标准和给执行者的任务包，不输出隐藏思维链。\n${scopeGuard}\n\n用户目标：\n${run.prompt}\n\n执行所有者：${specialistId}\n路由器建议：${run.route.selected.id}\n路由理由：${run.route.reason}`,
         { allowWorkspaceWrite: coordinatorOwnsBuild },
       );
       const planAttemptId = lastPipelineAttemptId;
-      if (specialistId === coordinatorId || this.interactionLimitReached(run)) {
-        if (independentId && !this.interactionLimitReached(run)) {
+      if (run.route?.taskType === "simple") {
+        // 打招呼/闲聊/简单问答：主脑一轮足够，不值得再跑 specialist→verifier→synthesis。
+        run.result = { plan, final: plan, simpleShortCircuit: true };
+      } else if (specialistId === coordinatorId || this.pipelineStageBlocked(run)) {
+        if (independentId && !this.pipelineStageBlocked(run)) {
           const reviewMessageId = recordPipelineDelegation(coordinatorId, independentId, "pipeline-review", planAttemptId);
           const independent = await turn(
             independentId,
@@ -4180,7 +4194,7 @@ export class Orchestrator {
             { sourceBusMessageId: reviewMessageId },
           );
           const independentAttemptId = lastPipelineAttemptId;
-          const final = !this.interactionLimitReached(run)
+          const final = !this.pipelineStageBlocked(run)
             ? await turn(
                 coordinatorId,
                 `独立验证者 ${independentId} 已审查你的计划。请吸收有效纠偏并给出最终可执行结论、验收证据和剩余风险。\n\n原始计划：\n${plan}\n\n独立审查：\n${independent}`,
@@ -4199,10 +4213,11 @@ export class Orchestrator {
           { allowWorkspaceWrite: true, sourceBusMessageId: specialistMessageId },
         );
         const specialistAttemptId = lastPipelineAttemptId;
-        if (this.interactionLimitReached(run)) {
+        if (this.pipelineStageBlocked(run)) {
           // 自动恢复也消耗当前交互的真实 step。预算已尽时保留已完成执行结果并明确标记未复核，
           // 不能再调用 provider，也不能伪造 independent critique。
-          run.result = { plan, specialist, critique: null, verified: specialist, final: specialist, truncated: true };
+          const truncReason = this.budgetExhausted(run) ? "budget_exhausted" : "interaction_step_limit";
+          run.result = { plan, specialist, critique: null, verified: specialist, final: specialist, truncated: true, reason: truncReason };
         } else {
           const verifierId = independentId || coordinatorId;
           const verifierMessageId = recordPipelineDelegation(specialistId, verifierId, "pipeline-review", specialistAttemptId);
@@ -4215,7 +4230,7 @@ export class Orchestrator {
           let verified = specialist;
           let synthesisSourceId = verifierId;
           let synthesisAttemptId = verifierAttemptId;
-          if (run.collaborationMode === "deep" && !this.interactionLimitReached(run, 1)) {
+          if (run.collaborationMode === "deep" && !this.pipelineStageBlocked(run, 1)) {
             const reworkMessageId = recordPipelineDelegation(verifierId, specialistId, "pipeline-rework", verifierAttemptId);
             verified = await turn(
               specialistId,
@@ -4225,7 +4240,7 @@ export class Orchestrator {
             synthesisSourceId = specialistId;
             synthesisAttemptId = lastPipelineAttemptId;
           }
-          const final = !this.interactionLimitReached(run)
+          const final = !this.pipelineStageBlocked(run)
             ? await turn(
                 coordinatorId,
                 `作为主脑，请综合原始目标、执行结果和复核结果，输出最终结论、已验证证据、未完成风险与下一步。不要隐藏工具失败。\n\n原始目标：${run.prompt}\n\n初次执行：${specialist}\n\n复核/补强：${verified}`,
@@ -4264,6 +4279,10 @@ export class Orchestrator {
       }
       await this.withProjectionEffect(run, controller, async () => {
         run.status = "succeeded";
+        // 成功交互清除上一轮失败遗留的 failureKind/error，否则 continue() 的预算止损闸
+        // 会因陈旧值误拦下一条用户消息（budget_exhausted 闸只拦 status=failed 且 failureKind 匹配）。
+        run.failureKind = null;
+        run.error = null;
         await this.save(run);
         await this.emitEvent(run, "run.completed", { status: run.status, rounds: run.round, sessions: run.sessions }, { runId: run.id });
       });
@@ -5437,6 +5456,15 @@ ${rosterLine}
     if (run.status === "recovery_required" && acknowledgeRecovery !== true) {
       throw Object.assign(new Error("the previous native turn has an ambiguous submission state"), { code: "RECOVERY_REQUIRED" });
     }
+    // 预算止损闸：上一次交互因额度耗尽失败后，续聊必须显式确认（acknowledgeRecovery）。
+    // 否则每条新消息重置 interactionCostUsd=0，budgetExhausted() 永远 false，
+    // 上游 403 "额度不足" 被反复触发，每轮白烧 input token 费用（烛 v46 根治：$54 流干根因）。
+    if (run.status === "failed" && run.failureKind === "budget_exhausted" && acknowledgeRecovery !== true) {
+      throw Object.assign(
+        new Error("the previous interaction failed due to budget exhaustion; acknowledge with acknowledgeRecovery to continue"),
+        { code: "BUDGET_EXHAUSTED" },
+      );
+    }
     // 续聊只能派给团队成员（派工白名单服务端强制，不信前端下拉）——旧 run 无快照时放行兼容
     if (Array.isArray(run.teamMembers) && !run.teamMembers.includes(agentId)) {
       throw Object.assign(new Error(`${agentId} is not a member of this run's team`), { code: "NOT_TEAM_MEMBER" });
@@ -5635,6 +5663,8 @@ ${rosterLine}
             }, { runId: run.id });
           } else if ((run.resumeQueue || []).length && this.interactionLimitReached(run)) {
             run.status = "succeeded";
+            run.failureKind = null;
+            run.error = null;
             run.result = { ...(run.result || {}), truncated: true, reason: "interaction_step_limit" };
             await this.save(run);
             await this.emitEvent(run, "run.interaction_steps_exhausted", {
@@ -5646,6 +5676,8 @@ ${rosterLine}
             }, { runId: run.id });
           } else {
             run.status = "succeeded";
+            run.failureKind = null;
+            run.error = null;
             await this.save(run);
           }
         });
