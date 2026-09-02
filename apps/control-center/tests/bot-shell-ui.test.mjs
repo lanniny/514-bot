@@ -634,16 +634,17 @@ test("Bot workspaces keep channels and automations on the Bot surface", async ()
 });
 
 test("Bot parallel runs use a bounded queue and the existing event-history source", async () => {
-  const [html, app, css] = await Promise.all([
+  const [html, app, css, conversationMessages] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
     readFile(`${appRoot}/public/forge/bot-shell.css`, "utf8"),
+    readFile(`${appRoot}/public/modules/conversation-messages.js`, "utf8"),
   ]);
   assert.match(app, /const BOT_RUN_QUEUE_LIMIT = 6/);
   assert.match(app, /const BOT_PENDING_TIMEOUT_MS = 15_000/);
   assert.match(app, /function botScheduleSubmissionTimeout\(submission\)/);
   assert.match(app, /function fetchRunEvents\(runId\)/);
-  assert.match(app, /function historyMessagesForRun\(run, agentId, events\)/);
+  assert.match(conversationMessages, /function historyMessagesForRun\(run, agentId, events\)/);
   assert.match(app, /function scheduleBotConversationSync\(runId\)/);
   assert.match(app, /conversationAdmissionToken/);
   assert.match(app, /const botUsesConversationAdmission = Boolean\([\s\S]{0,120}botSubmissionCandidate/);

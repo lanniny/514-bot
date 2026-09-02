@@ -175,7 +175,7 @@ test("the adapter attaches progress to the persisted notification event", async 
 });
 
 test("the conversation stream renders completed items and tracks the running one", async () => {
-  const [app, mod, css, eventMarkup] = await Promise.all([source("public/app.js"), source("public/modules/run-live-activity.js"), source("public/styles.css"), source("public/modules/conversation-event-markup.js")]);
+  const [app, mod, css, eventMarkup, conversationMessages] = await Promise.all([source("public/app.js"), source("public/modules/run-live-activity.js"), source("public/styles.css"), source("public/modules/conversation-event-markup.js"), source("public/modules/conversation-messages.js")]);
   // 白名单不含 codex.* 时，带载荷的事件照样被整片过滤掉——两层都得通
   assertIncludes(app, 'if (progress) return !(progress.kind === "reasoning" && !progress.text);');
   // Wave B slice 16：toolProgressFromFallback 已抽取到 modules/conversation-event-markup.js
@@ -184,11 +184,11 @@ test("the conversation stream renders completed items and tracks the running one
   // 思考状态接入活跃行：reasoning started 入账、文案「正在思考」
   assertIncludes(mod, '["command", "file", "reasoning", "tool"].includes(progress.kind)');
   assertIncludes(mod, 'if (entry.progress.kind === "reasoning") return "正在思考";');
-  assertIncludes(app, 'kind: "process", author: event.agentId || "Agent", progress');
+  assertIncludes(conversationMessages, 'kind: "process", author: event.agentId || "Agent", progress');
   assertIncludes(app, "function processCardMarkup(message, keyAttribute)");
   assertIncludes(app, 'if (kind === "process") {');
   assertIncludes(app, 'if (progress.kind === "tool")');
-  assertIncludes(app, "function ensureTurnTexts(messages, run, agentId)");
+  assertIncludes(conversationMessages, "function ensureTurnTexts(messages, run, agentId)");
   const noteCss = css.slice(css.indexOf(".process-note {"), css.indexOf(".process-note-body"));
   assertIncludes(noteCss, "text-align: center;");
   assert.equal(/40px/.test(noteCss), false, "过程旁白不得再用 40px 左边距挤出居中栏");
