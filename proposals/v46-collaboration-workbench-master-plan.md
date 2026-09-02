@@ -559,7 +559,7 @@ UI Surfaces
 | ID | 状态 | 证据与判定 |
 |---|---|---|
 | SG-01 公开 token 轮换 | 部分 | 边界交付完成，轮换**本体待 LO 手动操作**；公开仓库 `lanniny/514-bot` 远端历史仍含明文 token（CC-Switch proxy token `tEP1_` 前缀）。历史重写需单独授权 |
-| EQ-01 全量测试 0 fail | 部分 | 09-03 基线数据点 #1：`npm test` **1995 tests / 1993 pass / 0 fail / 2 skipped，clean-exit 全 ok，exit 0**（B-02 safe-delete 伪影与 proxy 1215 修复均确认收敛）。EQ-01 验收=连续 5 次，第 2-5 次链式执行中 |
+| EQ-01 全量测试 0 fail | 闭环 | 09-03 连续 5 次全量基线全绿：每次 1995 tests / 1993 pass / **0 fail** / 2 skipped，clean-exit 4 门全 ok（safe-delete 伪影与 proxy 1215 修复确认收敛，无 flaky 记录） |
 | EQ-02 Bot P0 隐藏 Conversation | 闭环 | 2026-09-03 `qa:bot-p0` 隔离浏览器 exit=0，结果 0 项 false：会话恢复、短 id 搜索、联系人 picker、键盘入口、历史 run 装载、消息准入 202、mobile 横向溢出 0、inspector 四视口稳定 |
 | EQ-03 `qa:ui` 一键入口 | 部分 | 契约已修：`package.json:29` 指向 `scripts/qa-ui-fixture.mjs`（自带隔离 fixture，不再裸传 URL）。03:20 轮在 `scripts/qa-ui.mjs:37` 等待 `#api-connection-badge.is-ok` 20s 超时——04:00 轮证实这不是环境伪影，而是 **B-04 前端 TDZ 启动崩溃**；修复后隔离浏览器 `BADGE OK / API 已连接`，`--suite=layout` 全程跑通输出布局检查 JSON。剩余：`--suite=all` 完整跑通后改判闭环 |
 | EQ-13 delivery / formal 门 | 部分 | drift 18 -> 2（slice 22 的 `modules/conversation-messages.js` + `tests/conversation-messages-module.test.mjs`，均已通过测试，待提交）；`formalRelease=no`，`cut=v42-r0` 未推进 |
@@ -601,7 +601,7 @@ Wave 2（UX-01~UX-10 / CW-02）、Wave 3（HX-01、HX-04~HX-14、UX-11~UX-20）�
 
 | 项 | 状态 | 证据与判定 |
 |---|---|---|
-| EQ-01 全量基线 | **数据点 #1 全绿** | 09-03 `npm test`：1995/1993/0 fail/2 skipped，clean-exit 全 ok。第 2-5 次链式执行中，5 次全绿即改判闭环 |
+| EQ-01 全量基线 | 闭环 | 09-03 连续 5 次 `npm test` 全绿（1995/1993/0 fail/2 skipped，clean-exit 4 门全 ok） |
 | 预算止损工作包（LO 报障「$54 流干」根治） | 闭环 | `657939f`：claude-cli 上游 403 额度文案双路径归类 `budget_exhausted`；orchestrator `continue()` 止损闸（failureKind=budget_exhausted 续聊必须 acknowledgeRecovery）；成功交互清除陈旧 failureKind；simple 任务（打招呼/闲聊）短路 pipeline 只跑主脑一轮；specialist 退化为主脑时改选其他成员；默认权限档 plan→build。测试：orchestrator 127、adapters 73、router 34、remote-run 全绿（含新增 6 个用例） |
 | EQ-02 Bot P0 | 闭环 | `qa:bot-p0` exit=0，结果 JSON 0 项 false（恢复会话/短 id 搜索/键盘入口/历史装载/消息准入 202/mobile 溢出 0/inspector 四视口） |
 | EQ-03 qa:ui 套件 | **大部分** | `50f0e8b` 修复 5 项 QA 漂移（均隔离浏览器现场证据，见 16 节 B-05）：`--suite=layout`、`mission`（4 视口）、`history`、`delta`（desktop+mobile）全绿；`workbench` 状态机套件推进至 877 行拓扑键控检查后停在成员页模型语义漂移——**需按当前成员页会话模型重设计该套件，非单点修复** |
@@ -699,9 +699,11 @@ B-01 已自愈 / B-04 已修复（已提交 8a36346）-> LO 复验桌面端启�
                     |
               EQ-02 已闭环（qa:bot-p0 全绿）/ EQ-03 四套件已绿（50f0e8b）
                     |
-              剩余：EQ-01 full 基线连续 5 次 + EQ-03 workbench 状态机套件按成员页模型重设计（B-05）
+              EQ-01 已闭环（09-03 连续 5 次全量 0 fail + clean exit）
                     |
-              SG-01 待 LO 轮换 -> 推送 -> formal 授权
+              剩余：EQ-03 workbench 状态机套件按成员页模型重设计（B-05，需先拍板拓扑激活契约）
+                    |
+              SG-01 待 LO 轮换 -> formal 授权
                     |
               Wave 2 才允许启动
 ```
@@ -729,11 +731,12 @@ B-01 已自愈 / B-04 已修复（已提交 8a36346）-> LO 复验桌面端启�
 1. ~~是否授权终止 pid 41872 并清除 `control-center.lock`？~~ **已作废** —— 该进程自行退出，锁由 `instance-lock.mjs:88-96` 自动回收，复测已验证可正常启动。改为：请 LO 在真实终端复验一次桌面端启动并回读结果。
 2. ~~是否授权清理 `apps/control-center/` 下 823 个 `.test-*` 残留目录？~~ **已完成** —— clean-exit 自清 + `--clean-only` 归零，全仓复核 0 残留。
 3. 是否授权把后续提交推到 `origin/main`？09-02 已推 18 个提交（remote main = 21366d3）；其后的 657939f/50f0e8b 待下一轮推送。历史重写/force push 仍需单独确认。
-4. ~~Wave B 是否在 B-02 解开前暂停？~~ **维持暂停** —— B-02 已修复但 EQ-01 的「full 连续 5 次干净基线」未取满，workbench QA 套件重设计（B-05）完成前继续切 app.js 仍会堆积不可端到端验证的 diff。
+4. ~~Wave B 是否在 B-02 解开前暂停？~~ **09-03 更新：暂停条件已基本解除** —— EQ-01 已闭环（5 次全量绿）、EQ-02 已闭环、delivery drift=0；唯一剩余是 EQ-03 的 workbench 套件重设计（B-05）。Wave B 切片可在「每刀跑 qa:ui --suite=layout 冒烟」的纪律下恢复；B-05 重设计与拓扑激活契约拍板（拍板项 9）仍建议先行。
 5. ~~slice 22 是现在提交，还是等测试跑通后与下一刀一起提交？~~ **已提交并推送**（8a36346）。
 6. 是否接受把「实例锁加入 HTTP 活性证明 + QA 隔离 dataRoot」作为 EQ-05 下的两个独立 backlog 项？推荐：接受，这是本次事故唯一没有被现有代码防住的环节。
 7. 是否接受把「DI 简写属性禁止引用更晚声明的顶层 const（TDZ 静态检查）」加入 ui:lint 门禁？推荐：接受——B-04 两处崩溃都属此类，静态可查，浏览器冒烟只能兜底。
 8. （09-03 新增）预算止损工作包引入的「simple 任务短路 + 默认权限档 build + 续聊止损确认闸」是否按 LO 使用习惯微调阈值（simple 的 15 字符判定、默认 build 的审批提示语）？推荐：先用一周，有体感偏差再调。
+9. （09-03 新增）拓扑成员卡的准确契约：现状是「Enter/Space 激活后上下文切出当前 run」（实测），代码注释意图是「开该成员独立页」。请拍板：A. 维持现状（激活=跳转该成员独立会话），B. 改为「打开当前 run 内该成员的成员页 tab」（不切走）。拍板后 B-05 重设计才能写确定性断言。
 
 ## 18. 复测证据坐标
 
