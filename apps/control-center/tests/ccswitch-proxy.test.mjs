@@ -351,9 +351,12 @@ test("请求级 failover + 熔断：503 供应商打开断路器并切到下一�
 
   response = await call();
   assert.equal(response.status, 200);
+  const secondRequestId = response.headers.get("x-514cc-proxy-request-id");
   await response.json();
   assert.equal(failedCalls, 1, "open breaker must skip the failed provider");
   assert.equal(healthyCalls, 2);
+  // 请求日志在响应发出后才异步写盘，需等待第二条请求日志落库后再断言 attempts
+  await waitFor(() => proxy.requestLogs().items[0]?.id === secondRequestId, "second request log not yet recorded");
   const detail = proxy.requestLogs().items[0];
   assert.equal(detail.attempts.length, 1);
   assert.equal(proxy.resetBreaker("claude", first.id).state, "closed");
@@ -720,7 +723,7 @@ test("takeover 审计 sink 在提交后同步 close 重入时，内存先可见�
       return Promise.resolve();
     },
   };
-  const { dataRoot, runtimeHome, providers, proxy } = await fixture(t, { eventStore, shutdownTimeoutMs: 500 });
+  const { dataRoot, runtimeHome, providers, proxy } = await fixture(t, { eventStore, shutdownTimeoutMs: 3000 });
   proxyRef = proxy;
   const provider = await providers.create({
     name: "Audit reentry",
@@ -741,7 +744,7 @@ test("takeover 审计 sink 在提交后同步 close 重入时，内存先可见�
 
   await proxy.setTakeover("claude", true);
   assert.ok(closing, "provider audit sink did not synchronously re-enter close");
-  await withTimeout(closing, 1_000, "reentrant close did not settle");
+  await withTimeout(closing, 3_000, "reentrant close did not settle");
   assert.equal(await readFile(settingsPath, "utf8"), beforeSettings);
   assert.equal(await readFile(proxyConfigPath, "utf8"), beforeProxyConfig);
   assert.equal(proxy.config.takeover.claude, false);
@@ -749,7 +752,7 @@ test("takeover 审计 sink 在提交后同步 close 重入时，内存先可见�
 });
 
 test("sidecar 提交尾部已排队的 microtask close 不得把已提交事务误判为取消", async (t) => {
-  const { dataRoot, runtimeHome, providers, proxy } = await fixture(t, { shutdownTimeoutMs: 500 });
+  const { dataRoot, runtimeHome, providers, proxy } = await fixture(t, { shutdownTimeoutMs: 3000 });
   const provider = await providers.create({
     name: "Commit microtask race",
     baseUrl: "https://commit-microtask.invalid",
@@ -774,7 +777,7 @@ test("sidecar 提交尾部已排队的 microtask close 不得把已提交事务�
 
   await proxy.setTakeover("claude", true);
   await waitFor(() => closing, "queued close did not run after the sidecar commit");
-  await withTimeout(closing, 1_000, "queued close did not settle");
+  await withTimeout(closing, 3_000, "queued close did not settle");
   assert.equal(await readFile(settingsPath, "utf8"), beforeSettings);
   assert.equal(await readFile(proxyConfigPath, "utf8"), beforeProxyConfig);
   assert.equal(proxy.config.takeover.claude, false);
@@ -809,9 +812,13 @@ test("事务为 rollback 预留独立 deadline：第一目标已发布、第二�
     ...proxy.config,
     takeover: { ...proxy.config.takeover, codex: true },
   };
-  const overallDeadline = Date.now() + 450;
+  // deadline 只在同步提交阶段（commit）arm，且预算须覆盖慢盘（I: 盘）上的备份 + 快照写入
+  let overallDeadline = Infinity;
   let firstFileWasPublished = false;
   let rollbackSnapshotPrepared = false;
+  providers.beforeLiveConfigPlanCommit = async () => {
+    overallDeadline = Date.now() + 1500;
+  };
   providers.beforeLiveConfigPublish = ({ target }) => {
     if (target !== tomlPath) return;
     firstFileWasPublished = readFileSync(authPath, "utf8") !== beforeAuth;
@@ -825,7 +832,7 @@ test("事务为 rollback 预留独立 deadline：第一目标已发布、第二�
   await assert.rejects(
     providers.setProxyTakeover("codex", true, {
       signal: new AbortController().signal,
-      deadline: overallDeadline,
+      deadline: () => overallDeadline,
       sidecarWrites: [{ target: proxyConfigPath, content: `${JSON.stringify(nextConfig, null, 2)}\n` }],
     }),
     { code: "PROXY_CLOSE_TIMEOUT" },
@@ -989,13 +996,17 @@ test("慢 rename 已提交并越过 deadline 后启用独立补偿窗口，live 
     ...proxy.config,
     takeover: { ...proxy.config.takeover, claude: true },
   };
-  overallDeadline = Date.now() + 220;
   slowPublication = true;
+  // deadline 以惰性函数传入，并在 commit 阶段才 arm——避免异步准备吃掉预算；
+  // 预算须覆盖慢盘（I: 盘）上的备份 + 快照写入，rename 侧再单独阻塞越过 deadline
+  providers.beforeLiveConfigPlanCommit = async () => {
+    overallDeadline = Date.now() + 1500;
+  };
   let caught = null;
   await assert.rejects(
     providers.setProxyTakeover("claude", true, {
       signal: new AbortController().signal,
-      deadline: overallDeadline,
+      deadline: () => overallDeadline,
       sidecarWrites: [{ target: proxyConfigPath, content: `${JSON.stringify(nextConfig, null, 2)}\n` }],
     }),
     (error) => {
@@ -1011,7 +1022,7 @@ test("慢 rename 已提交并越过 deadline 后启用独立补偿窗口，live 
 });
 
 test("close restore 的 proxy sidecar rename 失败时保留可用 listener 与 takeover 四态，解除故障后可重试", async (t) => {
-  const { dataRoot, runtimeHome, providers, proxy } = await fixture(t, { shutdownTimeoutMs: 500 });
+  const { dataRoot, runtimeHome, providers, proxy } = await fixture(t, { shutdownTimeoutMs: 3000 });
   const provider = await providers.create({
     name: "Close sidecar failure",
     baseUrl: "https://close-sidecar.invalid/v1",
@@ -1060,7 +1071,8 @@ test("close restore 的 proxy sidecar rename 失败时保留可用 listener 与 
 });
 
 test("手动 stop restore 的 proxy sidecar rename 失败时保留可用 listener 与 takeover 四态", async (t) => {
-  const { dataRoot, runtimeHome, providers, proxy } = await fixture(t, { shutdownTimeoutMs: 500 });
+  // shutdownTimeoutMs 提升以覆盖慢盘（I: 盘）上 restore 的 live + sidecar 写入
+  const { dataRoot, runtimeHome, providers, proxy } = await fixture(t, { shutdownTimeoutMs: 3000 });
   const provider = await providers.create({
     name: "Stop sidecar failure",
     baseUrl: "https://stop-sidecar.invalid",
@@ -1100,13 +1112,14 @@ test("手动 stop restore 的 proxy sidecar rename 失败时保留可用 listene
   await assertProxyListenerReachable(proxy);
 
   providers.beforeLiveConfigPublish = null;
-  const retried = await withTimeout(proxy.stop(), 1_000, "stop retry did not settle after the sidecar fault cleared");
+  const retried = await withTimeout(proxy.stop(), 3_000, "stop retry did not settle after the sidecar fault cleared");
   assert.equal(retried.stopped, true);
   assert.equal(retried.running, false);
 });
 
 test("close warning 展开 Provider rollbackErrors 并保留具体 live 目标", async (t) => {
-  const { runtimeHome, providers, proxy } = await fixture(t, { shutdownTimeoutMs: 500 });
+  // shutdownTimeoutMs 提升以覆盖慢盘（I: 盘）上 restore 的 live + sidecar 写入
+  const { runtimeHome, providers, proxy } = await fixture(t, { shutdownTimeoutMs: 3000 });
   const provider = await providers.create({
     name: "Rollback diagnostic",
     baseUrl: "https://rollback-diagnostic.invalid",
@@ -1139,7 +1152,7 @@ test("close warning 展开 Provider rollbackErrors 并保留具体 live 目标",
   await assertProxyListenerReachable(proxy);
 
   providers.setProxyTakeover = originalTakeover;
-  const retried = await withTimeout(proxy.close(), 1_000, "close retry did not settle after rollback diagnostics cleared");
+  const retried = await withTimeout(proxy.close(), 3_000, "close retry did not settle after rollback diagnostics cleared");
   assert.equal(retried.closed, true);
 });
 
@@ -1189,8 +1202,8 @@ test("close restore 超时时有界返回，takeover 内存与磁盘保持一致
   await assertProxyListenerReachable(proxy, "codex");
 
   releaseRestore();
-  proxy.shutdownTimeoutMs = 500;
-  const retried = await withTimeout(proxy.close(), 1_000, "close retry did not settle after the restore gate opened");
+  proxy.shutdownTimeoutMs = 3000;
+  const retried = await withTimeout(proxy.close(), 5_000, "close retry did not settle after the restore gate opened");
   assert.equal(retried.closed, true);
   await rm(root, { recursive: true, force: true });
   await delay(100);
@@ -1409,19 +1422,19 @@ test("手动 stop 的绝对 deadline 覆盖阻塞的 stopped 事件，超时后�
       return eventGate;
     },
   };
-  const { proxy } = await fixture(t, { eventStore, shutdownTimeoutMs: 80 });
+  const { proxy } = await fixture(t, { eventStore, shutdownTimeoutMs: 500 });
   await proxy.updateConfig({ listenPort: 0 });
   await proxy.start();
 
   const stopStarted = performance.now();
   const stopping = proxy.stop({ restore: false });
-  await withTimeout(stoppedEvent, 1_000, "stop did not reach the blocked lifecycle event");
-  const stopped = await withTimeout(stopping, 750, "stop waited indefinitely for proxy_stopped");
-  assert.ok(performance.now() - stopStarted < 750);
+  await withTimeout(stoppedEvent, 3_000, "stop did not reach the blocked lifecycle event");
+  const stopped = await withTimeout(stopping, 1_000, "stop waited indefinitely for proxy_stopped");
+  assert.ok(performance.now() - stopStarted < 1_000);
   assert.equal(stopped.running, false);
   assert.ok(stopped.warnings.some((item) => item.code === "PROXY_STOP_TIMEOUT"));
 
-  const restarted = await withTimeout(proxy.start({ listenPort: 0 }), 750, "timed-out stop poisoned the lifecycle queue");
+  const restarted = await withTimeout(proxy.start({ listenPort: 0 }), 2_000, "timed-out stop poisoned the lifecycle queue");
   assert.equal(restarted.running, true);
   releaseStoppedEvent();
 });

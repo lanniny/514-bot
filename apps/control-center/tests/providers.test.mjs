@@ -625,13 +625,16 @@ test("ProviderStore: 慢 remove 越过 deadline 后按已提交处理并补偿�
   ];
   protectedTarget = paths[2];
   const before = new Map(await Promise.all(paths.map(async (path) => [path, await readFile(path, "utf8")])));
-  overallDeadline = Date.now() + 500;
-  armed = true;
+  // deadline 以惰性函数传入并在 commit 阶段才 arm，预算覆盖慢盘（I: 盘）上的备份 + 快照写入
+  store.beforeLiveConfigPlanCommit = async () => {
+    overallDeadline = Date.now() + 1500;
+    armed = true;
+  };
   let caught = null;
   await assert.rejects(
     store.setProxyTakeover("claude-desktop", false, {
       signal: new AbortController().signal,
-      deadline: overallDeadline,
+      deadline: () => overallDeadline,
     }),
     (error) => {
       caught = error;

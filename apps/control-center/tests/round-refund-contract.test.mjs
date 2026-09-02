@@ -165,8 +165,11 @@ test("all recovery paths go through the shared collection point", async () => {
   assert.ok(source.includes("if (directRefund) await this.emitRoundRefund(run, directRefund);"));
   assert.ok(source.includes("if (recoveryRefund) await this.emitRoundRefund(run, recoveryRefund);"), "热改路径的退还也必须在落盘后播报");
   const app = await readFile(`${root}/public/app.js`, "utf8");
-  assert.ok(app.includes('"run.round_refunded": {'), "退还没有会话流可见性");
-  assert.ok(app.includes("已退还一次未提交的自主步骤"), "退还事件没有解释全局轮次与交互步骤的区别");
+  // Wave B slice 16 把事件 markup 抽取到独立模块，退还事件可见性由该模块承载（app.js 负责接线）
+  assert.ok(app.includes("conversation-event-markup.js"), "事件 markup 模块未由 app.js 接线");
+  const markup = await readFile(`${root}/public/modules/conversation-event-markup.js`, "utf8");
+  assert.ok(markup.includes('"run.round_refunded": {'), "退还没有会话流可见性");
+  assert.ok(markup.includes("已退还一次未提交的自主步骤"), "退还事件没有解释全局轮次与交互步骤的区别");
 });
 
 // —— 接线验证：走真实 continue() 而非直接调 helper ——
