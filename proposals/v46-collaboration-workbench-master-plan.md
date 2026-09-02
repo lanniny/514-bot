@@ -1,10 +1,11 @@
 # 514cc v46 协作台产品与工程总计划
 
-> 状态：部分已执行 —— Wave 1 完成、Wave 0 部分收敛、Wave B 进行中；前端启动 P0 回归已于 2026-09-02 04:00 定位并修复（见 16 节 B-04）
+> 状态：部分已执行 —— Wave 1 完成、Wave 0 收敛至 EQ-01 full 基线与 workbench QA 套件重设计两件事；前端启动 P0 回归已于 2026-09-02 04:00 定位并修复（见 16 节 B-04）
 > 初稿日期：2026-08-31
 > 复测日期：2026-09-02 03:20 +08:00（第 15-16 节为复测回读；第 1-14 节保留初稿原貌不回头改写）
 > 二次复测：2026-09-02 04:00 +08:00（隔离浏览器定位 B-04 前端 TDZ 回归并修复，见 16 节）
 > 三次复测：2026-09-02 晚（归因并修复全量测试唯一真实失败 `ccswitch-proxy.test.mjs:1215` —— proxy updateConfig 内存回滚缺陷，见 16 节 B-02）
+> 四次复测：2026-09-03（预算止损工作包 + EQ-02 闭环 + EQ-03 四套件修绿，见 15.5 节）
 > 范围：514cc 全项目，重点为 `apps/control-center` 协作台、Bot/Conversation、Harness、运行与交付闭环
 > 基线：初稿为脏工作区只读审查；复测为源码回读 + `validate` / `ui:lint` / `qa:delivery` 三个可执行门禁，未重启正式 Tauri，未调用真实 provider/SSH，未 commit/push
 > 证据等级：`source`=当前源码回读；`focused`=聚焦测试；`isolated`=隔离浏览器；`delivery`=Git/manifest；`formal`=正式桌面与真实外部能力
@@ -559,7 +560,7 @@ UI Surfaces
 |---|---|---|
 | SG-01 公开 token 轮换 | 部分 | 边界交付完成，轮换**本体待 LO 手动操作**；公开仓库 `lanniny/514-bot` 远端历史仍含明文 token（CC-Switch proxy token `tEP1_` 前缀）。历史重写需单独授权 |
 | EQ-01 全量测试 0 fail | 未动 | 03:20 轮 301 ok / 92 not ok 未跑完；**04:08 轮完整跑完**：失败主体仍是 B-02 safe-delete 拦截（`ccswitch-proxy.test.mjs` 大批 `hookFailed`，见 16 节 B-02 证据），且 `clean-exit:resource=fail`（测试进程 20 分钟不退出，疑似遗留 SSE/PTY/worker 句柄，`reap=ok`）。干净环境基线仍未取得，失败数不可记为 514cc 回归 |
-| EQ-02 Bot P0 隐藏 Conversation | 未动 | 被 B-01 阻塞，本轮无法启动隔离浏览器 |
+| EQ-02 Bot P0 隐藏 Conversation | 闭环 | 2026-09-03 `qa:bot-p0` 隔离浏览器 exit=0，结果 0 项 false：会话恢复、短 id 搜索、联系人 picker、键盘入口、历史 run 装载、消息准入 202、mobile 横向溢出 0、inspector 四视口稳定 |
 | EQ-03 `qa:ui` 一键入口 | 部分 | 契约已修：`package.json:29` 指向 `scripts/qa-ui-fixture.mjs`（自带隔离 fixture，不再裸传 URL）。03:20 轮在 `scripts/qa-ui.mjs:37` 等待 `#api-connection-badge.is-ok` 20s 超时——04:00 轮证实这不是环境伪影，而是 **B-04 前端 TDZ 启动崩溃**；修复后隔离浏览器 `BADGE OK / API 已连接`，`--suite=layout` 全程跑通输出布局检查 JSON。剩余：`--suite=all` 完整跑通后改判闭环 |
 | EQ-13 delivery / formal 门 | 部分 | drift 18 -> 2（slice 22 的 `modules/conversation-messages.js` + `tests/conversation-messages-module.test.mjs`，均已通过测试，待提交）；`formalRelease=no`，`cut=v42-r0` 未推进 |
 
@@ -593,6 +594,19 @@ UI Surfaces
 ### 15.4 尚未启动
 
 Wave 2（UX-01~UX-10 / CW-02）、Wave 3（HX-01、HX-04~HX-14、UX-11~UX-20）、Wave 4、Wave 5 全部未启动。初稿“Wave 0 未清零前不启动新扩展”的约束**仍然有效，且当前仍未被满足**。
+
+### 15.5 四次复测台账（2026-09-03）
+
+状态图例同 15 节。
+
+| 项 | 状态 | 证据与判定 |
+|---|---|---|
+| 预算止损工作包（LO 报障「$54 流干」根治） | 闭环 | `657939f`：claude-cli 上游 403 额度文案双路径归类 `budget_exhausted`；orchestrator `continue()` 止损闸（failureKind=budget_exhausted 续聊必须 acknowledgeRecovery）；成功交互清除陈旧 failureKind；simple 任务（打招呼/闲聊）短路 pipeline 只跑主脑一轮；specialist 退化为主脑时改选其他成员；默认权限档 plan→build。测试：orchestrator 127、adapters 73、router 34、remote-run 全绿（含新增 6 个用例） |
+| EQ-02 Bot P0 | 闭环 | `qa:bot-p0` exit=0，结果 JSON 0 项 false（恢复会话/短 id 搜索/键盘入口/历史装载/消息准入 202/mobile 溢出 0/inspector 四视口） |
+| EQ-03 qa:ui 套件 | **大部分** | `50f0e8b` 修复 5 项 QA 漂移（均隔离浏览器现场证据，见 16 节 B-05）：`--suite=layout`、`mission`（4 视口）、`history`、`delta`（desktop+mobile）全绿；`workbench` 状态机套件推进至 877 行拓扑键控检查后停在成员页模型语义漂移——**需按当前成员页会话模型重设计该套件，非单点修复** |
+| composer 被浮层遮挡（UX-04 实质缺陷） | 闭环 | 隔离浏览器 elementFromPoint 实证：Mission Control 右栏为脱离 grid 的浮层抽屉，展开时 composer 右缘控件（发送/新任务/存为自动化）命中 dock 子节点不可点。`50f0e8b` 按终端抽屉同款让位规则修复（≥821px 且 dock 展开 → `margin-inline-end: calc(var(--codex-context-width) + 8px)`）。residual：会话流右缘 action 按钮/运行头右侧控件在 dock 展开时可能同样被盖，挂 UX-04 backlog 复查 |
+| delivery drift | 0 | `qa:delivery` clean / strict pass（tracked 512 = physical 512）；`formalRelease=no` 待 LO 授权 |
+| SG-01 token 轮换 | 待 LO | 公开仓库历史仍含明文 token，轮换本体需 LO 手动操作 |
 
 ## 16. 当前阻塞与解锁顺序（2026-09-02）
 
@@ -674,34 +688,45 @@ LO 报障「正在加载团队与项目…」的**代码级根因**。隔离浏�
 ### B-03 解锁顺序
 
 ```text
-B-01 已自愈 / B-04 已修复（工作区） -> LO 在真实终端复验桌面端启动（1 次操作）
+B-01 已自愈 / B-04 已修复（已提交 8a36346）-> LO 复验桌面端启动
                     |
-              提交 slice 22 + TDZ 修复（pathspec：app.js、modules/conversation-messages.js、
-              tests/conversation-messages-module.test.mjs、tests/bot-shell-ui.test.mjs、
-              tests/codex-process-visibility.test.mjs）-> delivery drift=0
+              slice 22 + proxy 1215 + 计划文档已提交（8a36346/169879c/21366d3）+ 已推送 origin/main
                     |
-              B-02 在干净环境取 full 基线（唯一真实失败 ccswitch-proxy:1215 已修复，整文件 37/37）
+              B-02 唯一真实失败已修复（37/37）；run-tests 宿主 shim 自剥离取得干净基线（9522a21）
                     |
-              清理 823 个 .test-* 残留（需 LO 授权，按清单删）
+              .test-* 残留已清零（clean-exit 自清 + --clean-only）
                     |
-              EQ-01/EQ-02/EQ-03 收口（EQ-03 还差 --suite=all 完整跑通）
+              EQ-02 已闭环（qa:bot-p0 全绿）/ EQ-03 四套件已绿（50f0e8b）
                     |
-              SG-01 待 LO 轮换 -> 推送 16 个提交 -> formal 授权
+              剩余：EQ-01 full 基线连续 5 次 + EQ-03 workbench 状态机套件按成员页模型重设计（B-05）
+                    |
+              SG-01 待 LO 轮换 -> 推送 -> formal 授权
                     |
               Wave 2 才允许启动
 ```
 
 约束：在上述链条走完前继续切 app.js 只会堆积无法端到端验证的 diff。初稿第 8 节“Wave 0 未清零前不启动新扩展”仍然适用。
 
-## 17. 新增待 LO 拍板项（2026-09-02）
+### B-05 qa:ui workbench 状态机套件与成员页模型的语义漂移 —— EQ-03 剩余项，P1
+
+`--suite=all` 中 layout/mission/history/delta 四套件已全绿；`inspectWorkbenchStateMachine` 推进至 `scripts/qa-ui.mjs:877`（拓扑键控检查）后停在语义漂移。隔离浏览器诊断结论：
+
+1. **会话 tab 模型已换代**：conversation-tabs 的 `openTab` 总是解析出具体收件人（默认收件人=主脑），运行页不再有独立的「团队协作页」tab；拓扑 Enter 激活成员页后 `#session-topology` 重渲为成员页语义（`renderTopology(null)` → "暂无会话"），第二个成员按钮不复存在——测试的「Enter 后原地按 Space」「tab 数 ≥3」断言已不可能成立。
+2. **sr-only 开关不可被 Playwright check() 命中**：`rail-toggle` input 为视觉隐藏样式（workbench.css:1867），input 中心命中被 `<span>` 拦截——已对 summaries 开关改点 label；套件内其余 `.check()` 调用（show-hidden 等）需同法排查。
+3. **项目树就绪竞速**：fixture 内核 CLI-env 初始化晚于 UI 首轮项目扫描，首扫得「项目扫描不可用」；已加周期性顶栏刷新重扫（`#refresh-button` → workbench 视图 `loadProjects({refresh:true})`）。
+
+处置建议：该套件是对着旧 UI 模型写的（qa-ui.mjs 自 5a2eb57 未再更新），需一次按当前产品语义的重设计（成员页 tab 模型、拓扑面板生命周期、sr-only 开关交互路径），工作量约半天，不属于单点修复。在重设计完成前，`qa:ui --suite=all` 的判定口径 =「除 workbench 外四套件全绿」。
+
+## 17. 新增待 LO 拍板项（2026-09-02，04:00 后更新至 09-03）
 
 1. ~~是否授权终止 pid 41872 并清除 `control-center.lock`？~~ **已作废** —— 该进程自行退出，锁由 `instance-lock.mjs:88-96` 自动回收，复测已验证可正常启动。改为：请 LO 在真实终端复验一次桌面端启动并回读结果。
-2. 是否授权清理 `apps/control-center/` 下 823 个 `.test-*` 残留目录？**需按路径清单执行，不得用 `git clean` 或通配符批量删**。
-3. 是否授权把 15 个未推送提交推到 `origin/main`？历史重写/force push 仍需单独确认。
-4. Wave B 是否在 B-02 解开前暂停？推荐：暂停切片，先恢复可验证性 —— 继续切片只会让无法端到端验证的 diff 越堆越多。
-5. ~~slice 22 是现在提交，还是等测试跑通后与下一刀一起提交？~~ **04:00 更新**：slice 22 已通过隔离浏览器验证（BADGE OK）+ 受影响测试 55/55，且工作区还叠着两处 TDZ 修复（B-04）。推荐：**现在一并提交**（显式 pathspec 四文件），让 delivery drift 归零、前端恢复可启动；B-02 干净基线另轮再取。
+2. ~~是否授权清理 `apps/control-center/` 下 823 个 `.test-*` 残留目录？~~ **已完成** —— clean-exit 自清 + `--clean-only` 归零，全仓复核 0 残留。
+3. 是否授权把后续提交推到 `origin/main`？09-02 已推 18 个提交（remote main = 21366d3）；其后的 657939f/50f0e8b 待下一轮推送。历史重写/force push 仍需单独确认。
+4. ~~Wave B 是否在 B-02 解开前暂停？~~ **维持暂停** —— B-02 已修复但 EQ-01 的「full 连续 5 次干净基线」未取满，workbench QA 套件重设计（B-05）完成前继续切 app.js 仍会堆积不可端到端验证的 diff。
+5. ~~slice 22 是现在提交，还是等测试跑通后与下一刀一起提交？~~ **已提交并推送**（8a36346）。
 6. 是否接受把「实例锁加入 HTTP 活性证明 + QA 隔离 dataRoot」作为 EQ-05 下的两个独立 backlog 项？推荐：接受，这是本次事故唯一没有被现有代码防住的环节。
 7. 是否接受把「DI 简写属性禁止引用更晚声明的顶层 const（TDZ 静态检查）」加入 ui:lint 门禁？推荐：接受——B-04 两处崩溃都属此类，静态可查，浏览器冒烟只能兜底。
+8. （09-03 新增）预算止损工作包引入的「simple 任务短路 + 默认权限档 build + 续聊止损确认闸」是否按 LO 使用习惯微调阈值（simple 的 15 字符判定、默认 build 的审批提示语）？推荐：先用一周，有体感偏差再调。
 
 ## 18. 复测证据坐标
 
