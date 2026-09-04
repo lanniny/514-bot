@@ -1,6 +1,7 @@
 import { escapeHtml, formatTime, normalizeStatus, runStatusText } from "../utils.js";
 import { ACTIVE_RUN_STATES } from "../state.js";
 import { selectPipelineRoot, sessionAgentId } from "../team-panel.js";
+import { severityOf } from "./event-severity.js";
 
 // v3.6 社会模拟拓扑：从 bus.jsonl 的 from/to 消息流构建参与者链（谁说了几句、谁是 leader）。
 // 成功短 TTL + 失败指数负缓存；旧 run 请求可取消，避免离线 bus 在 SSE 热路径形成请求风暴。
@@ -210,27 +211,24 @@ export function createWorkbenchTopology({
       if (merged.length >= 30) break;
     }
     const events = merged;
-    // 事件流彩色分类（精致化波次）：类型前缀→色调，告警词→红，一眼分出治理/总线/agent/自动化
-    const eventTone = (type) => {
-      const value = String(type);
-      if (/fail|error|denied|dropped|blocked/i.test(value)) return "red";
-      if (value.startsWith("bus.")) return "aqua";
-      if (value.startsWith("agent.")) return "blue";
-      if (value.startsWith("automation.")) return "amber";
-      if (value.startsWith("run.")) return "rose";
-      if (value === "user.message") return "violet";
-      return "neutral";
-    };
+    // 事件流严重度分级（v49）：色调改由 event-severity.js 的**显式声明表**派生，
+    // 不再用词表猜类型名。原实现 `/fail|error|denied|dropped|blocked/i` 抓得到
+    // *_failed / *_blocked，但漏掉 rejected/degraded/exhausted/revoked/timeout/
+    // deferred/skipped/unproductive 共 9 类词根 —— `run.directive_rejected`
+    // （LO 的指令被拒）会与 `run.sources_added`（加了个源）同色同形。
+    // attention/critical 额外带 data-severity，让"需要注意"不只靠一条色带传达。
     elements["workbench-event-list"].innerHTML = events.length
       ? events
-          .map(
-            (event) => `
-          <li class="timeline-item is-tone-${eventTone(event.type)}">
+          .map((event) => {
+            const { severity, tone, inferred } = severityOf(event.type);
+            const flag = severity === "critical" || severity === "attention";
+            return `
+          <li class="timeline-item is-tone-${tone}${flag ? " is-flagged" : ""}" data-severity="${severity}"${inferred ? ' data-severity-inferred="1"' : ""}>
             <strong>${escapeHtml(event.type)}</strong>
             <span>${escapeHtml(event.summary)}</span>
             <time>${escapeHtml(formatTime(event.timestamp))}</time>
-          </li>`,
-          )
+          </li>`;
+          })
           .join("")
       : `<li class="timeline-item"><strong>等待事件</strong><span>${run ? "该任务暂无事件记录" : "SSE 建立后自动刷新"}</span></li>`;
   }

@@ -13,6 +13,9 @@
     <link rel="stylesheet" href="./forge/tokens.css" />
     <link rel="stylesheet" href="./forge/motion.css" />
     <link rel="stylesheet" href="./forge/primitives.css" />
+    <!-- 叙事层排版层（UI-ELEVATION W1）：双轨制的展示轨，提供 opt-in 类名
+         服务首屏/空状态/视图标题/关键指标，不污染骨架层。 -->
+    <link rel="stylesheet" href="./forge/editorial.css" />
     <!-- 空状态 / 骨架屏单一真源（UI-AUDIT P0-6，配套 modules/placeholders.js） -->
     <link rel="stylesheet" href="./forge/placeholders.css" />
     <!-- 信息密度三档（UI-AUDIT P1-1，配套 tokens.css 的 --density-* 乘数） -->
@@ -306,15 +309,15 @@
           <div class="page-heading">
             <div>
               <p class="eyebrow">运行态</p>
-              <h1 id="overview-title">系统总览</h1>
+              <h1 id="overview-title" class="editorial-headline editorial-reveal">系统总览</h1>
               <p>协作运行时、配置真源与安全门禁的当前状态。</p>
             </div>
             <div class="heading-actions">
-              <button class="button secondary" type="button" data-view-jump="config">
+              <button class="button secondary forge-magnetic" type="button" data-view-jump="config">
                 <svg aria-hidden="true" class="icon lucide"><use href="#lucide-settings"></use></svg>
                 配置检查
               </button>
-              <button class="button primary" type="button" data-view-jump="workbench">
+              <button class="button primary forge-magnetic" type="button" data-view-jump="workbench">
                 <svg aria-hidden="true" class="icon lucide"><use href="#lucide-play"></use></svg>
                 新建任务
               </button>
@@ -376,17 +379,17 @@
           <div class="metric-grid" aria-label="核心指标">
             <article class="metric-card">
               <span class="metric-label"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-server"></use></svg>运行组件</span>
-              <strong class="metric-value" id="metric-services">--</strong>
+              <strong class="metric-value editorial-stat" id="metric-services">--</strong>
               <span class="metric-detail" id="metric-services-detail">等待健康检查</span>
             </article>
             <article class="metric-card">
               <span class="metric-label"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-play"></use></svg>活跃任务</span>
-              <strong class="metric-value" id="metric-runs">--</strong>
+              <strong class="metric-value editorial-stat" id="metric-runs">--</strong>
               <span class="metric-detail" id="metric-runs-detail">暂无运行数据</span>
             </article>
             <article class="metric-card">
               <span class="metric-label"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-git-branch"></use></svg>配置源</span>
-              <strong class="metric-value" id="metric-sources">--</strong>
+              <strong class="metric-value editorial-stat" id="metric-sources">--</strong>
               <span class="metric-detail" id="metric-sources-detail">等待配置索引</span>
             </article>
             <article class="metric-card">
@@ -456,7 +459,7 @@
               <header class="bot-roster-header">
                 <div>
                   <p class="bot-kicker">514 BOT · 工作区</p>
-                  <h1 id="bot-title">项目与对话</h1>
+                  <h1 id="bot-title" class="editorial-headline editorial-reveal">项目与对话</h1>
                 </div>
                 <div class="bot-roster-actions" role="group" aria-label="通讯操作">
                   <button class="bot-icon-button" id="bot-new-group-button" type="button" title="新建项目或任务" aria-label="新建项目或任务"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-folder"></use></svg></button>
@@ -628,7 +631,7 @@
             <header class="bot-settings-header"><div><span class="bot-kicker">514 BOT / SETTINGS</span><h2 id="bot-settings-title">设置</h2></div><button class="bot-icon-button" id="bot-settings-close" type="button" title="关闭设置" aria-label="关闭设置"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-x"></use></svg></button></header>
             <div class="bot-settings-layout"><nav class="bot-settings-tabs" id="bot-settings-tabs" role="tablist" aria-label="设置分类"><button class="is-active" type="button" role="tab" id="bot-settings-tab-general" aria-selected="true" aria-controls="bot-settings-general" data-bot-settings-tab="general">General</button><button type="button" role="tab" id="bot-settings-tab-plugins" aria-selected="false" aria-controls="bot-settings-plugins" data-bot-settings-tab="plugins" tabindex="-1">Plugins</button><button type="button" role="tab" id="bot-settings-tab-team" aria-selected="false" aria-controls="bot-settings-team" data-bot-settings-tab="team" tabindex="-1">成员</button><button type="button" role="tab" id="bot-settings-tab-appearance" aria-selected="false" aria-controls="bot-settings-appearance" data-bot-settings-tab="appearance" tabindex="-1">Appearance</button><button type="button" role="tab" id="bot-settings-tab-updates" aria-selected="false" aria-controls="bot-settings-updates" data-bot-settings-tab="updates" tabindex="-1">Updates</button></nav>
               <div class="bot-settings-content"><section class="bot-settings-page is-active" id="bot-settings-general" role="tabpanel" aria-labelledby="bot-settings-tab-general"><h3>个人设置</h3><p class="bot-settings-lead">你在对话中的昵称与头像</p><form class="bot-profile-form" id="bot-profile-form"><div class="bot-profile-avatar-row"><button class="bot-profile-avatar" id="bot-profile-avatar-button" type="button" title="更换个人头像" aria-label="更换个人头像"><span id="bot-profile-avatar-preview">A</span><svg class="icon lucide" aria-hidden="true"><use href="#lucide-plus"></use></svg></button><div><strong id="bot-profile-preview-name">AEMEATH</strong><span>本地控制面身份</span><button class="bot-text-button is-muted" id="bot-profile-avatar-reset" type="button">恢复默认头像</button></div></div><input id="bot-profile-avatar-file" type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden /><label class="bot-settings-field"><span>昵称</span><input id="bot-profile-label" maxlength="48" required autocomplete="nickname" /></label><div class="bot-member-settings-status" id="bot-profile-status" role="status" aria-live="polite">资料保存在当前 Control Center 数据根</div><div class="bot-agent-settings-actions"><button class="bot-card-confirm" id="bot-profile-submit" type="submit">保存个人资料</button></div></form><article class="bot-settings-card bot-account-connections"><div><strong>连接器账户</strong><p>外部 CLI 登录由连接配置统一管理，这里展示当前接入状态。</p></div><div class="bot-settings-card-actions"><button class="bot-text-button" type="button" data-bot-action="connector-manage">打开连接配置</button></div></article><div class="bot-connector-list" id="bot-connector-list" aria-live="polite"><p class="bot-plugin-empty">正在读取连接状态…</p></div></section>
-                <section class="bot-settings-page" id="bot-settings-plugins" role="tabpanel" aria-labelledby="bot-settings-tab-plugins" hidden><div class="bot-settings-page-head"><div><h3>Plugins</h3><p class="bot-settings-lead">本机可用的技能与 MCP 服务器，与配置图谱同源</p></div><span class="bot-settings-badge" id="bot-plugin-count">读取中…</span></div><label class="bot-plugin-search"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-search"></use></svg><input id="bot-plugin-search" type="search" placeholder="搜索插件" aria-label="搜索插件" /></label><div class="bot-plugin-chips" role="list"><button class="is-active" type="button" data-bot-plugin-filter="all">All</button><button type="button" data-bot-plugin-filter="skills">Skills</button><button type="button" data-bot-plugin-filter="mcp">MCP</button></div><div class="bot-plugin-capabilities" id="bot-plugin-capabilities"><p class="bot-plugin-empty">正在读取本机能力…</p></div><section class="bot-plugin-subsection" aria-labelledby="bot-private-skills-title"><div class="bot-plugin-subsection-heading"><div><span class="bot-kicker">Your plugins</span><h4 id="bot-private-skills-title">Private skills</h4></div><button class="bot-text-button" type="button" data-bot-action="private-skill-add">Add skill</button></div><div class="bot-private-skill-row"><span><strong>Inbox triage</strong><small>Summarize and label incoming mail</small></span><span class="bot-private-skill-actions"><button class="bot-text-button" type="button" data-bot-action="private-skill-edit">Edit</button><button class="bot-icon-button" type="button" data-bot-action="private-skill-delete" title="删除 Private skill" aria-label="删除 Private skill"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-trash-2"></use></svg></button></span></div><form class="bot-private-skill-editor" id="bot-private-skill-editor" hidden><label class="bot-settings-field"><span>Name</span><input id="bot-private-skill-name" value="Inbox triage" maxlength="80" /></label><label class="bot-settings-field"><span>Description</span><input id="bot-private-skill-description" value="Summarize and label incoming mail" maxlength="200" /></label><label class="bot-settings-field"><span>Instructions</span><textarea id="bot-private-skill-instructions" rows="4" maxlength="4000">Read new messages, summarize them, and suggest a label.</textarea></label><div class="bot-agent-settings-actions"><button class="bot-text-button" type="button" data-bot-action="private-skill-cancel">Cancel</button><button class="bot-card-confirm" type="submit">Save skill</button></div></form></section><p class="bot-plugin-empty" id="bot-plugin-empty" hidden>没有匹配的插件</p></section>
+                <section class="bot-settings-page" id="bot-settings-plugins" role="tabpanel" aria-labelledby="bot-settings-tab-plugins" hidden><div class="bot-settings-page-head"><div><h3>Plugins</h3><p class="bot-settings-lead">本机可用的技能与 MCP 服务器，与配置图谱同源</p></div><div class="bot-settings-page-head-actions"><button class="bot-text-button" type="button" data-view-jump="market">打开插件市场</button><span class="bot-settings-badge" id="bot-plugin-count">读取中…</span></div></div><label class="bot-plugin-search"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-search"></use></svg><input id="bot-plugin-search" type="search" placeholder="搜索插件" aria-label="搜索插件" /></label><div class="bot-plugin-chips" role="list"><button class="is-active" type="button" data-bot-plugin-filter="all">All</button><button type="button" data-bot-plugin-filter="skills">Skills</button><button type="button" data-bot-plugin-filter="mcp">MCP</button></div><div class="bot-plugin-capabilities" id="bot-plugin-capabilities"><p class="bot-plugin-empty">正在读取本机能力…</p></div><section class="bot-plugin-subsection" aria-labelledby="bot-private-skills-title"><div class="bot-plugin-subsection-heading"><div><span class="bot-kicker">Your plugins</span><h4 id="bot-private-skills-title">Private skills</h4></div><button class="bot-text-button" type="button" data-bot-action="private-skill-add">Add skill</button></div><div class="bot-private-skill-row"><span><strong>Inbox triage</strong><small>Summarize and label incoming mail</small></span><span class="bot-private-skill-actions"><button class="bot-text-button" type="button" data-bot-action="private-skill-edit">Edit</button><button class="bot-icon-button" type="button" data-bot-action="private-skill-delete" title="删除 Private skill" aria-label="删除 Private skill"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-trash-2"></use></svg></button></span></div><form class="bot-private-skill-editor" id="bot-private-skill-editor" hidden><label class="bot-settings-field"><span>Name</span><input id="bot-private-skill-name" value="Inbox triage" maxlength="80" /></label><label class="bot-settings-field"><span>Description</span><input id="bot-private-skill-description" value="Summarize and label incoming mail" maxlength="200" /></label><label class="bot-settings-field"><span>Instructions</span><textarea id="bot-private-skill-instructions" rows="4" maxlength="4000">Read new messages, summarize them, and suggest a label.</textarea></label><div class="bot-agent-settings-actions"><button class="bot-text-button" type="button" data-bot-action="private-skill-cancel">Cancel</button><button class="bot-card-confirm" type="submit">Save skill</button></div></form></section><p class="bot-plugin-empty" id="bot-plugin-empty" hidden>没有匹配的插件</p></section>
                 <section class="bot-settings-page" id="bot-settings-team" role="tabpanel" aria-labelledby="bot-settings-tab-team" hidden><div class="bot-settings-page-head"><div><h3>成员</h3><p class="bot-settings-lead">联系人、职责与运行席位</p></div><span class="bot-settings-badge" id="bot-settings-member-count">0 位成员</span></div><div class="bot-settings-member-list" id="bot-settings-member-list"><p class="bot-plugin-empty">正在读取成员…</p></div></section>
                 <section class="bot-settings-page" id="bot-settings-appearance" role="tabpanel" aria-labelledby="bot-settings-tab-appearance" hidden><h3>Appearance</h3><p class="bot-settings-lead">主题跟随系统，或固定在浅色 / 深色</p><div class="bot-theme-options" role="radiogroup" aria-label="主题"><button type="button" role="radio" data-bot-theme="system" aria-checked="true"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-layout-dashboard"></use></svg><span>System</span></button><button type="button" role="radio" data-bot-theme="light" aria-checked="false"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-sun"></use></svg><span>Light</span></button><button type="button" role="radio" data-bot-theme="dark" aria-checked="false"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-moon"></use></svg><span>Dark</span></button></div></section>
                 <section class="bot-settings-page" id="bot-settings-updates" role="tabpanel" aria-labelledby="bot-settings-tab-updates" hidden><h3>Updates</h3><p class="bot-settings-lead">应用更新与成员电脑迁移分开处理</p><article class="bot-update-card bot-release-card"><div><strong>构建真相</strong><p id="bot-release-truth-summary">本地控制面不连接发布服务；可读取当前运行实例的构建真相。</p></div><button class="bot-update-button" type="button" data-bot-action="release-truth-refresh">读取真相</button></article><div class="bot-release-truth" id="bot-release-truth" hidden></div><article class="bot-update-card"><div><strong>Update Bot's Computer</strong><p>迁移到新实例，保留文件和登录态；已装软件需重装。</p></div><button class="bot-update-button" type="button" data-bot-action="computer-update">Update</button></article><article class="bot-update-card is-danger"><div><strong>Reset Bot's Computer</strong><p>从快照恢复，可能丢失未同步工作。请优先使用 Update。</p></div><button class="bot-update-button" type="button" data-bot-action="computer-reset">Reset</button></article><div class="bot-update-track"><span>Update Track</span><button class="is-active" type="button" data-bot-action="update-track" data-bot-track="stable">Stable</button><button type="button" data-bot-action="update-track" data-bot-track="nightly">Nightly</button><button class="bot-text-button" type="button" data-bot-action="release-truth-refresh">读取构建真相</button></div></section>
@@ -640,7 +643,7 @@
           <div class="page-heading compact-heading workbench-heading">
             <div>
               <p class="eyebrow">异构 CLI 团队控制室</p>
-              <h1 id="workbench-title">协作台</h1>
+              <h1 id="workbench-title" class="editorial-headline editorial-reveal">协作台</h1>
               <p>多套原生 CLI 同房间协作 · 社会编排 · 证据可回放 · 审批即租约</p>
             </div>
             <div class="workbench-heading-meta">
@@ -1157,7 +1160,7 @@
         <section class="view" id="view-team" data-view-panel="team" aria-labelledby="team-title" hidden>
           <div class="team-hero">
             <p class="eyebrow team-hero-eyebrow">Multi-CLI Orchestration</p>
-            <h1 class="team-hero-title" id="team-title">团队协作</h1>
+            <h1 class="team-hero-title editorial-headline editorial-reveal" id="team-title">团队协作</h1>
             <p class="team-hero-sub">团队启用、能力配置、运行态与协作星图</p>
           </div>
 
@@ -1699,7 +1702,7 @@
           <div class="page-heading compact-heading">
             <div>
               <p class="eyebrow">配置控制面</p>
-              <h1 id="config-title">配置图谱</h1>
+              <h1 id="config-title" class="editorial-headline editorial-reveal">配置图谱</h1>
               <p>席位、连接、能力、钩子与本机运行时</p>
             </div>
             <span class="status-label is-neutral" id="config-workspace-status" aria-live="polite">正在汇总</span>
@@ -1747,10 +1750,16 @@
                 <p class="eyebrow">资源真源 · 团队菜单 · 成员范围</p>
                 <h2>能力中心</h2>
               </div>
-              <button class="button secondary" id="capabilities-refresh-button" type="button">
-                <svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg>
-                重新扫描
-              </button>
+              <div class="heading-actions">
+                <button class="button secondary compact" type="button" data-view-jump="market" title="前往全局扩展发现与安装市场">
+                  <svg aria-hidden="true" class="icon lucide"><use href="#lucide-store"></use></svg>
+                  插件市场
+                </button>
+                <button class="button secondary" id="capabilities-refresh-button" type="button">
+                  <svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg>
+                  重新扫描
+                </button>
+              </div>
             </div>
 
             <div class="cap-overview" id="cap-overview" aria-label="能力概览">
@@ -2251,7 +2260,7 @@
           <div class="page-heading compact-heading">
             <div>
               <p class="eyebrow">基础设置</p>
-              <h1 id="appearance-title">外观</h1>
+              <h1 id="appearance-title" class="editorial-headline editorial-reveal">外观</h1>
               <p>主题、字号与会话代码块的显示方式。改完立刻生效。</p>
             </div>
             <div class="heading-actions">
@@ -2640,7 +2649,7 @@
           <div class="page-heading compact-heading">
             <div>
               <p class="eyebrow">基础设置</p>
-              <h1 id="browser-title">浏览器</h1>
+              <h1 id="browser-title" class="editorial-headline editorial-reveal">浏览器</h1>
               <p>协作台左侧工具栏的内置浏览面板，用来打开 HTTP(S) 页面。</p>
             </div>
           </div>
@@ -2662,9 +2671,9 @@
         <section class="view" id="view-security" data-view-panel="security" aria-labelledby="security-title" hidden>
           <div class="page-heading compact-heading">
             <div>
-              <p class="eyebrow">权限治理 · 审批与可观测性</p>
-              <h1 id="security-title">权限与审批</h1>
-              <p>统一查看运行席位权限、待审批动作、临时授权与审计阻断状态。所有授权仍由服务端账本决定。</p>
+              <p class="eyebrow">安全与权限控制中心</p>
+              <h1 class="editorial-headline editorial-reveal" id="security-title">权限与审批</h1>
+              <p>跨多客户端审计、安全控制、敏感指令放行确认与治理日志。</p>
             </div>
             <span class="status-label is-pending" id="security-summary">检查中</span>
           </div>
@@ -2790,7 +2799,7 @@
           <div class="page-heading compact-heading">
             <div>
               <p class="eyebrow">治理数据面</p>
-              <h1 id="observability-title">体系观测</h1>
+              <h1 id="observability-title" class="editorial-headline editorial-reveal">体系观测</h1>
               <p>路由门命中、DELTA 发火账本、handoff 交接、双地落漂移，以及当前进程的低敏运营指标。缺失成本显示「未知」，不当 0。</p>
             </div>
             <button class="button secondary" id="obs-refresh-button" type="button">
@@ -2802,17 +2811,17 @@
           <div class="metric-grid" aria-label="治理指标">
             <article class="metric-card">
               <span class="metric-label"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-git-branch"></use></svg>路由门 · 近 7 天</span>
-              <strong class="metric-value" id="obs-routegate-count">--</strong>
+              <strong class="metric-value editorial-stat" id="obs-routegate-count">--</strong>
               <span class="metric-detail" id="obs-routegate-detail">等待读取</span>
             </article>
             <article class="metric-card">
               <span class="metric-label"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-layers"></use></svg>DELTA 账本</span>
-              <strong class="metric-value" id="obs-delta-count">--</strong>
+              <strong class="metric-value editorial-stat" id="obs-delta-count">--</strong>
               <span class="metric-detail" id="obs-delta-detail">0=白发 / 1=补强 / 2=推翻</span>
             </article>
             <article class="metric-card">
               <span class="metric-label"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-timer"></use></svg>距上次外部发火</span>
-              <strong class="metric-value" id="obs-fire-days">--</strong>
+              <strong class="metric-value editorial-stat" id="obs-fire-days">--</strong>
               <span class="metric-detail" id="obs-fire-detail">codex-to- / grok-to-</span>
             </article>
             <article class="metric-card">
@@ -2825,7 +2834,7 @@
           <div class="metric-grid" aria-label="运营指标">
             <article class="metric-card">
               <span class="metric-label"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-timer"></use></svg>首个有效响应</span>
-              <strong class="metric-value" id="obs-ops-first">未知</strong>
+              <strong class="metric-value editorial-stat" id="obs-ops-first">未知</strong>
               <span class="metric-detail" id="obs-ops-first-detail">无样本时不填 0</span>
             </article>
             <article class="metric-card">
@@ -2835,12 +2844,12 @@
             </article>
             <article class="metric-card">
               <span class="metric-label"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-layers"></use></svg>成本回执可用率</span>
-              <strong class="metric-value" id="obs-ops-cost">未知</strong>
+              <strong class="metric-value editorial-stat" id="obs-ops-cost">未知</strong>
               <span class="metric-detail" id="obs-ops-cost-detail">缺失成本不当 $0</span>
             </article>
             <article class="metric-card">
               <span class="metric-label"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-circle-alert"></use></svg>stale 状态</span>
-              <strong class="metric-value" id="obs-ops-stale">未知</strong>
+              <strong class="metric-value editorial-stat" id="obs-ops-stale">未知</strong>
               <span class="metric-detail" id="obs-ops-stale-detail">健康缓存 + 在途 run</span>
             </article>
           </div>
@@ -2896,7 +2905,7 @@
             <div class="section-heading">
               <div>
                 <h2 id="obs-drift-detail-title">双地落漂移明细</h2>
-                <p>仓库源 ↔ 运行时逐对核验（sync-runtime.ps1 同口径）</p>
+                <p>仓库源与运行时逐对核验（sync-runtime.ps1 同口径）</p>
               </div>
             </div>
             <div class="table-scroll">
@@ -2942,13 +2951,123 @@
               </table>
             </div>
           </section>
+
+          <!-- v48 S0-4 · P-23 产品健康看板：消费 /api/telemetry/summary。
+               与上方"体系观测"的区别——那里看系统健康，这里看产品健康：
+               能力实际被用到什么程度、哪些视图从未被打开、托付敢不敢放手。 -->
+          <section class="obs-section" aria-labelledby="ph-title">
+            <div class="pane-heading">
+              <h2 id="ph-title">产品健康</h2>
+              <span id="ph-meta" class="subtle">未加载</span>
+            </div>
+            <div class="metric-grid" aria-label="产品健康指标">
+              <article class="metric-card">
+                <span class="metric-label"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-shield-check"></use></svg>可信托付率</span>
+                <strong class="metric-value editorial-stat" id="ph-trust-rate">--</strong>
+                <span class="metric-detail" id="ph-trust-detail">未被干预即完成的托付占比</span>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-layout-dashboard"></use></svg>能力覆盖率</span>
+                <strong class="metric-value editorial-stat" id="ph-coverage">--</strong>
+                <span class="metric-detail" id="ph-coverage-detail">已使用视图 / 全部视图</span>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-activity"></use></svg>埋点事件</span>
+                <strong class="metric-value editorial-stat" id="ph-total">--</strong>
+                <span class="metric-detail" id="ph-total-detail">纯本地，不外发</span>
+              </article>
+              <article class="metric-card">
+                <span class="metric-label"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-triangle-alert"></use></svg>摩擦信号</span>
+                <strong class="metric-value editorial-stat" id="ph-friction">--</strong>
+                <span class="metric-detail" id="ph-friction-detail">错误 / 放弃 / 重复操作</span>
+              </article>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead><tr><th>视图</th><th>访问次数</th><th>状态</th></tr></thead>
+                <tbody id="ph-views-body"><tr><td colspan="3" class="subtle">未加载</td></tr></tbody>
+              </table>
+            </div>
+            <div class="section-heading">
+              <div>
+                <p class="subtle" id="ph-privacy-note">埋点为纯本地写入，走事件哈希链，字段白名单过滤，可随时关闭并清空。</p>
+              </div>
+              <div class="heading-actions">
+                <button class="button secondary" id="ph-refresh-button" type="button">
+                  <svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg>
+                  刷新
+                </button>
+                <button class="button secondary" id="ph-toggle-button" type="button">
+                  <svg aria-hidden="true" class="icon lucide"><use href="#lucide-eye"></use></svg>
+                  <span id="ph-toggle-label">关闭埋点</span>
+                </button>
+                <button class="button danger" id="ph-clear-button" type="button">
+                  <svg aria-hidden="true" class="icon lucide"><use href="#lucide-trash-2"></use></svg>
+                  清空数据
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <!-- v49 · A/B 影子对照：后端 createShadowPair + /api/runs/compare 此前零 UI 入口
+               （2026-09-04 API 契约对账实测：public/ 全量 44K 行零调用、无测试覆盖）。
+               对"可问责的协作台"而言这是最该露出来的能力——同一任务派两个 CLI，
+               谁更快/更省/更成有据可查，而不是凭印象说"感觉某个更靠谱"。
+               对照腿被后端强制 plan 只读，UI 必须说清，否则会被误判成"B 不行"。 -->
+          <section class="content-section" aria-labelledby="shadow-title">
+            <div class="pane-heading">
+              <h2 id="shadow-title">A/B 影子对照</h2>
+              <span id="shadow-status" class="subtle">同一任务派两个 CLI，对比耗时/成本/结果</span>
+            </div>
+            <div class="field-grid">
+              <label class="field" for="shadow-prompt">
+                <span class="field-label">任务描述</span>
+                <textarea id="shadow-prompt" rows="3" placeholder="两条腿会收到完全相同的这段任务"></textarea>
+              </label>
+              <label class="field" for="shadow-primary">
+                <span class="field-label">A · 主腿（按所选权限执行）</span>
+                <select id="shadow-primary"><option value="">团队成员未加载</option></select>
+              </label>
+              <label class="field" for="shadow-target">
+                <span class="field-label">B · 对照腿（强制 plan 只读）</span>
+                <select id="shadow-target"><option value="">无可用对照成员</option></select>
+              </label>
+            </div>
+            <div id="shadow-legs" class="shadow-legs"></div>
+            <div class="table-scroll">
+              <table class="data-table">
+                <caption class="sr-only">A/B 对比矩阵</caption>
+                <thead>
+                  <tr><th scope="col">维度</th><th scope="col">A</th><th scope="col">B</th></tr>
+                </thead>
+                <tbody id="shadow-matrix-body"><tr><td colspan="3" class="subtle">尚未派发影子对照</td></tr></tbody>
+              </table>
+            </div>
+            <p id="shadow-tally" class="subtle"></p>
+            <ul id="shadow-verdicts" class="shadow-verdicts"></ul>
+            <div class="heading-actions">
+              <button class="button primary" id="shadow-dispatch" type="button">
+                <svg aria-hidden="true" class="icon lucide"><use href="#lucide-play"></use></svg>
+                派发双腿
+              </button>
+              <button class="button secondary" id="shadow-refresh" type="button" disabled>
+                <svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg>
+                刷新对比
+              </button>
+              <button class="button secondary" id="shadow-copy-markdown" type="button" disabled>
+                <svg aria-hidden="true" class="icon lucide"><use href="#lucide-copy"></use></svg>
+                复制报告
+              </button>
+            </div>
+          </section>
         </section>
 
         <section class="view" id="view-sessions" data-view-panel="sessions" aria-labelledby="sessions-title" hidden>
+
           <div class="page-heading compact-heading">
             <div>
               <p class="eyebrow">跨 CLI 统一视图</p>
-              <h1 id="sessions-title">会话聚合</h1>
+              <h1 id="sessions-title" class="editorial-headline editorial-reveal">会话聚合</h1>
               <p>Claude Code / Codex / Cursor / Kimi / Pi / Grok 的本地历史会话，一处速览。</p>
             </div>
             <div class="heading-actions">
@@ -2970,7 +3089,7 @@
           <div class="page-heading compact-heading">
             <div>
               <p class="eyebrow">静态 starter</p>
-              <h1 id="bootstrapper-title">项目启动器</h1>
+              <h1 id="bootstrapper-title" class="editorial-headline editorial-reveal">项目启动器</h1>
               <p>生成本地静态壳：5 个文件，无构建、无 npm。选风味和色板，确认后落盘。</p>
             </div>
           </div>
@@ -2982,7 +3101,7 @@
           <div class="page-heading compact-heading">
             <div>
               <p class="eyebrow">外部接入</p>
-              <h1 id="channels-title">渠道</h1>
+              <h1 id="channels-title" class="editorial-headline editorial-reveal">渠道</h1>
               <p>按向导接入 Telegram 或 Webhook。先验通再创建，入站带签名，出站可试投。</p>
             </div>
           </div>
@@ -2994,7 +3113,7 @@
           <div class="page-heading compact-heading">
             <div>
               <p class="eyebrow">文档生成</p>
-              <h1 id="office-title">文档工坊</h1>
+              <h1 id="office-title" class="editorial-headline editorial-reveal">文档工坊</h1>
               <p>选类型、写章节，模板会带上正文。先看计划，确认后才落到 output-docs/。</p>
             </div>
           </div>
@@ -3006,7 +3125,7 @@
           <div class="page-heading compact-heading compact-heading-with-actions">
             <div>
               <p class="eyebrow">本机终端</p>
-              <h1 id="terminal-title">终端</h1>
+              <h1 id="terminal-title" class="editorial-headline editorial-reveal">终端</h1>
               <p>受沙箱与审计约束的本机多页签终端，取消级联接入进程台账。</p>
             </div>
           </div>
@@ -3017,9 +3136,15 @@
         <section class="view" id="view-market" data-view-panel="market" aria-labelledby="market-title" hidden>
           <div class="page-heading compact-heading">
             <div>
-              <p class="eyebrow">Agent 能力</p>
-              <h1 id="market-title">插件</h1>
-              <p>管理 Skill 与 MCP。仓库扫描发现技能，官方 Registry / Smithery 发现 MCP；审查确认后写入项目与 CLI。</p>
+              <p class="eyebrow">Agent 扩展能力中枢</p>
+              <h1 class="editorial-headline editorial-reveal" id="market-title">插件</h1>
+              <p>管理全局 Skill 与 MCP 扩展来源及其在底层 CLI 的投影；项目成员声明请前往授权矩阵。</p>
+            </div>
+            <div class="heading-actions">
+              <button class="button secondary compact" type="button" data-config-surface-jump="capabilities" data-cap-workspace="skills" title="前往项目成员 Skill 声明矩阵">
+                <svg aria-hidden="true" class="icon lucide"><use href="#lucide-users"></use></svg>
+                成员授权矩阵
+              </button>
             </div>
           </div>
           <div id="market-container"></div>
@@ -3030,7 +3155,7 @@
           <div class="page-heading compact-heading">
             <div>
               <p class="eyebrow">远程连接</p>
-              <h1 id="hosts-title">远程主机</h1>
+              <h1 id="hosts-title" class="editorial-headline editorial-reveal">远程主机</h1>
               <p>凭据引用制的 SSH 主机台账与 SFTP 文件浏览，主机指纹首连确认。</p>
             </div>
           </div>

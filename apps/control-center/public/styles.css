@@ -591,13 +591,9 @@ pre,
   color: var(--red);
 }
 
-.main-content {
-  grid-area: main;
-  min-width: 0;
-  min-height: 0;
-  overflow: auto;
-  padding: 24px 26px 32px;
-}
+/* UI-ELEVATION W0：`.main-content` 曾在此重复定义（padding 24px 26px 32px），
+   与本文件后段的紧凑版（padding 16px 18px 18px + background: var(--bg)）同处顶层，
+   后者凭层叠顺序静默胜出，此处是长期失效的死规则。已删除，单一真源收敛到后段那份。 */
 
 .view {
   width: min(1600px, 100%);
@@ -6411,12 +6407,15 @@ input::placeholder {
 }
 
 .rail-block-working .pane-heading h2::before {
-  content: "●";
+  content: "";
   display: inline-block;
-  margin-right: 6px;
-  color: var(--aqua);
-  font-size: var(--text-xs);
-  vertical-align: 2px;
+  width: 7px;
+  height: 7px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--aqua);
+  box-shadow: 0 0 8px var(--aqua);
+  vertical-align: 1px;
   animation: status-pulse 2.2s ease-in-out infinite;
 }
 
@@ -6669,9 +6668,14 @@ input::placeholder {
 }
 
 .route-model::before {
-  color: var(--accent-ink);
-  content: "◆ ";
-  font-size: var(--text-xs);
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 6px;
+  background: var(--accent-ink);
+  transform: rotate(45deg);
+  vertical-align: 1px;
 }
 
 .topology-node {
@@ -6746,20 +6750,9 @@ input::placeholder {
   transform: rotate(90deg);
 }
 
-/* —— 会话空态图标：sprite 引用在该处渲不出，换赤陶 ◆ 装饰点（纯 CSS 零依赖） ——
-   仅对「没有自带图标宿主」的裸空态生效；welcome-state（picker/模板卡/星图）自带
-   logo 与图标，再叠一枚悬浮 ◆ 读起来像未完成的占位符（PM 走查 2026-08-30）。 */
-.conversation-stream .empty-state .empty-icon {
-  display: none;
-}
-
+/* —— 会话空态：统一使用 Lucide 矢量图标或抽象插画体系 —— */
 .conversation-stream .empty-state:not(.welcome-state) strong::before {
-  display: block;
-  margin: 0 auto 10px;
-  color: var(--rose-line);
-  content: "◆";
-  font-size: var(--text-2xl);
-  font-family: initial; /* 不被 serif 标题栈影响，菱形用系统符号字形 */
+  display: none;
 }
 
 /* —— Codex 式左栏布局（2026-07-19）：新建任务全宽入口 + 置顶区限高自滚 —— */
@@ -7651,7 +7644,9 @@ input::placeholder {
   .rail-status-dot.is-live { animation: none; }
 }
 
-/* —— 事件流彩色分类点：类型前缀→色调，时间线从灰点海变分类信号 —— */
+/* —— 事件流严重度分级（v49）：色调由 event-severity.js 显式声明表派生 ——
+   info=neutral / notice=blue / attention=amber / critical=red。
+   rose/aqua/violet 保留供其它时间线复用，事件流本身已不再产出这三档。 */
 .timeline-item.is-tone-rose::before { background: var(--rose); }
 .timeline-item.is-tone-aqua::before { background: var(--aqua); }
 .timeline-item.is-tone-blue::before { background: var(--blue); }
@@ -7659,6 +7654,29 @@ input::placeholder {
 .timeline-item.is-tone-violet::before { background: var(--violet); }
 .timeline-item.is-tone-red::before { background: var(--red); }
 .timeline-item.is-tone-neutral::before { background: var(--text-soft); }
+
+/* attention/critical 不只靠色带传达：加左侧强调边 + 轻底色。
+   色盲/低对比屏下单靠一个 7px 色点等于没有信号，而"指令被拒"这类事件
+   漏看的代价是 LO 以为任务照他说的在跑。
+   布局约束：.timeline-item 原 padding 是 `0 0 13px 1px`，且 ::before 绝对定位在
+   left:-16px。加边框必须同步减 padding-left，否则文字右移会破坏时间线轴对齐。 */
+.timeline-item.is-flagged {
+  border-left: 2px solid var(--amber);
+  padding-left: 0;
+  background: color-mix(in oklab, var(--amber) 6%, transparent);
+}
+
+.timeline-item.is-flagged[data-severity="critical"] {
+  border-left-color: var(--red);
+  background: color-mix(in oklab, var(--red) 8%, transparent);
+}
+
+.timeline-item.is-flagged strong { color: var(--amber); }
+.timeline-item.is-flagged[data-severity="critical"] strong { color: var(--red); }
+
+/* 未登记类型（走兜底推断）标虚线边：提示"该来 EVENT_SEVERITY 登记了"。
+   生产同样保留——它标示的是治理债，不是渲染错误。 */
+.timeline-item.is-flagged[data-severity-inferred="1"] { border-left-style: dashed; }
 
 /* 会话行网格化：状态点列 + 文本列（标题/元信息对齐，点居中于两行之间） */
 .rail-run-button {
@@ -7815,6 +7833,24 @@ input::placeholder {
   line-height: 1;
   cursor: pointer;
   opacity: 0.55;
+  position: relative;
+}
+
+.conv-tab-close::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  min-width: 36px;
+  min-height: 36px;
+  transform: translate(-50%, -50%);
+}
+
+@media (pointer: coarse) {
+  .conv-tab-close::before {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 .conv-tab-close:hover {
@@ -9947,7 +9983,7 @@ h2 {
   box-shadow: inset 0 -2px 0 var(--rose);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 820px) {
   .command-trigger span,
   .command-trigger kbd {
     display: none;
@@ -10221,6 +10257,40 @@ h2 {
   line-height: 1.4;
 }
 
+/* v49 归属置信提示：只在**非精确**归属时出现。审批是操作者要下判断的地方，
+   "这条属于哪个 run 是猜的"必须比普通元信息更醒目，所以用 amber 而非 muted。
+   none 档进一步升到 red —— 完全归不上时批准的风险最高。 */
+.approval-attribution-note {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--amber);
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in oklab, var(--amber) 8%, transparent);
+  color: var(--text-soft);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
+.approval-inline[data-attribution="none"] .approval-attribution-note {
+  border-left-color: var(--red);
+  background: color-mix(in oklab, var(--red) 9%, transparent);
+}
+
+/* v49 禁批提示：宽权限授予在后端不可批准（approval-methods.mjs approvable:false）。
+   此前三处审批 UI 都算出了 broadPermission 却都没用，「批准」按钮承诺了一个
+   后端永不兑现的动作 —— 点下去收 422，而请求其实已按拒绝结算掉了。
+   用 red 而非 amber：这不是"注意一下"，是"这条路走不通"。 */
+.approval-blocked-note {
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-left: 2px solid var(--red);
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in oklab, var(--red) 8%, transparent);
+  color: var(--text-soft);
+  font-size: var(--text-xs);
+  line-height: 1.45;
+}
+
 .capability-lease-row {
   display: block;
   border-color: var(--amber);
@@ -10362,7 +10432,7 @@ h2 {
   gap: 8px 12px;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 820px) {
   .workbench-heading-meta {
     align-items: stretch;
   }
@@ -10696,7 +10766,7 @@ h2 {
   gap: 10px;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 820px) {
   .welcome-tip {
     border-radius: 12px;
   }

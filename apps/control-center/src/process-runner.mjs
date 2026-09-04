@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { basename, delimiter, extname, isAbsolute, join } from "node:path";
+import { basename, delimiter, dirname, extname, isAbsolute, join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { childRegistry } from "./child-registry.mjs";
 import { withRuntimeExecutablePath } from "./runtime-executable-dirs.mjs";
@@ -282,6 +282,11 @@ export function resolveCommand(command, env = process.env) {
           // 控制事件能 SIGINT 内核，桌面壳就会当成内核死亡而闪退。
           candidates.push(join(directory, "node_modules", "opencode-ai", "bin", "opencode.exe"));
         }
+        if (command.toLowerCase() === "claude") {
+          // npm 全局安装的 claude.ps1/.cmd 对应真正二进制在 node_modules/@anthropic-ai/claude-code/bin/claude.exe。
+          // 优先寻找该原生 .exe 席位，确保 stdin/argv 为原生可信 UTF-8 管道，不触发 PROMPT_TRANSPORT_UNSAFE。
+          candidates.push(join(directory, "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe"));
+        }
         if (command.toLowerCase() === "codex" && (existsSync(join(directory, "codex.ps1")) || existsSync(join(directory, "codex.cmd")))) {
           const packageArch = process.arch === "arm64" ? "arm64" : "x64";
           const target = packageArch === "arm64" ? "aarch64-pc-windows-msvc" : "x86_64-pc-windows-msvc";
@@ -301,12 +306,19 @@ export function resolveCommand(command, env = process.env) {
         }
         for (const suffix of suffixes) candidates.push(join(directory, `${command}${suffix}`));
       }
+      // .cmd 走 cmd.exe，可安全承载 UTF-8；.ps1 走 powershell.exe -File 会被 prompt-transport 判定为 unsafe。
+      // 故无论如何 .cmd 应排在 .ps1 之前作为 fallback
+      for (const directory of directories) candidates.push(join(directory, `${command}.cmd`));
       if (nativePreferred) {
         // Only use the shim when no native peer exists. Non-ASCII prompts are
         // still rejected by prompt-transport.mjs if this fallback is selected.
         for (const directory of directories) candidates.push(join(directory, `${command}.ps1`));
       }
-      for (const directory of directories) candidates.push(join(directory, `${command}.cmd`));
+      // Claude Code standalone installer: ~/.local/bin/claude.exe
+      if (command.toLowerCase() === "claude") {
+        const home = env.USERPROFILE || env.HOME;
+        if (home) candidates.push(join(home, ".local", "bin", "claude.exe"));
+      }
       // Grok Build installs to ~/.grok/bin (a non-PATH location); fall back to the
       // known install path so the kernel resolves grok regardless of the launching
       // shell's PATH state — same non-standard-location handling as codex above.
@@ -333,9 +345,17 @@ export function resolveCommand(command, env = process.env) {
     };
   }
   if (extension === ".cmd" || extension === ".bat") {
-    const error = new Error(`refusing to invoke ${extension} shim without a PowerShell or executable peer: ${resolvedPath}`);
-    error.code = "UNSAFE_COMMAND_SHIM";
-    throw error;
+    const dir = dirname(resolvedPath);
+    const base = basename(resolvedPath, extension).toLowerCase();
+    const exeCandidate = join(dir, `${base}.exe`);
+    if (existsSync(exeCandidate)) {
+      return { command: exeCandidate, prefixArgs: [], resolvedPath: exeCandidate };
+    }
+    return {
+      command: "cmd.exe",
+      prefixArgs: ["/d", "/s", "/c", resolvedPath],
+      resolvedPath,
+    };
   }
   return { command: resolvedPath, prefixArgs: [], resolvedPath };
 }

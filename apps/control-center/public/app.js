@@ -92,7 +92,7 @@ import {
 } from "./utils.js";
 import {
   API, TOKEN_KEY, ApiError, request as apiRequest, requestBlob, getAccessToken, setAccessToken,
-  initializeAccessToken as initToken,
+  initializeAccessToken as initToken, apiReady,
 } from "./api.js";
 import {
   brandForMember,
@@ -134,6 +134,9 @@ import { createObservabilityPage } from "./modules/observability-page.js";
 import { createDeltaMerge } from "./modules/delta-merge.js";
 import { createSettingsRailChrome } from "./modules/settings-rail-chrome.js";
 import { createRouterPreviewPanel } from "./modules/router-preview-panel.js";
+import { createTelemetryClient } from "./modules/telemetry-client.js";
+import { createProductHealthPanel } from "./modules/product-health-panel.js";
+import { createShadowComparePanel } from "./modules/shadow-compare-panel.js";
 import {
   state, ACTIVE_RUN_STATES, TERMINAL_RUN_STATES, VIEW_TITLES,
   DEFAULT_COMPONENTS, DEFAULT_MODELS, DEFAULT_POLICIES, DEFAULT_SECRETS,
@@ -148,6 +151,9 @@ import {
 
 // 兼容层：旧代码中的 request() 和 accessToken 引用
 const request = apiRequest;
+// P-21 产品行为埋点（v48 S0）：fire-and-forget，任何失败静默吞掉。
+// apiReady 用于避开首次 token 兑换前的 401 竞态（见 api.js:100 注释）。
+const telemetry = createTelemetryClient({ request: apiRequest, apiReady });
 const SETTLEMENT_REQUEST_TIMEOUT_MS = 12_000;
 const settlementRequester = createSettlementRequester({
   request,
@@ -2239,12 +2245,7 @@ function initializeWindowChrome() {
     if (!pending.length) return;
     const latest = pending[pending.length - 1];
     if (botState.approvalInFlight.has(String(latest.id))) return;
-    const broad = String(latest?.method || "") === "item/permissions/requestApproval";
     const decision = key === "y" ? "approve" : "deny";
-    if (decision === "approve" && broad) {
-      toast("广域权限授权暂不支持快捷批准，请使用安全诊断页", "warning");
-      return;
-    }
     event.preventDefault();
     void resolveInlineApproval(latest.id, decision);
   });
@@ -2752,6 +2753,17 @@ function applyApprovalSnapshot(payload, { source = "审批快照" } = {}) {
   if (snapshot.runtimeGenerationValid === false) {
     appendDiagnostic(`${source}的 runtimeGeneration 无效，拒绝覆盖当前授权状态`, "warning");
     return { accepted: false, invalid: true };
+  }
+  // 首次加载（approvalSnapshotEpoch === null）放宽版本守卫：无条件采纳初始快照
+  if (approvalSnapshotEpoch === null) {
+    approvalSnapshotEpoch = snapshot.epoch;
+    approvalSnapshotRevision = snapshot.revision;
+    if (snapshot.runtimeGeneration !== null && snapshot.runtimeGeneration !== undefined) {
+      approvalSnapshotRuntimeGeneration = snapshot.runtimeGeneration;
+    }
+    state.approvals = snapshot.approvals;
+    nativeNotifications.syncApprovals(state.approvals);
+    return { accepted: true, initial: true };
   }
   const version = compareApprovalSnapshotVersions(
     {
@@ -3425,6 +3437,9 @@ function setView(view, {
     settingsFocus,
     capabilityWorkspace,
   })) return;
+  // P-21：埋点落在别名规范化（memory→observability / hero→team）与 guard 拦截之后，
+  // 记录的才是"真正切换到的视图"。放在 guard 之前会把被拦下的导航也算成一次访问。
+  telemetry.trackView(view);
   // Bot 的覆盖层属于该表面；离开 Bot 时必须收拢，避免返回 #bot 后
   // 隐藏视图上的 dialog 继续拦截点击或保留错误焦点。
   if (view !== "bot") {
@@ -3450,11 +3465,21 @@ function setView(view, {
   state.view = view;
   syncBotSurfaceChrome(view);
   const panelView = view === "automations" ? "workbench" : view;
-  document.querySelectorAll("[data-view-panel]").forEach((panel) => {
-    const active = panel.dataset.viewPanel === panelView;
-    panel.hidden = !active;
-    panel.classList.toggle("is-active", active);
-  });
+  const updateActivePanel = () => {
+    document.querySelectorAll("[data-view-panel]").forEach((panel) => {
+      const active = panel.dataset.viewPanel === panelView;
+      panel.hidden = !active;
+      panel.classList.toggle("is-active", active);
+    });
+  };
+  const shouldAnimate = typeof document.startViewTransition === "function"
+    && !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
+    && document.documentElement.dataset.motion !== "reduce";
+  if (shouldAnimate) {
+    document.startViewTransition(updateActivePanel);
+  } else {
+    updateActivePanel();
+  }
   revealWorkbenchAutomations(view === "automations");
   document.querySelectorAll("[data-view]").forEach((button) => {
     const active = button.dataset.view === view;
@@ -3525,6 +3550,12 @@ function setView(view, {
     if (state.diagnostics.length === 0) void runDiagnostics();
   }
   if (view === "observability" && !state.obsLoaded) void loadObservability();
+  // 产品健康看板与体系观测同页，跟随进入即加载。不共用 obsLoaded 门闩——
+  // 它是独立数据源，体系观测读失败时产品健康仍应可读。
+  if (view === "observability") void productHealthPanel.loadProductHealth();
+  // 影子对照的成员下拉依赖 memberCatalog（bootstrap 后才有），进入观测页时重填一次，
+  // 避免"首屏进来是空的、切走再回来才有"。
+  if (view === "observability") shadowComparePanel.renderPrimaryOptions();
   if (view === "sessions" && !state.sessionsData) void loadSessions();
   // 统一配置图谱每次进入都回读供应商、能力和真源摘要；三个配置面共用同一份状态。
   if (view === "config") {
@@ -5825,6 +5856,11 @@ const observabilityPage = createObservabilityPage({
   state, elements, request, toast,
 });
 const { loadObservability, runDriftCheck, removeWorktree, openHandoff } = observabilityPage;
+// P-23 产品健康看板（v48 S0-4）：与体系观测同页，但看的是产品健康而非系统健康
+const productHealthPanel = createProductHealthPanel({ request, byId, toast });
+// v49 A/B 影子对照：后端 createShadowPair + /api/runs/compare 此前零 UI 入口。
+// 传 confirmAction —— 派双腿会真实花两份预算，不做一键静默双花。
+const shadowComparePanel = createShadowComparePanel({ request, byId, state, toast, confirmAction });
 
 // latest-wins 门闩：摘要开关/重复刷新并发时，先发慢响应不得覆盖后发快响应
 let sessionsLoadGeneration = 0;
@@ -6051,6 +6087,19 @@ async function openCapabilitySource(sourceId) {
   }
 }
 
+function mcpIconFor(name = "", transport = "") {
+  const n = String(name).toLowerCase();
+  if (n.includes("git")) return "git-branch";
+  if (n.includes("playwright") || n.includes("browser") || n.includes("chrome")) return "globe";
+  if (n.includes("search") || n.includes("scrapling") || n.includes("reader") || n.includes("crawl")) return "search";
+  if (n.includes("image") || n.includes("vision") || n.includes("photo")) return "image";
+  if (n.includes("fetch") || n.includes("download") || n.includes("get")) return "download";
+  if (n.includes("flow") || n.includes("ctx") || n.includes("context") || n.includes("memory")) return "cpu";
+  if (n.includes("terminal") || n.includes("cmd") || n.includes("exec") || n.includes("cli")) return "terminal";
+  if (transport === "http" || transport === "sse") return "cloud";
+  return "plug-zap";
+}
+
 function renderCapabilities() {
   const data = state.capabilitiesData;
   if (!elements["cap-skills-body"]) return;
@@ -6087,9 +6136,13 @@ function renderCapabilities() {
           const focusAttr = focusId
             ? ` type="button" data-cap-focus-member="${escapeHtml(focusId)}"`
             : "";
+          const meta = capabilityMemberMeta(agent.code);
           return `<${tag} class="cap-agent-chip${focusId ? " is-focusable" : ""}${focusId && focusId === state.configMemberFocusId ? " is-member-focus" : ""}"${focusAttr} title="${escapeHtml(agent.skill ?? "未挂 skill")}">
-            <strong>${escapeHtml(agent.name ?? agent.code)}</strong>
-            <span>${escapeHtml(agent.title ?? "")}</span>
+            ${memberAvatarMarkup(meta, { className: "avatar-photo cap-col-avatar", iconClass: "cli-logo cap-col-icon" })}
+            <div class="cap-agent-chip-text">
+              <strong>${escapeHtml(agent.name ?? agent.code)}</strong>
+              <span>${escapeHtml(agent.title ?? "")}</span>
+            </div>
             <code>${escapeHtml(agent.code)}</code>
           </${tag}>`;
         })
@@ -6138,10 +6191,10 @@ function renderCapabilities() {
   }
   if (elements["cap-stat-skills"]) elements["cap-stat-skills"].textContent = String(skills.items.length);
   if (elements["cap-stat-skills-sub"]) {
-    elements["cap-stat-skills-sub"].textContent = `${registered} 已注册 · ${skills.items.length - registered} 未注册`;
+    elements["cap-stat-skills-sub"].textContent = capabilityDegraded ? "配置已降级" : `${registered} 个已注册`;
   }
   if (elements["cap-stat-declared"]) {
-    elements["cap-stat-declared"].textContent = totalCells ? `${declaredCells}/${totalCells}` : "—";
+    elements["cap-stat-declared"].textContent = String(declaredCells);
   }
   if (elements["cap-stat-declared-sub"]) {
     elements["cap-stat-declared-sub"].textContent = capabilityDegraded ? "配置已降级，声明已停用" : `${members.length} 个成员列`;
@@ -6167,10 +6220,11 @@ function renderCapabilities() {
             <td class="cap-skill-source">
               <div class="cap-skill-copy">
                 <div class="cap-skill-title-row">
+                  <span class="cap-skill-icon"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-sparkles"></use></svg></span>
                   <strong>${escapeHtml(skill.code)}</strong>
                   <span class="cap-skill-scope">${skill.scope === "codex" ? "本地 · .agents" : "本地 · skills"}</span>
                   ${skill.version ? `<span class="cap-skill-badge" title="SKILL.md frontmatter version">v${escapeHtml(skill.version)}</span>` : ""}
-                  ${skill.registered ? "" : '<span class="cap-skill-badge">未注册</span>'}
+                  ${skill.registered ? "" : '<span class="cap-skill-badge is-unregistered">未注册</span>'}
                 </div>
                 ${desc ? `<span class="cap-skill-desc" title="${escapeHtml(desc)}">${escapeHtml(desc)}</span>` : ""}
               </div>
@@ -6186,7 +6240,7 @@ function renderCapabilities() {
                 const title = disabled
                   ? "能力配置损坏或不可读，已按 fail-closed 停用"
                   : "控制编排提示词中的 Skill 声明；真实调用仍受运行时权限约束";
-                return `<td class="cap-cell${enabled ? " is-declared" : ""}${id === state.configMemberFocusId ? " is-member-focus" : ""}" data-member-column="${escapeHtml(id)}"><label class="cap-cell-toggle"><input type="checkbox" data-skill-toggle="${escapeHtml(id)}::${escapeHtml(skill.code)}"${enabled ? " checked" : ""}${disabled ? " disabled" : ""} title="${escapeHtml(title)}" aria-label="${escapeHtml(agentLabel(id))} 声明 ${escapeHtml(skill.code)}" /><span></span></label></td>`;
+                return `<td class="cap-cell${enabled ? " is-declared" : ""}${id === state.configMemberFocusId ? " is-member-focus" : ""}" data-member-column="${escapeHtml(id)}"><label class="cap-cell-toggle"><input type="checkbox" data-skill-toggle="${escapeHtml(id)}::${escapeHtml(skill.code)}"${enabled ? " checked" : ""}${disabled ? " disabled" : ""} title="${escapeHtml(title)}" aria-label="${escapeHtml(agentLabel(id))} 声明 ${escapeHtml(skill.code)}" /><span class="cap-toggle-indicator"></span></label></td>`;
               })
               .join("")}
           </tr>`;
@@ -6233,22 +6287,52 @@ function renderCapabilities() {
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", String(active));
   });
+
+  const mcpCapMap = new Map();
+  for (const entry of (mcp.capabilityMap ?? [])) {
+    const cap = entry.capability;
+    const servers = Array.isArray(entry.servers) ? entry.servers : [entry.servers];
+    for (const s of servers) {
+      if (!mcpCapMap.has(s)) mcpCapMap.set(s, []);
+      mcpCapMap.get(s).push(cap);
+    }
+  }
+
   elements["cap-mcp-body"].innerHTML = visibleMcp.length
     ? visibleMcp.map((server) => {
         const writable = mcpServerWritable(server);
         const entry = server.command ?? server.urlHost ?? "—";
         const fileName = String(server.source || "").split(/[\\/]/).pop() || "—";
+        const iconName = mcpIconFor(server.name, server.transport);
+        const isHttp = server.transport === "http" || server.transport === "sse";
+        const caps = mcpCapMap.get(server.name) || [];
+        const capsMarkup = caps.length
+          ? `<div class="cap-mcp-tags">${caps.map((c) => `<span class="cap-mcp-tag">${escapeHtml(c)}</span>`).join("")}</div>`
+          : "";
         return `<article class="cap-mcp-card${server.disabled ? " is-disabled" : ""}${writable ? " is-writable" : ""}" data-transport="${escapeHtml(server.transport || "other")}">
           <header class="cap-mcp-card-head">
-            <span class="cap-mcp-transport">${escapeHtml(server.transport || "—")}</span>
-            <h3>${escapeHtml(server.name)}</h3>
+            <div class="cap-mcp-avatar ${isHttp ? "is-http" : "is-stdio"}">
+              <svg class="icon lucide" aria-hidden="true"><use href="#lucide-${escapeHtml(iconName)}"></use></svg>
+            </div>
+            <div class="cap-mcp-title-wrap">
+              <div class="cap-mcp-title-row">
+                <h3 title="${escapeHtml(server.name)}">${escapeHtml(server.name)}</h3>
+                <span class="cap-mcp-transport">${escapeHtml(server.transport || "—")}</span>
+              </div>
+              <span class="cap-mcp-meta" title="${escapeHtml(server.source)}">${escapeHtml(server.scope)} · ${escapeHtml(fileName)}</span>
+            </div>
             <span class="status-label ${server.disabled ? "is-warning" : "is-ok"}">${server.disabled ? "已禁用" : writable ? "可启停" : "只读接入"}</span>
           </header>
-          <p class="cap-mcp-entry" title="${escapeHtml(entry)}">${escapeHtml(entry)}</p>
+          <div class="cap-mcp-entry-pill" title="${escapeHtml(entry)}">
+            <svg class="icon lucide cap-entry-icon" aria-hidden="true"><use href="#lucide-${server.urlHost ? "globe" : "terminal"}"></use></svg>
+            <code>${escapeHtml(entry)}</code>
+          </div>
+          ${capsMarkup}
           <footer class="cap-mcp-card-foot">
-            <span class="cap-mcp-meta" title="${escapeHtml(server.source)}">${escapeHtml(server.scope)} · ${escapeHtml(fileName)}</span>
-            ${capabilitySourceButton(server.sourceId, server.name)}
-            ${mcpActionMarkup(server, mcp)}
+            <div class="cap-mcp-foot-actions">
+              ${capabilitySourceButton(server.sourceId, server.name)}
+              ${mcpActionMarkup(server, mcp)}
+            </div>
           </footer>
         </article>`;
       }).join("")
@@ -6345,14 +6429,16 @@ async function openMemberConfigTarget({ surface, memberId, runtimeProfileId, cre
 
 // MCP 行操作：编辑跳到本机投影表单；claude.json 全局 server 可隔离启停（禁用=移隔离区可恢复）
 function mcpActionMarkup(server, mcp) {
-  const edit = `<button class="text-button" type="button" data-mcp-edit="${escapeHtml(server.name)}">编辑</button>`;
+  const edit = `<button class="button secondary compact cap-mcp-btn" type="button" data-mcp-edit="${escapeHtml(server.name)}"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-pencil"></use></svg> 编辑</button>`;
   const writable = mcpServerWritable(server);
-  if (!writable) return `${edit}<span class="subtle">只读启停</span>`;
+  if (!writable) return `${edit}<span class="cap-mcp-readonly-note">只读接入</span>`;
   const action = server.disabled ? "enable" : "disable";
-  const label = server.disabled ? "恢复" : "禁用";
+  const label = server.disabled ? "恢复启用" : "禁用";
+  const icon = server.disabled ? "circle-play" : "circle-pause";
+  const btnClass = server.disabled ? "button primary compact cap-mcp-btn is-enable" : "button secondary compact cap-mcp-btn is-disable";
   const degraded = mcp.configurationStatus?.failClosed === true;
   const title = degraded ? `MCP 启停已冻结：${mcp.configurationStatus.message || mcp.configurationStatus.code || "隔离配置不可用"}` : "";
-  return `${edit}<button class="text-button" type="button" data-mcp-toggle="${escapeHtml(server.name)}::${action}" data-mcp-source="${escapeHtml(server.source)}" data-mcp-mtime="${Number(mcp.claudeJsonMtimeMs) || ""}"${degraded ? ` disabled aria-describedby="cap-mcp-summary" title="${escapeHtml(title)}"` : ""}>${label}</button>`;
+  return `${edit}<button class="${btnClass}" type="button" data-mcp-toggle="${escapeHtml(server.name)}::${action}" data-mcp-source="${escapeHtml(server.source)}" data-mcp-mtime="${Number(mcp.claudeJsonMtimeMs) || ""}"${degraded ? ` disabled aria-describedby="cap-mcp-summary" title="${escapeHtml(title)}"` : ""}><svg class="icon lucide" aria-hidden="true"><use href="#lucide-${icon}"></use></svg> ${label}</button>`;
 }
 
 async function toggleMcp(button) {
@@ -7132,7 +7218,7 @@ const renderStatusline = createStatusline({
   getPendingCwd: () => state.pendingCwd,
   getProjectPrefsStatus: () => state.projectPrefsStatus,
   getProjectPrefsError: () => state.projectPrefsError,
-  getProjectPrefsPendingSave: () => projectPrefsPendingSave,
+  getProjectPrefsPendingSave: () => projectPrefsStore?.getPendingSave?.() ?? null,
   getCurrentTeam: () => currentTeam(),
   getTeamPulseMembers: () => teamPulseMembers(),
   lucideIcon,
@@ -8570,6 +8656,7 @@ function supportedControlValue(options, preferred, fallback = "") {
   if (values.includes(requested)) return requested;
   const safeFallback = String(fallback ?? "");
   if (values.includes(safeFallback)) return safeFallback;
+  if (values.includes("build")) return "build";
   return values[0] ?? "";
 }
 
@@ -9742,7 +9829,9 @@ async function syncModelPick() {
       const continuingPermission = continuingRun ? continuingPermissionValueFor(continuingRun) : null;
       const options = continuingRun ? continuingPermissionOptions(continuingPermission) : runPermissionOptions(nativeModes);
       const fallback = nativePermissionToComposer(discovered.defaults?.permission || profile?.defaultPermissionMode || template?.defaultPermissionMode || "read-only");
-      const selected = supportedControlValue(options, continuingRun ? continuingPermission : activeDraft.permission, fallback);
+      const currentSelected = permissionSelect.value;
+      const preferred = continuingRun ? continuingPermission : (currentSelected || activeDraft.permission);
+      const selected = supportedControlValue(options, preferred, fallback);
       renderPickOptions(permissionSelect, options, selected);
       if (!continuingRun) activeDraft.permission = selected;
     }
@@ -18622,11 +18711,12 @@ function botApprovalCardMarkup(item) {
   const titleId = `bot-approval-${agentSlug(runId)}-${agentSlug(approvalId)}`;
   const inFlight = botState.approvalInFlight.has(approvalId);
   return `<article class="bot-card bot-approval-card is-dynamic" data-bot-card="approval" data-bot-card-source="approval" data-run-id="${escapeHtml(runId)}" data-approval-id="${escapeHtml(approvalId)}" aria-labelledby="${escapeHtml(titleId)}">
-    <div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-shield-check"></use></svg></span><div><strong id="${escapeHtml(titleId)}">需要你的安全决定</strong><span>${escapeHtml(method)} · run ${escapeHtml(runId)}</span></div><span class="bot-card-state is-waiting" data-bot-approval-status>${inFlight ? "sending decision" : "waiting for approval"}</span></div>
+    <div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-shield-check"></use></svg></span><div><strong id="${escapeHtml(titleId)}">需要你的安全决定</strong><span>${escapeHtml(approvalMethodLabel(method))} · run ${escapeHtml(runId)}</span></div><span class="bot-card-state is-waiting" data-bot-approval-status>${inFlight ? "sending decision" : "waiting for approval"}</span></div>
     <p class="bot-card-copy">${escapeHtml(scopeBits.join(" · ") || "当前动作受控制面安全策略保护。")}</p>
     <div class="bot-approval-details">${approvalParamsMarkup(item)}</div>
+    ${broadPermission ? `<p class="approval-blocked-note">${escapeHtml(BROAD_PERMISSION_BLOCKED_TEXT)}</p>` : ""}
     <div class="bot-inline-approval-hash">动作哈希 <code title="${escapeHtml(item.actionSha256 || "")}">${escapeHtml(compactHash(item.actionSha256))}</code><span>仅对当前动作生效</span></div>
-    <div class="bot-card-actions bot-approval-actions"><button class="bot-text-button" type="button" data-inline-approval-id="${escapeHtml(approvalId)}" data-inline-approval-decision="deny"${inFlight ? " disabled" : ""}>拒绝</button><button class="bot-card-confirm" type="button" data-inline-approval-id="${escapeHtml(approvalId)}" data-inline-approval-decision="approve"${broadPermission || inFlight ? " disabled" : ""}${broadPermission ? " title=\"v1 不支持广域权限授权\"" : ""}>${broadPermission ? "暂不支持" : "批准"}</button></div>
+    <div class="bot-card-actions bot-approval-actions"><button class="bot-text-button" type="button" data-inline-approval-id="${escapeHtml(approvalId)}" data-inline-approval-decision="deny"${inFlight ? " disabled" : ""}>拒绝</button><button class="bot-card-confirm" type="button" data-inline-approval-id="${escapeHtml(approvalId)}" data-inline-approval-decision="approve"${inFlight || broadPermission ? " disabled" : ""}${broadPermission ? ` title="${escapeHtml(BROAD_PERMISSION_BLOCKED_TEXT)}"` : ""}>批准</button></div>
   </article>`;
 }
 
@@ -18646,13 +18736,12 @@ function botPinnedApprovalMarkup(run) {
   const pending = state.approvals.filter((item) => String(item.runId || "") === String(run.id) && (item.status ?? "pending") === "pending");
   if (!pending.length) return "";
   const latest = pending[pending.length - 1];
-  const latestBroad = String(latest?.method || "") === "item/permissions/requestApproval";
   return `<div class="bot-pinned-approval" role="region" aria-label="待决议审批置顶">
     <span class="bot-pinned-approval-badge">${lucideIcon("shield-alert", "icon lucide")}<b>${pending.length}</b> 项待决议</span>
     <span class="bot-pinned-approval-hint"><kbd>Y</kbd> 批准 · <kbd>N</kbd> 拒绝</span>
     <span class="bot-pinned-approval-actions">
       <button class="bot-text-button" type="button" data-inline-approval-id="${escapeHtml(String(latest.id))}" data-inline-approval-decision="deny">拒绝</button>
-      <button class="bot-card-confirm" type="button" data-inline-approval-id="${escapeHtml(String(latest.id))}" data-inline-approval-decision="approve"${latestBroad ? " disabled title=\"v1 不支持广域权限授权\"" : ""}>批准</button>
+      <button class="bot-card-confirm" type="button" data-inline-approval-id="${escapeHtml(String(latest.id))}" data-inline-approval-decision="approve">批准</button>
     </span>
   </div>`;
 }
@@ -18825,7 +18914,10 @@ async function botSyncConversation(agentId = botState.agentId, expected = {}) {
 }
 
 function scheduleBotConversationSync(runId) {
-  const agentId = botState.runAgents[String(runId)];
+  const activeRunCandidate = botRunForAgent(botState.agentId);
+  const isCurrentRun = (activeRunCandidate && String(activeRunCandidate.id) === String(runId))
+    || (botState.runId && String(botState.runId) === String(runId));
+  const agentId = botState.runAgents[String(runId)] || (isCurrentRun ? botState.agentId : null);
   if (!agentId || String(agentId) !== String(botState.agentId)) return;
   const activeRun = botRunForAgent(agentId);
   if (!activeRun || String(activeRun.id) !== String(runId)) return;
@@ -21297,13 +21389,122 @@ function approvalParamsMarkup(item) {
       ? `<ul class="approval-paths">${paths.map((path) => `<li><code>${escapeHtml(redact(path))}</code></li>`).join("")}</ul>`
       : `<div class="approval-kv"><span>变更路径</span><code>未公开</code></div>`;
   }
+  if (method === "claude/toolPermission/requestApproval") {
+    return approvalToolPermissionMarkup(params);
+  }
   const entries = Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== "");
   return entries.length
     ? `<div class="approval-kv-list">${entries.map(([key, value]) => `<div class="approval-kv"><span>${escapeHtml(key)}</span><code>${escapeHtml(approvalValueText(value))}</code></div>`).join("")}</div>`
     : `<div class="approval-kv"><span>参数</span><code>无公开参数</code></div>`;
 }
 
+/**
+ * 审批方法的可读标签（v50）。
+ *
+ * 裸方法名（`claude/toolPermission/requestApproval`）是给协议看的，不是给要在
+ * 三秒内做判断的操作者看的。这里只做展示层翻译 —— **不参与任何决策逻辑**，
+ * 未登记的方法原样显示方法名（宁可难看，不可显示成别的东西）。
+ */
+const APPROVAL_METHOD_LABELS = Object.freeze({
+  "control/runBuild/requestApproval": "提权到写盘档",
+  "item/commandExecution/requestApproval": "执行命令",
+  "item/fileChange/requestApproval": "修改文件",
+  execCommandApproval: "执行命令",
+  applyPatchApproval: "应用补丁",
+  "item/permissions/requestApproval": "扩大权限面",
+  "claude/toolPermission/requestApproval": "使用工具",
+});
+
+function approvalMethodLabel(method) {
+  const value = String(method ?? "");
+  return APPROVAL_METHOD_LABELS[value] || value || "未知请求";
+}
+
+/**
+ * Claude 工具许可的参数渲染（v50）。
+ *
+ * 通用 key-value 分支对这类请求不够用：操作者要判断的是"这个工具拿什么参数去执行"，
+ * 而 `input` 在通用分支里会被压成一坨 JSON —— `rm -rf /` 和 `ls` 长得一样长。
+ * 所以按工具语义挑出决定性的那一两个字段先亮出来，其余降级为附加参数。
+ *
+ * 三条纪律：
+ *  1. **卡上显示的就是将要执行的那份** —— v1 禁 `updatedInput`，控制面不改写入参，
+ *     不存在"显示 A 执行 B"的缝（`permission-prompt-wire.mjs` 有断言）。
+ *  2. 一律过 `redact()` —— 参数里可能带密钥。
+ *  3. 认不出的工具**不隐藏**参数，退回完整键值表：看不懂总比看不见强。
+ */
+function approvalToolPermissionMarkup(params) {
+  const toolName = String(params.toolName ?? "").trim();
+  const input = params.input && typeof params.input === "object" && !Array.isArray(params.input) ? params.input : {};
+  const head = toolName
+    ? `<div class="approval-kv"><span>工具</span><code>${escapeHtml(toolName)}</code></div>`
+    : `<div class="approval-kv"><span>工具</span><code>未公开</code></div>`;
+
+  // 决定性字段：命令类看命令，写盘类看路径，其余回落到完整键值表
+  const command = input.command ?? input.cmd ?? null;
+  if (command != null) {
+    const text = Array.isArray(command) ? command.join(" ") : String(command);
+    const description = input.description ? String(input.description) : "";
+    return `${head}
+      <pre class="approval-command">${escapeHtml(redact(text || "（空命令）"))}</pre>
+      ${description ? `<div class="approval-kv"><span>说明</span><code>${escapeHtml(redact(description))}</code></div>` : ""}`;
+  }
+
+  const filePath = input.file_path ?? input.filePath ?? input.path ?? input.notebook_path ?? null;
+  if (filePath != null) {
+    const content = typeof input.content === "string" ? input.content : "";
+    const oldString = typeof input.old_string === "string" ? input.old_string : "";
+    // 内容可能很长；只给出体量与首段，完整内容不该塞进一张要快速判断的卡片
+    const preview = content || oldString;
+    const lines = preview ? preview.split("\n").length : 0;
+    return `${head}
+      <div class="approval-kv"><span>目标文件</span><code>${escapeHtml(redact(String(filePath)))}</code></div>
+      ${preview
+        ? `<pre class="approval-command">${escapeHtml(redact(preview.slice(0, 400)))}${preview.length > 400 ? "\n…" : ""}</pre>
+           <div class="approval-kv"><span>内容规模</span><code>${lines} 行 / ${preview.length} 字符</code></div>`
+        : ""}`;
+  }
+
+  const entries = Object.entries(input).filter(([, value]) => value !== undefined && value !== null && value !== "");
+  return `${head}${entries.length
+    ? `<div class="approval-kv-list">${entries.map(([key, value]) => `<div class="approval-kv"><span>${escapeHtml(key)}</span><code>${escapeHtml(approvalValueText(value))}</code></div>`).join("")}</div>`
+    : `<div class="approval-kv"><span>参数</span><code>无</code></div>`}`;
+}
+
 // 内联审批卡只表示一次待决动作。执行 Lease 由 Orchestrator 单独签发、持久化和查询。
+/**
+ * 审批归属置信度文案（v49）。键与 `codex-app-server.mjs resolveRequestAttribution()`
+ * 的返回值一一对应；`exact` 有意不在表内 —— adapter 精确命中时根本不下发该字段，
+ * 正常路径不该有噪音。
+ *
+ * 为什么要摆到操作者面前：审批卡上写着"这条属于 run-X"，而 run-X 可能是**推断**出来的。
+ * Codex 0.151 官方 schema 实测，legacy 的 execCommandApproval / applyPatchApproval
+ * 根本不带 threadId（只有 conversationId），归属只能靠推断 —— 不说明就等于让操作者
+ * 以为归属是确定的。
+ */
+const APPROVAL_ATTRIBUTION_NOTES = Object.freeze({
+  conversation: "归属由 conversationId 推得（legacy 协议不带 threadId）——请确认这确实是你在等的那一轮。",
+  "turn-scan": "归属由 turnId 反查推得，非精确匹配——同一 CLI 进程内有多轮在跑时可能对应错 run，请核对下方参数。",
+  "sole-active": "归属推自「当前只有这一轮在跑」——请求本身未携带可核对的会话标识。",
+  none: "无法确定这条请求属于哪一轮——请求未携带可匹配的会话标识，批准前务必核对下方参数。",
+});
+
+/**
+ * 宽权限授予的禁批文案（v49）。
+ *
+ * `item/permissions/requestApproval` 在后端是**不可批准**的：
+ * `approval-methods.mjs` 标 `approvable: false`，批准路径抛 UNSUPPORTED_APPROVAL，
+ * broker 接住后按策略拒绝立即结算（审计记 `decision:"deny"` / `actor:"control-plane"`）。
+ *
+ * 此前三处审批 UI（inline 卡 / bot 卡 / 安全诊断行）**都定义了 `broadPermission`
+ * 变量却都没使用**，其中一处的注释还写着"与安全诊断页同口径禁批"——而安全诊断页
+ * 自己也没禁。结果是「批准」按钮承诺了一个后端永不兑现的动作：
+ * 操作者点下去 → 收到 422 → 而请求其实已被当作拒绝结算掉了。
+ *
+ * 不是安全洞（后端 fail-closed 正确），是产品缺陷：**按钮不该承诺做不到的事**。
+ */
+const BROAD_PERMISSION_BLOCKED_TEXT = "Control Center v1 不支持通过审批扩大权限面，此请求只能拒绝。若确需放宽权限，请改用运行档位设置。";
+
 function approvalCardMarkup(item) {
   const method = String(item.method ?? "unknown");
   rememberApprovalPending(item);
@@ -21314,19 +21515,25 @@ function approvalCardMarkup(item) {
     run?.worktreePath ? "绑定隔离工作树" : run?.cwd ? "绑定会话 cwd" : "作用域：控制面策略",
     item.agentId ? `Agent ${item.agentId}` : null,
   ].filter(Boolean);
+  // 归属置信度（v49）：adapter 只在**非精确**匹配时下发 attribution。
+  // 精确命中不显示——正常路径不该有噪音；反过来，归属是推断出来的时候必须说，
+  // 否则操作者会以为"这条属于哪个 run"是确定的。
+  const attributionNote = APPROVAL_ATTRIBUTION_NOTES[item.attribution] ?? null;
   return `
-    <article class="approval-inline" data-stream-key="approval:${escapeHtml(item.id)}">
+    <article class="approval-inline" data-stream-key="approval:${escapeHtml(item.id)}"${item.attribution ? ` data-attribution="${escapeHtml(item.attribution)}"` : ""}>
       <div class="approval-inline-head">
         <strong>动作审批 · 待处理</strong>
-        <span class="approval-inline-method">${escapeHtml(method)}</span>
+        <span class="approval-inline-method" title="${escapeHtml(method)}">${escapeHtml(approvalMethodLabel(method))}</span>
         <span class="approval-inline-countdown">审批窗口 <time data-approval-expires="${escapeHtml(item.expiresAt ?? "")}">${approvalCountdownText(item.expiresAt)}</time></span>
       </div>
       <p class="lease-scope">${escapeHtml(scopeBits.join(" · "))}</p>
+      ${attributionNote ? `<p class="approval-attribution-note">${escapeHtml(attributionNote)}</p>` : ""}
+      ${broadPermission ? `<p class="approval-blocked-note">${escapeHtml(BROAD_PERMISSION_BLOCKED_TEXT)}</p>` : ""}
       ${approvalParamsMarkup(item)}
       <div class="approval-inline-hash">动作哈希 <code title="${escapeHtml(item.actionSha256 ?? "")}">${escapeHtml(compactHash(item.actionSha256))}</code>（批准只释放当前请求；持续写权限仍由执行租约单独约束）</div>
       <div class="approval-inline-actions">
         <button class="button secondary" type="button" data-inline-approval-id="${escapeHtml(item.id)}" data-inline-approval-decision="deny">拒绝</button>
-        <button class="button primary" type="button" data-inline-approval-id="${escapeHtml(item.id)}" data-inline-approval-decision="approve"${broadPermission ? " disabled title=\"v1 不支持广域权限授权\"" : ""}>批准</button>
+        <button class="button primary" type="button" data-inline-approval-id="${escapeHtml(item.id)}" data-inline-approval-decision="approve"${broadPermission ? ` disabled title="${escapeHtml(BROAD_PERMISSION_BLOCKED_TEXT)}"` : ""}>批准</button>
       </div>
     </article>`;
 }
@@ -21456,6 +21663,13 @@ async function resolveInlineApproval(id, decision) {
   decision = normalizedDecision;
   const item = state.approvals.find((approval) => String(approval.id || "") === normalizedId);
   if (!item || !normalizedId || !["approve", "deny"].includes(normalizedDecision) || botState.approvalInFlight.has(normalizedId)) return;
+  // 逻辑闸：`disabled` 属性只挡鼠标，键盘/脚本/DOM 篡改都能绕过。宽权限授予在后端
+  // 是不可批准的（approval-methods.mjs `approvable: false`），提前拦下并说明原因，
+  // 比让操作者收到一条 422 后自己去猜发生了什么要诚实。
+  if (normalizedDecision === "approve" && String(item.method || "") === "item/permissions/requestApproval") {
+    toast(BROAD_PERMISSION_BLOCKED_TEXT, "warning", 10_000);
+    return;
+  }
   botState.approvalInFlight.add(normalizedId);
   const buttons = [...document.querySelectorAll(`[data-inline-approval-id="${CSS.escape(normalizedId)}"]`)];
   buttons.forEach((button) => { button.disabled = true; });
@@ -22520,6 +22734,11 @@ function restoreConversationStreamState(stream, snapshot) {
 // 因此仍以单次模板提交为边界，但用稳定 data-stream-key 恢复用户交互状态；SSE 侧再保证每帧至多提交一次。
 const pendingConversationMarkup = new WeakMap();
 const committedConversationSignatures = new WeakMap();
+// live-delta 气泡原位更新账本：连续 delta 到达时若除气泡外其余签名不变，
+// 只改气泡内部（hidden + innerHTML），不做整流 innerHTML——会话流直系节点
+// 零增删（qa:ui continuous-delta 隔离契约），同时省掉每片一次的全流重建。
+// 结构：stream -> { renderContext, nonDeltaSignature, deltaMarkup }。
+const liveDeltaRenderState = new WeakMap();
 let conversationRenderGeneration = 0;
 
 function releaseConversationRenderOwnership(stream, ownership) {
@@ -22791,9 +23010,15 @@ function renderSelectedRun({ preserveStreamState = true } = {}) {
   const historyGate = conversationHistoryGateMarkup(messageWindow);
   const newerGate = conversationNewerGateMarkup(messageWindow);
   // 会话流尾部增强：进行态过程行 + 步进进度条 + 活跃轮呼吸行 + ask 回答卡 + 内联审批卡 + 终态收口（完成统计/失败原因+重试）
-  const tailMarkup = newerGate + liveProcessRowsMarkup(run) + turnProgressMarkup(run) + liveTurnMarkup(run) + liveDeltaMarkup(run) + pendingAskMarkup(run) + inlineApprovalsMarkup(run)
+  // live-delta 气泡单列：原位更新短路需要“除气泡外其余一致”的独立签名。
+  const tailMarkup = newerGate + liveProcessRowsMarkup(run) + turnProgressMarkup(run) + liveTurnMarkup(run);
+  const tailHead = tailMarkup;
+  const tailRest = pendingAskMarkup(run) + inlineApprovalsMarkup(run)
     + runCompletionMarkup(run) + runFailureMarkup(run) + runDiffPanelMarkup(run);
-  const renderSignature = conversationRenderSignature(renderContext, messageWindow, historyGate, tailMarkup);
+  const deltaMarkup = liveDeltaMarkup(run);
+  const completeTailMarkup = tailHead + deltaMarkup + tailRest;
+  const renderSignature = conversationRenderSignature(renderContext, messageWindow, historyGate, completeTailMarkup);
+  const nonDeltaSignature = conversationRenderSignature(renderContext, messageWindow, historyGate, tailHead + tailRest);
   const syncSourceCost = messageWindow.visible.reduce((sum, message) => Math.min(
     CONVERSATION_SYNC_SOURCE_BUDGET + 1,
     sum + messageRenderCost(message),
@@ -22802,16 +23027,42 @@ function renderSelectedRun({ preserveStreamState = true } = {}) {
     messageWindow.visible.length >= 48
     || syncSourceCost > CONVERSATION_SYNC_SOURCE_BUDGET
   );
+  // live-delta 原位短路：同上下文、除气泡外签名一致、且 DOM 里气泡仍在——
+  // 只改气泡内部，不碰 stream 直系（零 childList 提交），其余渲染照常走。
+  const stream = elements["conversation-stream"];
+  const deltaState = liveDeltaRenderState.get(stream);
+  let streamReplaced = false;
+  if (!shouldBatch && stream.dataset.renderContext === renderContext
+    && deltaState?.renderContext === renderContext
+    && deltaState.nonDeltaSignature === nonDeltaSignature
+    && deltaState.deltaMarkup !== deltaMarkup) {
+    const bubble = stream.querySelector(":scope > .live-delta-bubble");
+    if (bubble) {
+      const holder = document.createElement("div");
+      holder.innerHTML = deltaMarkup;
+      const fresh = holder.firstElementChild;
+      if (fresh?.classList?.contains("live-delta-bubble")) {
+        if (bubble.hidden !== fresh.hidden) bubble.hidden = fresh.hidden;
+        if (bubble.innerHTML !== fresh.innerHTML) bubble.innerHTML = fresh.innerHTML;
+        deltaState.deltaMarkup = deltaMarkup;
+        streamReplaced = true;
+      }
+    }
+  }
+  if (!streamReplaced) {
+    liveDeltaRenderState.set(stream, { renderContext, nonDeltaSignature, deltaMarkup });
+  }
   if (shouldBatch) {
     void replaceConversationStreamBatched({
       renderSignature,
       renderContext,
       leadingMarkup: historyGate,
       messages: messageWindow.visible,
-      tailMarkup,
+      tailMarkup: completeTailMarkup,
       preserveState: preserveStreamState,
     });
-  } else {
+    // 分批挂载是异步的：DOM 落定后气泡必然与 markup 一致，账本按意图值已提前记好。
+  } else if (!streamReplaced) {
     const messageMarkupText = messageWindow.visible
       .map((message, index) => messageMarkup(message, messageWindow.visible[index - 1]))
       .join("");
@@ -22819,7 +23070,7 @@ function renderSelectedRun({ preserveStreamState = true } = {}) {
       ? historyGate + messageMarkupText
       : agentId
         ? emptyMarkup(`${agentLabel(agentId)} 还没发言`, "直接在下方输入，单独问 ta——不经团队路由", `empty:${run.id}:${agentId}`)
-        : emptyMarkup("任务已创建", "等待主脑计划或 Agent 事件。", `empty:${run.id}:all`)) + tailMarkup;
+        : emptyMarkup("任务已创建", "等待主脑计划或 Agent 事件。", `empty:${run.id}:all`)) + completeTailMarkup;
     replaceConversationStream(streamMarkup, renderContext, { preserveState: preserveStreamState, renderSignature });
   }
   ensureApprovalCountdown();
@@ -23999,6 +24250,10 @@ async function createRun(event) {
         messageIntent: "steer",
         recipientMemberIds: botSubmission?.recipientMemberIds?.length ? [...botSubmission.recipientMemberIds] : undefined,
         sources: submissionSources.length ? submissionSources : undefined,
+        ...composerPermissionSubmission(submission.permissionMode),
+        maxBudgetUsdPerTurn: submission.maxBudgetUsdPerTurn,
+        model: submission.model,
+        effort: submission.effort,
       } : {
         prompt: fullPrompt,
         taskType: undefined,
@@ -24595,9 +24850,21 @@ function pushEvent(event) {
   // 恢复条会被 SSE 重渲染反复挂回（LO 2026-08-09：确认后恢复条一整轮不消失）。
   if (/run\.(created|updated|completed|failed|cancelled|interrupted|interrupt_timeout|context_compaction_started|context_compaction_completed|context_compaction_failed|steer_queued|steer_dropped|waiting_input|budget_exhausted|worktree_created|recovery_required|recovery_acknowledged|round_refunded|control_changed)|task\.|agent\.(turn_started|turn_completed)|user\.message|assistant\.message|assistant\.partial_message/i.test(event.type)) scheduleRunsReload();
   if (/^automation\./.test(event.type)) void loadAutomations().catch(() => {});
-  if (/config\.(changed|applied|rolled_back|updated)/i.test(event.type)) scheduleSourcesReload();
-  if (/approval\.(pending|resolved|expired)/i.test(event.type)) void loadApprovals().catch(() => {});
-  // T4：外部 CLI 配置文件变更（capability-watcher 经 SSE 推送）——命中当前 composer/席位
+  if (/approval\.(pending|resolved|expired)/i.test(event.type)) {
+    if (event.type === "approval.pending" && event.data?.id) {
+      const existingIndex = state.approvals.findIndex((item) => String(item?.id) === String(event.data.id));
+      const approvalItem = { ...event.data, runId: event.runId || event.data.runId };
+      if (existingIndex >= 0) {
+        state.approvals[existingIndex] = { ...state.approvals[existingIndex], ...approvalItem };
+      } else {
+        state.approvals.push(approvalItem);
+      }
+      renderApprovals();
+      renderSelectedRun();
+      if (state.view === "bot" && botState.agentId) void botSyncConversation(botState.agentId);
+    }
+    void loadApprovals().catch(() => {});
+  }
   // 目标才增量重跑 /model 目录联动，绝不整页刷新；供应商面可见时顺手补一次 live 回读。
   if (event.type === "capability.changed") handleCapabilityChanged(event);
 }
@@ -24789,10 +25056,11 @@ function renderApprovals() {
                 <span>Run ${escapeHtml(item.runId ?? "--")} · 到期 ${escapeHtml(formatDate(item.expiresAt))}</span>
                 <code>${escapeHtml(item.actionSha256 ?? "--")}</code>
                 <pre class="approval-params">${escapeHtml(params || "无公开参数")}</pre>
+                ${broadPermission ? `<p class="approval-blocked-note">${escapeHtml(BROAD_PERMISSION_BLOCKED_TEXT)}</p>` : ""}
               </div>
               <div class="approval-actions">
                 <button class="button secondary" type="button" data-approval-id="${escapeHtml(item.id)}" data-approval-decision="deny">拒绝</button>
-                <button class="button primary" type="button" data-approval-id="${escapeHtml(item.id)}" data-approval-decision="approve"${broadPermission ? " disabled title=\"v1 不支持广域权限授权\"" : ""}>批准</button>
+                <button class="button primary" type="button" data-approval-id="${escapeHtml(item.id)}" data-approval-decision="approve"${broadPermission ? ` disabled title="${escapeHtml(BROAD_PERMISSION_BLOCKED_TEXT)}"` : ""}>批准</button>
               </div>
             </article>`;
         })
@@ -24807,6 +25075,11 @@ async function resolveApproval(id, decision) {
   const item = state.approvals.find((approval) => approval.id === id);
   if (!item) return;
   const approved = decision === "approve";
+  // 同 resolveInlineApproval 的逻辑闸：disabled 只挡鼠标，这里挡住其余入口。
+  if (approved && String(item.method || "") === "item/permissions/requestApproval") {
+    toast(BROAD_PERMISSION_BLOCKED_TEXT, "warning", 10_000);
+    return;
+  }
   const confirmed = await confirmAction({
     eyebrow: "动作审批",
     title: approved ? "批准此动作？" : "拒绝此动作？",
@@ -26073,6 +26346,7 @@ const conversationTabs = createConversationTabs({
   syncModelPick,
   renderRuns,
   setView,
+  renderSelectedRun,
   fetchRunEvents,
   renderMemberStrip,
   releaseRunHistoryIfUnreferenced,
@@ -26311,7 +26585,10 @@ function bindEvents() {
       return;
     }
     const jump = event.target.closest("[data-view-jump]");
-    if (jump) setView(jump.dataset.viewJump);
+    if (jump) {
+      if (typeof botCloseSettings === "function") botCloseSettings();
+      setView(jump.dataset.viewJump);
+    }
     const configSurface = event.target.closest("[data-config-surface]");
     if (configSurface) setConfigSurface(configSurface.dataset.configSurface);
     const configSurfaceJump = event.target.closest("[data-config-surface-jump]");
@@ -27293,8 +27570,18 @@ function bindEvents() {
   elements["obs-refresh-button"].addEventListener("click", () => {
     state.obsLoaded = false;
     void loadObservability();
+    void productHealthPanel.loadProductHealth();
   });
   elements["obs-drift-button"].addEventListener("click", () => void runDriftCheck());
+  // P-23 产品健康看板操作。清空是不可逆的，走与其他危险操作一致的显式确认。
+  byId("ph-refresh-button")?.addEventListener("click", () => void productHealthPanel.loadProductHealth());
+  byId("ph-toggle-button")?.addEventListener("click", () => void productHealthPanel.toggleTelemetry());
+  byId("ph-clear-button")?.addEventListener("click", () => {
+    if (!window.confirm("清空全部本地埋点数据？该操作不可撤销，但不影响 Run 事件与证据链。")) return;
+    void productHealthPanel.clearTelemetry();
+  });
+  // v49 A/B 影子对照：mount 内部自行挂三个按钮 + 主腿变更联动对照腿候选。
+  shadowComparePanel.mount();
   elements["sessions-refresh-button"].addEventListener("click", () => void loadSessions());
   elements["sessions-summaries-toggle"].addEventListener("change", () => void loadSessions());
   elements["clear-runs-button"]?.addEventListener("click", () => void clearFinishedRuns());
@@ -28233,8 +28520,49 @@ async function loadDeltaData() {
   }
 }
 
+// ─── 514 Forge: 先锋磁吸微手感（UI-ELEVATION W4）───────────────────────────
+function initMagneticInteractions() {
+  if (typeof window === "undefined" || !window.matchMedia) return;
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  if (document.documentElement.dataset.motion === "reduce") return;
+  if (!window.matchMedia("(pointer: fine)").matches) return;
+
+  let activeEl = null;
+
+  document.addEventListener("pointerover", (e) => {
+    const target = e.target?.closest?.(".forge-magnetic, [data-magnetic]");
+    if (target) activeEl = target;
+  }, { passive: true });
+
+  document.addEventListener("pointermove", (e) => {
+    if (!activeEl) return;
+    const rect = activeEl.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const deltaX = e.clientX - centerX;
+    const deltaY = e.clientY - centerY;
+    const distance = Math.hypot(deltaX, deltaY);
+    const maxRadius = Math.max(rect.width, rect.height) / 2 + 16;
+    if (distance < maxRadius) {
+      const pull = 0.22;
+      activeEl.style.transform = `translate(${(deltaX * pull).toFixed(1)}px, ${(deltaY * pull).toFixed(1)}px)`;
+    } else {
+      activeEl.style.transform = "";
+      activeEl = null;
+    }
+  }, { passive: true });
+
+  document.addEventListener("pointerout", (e) => {
+    if (activeEl && !activeEl.contains(e.relatedTarget)) {
+      activeEl.style.transform = "";
+      activeEl = null;
+    }
+  }, { passive: true });
+}
+
 async function start() {
   cacheElements();
+  initMagneticInteractions();
   initBotShell();
   setWorkbenchCwdResolver(activeWorkbenchPtySpawn);
   const openAccountSettings = (event) => {
