@@ -1,0 +1,78 @@
+{
+  "source": "本机真实取证（scripts/probe-permission-frames.mjs），非构造样本",
+  "evidenceRuns": [
+    ".evidence/permission-frames/2026-09-04T11-01-12-147Z",
+    ".evidence/permission-frames/2026-09-04T11-04-00-120Z"
+  ],
+  "samples": [
+    {
+      "capturedAt": "2026-09-04T11:01:52.982Z",
+      "cliVersion": "2.1.260",
+      "permissionMode": "plan",
+      "probeDecision": "allow",
+      "observedOutcome": "文件真的被创建（内容 hello），批准生效",
+      "toolName": "ExitPlanMode",
+      "inputKeys": [
+        "plan",
+        "planFilePath"
+      ],
+      "toolUseId": "toolu_01UMSt4vXsDYhCe7ndBQ37HX",
+      "metaKeys": [
+        "claudecode/toolUseId",
+        "progressToken"
+      ],
+      "metaToolUseIdMatches": true,
+      "argumentKeys": [
+        "input",
+        "tool_name",
+        "tool_use_id"
+      ]
+    },
+    {
+      "capturedAt": "2026-09-04T11:01:57.168Z",
+      "cliVersion": "2.1.260",
+      "permissionMode": "plan",
+      "probeDecision": "allow",
+      "observedOutcome": "文件真的被创建（内容 hello），批准生效",
+      "toolName": "Write",
+      "inputKeys": [
+        "content",
+        "file_path"
+      ],
+      "toolUseId": "toolu_014AkJmg3AP8D3tZecJHr6ZQ",
+      "metaKeys": [
+        "claudecode/toolUseId",
+        "progressToken"
+      ],
+      "metaToolUseIdMatches": true,
+      "argumentKeys": [
+        "input",
+        "tool_name",
+        "tool_use_id"
+      ]
+    },
+    {
+      "capturedAt": "2026-09-04T11:04:47.289Z",
+      "cliVersion": "2.1.260",
+      "permissionMode": "plan",
+      "probeDecision": "deny",
+      "observedOutcome": "文件未创建，且 deny message 原样送达模型（tool_result isError=true）",
+      "toolName": "ExitPlanMode",
+      "inputKeys": [
+        "plan",
+        "planFilePath"
+      ],
+      "toolUseId": "toolu_01Pw95vZoMcWppKrKmavdBPt",
+      "metaKeys": [
+        "claudecode/toolUseId",
+        "progressToken"
+      ],
+      "metaToolUseIdMatches": true,
+      "argumentKeys": [
+        "input",
+        "tool_name",
+        "tool_use_id"
+      ]
+    }
+  ]
+}

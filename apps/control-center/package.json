@@ -15,6 +15,7 @@
     "ui:codemod": "node scripts/ui-tokens.mjs report",
     "ui:codemod:apply": "node scripts/ui-tokens.mjs apply",
     "ui:report": "node scripts/ui-audit-report.mjs",
+    "api:audit": "node scripts/api-contract-audit.mjs",
     "probe": "node scripts/probe-clis.mjs",
     "probe:codex-protocol": "node scripts/probe-codex-protocol.mjs",
     "sync:ccswitch-presets": "node --experimental-loader ./scripts/ccswitch-ts-loader.mjs ./scripts/import-ccswitch-presets.mjs --write",

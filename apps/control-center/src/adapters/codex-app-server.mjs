@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { attachLfJsonl, encodeJsonLine } from "../jsonl.mjs";
 import { childProcessEnv, spawnCommand, terminateChildProcess, terminateChildProcessAndWait } from "../process-runner.mjs";
 import { preparePromptTransport } from "../prompt-transport.mjs";
+import { fallbackDeclineFor, inboundApprovalMethodNames } from "../approval-methods.mjs";
 import {
   createScrubbedLineCollector,
   DEFAULT_MAX_TURN_OUTPUT_BYTES,
@@ -96,13 +97,14 @@ function waitForAbortable(promise, signal) {
   });
 }
 
-const APPROVAL_METHODS = new Set([
-  "item/commandExecution/requestApproval",
-  "item/fileChange/requestApproval",
-  "execCommandApproval",
-  "applyPatchApproval",
-  "item/permissions/requestApproval",
-]);
+// **入站门闸**：只放行 CLI 子进程有权发起的审批方法。
+// 用 inboundApprovalMethodNames() 而非 approvalMethodNames() —— 后者是控制面认识的
+// 全集（含自己发起的 control/runBuild/requestApproval）。2026-09-04 烛评审致命 1：
+// 首版误用全集，让被沙箱的 Codex 能伪造 runBuild 授权请求并拿到
+// {"decision":"accept","approvalId":"<攻击者提供>"}，还会被 public/app.js:21353
+// 渲染成与真授权卡视觉一致的卡片。原版手写 5 元 Set 本就不含它——方向性约束不能在
+// "统一化"里丢掉。
+const APPROVAL_METHODS = new Set(inboundApprovalMethodNames());
 
 // Codex 官方权限档（与 Codex 桌面批准菜单一致）：原生组合 id → thread/start 的
 // sandbox + approvalPolicy。返回 null = 自定义（config.toml）——不下发任何覆盖，
@@ -762,18 +764,82 @@ export class CodexAppServerAdapter {
     if (message.method) this.handleNotification(message.method, message.params || {});
   }
 
+  /**
+   * 审批请求归属：把子进程发来的请求对应到某一轮活跃 run。
+   *
+   * 归属结果进审计事件 / UI 审批卡 / 审批队列，所以归错 = 操作者看到的上下文是错的。
+   * 依据 Codex 0.151 官方 JSON Schema（`codex app-server generate-json-schema` 实测）：
+   *
+   *   | 方法                                  | threadId | 归属层 |
+   *   |---------------------------------------|----------|--------|
+   *   | item/commandExecution/requestApproval | required | L1 恒中 |
+   *   | item/fileChange/requestApproval       | required | L1 恒中 |
+   *   | item/permissions/requestApproval      | required | L1 恒中 |
+   *   | execCommandApproval  (legacy v1)      | **无**   | 只有 conversationId |
+   *   | applyPatchApproval   (legacy v1)      | **无**   | 只有 conversationId |
+   *
+   * 所以 L2/L3 兜底**不是给 v2 方法用的**（它们协议保证带 threadId），
+   * 而是 legacy 两个方法的唯一归属路径 —— 此前 adapter 完全不读 `conversationId`
+   * （2026-09-04 实测 grep 计数为 0），legacy 请求必然落到 L3。
+   *
+   * 归属层级随事件一起落盘（`attribution` 字段），让"这条审批归属是猜的"这件事
+   * 对操作者与事后审计可见 —— 不可见的降级等于没有降级。
+   *
+   * @returns {{active: object|null, threadId: string|null, attribution: string}}
+   *   attribution ∈ exact | conversation | turn-scan | sole-active | none
+   */
+  resolveRequestAttribution(message) {
+    const params = message.params ?? {};
+    const threadId = params.threadId || params.thread?.id || params.thread_id || null;
+
+    // L1 精确：v2 方法走这条（协议保证 threadId 必填）
+    const exact = threadId ? this.activeByThread.get(threadId) : null;
+    if (exact) return { active: exact, threadId, attribution: "exact" };
+
+    // L1b legacy：v1 方法用 conversationId 标识会话。Codex 的 conversationId 与
+    // thread id 同源，先按 thread 键直查，命中即等价精确匹配。
+    const conversationId = typeof params.conversationId === "string" ? params.conversationId : null;
+    if (conversationId) {
+      const byConversation = this.activeByThread.get(conversationId);
+      if (byConversation) {
+        return { active: byConversation, threadId: conversationId, attribution: "conversation" };
+      }
+    }
+
+    // L2 turnId 扫描：threadId 未命中时按 turnId 找。**这一层可被子进程误导** ——
+    // 谎报他人 turnId 会把请求归到同进程内的另一个 run。影响面止于进程内
+    // （adapter 实例与 this.child 一对一），不跨信任边界，但审计归属会失真，
+    // 所以标记为 turn-scan 而不是静默当成精确匹配。
+    if (params.turnId) {
+      for (const entry of this.activeByThread.values()) {
+        if (entry.turnId === params.turnId) {
+          return { active: entry, threadId: threadId || entry.threadId, attribution: "turn-scan" };
+        }
+      }
+    }
+
+    // L3 唯一活跃轮：legacy 方法的实际落点。只有一轮在跑时归属无歧义。
+    if (this.activeByThread.size === 1) {
+      const sole = this.activeByThread.values().next().value;
+      return { active: sole, threadId: threadId || sole.threadId, attribution: "sole-active" };
+    }
+
+    return { active: null, threadId, attribution: "none" };
+  }
+
   async handleServerRequest(message) {
-    const threadId = message.params?.threadId || message.params?.thread?.id || null;
-    const active = threadId ? this.activeByThread.get(threadId) : null;
+    const { active, threadId: resolvedThreadId, attribution } = this.resolveRequestAttribution(message);
     const eventContext = {
       runId: active?.runId || null,
-      sessionId: threadId,
+      sessionId: resolvedThreadId,
       agentId: active?.agentId || this.runtimeProfileId,
     };
+    // 非精确归属随事件落盘：让"这条审批是猜出来归属的"可被事后审计发现。
+    const attributionFields = attribution === "exact" ? {} : { attribution };
     if (!APPROVAL_METHODS.has(message.method)) {
       await this.eventStore.emit(
         "adapter.server_request_unsupported",
-        { adapter: this.id, method: message.method, requestId: message.id },
+        { adapter: this.id, method: message.method, requestId: message.id, ...attributionFields },
         { ...eventContext, sensitivity: "internal" },
       ).catch(() => {});
       try { this.write({ id: message.id, error: { code: -32601, message: `unsupported server request: ${message.method}` } }); } catch {}
@@ -781,18 +847,42 @@ export class CodexAppServerAdapter {
     }
     await this.eventStore.emit(
       "approval.requested",
-      { adapter: this.id, method: message.method, requestId: message.id, summary: "Codex requested an operator decision" },
+      {
+        adapter: this.id,
+        method: message.method,
+        requestId: message.id,
+        summary: "Codex requested an operator decision",
+        ...attributionFields,
+      },
       { ...eventContext, sensitivity: "sensitive" },
     ).catch(() => {});
     try {
       let result = await this.approvalResolver?.(message, {
         runId: active?.runId || null,
-        sessionId: threadId,
+        sessionId: resolvedThreadId,
         agentId: active?.agentId || this.runtimeProfileId,
         runtimeProfileId: this.runtimeProfileId,
+        // 非精确归属一路带到审批卡：操作者要在"这条属于哪个 run"上做决定，
+        // 归属是猜的这件事只留在事件流里等于没告诉他（broker 存进 pending item，
+        // 经 /api/approvals 快照到 UI）。exact 不传 —— 正常路径不制造噪音。
+        ...attributionFields,
       });
       if (result == null) {
-        if (["item/commandExecution/requestApproval", "item/fileChange/requestApproval"].includes(message.method)) result = { decision: "decline" };
+        await this.eventStore.emit(
+          "adapter.approval_unresolved",
+          {
+            adapter: this.id,
+            method: message.method,
+            requestId: message.id,
+            summary: `No approval resolver available for ${message.method}; declined by policy`,
+          },
+          { ...eventContext, sensitivity: "sensitive" },
+        ).catch(() => {});
+        // 兜底拒绝形态由 approval-methods.mjs 按方法给出（原实现只硬编码 2 个方法，
+        // 于是 execCommandApproval / applyPatchApproval 在无人值守时收到 -32001
+        // 协议错误而非明确拒绝）。null = 该方法无法安全兜底 → 仍回 error，不猜。
+        const fallback = fallbackDeclineFor(message.method);
+        if (fallback) result = fallback;
         else throw Object.assign(new Error("approval requires an interactive operator"), { code: -32001 });
       }
       try { this.write({ id: message.id, result }); } catch {}

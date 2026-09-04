@@ -4,3 +4,8 @@
 .qa-*/
 public/.scratch-preview*.html
 public/scratch-preview-*.html
+
+# 许可帧取证的原始输出（scripts/probe-permission-frames.mjs）。
+# 内含本机绝对路径与整份 plan 正文；结构指纹已提炼进
+# tests/fixtures/permission-prompt-frames.json，那份才是回归基线。
+.evidence/

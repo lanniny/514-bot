@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { approvalResponseFor } from "./approval-methods.mjs";
 import { sanitizeForPersistence } from "./redaction.mjs";
 
 /**
@@ -29,21 +30,19 @@ function actionHash(message) {
   return createHash("sha256").update(JSON.stringify({ method: message.method, params: message.params })).digest("hex");
 }
 
+/**
+ * 线格式派发：委托 `approval-methods.mjs` 的单一真相表。
+ *
+ * 2026-09-04 起本函数不再自己维护方法→线格式的映射（原为三处手写之一，与
+ * codex-app-server.mjs 的 APPROVAL_METHODS 及其 resolver 缺失兜底白名单各自演化，
+ * 后者只覆盖 2/5 方法）。语义逐字保留：
+ *   · 未登记方法            → UNSUPPORTED_APPROVAL `unsupported approval method: …`
+ *   · permissions 被批准    → UNSUPPORTED_APPROVAL `broad permission grants are not supported…`
+ *     （下方 resolve() 接住它走策略性拒绝分支立即结算，不让 agent 等到 TTL）
+ * 契约测试 `tests/approval-methods.test.mjs` 的 INV5 用真实 broker 往返逐字段交叉验证。
+ */
 function responseFor(method, approved, approvalId = null) {
-  if (method === "control/runBuild/requestApproval") {
-    return { decision: approved ? "accept" : "decline", approvalId };
-  }
-  if (["item/commandExecution/requestApproval", "item/fileChange/requestApproval"].includes(method)) {
-    return { decision: approved ? "accept" : "decline" };
-  }
-  if (method === "execCommandApproval" || method === "applyPatchApproval") {
-    return { decision: approved ? "approved" : "denied" };
-  }
-  if (method === "item/permissions/requestApproval") {
-    if (!approved) return { permissions: {}, scope: "turn" };
-    throw Object.assign(new Error("broad permission grants are not supported by Control Center v1"), { code: "UNSUPPORTED_APPROVAL" });
-  }
-  throw Object.assign(new Error(`unsupported approval method: ${method}`), { code: "UNSUPPORTED_APPROVAL" });
+  return approvalResponseFor(method, approved, { approvalId });
 }
 
 export class ApprovalBroker {
@@ -172,6 +171,12 @@ export class ApprovalBroker {
     const createdAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + this.ttlMs).toISOString();
     const visibleParams = sanitizeForPersistence(message.params || {});
+    // 归属置信度（v49）：adapter 把审批请求对应到某轮 run 时用了哪一层匹配。
+    // "exact" 是协议保证的精确命中，adapter 不传该字段；其余层（conversation /
+    // turn-scan / sole-active）是推断出来的，必须一路带到操作者面前 ——
+    // 操作者要在"这条审批属于哪个 run"上做决定，而归属可能是猜的这件事
+    // 若只留在事件流里、不进审批卡，等于没告诉他。
+    const attribution = typeof context.attribution === "string" ? context.attribution : null;
     const item = {
       id,
       method: message.method,
@@ -182,6 +187,7 @@ export class ApprovalBroker {
       params: visibleParams,
       runId,
       sessionId: context.sessionId || null,
+      ...(attribution ? { attribution } : {}),
     };
     await this.eventStore.emit("approval.pending", item, {
       runId: item.runId,

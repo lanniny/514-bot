@@ -188,6 +188,10 @@ function buildFactoryEntries({ eventStore, cwd, approvalResolver, remote = null 
       settingsFile: remote ? null : claudeSettings,
       eventStore,
       cwd,
+      // v50 许可通道：仅本机 run 开。远程 run 的 CLI 跑在对端，
+      // 本机具名管道对它不可达 —— 与其让它以为有宿主后请求挂到超时，
+      // 不如不开（维持既有的"无宿主即拒"行为，如实且有界）。
+      approvalResolver: remote ? null : approvalResolver,
     }))],
     ["codex-app-server", (profile, adapterTemplate) => new CodexAppServerAdapter(injSpawn({
       command: profile.command,
