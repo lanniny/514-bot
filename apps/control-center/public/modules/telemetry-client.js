@@ -13,6 +13,10 @@
  * 服务端契约见 src/product-telemetry.mjs 的 TELEMETRY_TYPES。
  */
 
+import { PRODUCT_ACTION_IDS } from "./product-telemetry-catalog.js";
+
+export { PRODUCT_ACTION_IDS };
+
 const DEDUPE_MS = 3000;
 
 export function createTelemetryClient({ request, apiReady = Promise.resolve(), enabled = true } = {}) {
@@ -79,6 +83,20 @@ export function createTelemetryClient({ request, apiReady = Promise.resolve(), e
       if (outcome) fields.outcome = String(outcome);
       if (Number.isFinite(durationMs)) fields.durationMs = Math.floor(durationMs);
       // 能力调用不去抖：每次调用都是独立的产品事实
+      send("usage.capability", fields);
+    },
+
+    /**
+     * C5 关键动作。只接受标识符字段——outcome / action / count，
+     * 没有自由文本入口，prompt 与消息体在调用面就传不进来。
+     */
+    trackAction(capability, { outcome, action, count, durationMs } = {}) {
+      if (!capability) return;
+      const fields = { capability: String(capability) };
+      if (outcome) fields.outcome = String(outcome);
+      if (action) fields.action = String(action);
+      if (Number.isFinite(count)) fields.count = Math.floor(count);
+      if (Number.isFinite(durationMs)) fields.durationMs = Math.floor(durationMs);
       send("usage.capability", fields);
     },
 

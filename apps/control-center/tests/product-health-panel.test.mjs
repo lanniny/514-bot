@@ -8,8 +8,9 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createProductHealthPanel, computeViewCoverage, countFriction } from "../public/modules/product-health-panel.js";
+import { createProductHealthPanel, computeViewCoverage, countFriction, viewCoverageFromSummary } from "../public/modules/product-health-panel.js";
 import { NAV_ITEMS } from "../public/modules/nav-config.js";
+import { PRODUCT_ACTION_IDS, REGISTERED_CAPABILITIES } from "../public/modules/product-telemetry-catalog.js";
 
 // ── 纯函数 ─────────────────────────────────────────────────────────────────
 
@@ -49,23 +50,28 @@ test("countFriction 合计三类摩擦信号", () => {
 
 // ── 渲染与降级 ─────────────────────────────────────────────────────────────
 
-function domHarness() {
-  const nodes = new Map();
-  const rows = [];
-  const body = {
-    replaceChildren() { rows.length = 0; },
+function tableBody(store) {
+  return {
+    replaceChildren() { store.length = 0; },
     insertRow() {
       const row = { cells: [], insertCell() { const c = {}; this.cells.push(c); return c; } };
-      rows.push(row);
+      store.push(row);
       return row;
     },
   };
+}
+
+function domHarness() {
+  const nodes = new Map();
+  const rows = [];
+  const actionRows = [];
   const byId = (id) => {
-    if (id === "ph-views-body") return body;
+    if (id === "ph-views-body") return tableBody(rows);
+    if (id === "ph-actions-body") return tableBody(actionRows);
     if (!nodes.has(id)) nodes.set(id, { textContent: "" });
     return nodes.get(id);
   };
-  return { byId, nodes, rows, textOf: (id) => nodes.get(id)?.textContent };
+  return { byId, nodes, rows, actionRows, textOf: (id) => nodes.get(id)?.textContent };
 }
 
 test("有托付数据时渲染百分比与明细", async () => {
@@ -109,6 +115,18 @@ test("读取失败显示失败原因，绝不用零值冒充正常", async () =>
   assert.match(dom.textOf("ph-meta"), /读取失败/);
 });
 
+test("viewCoverageFromSummary 优先用服务端 unusedViews", () => {
+  const result = viewCoverageFromSummary({
+    knownViews: ["bot", "workbench", "team"],
+    usedViews: ["bot"],
+    unusedViews: ["workbench", "team"],
+    observedViews: ["bot", "ghost"],
+  });
+  assert.deepEqual(result.used, ["bot"]);
+  assert.deepEqual(result.unused, ["workbench", "team"]);
+  assert.equal(result.total, 3);
+});
+
 test("视图表把从未打开的视图也列出来并标注", async () => {
   const dom = domHarness();
   const panel = createProductHealthPanel({
@@ -123,6 +141,27 @@ test("视图表把从未打开的视图也列出来并标注", async () => {
   const statuses = dom.rows.map((row) => row.cells[2].textContent);
   assert.equal(statuses.filter((s) => s === "在用").length, 1);
   assert.ok(statuses.filter((s) => s === "从未打开").length >= 13);
+});
+
+test("动作表把从未使用的注册动作列出来", async () => {
+  const dom = domHarness();
+  const panel = createProductHealthPanel({
+    request: async () => ({
+      enabled: true, total: 1, dropped: 0, byType: {}, byView: {},
+      byCapability: { [PRODUCT_ACTION_IDS.paletteInvoke]: 1 },
+      observedViews: [],
+      knownCapabilities: [...REGISTERED_CAPABILITIES],
+      usedCapabilities: [PRODUCT_ACTION_IDS.paletteInvoke],
+      unusedCapabilities: REGISTERED_CAPABILITIES.filter((id) => id !== PRODUCT_ACTION_IDS.paletteInvoke),
+      trustedDelegationRate: null, delegations: 0, interventions: 0,
+    }),
+    byId: dom.byId,
+  });
+  await panel.loadProductHealth();
+  assert.equal(dom.actionRows.length, REGISTERED_CAPABILITIES.length);
+  const statuses = dom.actionRows.map((row) => row.cells[2].textContent);
+  assert.equal(statuses.filter((s) => s === "在用").length, 1);
+  assert.ok(statuses.filter((s) => s === "从未使用").length >= 7);
 });
 
 test("truncated 时明确标注为部分样本", async () => {

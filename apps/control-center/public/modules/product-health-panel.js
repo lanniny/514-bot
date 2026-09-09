@@ -11,14 +11,45 @@
  */
 
 import { NAV_ITEMS } from "./nav-config.js";
+import { PRODUCT_ACTIONS, unusedRegistered } from "./product-telemetry-catalog.js";
 import { API } from "../api.js";
 
 /** 未被观察到的视图 = 已知全集 − 埋点里出现过的。这是 P-20 死能力回收的直接判据。 */
 export function computeViewCoverage(observedViews = [], knownViews = Object.keys(NAV_ITEMS)) {
-  const observed = new Set(observedViews);
-  const used = knownViews.filter((view) => observed.has(view));
-  const unused = knownViews.filter((view) => !observed.has(view));
-  return { used, unused, total: knownViews.length, ratio: knownViews.length ? used.length / knownViews.length : 0 };
+  const coverage = unusedRegistered(observedViews, knownViews);
+  return {
+    used: coverage.used,
+    unused: coverage.unused,
+    total: coverage.known.length,
+    ratio: coverage.known.length ? coverage.used.length / coverage.known.length : 0,
+  };
+}
+
+/** 优先信服务端差集（C5）；旧 summary 没有 unusedViews 时回退到本地计算。 */
+export function viewCoverageFromSummary(summary = {}) {
+  if (Array.isArray(summary.unusedViews) && Array.isArray(summary.knownViews) && summary.knownViews.length) {
+    return {
+      used: Array.isArray(summary.usedViews) ? summary.usedViews : summary.knownViews.filter((view) => !summary.unusedViews.includes(view)),
+      unused: summary.unusedViews,
+      total: summary.knownViews.length,
+      ratio: summary.knownViews.length ? (summary.knownViews.length - summary.unusedViews.length) / summary.knownViews.length : 0,
+    };
+  }
+  return computeViewCoverage(summary.observedViews || []);
+}
+
+export function actionCoverageFromSummary(summary = {}) {
+  const known = Array.isArray(summary.knownCapabilities) && summary.knownCapabilities.length
+    ? summary.knownCapabilities
+    : Object.keys(PRODUCT_ACTIONS);
+  if (Array.isArray(summary.unusedCapabilities)) {
+    return {
+      used: Array.isArray(summary.usedCapabilities) ? summary.usedCapabilities : known.filter((id) => !summary.unusedCapabilities.includes(id)),
+      unused: summary.unusedCapabilities,
+      total: known.length,
+    };
+  }
+  return unusedRegistered(Object.keys(summary.byCapability || {}), known);
 }
 
 /** 摩擦信号合计：friction.* 三类之和。 */
@@ -44,35 +75,48 @@ export function createProductHealthPanel({ request, byId, toast = () => {} } = {
 
   let latest = null;
 
-  function renderViewsTable(summary) {
-    const body = byId("ph-views-body");
+  function renderUsageTable(bodyId, rows, { emptyLabel, unusedLabel = "从未打开" } = {}) {
+    const body = byId(bodyId);
     if (!body) return;
     body.replaceChildren();
-    const coverage = computeViewCoverage(summary.observedViews || []);
-    const rows = [
-      ...coverage.used
-        .map((view) => ({ view, count: summary.byView?.[view] ?? 0, unused: false }))
-        .sort((a, b) => b.count - a.count),
-      ...coverage.unused.map((view) => ({ view, count: 0, unused: true })),
-    ];
     if (!rows.length) {
       const row = body.insertRow();
-      const td = cell(row, "暂无埋点数据", "subtle");
-      td.colSpan = 3;
+      cell(row, emptyLabel, "subtle").colSpan = 3;
       return;
     }
     for (const item of rows) {
       const row = body.insertRow();
-      cell(row, NAV_ITEMS[item.view]?.label ?? item.view);
+      cell(row, item.label);
       cell(row, item.count);
-      // "从未打开"是本看板最有价值的输出——它把 P-20 从"凭印象砍功能"变成有据可依
-      cell(row, item.unused ? "从未打开" : "在用", item.unused ? "warn-text" : "subtle");
+      cell(row, item.unused ? unusedLabel : "在用", item.unused ? "warn-text" : "subtle");
     }
+  }
+
+  function renderViewsTable(summary) {
+    const coverage = viewCoverageFromSummary(summary);
+    const rows = [
+      ...coverage.used
+        .map((view) => ({ label: NAV_ITEMS[view]?.label ?? view, count: summary.byView?.[view] ?? 0, unused: false }))
+        .sort((a, b) => b.count - a.count),
+      ...coverage.unused.map((view) => ({ label: NAV_ITEMS[view]?.label ?? view, count: 0, unused: true })),
+    ];
+    renderUsageTable("ph-views-body", rows, { emptyLabel: "暂无注册视图" });
+  }
+
+  function renderActionsTable(summary) {
+    const coverage = actionCoverageFromSummary(summary);
+    const rows = [
+      ...coverage.used
+        .map((id) => ({ label: PRODUCT_ACTIONS[id]?.label ?? id, count: summary.byCapability?.[id] ?? 0, unused: false }))
+        .sort((a, b) => b.count - a.count),
+      ...coverage.unused.map((id) => ({ label: PRODUCT_ACTIONS[id]?.label ?? id, count: 0, unused: true })),
+    ];
+    renderUsageTable("ph-actions-body", rows, { emptyLabel: "暂无注册动作", unusedLabel: "从未使用" });
   }
 
   function render(summary) {
     latest = summary;
-    const coverage = computeViewCoverage(summary.observedViews || []);
+    const coverage = viewCoverageFromSummary(summary);
     // 没有托付数据时显示"暂无"而不是 100% —— 空数据不得被读成完美表现
     text(byId("ph-trust-rate"), summary.trustedDelegationRate === null
       ? "暂无"
@@ -94,13 +138,15 @@ export function createProductHealthPanel({ request, byId, toast = () => {} } = {
       : "已关闭");
     text(byId("ph-toggle-label"), summary.enabled ? "关闭埋点" : "开启埋点");
     renderViewsTable(summary);
+    renderActionsTable(summary);
   }
 
   function renderUnavailable(message) {
     for (const id of ["ph-trust-rate", "ph-coverage", "ph-total", "ph-friction"]) text(byId(id), "--");
     text(byId("ph-meta"), message);
-    const body = byId("ph-views-body");
-    if (body) {
+    for (const id of ["ph-views-body", "ph-actions-body"]) {
+      const body = byId(id);
+      if (!body) continue;
       body.replaceChildren();
       const row = body.insertRow();
       cell(row, message, "subtle").colSpan = 3;

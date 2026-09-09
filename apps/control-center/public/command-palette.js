@@ -64,6 +64,7 @@ let _selectedIndex = 0;
 let _filteredItems = [];
 let _onNavigate = null;
 let _onAction = null;
+let _onOpen = null;
 let _extraItems = () => [];
 
 // 全局搜索状态
@@ -85,6 +86,7 @@ export function initCommandPalette(opts = {}) {
   if (_paletteEl) return; // 幂等：重复 init 不重建 DOM / 重复绑定快捷键
   _onNavigate = opts.onNavigate || (() => {});
   _onAction = opts.onAction || (() => {});
+  _onOpen = typeof opts.onOpen === "function" ? opts.onOpen : null;
   _extraItems = typeof opts.extraItems === "function" ? opts.extraItems : () => [];
 
   // 创建 DOM
@@ -140,6 +142,7 @@ export function toggleCommandPalette() {
 
 export function openCommandPalette() {
   if (!_paletteEl) return;
+  const alreadyOpen = _isOpen;
   _isOpen = true;
   _paletteEl.classList.add("is-open");
   _inputEl.value = "";
@@ -147,6 +150,10 @@ export function openCommandPalette() {
   resetSearch();
   filterItems("");
   requestAnimationFrame(() => _inputEl.focus());
+  // 只在关闭→打开记一次。输入框每个按键都走 filterItems，绝不能在那里埋点。
+  if (!alreadyOpen) {
+    try { _onOpen?.(); } catch { /* 埋点失败不得打断面板 */ }
+  }
 }
 
 export function closeCommandPalette() {

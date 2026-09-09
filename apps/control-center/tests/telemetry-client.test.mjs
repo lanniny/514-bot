@@ -7,7 +7,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createTelemetryClient } from "../public/modules/telemetry-client.js";
+import { createTelemetryClient, PRODUCT_ACTION_IDS } from "../public/modules/telemetry-client.js";
 
 function recorder({ fail = false, hang = false } = {}) {
   const calls = [];
@@ -63,6 +63,7 @@ test("track* 全部返回 undefined —— 结构上杜绝误 await", () => {
   assert.equal(client.trackDelegation("codex"), undefined);
   assert.equal(client.trackIntervention("steer"), undefined);
   assert.equal(client.trackFriction("error", { errorKind: "network" }), undefined);
+  assert.equal(client.trackAction(PRODUCT_ACTION_IDS.paletteInvoke), undefined);
 });
 
 test("网络失败被静默吞掉，不冒泡到调用方", async () => {
@@ -126,6 +127,27 @@ test("setEnabled(false) 后停止上报", async () => {
   assert.equal(calls.length, 1, "关闭后不得再有任何上报");
 });
 
+test("trackAction 只上报标识符字段，不接受自由文本", async () => {
+  const { calls, request } = recorder();
+  const client = createTelemetryClient({ request });
+  client.trackAction(PRODUCT_ACTION_IDS.valueProofLink, {
+    outcome: "success",
+    action: "evidence",
+    count: 2,
+    prompt: "SENTINEL_SHOULD_NOT_APPEAR",
+  });
+  await flush();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.type, "usage.capability");
+  assert.deepEqual(calls[0].body.fields, {
+    capability: PRODUCT_ACTION_IDS.valueProofLink,
+    outcome: "success",
+    action: "evidence",
+    count: 2,
+  });
+  assert.ok(!("prompt" in calls[0].body.fields));
+});
+
 test("空参数被忽略，不发出无意义事件", async () => {
   const { calls, request } = recorder();
   const client = createTelemetryClient({ request });
@@ -133,6 +155,7 @@ test("空参数被忽略，不发出无意义事件", async () => {
   client.trackView(null);
   client.trackCapability("");
   client.trackActivationStep("");
+  client.trackAction("");
   await flush();
   assert.equal(calls.length, 0);
 });
