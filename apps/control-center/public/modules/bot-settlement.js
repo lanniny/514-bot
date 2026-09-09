@@ -1,5 +1,6 @@
 import { escapeHtml, redact, compactHash } from "../utils.js";
 import { isSucceededRun, saveSkillActionMarkup } from "./private-skill-from-run.js";
+import { projectValueProof, valueProofCardMarkup } from "./value-proof-card.js";
 
 export const BOT_SETTLEMENT_SCHEMA = "514cc.run-settlement/v1";
 export const RUN_SETTLEMENT_TTL_MS = 15_000;
@@ -83,6 +84,7 @@ export function createBotSettlement({
   requestSettlement, cancelSettlementRequest, shouldPaintSettlement,
   state, botState, botRunForAgent, botRenderConversationMessages,
   normalizeRunMessages, botSyncConversation, botRenderCollaborationWorkspace,
+  eventsForRun = () => [],
 }) {
   function retryBotSettlement(runId) {
     const id = String(runId || "").trim();
@@ -140,8 +142,16 @@ export function createBotSettlement({
       : "";
     const saveSkillAction = isSucceededRun(run) ? saveSkillActionMarkup(runId) : "";
     const actions = [diffAction, saveSkillAction].filter(Boolean).join("");
+    const valueProof = isSucceededRun(run)
+      ? valueProofCardMarkup(projectValueProof({
+        run,
+        settlement: envelope,
+        events: eventsForRun(runId),
+      }), { surface: "bot", variant: "settlement" })
+      : "";
     return `<article class="bot-card bot-settlement-card is-dynamic is-${escapeHtml(botSettlementAvailabilityClass(verdict))}" data-bot-card="settlement" data-bot-card-source="settlement" data-run-id="${escapeHtml(runId)}" data-settlement-state="${settlementState}" data-settlement-verdict="${escapeHtml(verdict)}">
     <div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-git-branch"></use></svg></span><div><strong>${heading}</strong><span>run ${escapeHtml(runId)} · ${escapeHtml(verdictLabel)}</span></div><span class="bot-card-state ${verdict === "reviewable" ? "is-complete" : settlementState === "blocked" ? "is-error" : "is-waiting"}">${escapeHtml(verdict)}</span></div>
+    ${valueProof}
     <p class="bot-card-copy">${escapeHtml(nextAction)}</p>
     <div class="bot-settlement-meta"><span>${escapeHtml(envelope.isolation || "unknown")}</span>${diffSummary ? `<span>${escapeHtml(diffSummary)}</span>` : ""}<span>自动落地关闭</span></div>
     ${risks.length ? `<ul class="bot-settlement-risks">${risks.map((risk) => `<li>${escapeHtml(redact(String(risk?.reason || risk?.id || "风险未知")).slice(0, 180))}</li>`).join("")}</ul>` : ""}

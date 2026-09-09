@@ -89,6 +89,66 @@
 .bot-capability-card-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 6px; }
 .bot-capability-card-actions [disabled] { cursor: not-allowed; opacity: 0.6; }
 
+/* ---- Phase C4：收获证明 / DELTA 主线（v48 P-01 · P-02） ---- */
+.bot-value-proof-card,
+.value-proof-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+}
+.bot-value-proof-card.is-settlement {
+  margin: 0 14px 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--bot-accent) 24%, var(--bot-line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bot-accent) 6%, var(--bot-panel));
+}
+.bot-value-proof-card.is-stream { border-color: color-mix(in srgb, var(--bot-accent) 32%, var(--bot-line-strong)); }
+.value-proof-head,
+.bot-value-proof-card .bot-card-head { align-items: flex-start; }
+.value-proof-head { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.value-proof-head strong,
+.bot-value-proof-card .bot-card-head strong { font-size: var(--text-sm); }
+.value-proof-head span,
+.bot-value-proof-card .bot-card-head span { color: var(--bot-muted); font-size: var(--text-xs); line-height: 1.5; }
+.value-proof-signals {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.value-proof-chip {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 7rem;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--bot-line);
+  border-radius: 6px;
+  background: var(--bot-soft);
+}
+.value-proof-chip small {
+  color: var(--bot-muted);
+  font-size: var(--text-xs);
+  letter-spacing: 0.03em;
+}
+.value-proof-chip b {
+  overflow-wrap: anywhere;
+  color: var(--bot-ink);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+.value-proof-chip.is-empty { opacity: 0.78; }
+.value-proof-actions {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-start;
+}
+
 /* ---- W6：390px 小屏走查（标准档 --bp-sm 560；目标视口 390×844） ---- */
 .bot-routine-dialog { box-sizing: border-box; overflow: hidden; }
 .bot-routine-dialog form { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
@@ -128,4 +188,8 @@
   .bot-capability-card-actions { justify-content: stretch; }
   .bot-capability-card-actions .bot-text-button,
   .bot-capability-card-actions .bot-card-confirm { min-height: 44px; flex: 1 1 8rem; }
+  .bot-value-proof-card.is-settlement { margin-inline: 10px; }
+  .value-proof-chip { flex: 1 1 100%; }
+  .value-proof-actions .bot-text-button,
+  .value-proof-actions .text-button { min-height: 44px; flex: 1 1 8rem; }
 }
