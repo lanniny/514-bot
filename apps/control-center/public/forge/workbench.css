@@ -2139,8 +2139,8 @@
   border: 1px solid var(--glass-border);
   border-radius: 6px;
 }
-.settlement-card .value-proof-chip small { color: var(--text-muted, var(--bot-muted)); font-size: 11px; }
-.settlement-card .value-proof-chip b { overflow-wrap: anywhere; font-size: 12px; }
+.settlement-card .value-proof-chip small { color: var(--text-muted, var(--bot-muted)); font-size: var(--text-xs); }
+.settlement-card .value-proof-chip b { overflow-wrap: anywhere; font-size: var(--text-xs); }
 
 /* 行内审批卡片：琥珀暖金微光 + 浮雕微边 */
 .approval-inline-card {
