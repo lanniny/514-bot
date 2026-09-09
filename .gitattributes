@@ -4,6 +4,8 @@
 # 脚本类文件统一 LF，避免跨平台的解释器/换行问题
 *.sh text eol=lf
 scripts/**/*.mjs text eol=lf
+apps/control-center/scripts/*.mjs text eol=lf
+proposals/*-capability-ledger.md text eol=lf
 
 # 显式声明二进制，避免 Git 尝试做文本差异与换行转换
 *.png binary
