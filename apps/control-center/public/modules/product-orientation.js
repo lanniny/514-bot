@@ -252,6 +252,12 @@ export function productTourStepModel(index, {
   };
 }
 
+export function paintOrientationMarkup(node, html) {
+  if (!node) return;
+  node.replaceChildren();
+  if (html) node.insertAdjacentHTML("afterbegin", html);
+}
+
 export function productTourStepMarkup(model) {
   if (!model) return "";
   const dest = model.destination;

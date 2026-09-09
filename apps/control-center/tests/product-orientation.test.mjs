@@ -161,6 +161,8 @@ test("Bot shell wires tour persist, palette/help entries, and capability map ove
   assert.match(app, /function openCapabilityMap\(/);
   assert.match(app, /function maybeStartProductTour\(/);
   assert.match(app, /writeProductTourDismissed\(true\)/);
+  assert.match(app, /paintOrientationMarkup\(/);
+  assert.doesNotMatch(app, /data-product-tour-step[\s\S]{0,80}\.innerHTML\s*=/);
   assert.match(app, /shouldAutoStartProductTour\(\)/);
   assert.match(app, /case "bot:product-tour"/);
   assert.match(app, /case "bot:capability-map"/);
