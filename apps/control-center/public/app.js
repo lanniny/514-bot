@@ -150,6 +150,7 @@ import { createProductHealthPanel } from "./modules/product-health-panel.js";
 import { createShadowComparePanel } from "./modules/shadow-compare-panel.js";
 import { renderBotRoutines, bindRoutineDialog, openRoutineDialog } from "./modules/bot-routines-panel.js";
 import { draftPrivateSkillFromRun, isSucceededRun, saveSkillActionMarkup } from "./modules/private-skill-from-run.js";
+import { projectValueProof, valueProofCardMarkup } from "./modules/value-proof-card.js";
 import { bindSaveSkillDialog, openSaveSkillDialog } from "./modules/save-skill-dialog.js";
 import {
   capabilityMapMarkup,
@@ -17009,6 +17010,7 @@ const botSettlement = createBotSettlement({
   normalizeRunMessages: (run, options) => normalizeRunMessages(run, options),
   botSyncConversation,
   botRenderCollaborationWorkspace,
+  eventsForRun: (runId) => (state.events || []).filter((event) => String(event?.runId || "") === String(runId || "")),
 });
 
 function botBeginSelectionIntent() {
@@ -19059,7 +19061,8 @@ function botRenderConversationMessages(agentId, run, messages) {
     labelFor: (id) => botMeta(id).label,
   });
   const saveSkillHtml = run && !page.after ? botSaveSkillCardMarkup(run) : "";
-  const html = `${messageHtml}${liveMarkup}${typingHtml}${approvalOutcomeHtml}${saveSkillHtml}`;
+  const valueProofHtml = run && !page.after ? botValueProofStreamMarkup(run) : "";
+  const html = `${messageHtml}${liveMarkup}${typingHtml}${approvalOutcomeHtml}${valueProofHtml}${saveSkillHtml}`;
   renderWorkspaceAttention();
   const conversationLabel = botState.activeGroupRunId && String(run?.id) === String(botState.activeGroupRunId)
     ? botGroupTitle(run)
@@ -20339,6 +20342,53 @@ function openCapabilityMap() {
   });
 }
 
+function eventsForCurrentRun(runId) {
+  return (state.events || []).filter((event) => String(event?.runId || "") === String(runId || ""));
+}
+
+function botValueProofStreamMarkup(run) {
+  if (!isSucceededRun(run)) return "";
+  const runId = String(run.id);
+  const view = runProjection.settlementView("bot", runId);
+  const runSignature = settlementRunSignature(run);
+  if (settlementViewNeedsRefresh(view, run, RUN_SETTLEMENT_TTL_MS)) {
+    runProjection.queueSettlementLoad("bot", runId, () => loadBotSettlement(runId, { force: Boolean(view), runSignature }));
+  }
+  const settlement = view?.status === "ok" && view.data && typeof view.data === "object" ? view.data : null;
+  return valueProofCardMarkup(projectValueProof({
+    run,
+    settlement,
+    events: eventsForCurrentRun(runId),
+  }), { surface: "bot", variant: "stream" });
+}
+
+function openValueProofTarget(target, runId) {
+  const id = String(runId || "").trim();
+  switch (String(target || "")) {
+    case "evidence":
+      openBotEvidenceSurface();
+      return;
+    case "delta":
+      setView("observability");
+      queueMicrotask(() => {
+        const node = byId("obs-delta-title") || byId("delta-timeline-container");
+        node?.scrollIntoView({ block: "start", behavior: "smooth" });
+      });
+      return;
+    case "replay":
+      setView("workbench");
+      if (id && state.runs.some((run) => String(run.id) === id)) void selectRun(id);
+      window.dispatchEvent(new CustomEvent("forge:expand-mission-control"));
+      missionControlDock?.activateTab?.("activity");
+      queueMicrotask(() => {
+        document.querySelector("[data-replay-mount]")?.scrollIntoView({ block: "start", behavior: "smooth" });
+      });
+      return;
+    default:
+      toast("该入口当前没有对应视图", "info", 3600);
+  }
+}
+
 function openBotEvidenceSurface() {
   setView("bot");
   botSetPanel(true);
@@ -20347,7 +20397,11 @@ function openBotEvidenceSurface() {
     botActivateCollaborationTab("evidence");
     return;
   }
-  toast("结算与证据在协作室右栏「证据」页。当前不是协作室，不会假装有任务图。", "info", 5600);
+  if (botWorkspace?.setTab) {
+    botWorkspace.setTab("results");
+    return;
+  }
+  toast("结算与证据在「成果」页。当前没有可打开的证据面。", "info", 5600);
 }
 
 function runCapabilityAction(actionId) {
@@ -21339,14 +21393,18 @@ function initBotShell() {
       return;
     }
     const diff = event.target.closest("[data-bot-settlement-diff]");
-    if (!diff) return;
-    const runId = String(diff.dataset.botSettlementDiff || "");
-    if (!state.runs.some((run) => String(run?.id || "") === runId)) {
-      toast("该运行已不在当前快照中，无法打开 diff", "warning", 3600);
+    if (diff) {
+      const runId = String(diff.dataset.botSettlementDiff || "");
+      if (!state.runs.some((run) => String(run?.id || "") === runId)) {
+        toast("该运行已不在当前快照中，无法打开 diff", "warning", 3600);
+        return;
+      }
+      conversationTabs.openTab(runId, botState.agentId);
+      void conversationHeader.toggleRunDiff(runId);
       return;
     }
-    conversationTabs.openTab(runId, botState.agentId);
-    void conversationHeader.toggleRunDiff(runId);
+    const valueProof = event.target.closest("[data-value-proof-open]");
+    if (valueProof) openValueProofTarget(valueProof.dataset.valueProofOpen, valueProof.dataset.runId);
   });
   const agentList = byId("bot-agent-list");
   agentList?.addEventListener("click", async (event) => {
@@ -21805,6 +21863,11 @@ byId("bot-member-runtime-profile")?.addEventListener("change", () => {
       }
       conversationTabs.openTab(runId, botState.agentId);
       void conversationHeader.toggleRunDiff(runId);
+      return;
+    }
+    const valueProof = event.target.closest("[data-value-proof-open]");
+    if (valueProof) {
+      openValueProofTarget(valueProof.dataset.valueProofOpen, valueProof.dataset.runId);
       return;
     }
     const saveSkill = event.target.closest("[data-save-private-skill]");
@@ -22619,6 +22682,11 @@ function worktreeSettlementMarkup(run) {
         <span class="subtle" title="${escapeHtml(run.worktreePath || run.remote?.hostId || "")}">${lucideIcon("git-branch", "icon lucide")} ${escapeHtml(leaf)} · ${escapeHtml(verdict)}</span>
       </div>
       <p class="settlement-copy">${escapeHtml(nextText)}</p>
+      ${isSucceededRun(run) ? valueProofCardMarkup(projectValueProof({
+        run,
+        settlement: envelope,
+        events: eventsForCurrentRun(run.id),
+      }), { surface: "workbench", variant: "settlement" }) : ""}
       ${risks ? `<ul class="settlement-risks">${risks}</ul>` : ""}
       <p class="settlement-copy subtle">自动落地关闭：merge / rebase / commit / push / git add 均不会由控制面执行。</p>
       <div class="settlement-actions">
@@ -27743,6 +27811,8 @@ function bindEvents() {
     if (runDiff) void conversationHeader.toggleRunDiff(runDiff.dataset.runDiff);
     const settlementRetry = event.target.closest("[data-settlement-retry]");
     if (settlementRetry) retryRunSettlement(settlementRetry.dataset.settlementRetry);
+    const valueProof = event.target.closest("[data-value-proof-open]");
+    if (valueProof) openValueProofTarget(valueProof.dataset.valueProofOpen, valueProof.dataset.runId);
     // 时间线左缘沟槽（VSCode folding 式）：消息行折叠按 streamKey 记账（重渲不失）；
     // 过程卡翻 details.open——开态由 capture/restoreConversationStreamState 跨重渲保留。
     const gutterToggle = event.target.closest("[data-gutter-toggle]");

@@ -2121,6 +2121,27 @@
   border-left-color: var(--danger);
 }
 
+.settlement-card .value-proof-card {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg, 10px);
+  background: color-mix(in oklch, var(--success) 6%, var(--surface-level-2));
+}
+.settlement-card .value-proof-signals { display: flex; flex-wrap: wrap; gap: 6px; }
+.settlement-card .value-proof-chip {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 7rem;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid var(--glass-border);
+  border-radius: 6px;
+}
+.settlement-card .value-proof-chip small { color: var(--text-muted, var(--bot-muted)); font-size: var(--text-xs); }
+.settlement-card .value-proof-chip b { overflow-wrap: anywhere; font-size: var(--text-xs); }
+
 /* 行内审批卡片：琥珀暖金微光 + 浮雕微边 */
 .approval-inline-card {
   margin: var(--space-2) 0 var(--space-3);
