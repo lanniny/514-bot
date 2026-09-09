@@ -524,6 +524,8 @@ body.team-bg-active .bot-composer {
 .bot-approval-outcome.is-denied { color: var(--bot-red); }
 .bot-approval-outcome.is-expired { color: var(--bot-yellow); }
 
+.bot-save-skill-card { border-color: color-mix(in srgb, var(--bot-accent) 22%, var(--bot-line-strong)); }
+.bot-save-skill-card .bot-card-actions { margin-top: 8px; }
 .bot-settlement-card { border-color: color-mix(in srgb, var(--bot-accent) 28%, var(--bot-line-strong)); }
 .bot-settlement-card.is-reviewable { border-left: 3px solid var(--bot-green); }
 .bot-settlement-card.is-blocked,

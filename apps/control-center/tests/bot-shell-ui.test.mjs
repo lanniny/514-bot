@@ -47,8 +47,11 @@ test("514 Bot is the default work surface while the advanced workbench remains a
   assert.match(app, /if \(view === "bot"\) initBotShell\(\)/);
   // UI-AUDIT P0-5：命令面板图标改由导航单一真源派生（此前双写一份图标表，
   // 导航换图标时面板仍显示旧的）。锁住"派生关系"，而不是锁死某个字面量。
-  assert.match(palette, /import \{ NAV_ITEMS \} from "\.\/modules\/nav-config\.js"/);
-  assert.match(palette, /\.\.\.Object\.fromEntries\(Object\.entries\(NAV_ITEMS\)/);
+  assert.match(palette, /from "\.\/modules\/palette-catalog\.js"/);
+  assert.match(palette, /listPaletteViewItems\(\)/);
+  const catalog = await readFile(`${appRoot}/public/modules/palette-catalog.js`, "utf8");
+  assert.match(catalog, /import \{ NAV_ITEMS \} from "\.\/nav-config\.js"/);
+  assert.match(catalog, /for \(const \[id, item\] of Object\.entries\(NAV_ITEMS\)\)/);
   assert.match(await readFile(`${appRoot}/public/modules/nav-config.js`, "utf8"), /bot: \{ icon: "messages-square"/);
   assert.match(css, /\.bot-shell-grid/);
   assert.doesNotMatch(artDirection, /html\.is-bot-surface \.topbar[\s\S]{0,220}display: none !important/);
@@ -465,6 +468,31 @@ test("Bot settings keep account, plugin library, and member sub-settings inside 
   assert.match(app, /async function botLoadPrivateSkills\(\)/);
   assert.match(app, /\/api\/bots\/private-skills/);
   assert.match(app, /function botSavePrivateSkill\(event\)/);
+});
+
+test("succeeded runs expose an editable save-as-private-skill path on Bot and Workbench", async () => {
+  const [html, app, settlement, dialog, css] = await Promise.all([
+    readFile(`${appRoot}/public/index.html`, "utf8"),
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/bot-settlement.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/save-skill-dialog.js`, "utf8"),
+    readFile(`${appRoot}/public/forge/bot-grok-parity.css`, "utf8"),
+  ]);
+  assert.match(html, /id="save-skill-dialog"/);
+  assert.match(html, /data-save-skill-field="name"/);
+  assert.match(html, /data-save-skill-field="description"/);
+  assert.match(html, /data-save-skill-field="instructions"/);
+  assert.match(html, /data-save-skill-empty/);
+  assert.match(html, /id="bot-kickoff-help-dialog"/);
+  assert.match(app, /function openSaveSkillFromRun\(/);
+  assert.match(app, /function botSaveSkillCardMarkup\(/);
+  assert.match(app, /function runSaveSkillMarkup\(/);
+  assert.match(app, /saveSkillActionMarkup\(run\.id/);
+  assert.match(app, /data-save-private-skill/);
+  assert.match(settlement, /isSucceededRun\(run\) \? saveSkillActionMarkup\(runId\)/);
+  assert.match(dialog, /request\("\/api\/bots\/private-skills"/);
+  assert.match(dialog, /空字段不会保存/);
+  assert.match(css, /\.bot-save-skill-source/);
 });
 
 test("Bot roster channels and composer kickoff follow real sources (Grok parity W2/W4)", async () => {
@@ -1237,6 +1265,7 @@ test("Bot settlement cards consume the real settlement contract and fail closed 
   assert.match(module, /artifacts\.slice\(0, 16\)/);
   assert.match(module, /requestSettlement\("bot", rid\)/);
   assert.match(module, /data-bot-settlement-diff/);
+  assert.match(module, /saveSkillActionMarkup\(runId\)/);
   assert.match(module, /不会自动 merge、commit 或 push/);
   assert.match(css, /\.bot-settlement-card/);
   assert.match(css, /\.bot-artifact-row/);

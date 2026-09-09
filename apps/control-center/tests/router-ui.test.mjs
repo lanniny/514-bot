@@ -13,7 +13,7 @@ test("team page owns the router workbench and router is only an alias", async ()
   const [index, app, palette, routerPanel] = await Promise.all([
     readFile(resolve(publicRoot, "index.html"), "utf8"),
     readFile(resolve(publicRoot, "app.js"), "utf8"),
-    readFile(resolve(publicRoot, "command-palette.js"), "utf8"),
+    readFile(resolve(publicRoot, "modules/palette-catalog.js"), "utf8"),
     readFile(resolve(publicRoot, "modules/router-preview-panel.js"), "utf8"),
   ]);
   const teamStart = index.indexOf('id="view-team"');
@@ -37,7 +37,7 @@ test("team page owns the router workbench and router is only an alias", async ()
   assert.match(routerPanel, /team-router-candidate/);
   assert.doesNotMatch(app, /router-candidate-body"\]\.innerHTML = `<tr/);
 
-  assert.match(palette, /router: "router 路由/);
+  assert.match(palette, /router: \{ icon: "route", keywords: "router 路由/);
 });
 
 test("form preview does not inherit workbench requestedAgentIds or composer lock", async () => {
