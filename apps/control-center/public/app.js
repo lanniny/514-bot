@@ -2793,13 +2793,7 @@ function extractBootstrapData(payload) {
     ? payload.memberCatalog
     : Array.isArray(payload.teamCatalog) ? payload.teamCatalog : [];
   if (payload.operatorProfile && typeof payload.operatorProfile === "object") {
-    state.operatorProfile = {
-      label: String(payload.operatorProfile.label || "AEMEATH"),
-      avatar: payload.operatorProfile.avatar === "custom" ? "custom" : "",
-      hiddenMemberIds: [...new Set((Array.isArray(payload.operatorProfile.hiddenMemberIds)
-        ? payload.operatorProfile.hiddenMemberIds
-        : []).map((id) => String(id || "").trim()).filter(Boolean))],
-    };
+    applyOperatorProfile(payload.operatorProfile);
   }
   state.runtimeCatalog = Array.isArray(payload.runtimeCatalog) ? payload.runtimeCatalog : [];
   // Bot 是成员目录与个人通讯录偏好的共同投影；两者都落入 state 后再绘制，
@@ -16425,6 +16419,33 @@ function teamPulseMembers() {
   });
 }
 
+function applyOperatorProfile(profile) {
+  if (!profile || typeof profile !== "object") return state.operatorProfile;
+  const skills = Array.isArray(profile.skills)
+    ? profile.skills
+      .filter((item) => item && typeof item === "object")
+      .map((item) => ({
+        id: String(item.id || "").trim(),
+        name: String(item.name || "").trim(),
+        description: String(item.description || "").trim(),
+        instructions: String(item.instructions || "").trim(),
+      }))
+      .filter((item) => item.id && item.name && item.description && item.instructions)
+    : [];
+  state.operatorProfile = {
+    label: String(profile.label || "AEMEATH"),
+    avatar: profile.avatar === "custom" ? "custom" : "",
+    hiddenMemberIds: [...new Set((Array.isArray(profile.hiddenMemberIds)
+      ? profile.hiddenMemberIds
+      : []).map((id) => String(id || "").trim()).filter(Boolean))],
+    skills,
+  };
+  if (state.bootstrap && typeof state.bootstrap === "object") {
+    state.bootstrap.operatorProfile = state.operatorProfile;
+  }
+  return state.operatorProfile;
+}
+
 function renderOperatorAvatar() {
   const markup = operatorAvatarMarkup({
     profile: state.operatorProfile,
@@ -18045,16 +18066,13 @@ async function botSetMemberVisibility(agentId, visible) {
   const hidden = botHiddenMemberIds();
   if (visible) hidden.delete(memberId);
   else hidden.add(memberId);
-  state.operatorProfile = await request(API.operatorProfile, {
+  applyOperatorProfile(await request(API.operatorProfile, {
     method: "PUT",
     body: {
       label: state.operatorProfile?.label || "AEMEATH",
       hiddenMemberIds: [...hidden],
     },
-  });
-  if (state.bootstrap && typeof state.bootstrap === "object") {
-    state.bootstrap.operatorProfile = state.operatorProfile;
-  }
+  }));
   renderOperatorAvatar();
   botRenderRoster();
   botRenderMemberPanel();
@@ -19660,7 +19678,7 @@ async function botSaveProfile(event) {
   const submit = byId("bot-profile-submit");
   if (submit) submit.disabled = true;
   try {
-    state.operatorProfile = await request(API.operatorProfile, { method: "PUT", body: { label } });
+    applyOperatorProfile(await request(API.operatorProfile, { method: "PUT", body: { label } }));
     renderOperatorAvatar();
     if (status) { status.textContent = "个人资料已保存"; status.className = "bot-member-settings-status is-ok"; }
     toast("个人资料已保存", "success");
@@ -19690,7 +19708,10 @@ function botActivateSettingsTab(tabId = "general", { focus = false } = {}) {
   if (next === "general") botPopulateProfileSettings();
   if (next === "general") void botRenderConnectorAccounts();
   if (next === "team") botRenderSettingsMembers();
-  if (next === "plugins") botRenderPluginCapabilities();
+  if (next === "plugins") {
+    botRenderPluginCapabilities();
+    botRenderPrivateSkills();
+  }
   if (focus) tab.focus({ preventScroll: true });
 }
 
@@ -19974,14 +19995,58 @@ function botTrapWorkspaceFocus(event) {
   return false;
 }
 
-function botEditPrivateSkill(open = true) {
+function botPrivateSkills() {
+  return Array.isArray(state.operatorProfile?.skills) ? state.operatorProfile.skills : [];
+}
+
+function botFillPrivateSkillEditor(skill = null) {
+  const idInput = byId("bot-private-skill-id");
+  const nameInput = byId("bot-private-skill-name");
+  const descriptionInput = byId("bot-private-skill-description");
+  const instructionsInput = byId("bot-private-skill-instructions");
+  if (idInput) idInput.value = skill?.id || "";
+  if (nameInput) nameInput.value = skill?.name || "";
+  if (descriptionInput) descriptionInput.value = skill?.description || "";
+  if (instructionsInput) instructionsInput.value = skill?.instructions || "";
+}
+
+function botRenderPrivateSkills() {
+  const list = byId("bot-private-skill-list");
+  if (!list) return;
+  const skills = botPrivateSkills();
+  if (!skills.length) {
+    list.innerHTML = '<p class="bot-plugin-empty">还没有 Private skill</p>';
+    return;
+  }
+  list.innerHTML = skills.map((skill) => `<div class="bot-private-skill-row" data-bot-skill-id="${escapeHtml(skill.id)}"><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small></span><span class="bot-private-skill-actions"><button class="bot-text-button" type="button" data-bot-action="private-skill-edit" data-bot-skill-id="${escapeHtml(skill.id)}">Edit</button><button class="bot-icon-button" type="button" data-bot-action="private-skill-delete" data-bot-skill-id="${escapeHtml(skill.id)}" title="删除 Private skill" aria-label="删除 Private skill"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-trash-2"></use></svg></button></span></div>`).join("");
+}
+
+function botEditPrivateSkill(open = true, skillId = "") {
   const editor = byId("bot-private-skill-editor");
   if (!editor) return;
   editor.hidden = !open;
-  if (open) byId("bot-private-skill-name")?.focus({ preventScroll: true });
+  if (open) {
+    const id = String(skillId || "").trim();
+    const skill = id ? botPrivateSkills().find((item) => item.id === id) : null;
+    botFillPrivateSkillEditor(skill || null);
+    byId("bot-private-skill-name")?.focus({ preventScroll: true });
+  }
 }
 
-function botSavePrivateSkill(event) {
+async function botPersistPrivateSkills(skills) {
+  const profile = await request(API.operatorProfile, {
+    method: "PUT",
+    body: {
+      label: state.operatorProfile?.label || "AEMEATH",
+      skills,
+    },
+  });
+  applyOperatorProfile(profile);
+  botRenderPrivateSkills();
+  return profile;
+}
+
+async function botSavePrivateSkill(event) {
   event.preventDefault();
   const name = String(byId("bot-private-skill-name")?.value || "").trim();
   const description = String(byId("bot-private-skill-description")?.value || "").trim();
@@ -19990,13 +20055,48 @@ function botSavePrivateSkill(event) {
     toast("Private skill 需要名字、描述和指令", "warning");
     return;
   }
-  const row = document.querySelector(".bot-private-skill-row");
-  const title = row?.querySelector("strong");
-  const summary = row?.querySelector("small");
-  if (title) title.textContent = name;
-  if (summary) summary.textContent = description;
-  botEditPrivateSkill(false);
-  toast("Private skill 草稿已更新；写入真源尚未接入", "info", 4200);
+  const id = String(byId("bot-private-skill-id")?.value || "").trim();
+  const current = botPrivateSkills();
+  const next = id
+    ? current.map((item) => (item.id === id ? { ...item, name, description, instructions } : item))
+    : [...current, { name, description, instructions }];
+  if (id && !current.some((item) => item.id === id)) {
+    next.push({ id, name, description, instructions });
+  }
+  const submit = event.submitter || event.target?.querySelector("[type='submit']");
+  if (submit) submit.disabled = true;
+  try {
+    await botPersistPrivateSkills(next);
+    botEditPrivateSkill(false);
+    toast("Private skill 已保存", "success");
+  } catch (error) {
+    toast(`Private skill 保存失败：${error.message}`, "error", 5000);
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+}
+
+async function botDeletePrivateSkill(skillId) {
+  const id = String(skillId || "").trim();
+  const skill = botPrivateSkills().find((item) => item.id === id);
+  if (!id || !skill) return;
+  const confirmed = await confirmAction({
+    eyebrow: "Private skill",
+    title: `删除「${skill.name}」？`,
+    rows: [["影响", "从本机 operator-profile 中移除这条 Private skill"]],
+    warning: "刷新后不会再出现。仓库 Skill 文件不受影响。",
+    confirmLabel: "删除",
+    danger: true,
+  });
+  if (!confirmed) return;
+  try {
+    await botPersistPrivateSkills(botPrivateSkills().filter((item) => item.id !== id));
+    const editingId = String(byId("bot-private-skill-id")?.value || "").trim();
+    if (editingId === id) botEditPrivateSkill(false);
+    toast("Private skill 已删除", "success", 3200);
+  } catch (error) {
+    toast(`Private skill 删除失败：${error.message}`, "error", 5000);
+  }
 }
 
 function botOpenSettings(tab = "general", opener = null) {
@@ -20127,24 +20227,13 @@ function botHandleAction(action, button) {
       botEditPrivateSkill(true);
       return;
     case "private-skill-edit":
-      botEditPrivateSkill(true);
+      botEditPrivateSkill(true, button?.dataset.botSkillId);
       return;
     case "private-skill-cancel":
       botEditPrivateSkill(false);
       return;
     case "private-skill-delete":
-      void confirmAction({
-        eyebrow: "Private skill",
-        title: "删除这个 Private skill？",
-        rows: [["影响", "只移除 Bot Shell 中的本地编辑草稿"]],
-        warning: "真实 Skill 真源尚未接入，当前不会删除仓库文件。",
-        confirmLabel: "删除",
-        danger: true,
-      }).then((confirmed) => {
-        if (!confirmed) return;
-        document.querySelector(".bot-private-skill-row")?.remove();
-        toast("Private skill 草稿已删除", "success", 3200);
-      });
+      void botDeletePrivateSkill(button?.dataset.botSkillId);
       return;
     case "update-track": {
       const track = button?.dataset.botTrack;
@@ -21240,7 +21329,7 @@ byId("bot-member-runtime-profile")?.addEventListener("change", () => {
 async function uploadOperatorAvatar(file) {
   try {
     const dataUrl = await fileToAvatarDataUrl(file);
-    state.operatorProfile = await request(API.operatorAvatar, { method: "POST", body: { dataUrl } });
+    applyOperatorProfile(await request(API.operatorAvatar, { method: "POST", body: { dataUrl } }));
     await hydrateAvatar(requestBlob, "operator", "self");
     refreshAvatarSurfaces();
     toast("你的头像已更新", "success");
@@ -21251,7 +21340,7 @@ async function uploadOperatorAvatar(file) {
 
 async function resetOperatorAvatar() {
   try {
-    state.operatorProfile = await request(API.operatorAvatar, { method: "DELETE" });
+    applyOperatorProfile(await request(API.operatorAvatar, { method: "DELETE" }));
     refreshAvatarSurfaces();
     toast("已恢复默认头像", "success");
   } catch (error) {

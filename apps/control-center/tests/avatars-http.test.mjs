@@ -96,3 +96,85 @@ test("operator and member avatars require auth and survive a process restart", {
   const persistedMember = await jsonRequest(nextOrigin, "/api/team-members/codex-technical", token);
   assert.equal(persistedMember.payload.avatar, "custom");
 });
+
+test("operator private skills create/edit/delete survive a process restart", { timeout: 90_000 }, async (t) => {
+  const dataRoot = await mkdtemp(resolve(appRoot, ".test-private-skills-http-"));
+  const token = "e2e-private-skills-token-0123456789";
+  const env = {
+    CONTROL_CENTER_TOKEN: token,
+    CONTROL_CENTER_DATA_DIR: dataRoot,
+    CONTROL_CENTER_PORT: "0",
+  };
+  let child = spawnTestServer({ env });
+  t.after(async () => {
+    if (child && child.exitCode == null && child.signalCode == null) {
+      await stopTestServer(child, { token });
+    }
+    await rm(dataRoot, { recursive: true, force: true });
+  });
+
+  const origin = new URL(await waitForUrl(child)).origin;
+  const empty = await jsonRequest(origin, "/api/operator-profile", token);
+  assert.deepEqual(empty.payload.skills, []);
+
+  const created = await jsonRequest(origin, "/api/operator-profile", token, {
+    method: "PUT",
+    body: {
+      skills: [{
+        name: "Inbox triage",
+        description: "Summarize and label incoming mail",
+        instructions: "Read new messages, summarize them, and suggest a label.",
+      }],
+    },
+  });
+  assert.equal(created.response.status, 200);
+  assert.equal(created.payload.skills.length, 1);
+  assert.equal(created.payload.skills[0].name, "Inbox triage");
+  const skillId = created.payload.skills[0].id;
+  assert.ok(skillId);
+
+  const edited = await jsonRequest(origin, "/api/operator-profile", token, {
+    method: "PUT",
+    body: {
+      skills: [{
+        id: skillId,
+        name: "Inbox triage v2",
+        description: "Cluster and label incoming mail",
+        instructions: "Group related threads before labelling.",
+      }],
+    },
+  });
+  assert.equal(edited.payload.skills[0].id, skillId);
+  assert.equal(edited.payload.skills[0].name, "Inbox triage v2");
+
+  const labelOnly = await jsonRequest(origin, "/api/operator-profile", token, {
+    method: "PUT",
+    body: { label: "LO 的工作台" },
+  });
+  assert.equal(labelOnly.payload.label, "LO 的工作台");
+  assert.equal(labelOnly.payload.skills[0].name, "Inbox triage v2");
+
+  const bootstrap = await jsonRequest(origin, "/api/bootstrap", token);
+  assert.equal(bootstrap.payload.operatorProfile.skills[0].id, skillId);
+
+  await stopTestServer(child, { token });
+  child = spawnTestServer({ env });
+  const nextOrigin = new URL(await waitForUrl(child)).origin;
+  const persisted = await jsonRequest(nextOrigin, "/api/operator-profile", token);
+  assert.equal(persisted.payload.label, "LO 的工作台");
+  assert.equal(persisted.payload.skills.length, 1);
+  assert.equal(persisted.payload.skills[0].id, skillId);
+  assert.equal(persisted.payload.skills[0].name, "Inbox triage v2");
+  assert.equal(persisted.payload.skills[0].instructions, "Group related threads before labelling.");
+
+  const deleted = await jsonRequest(nextOrigin, "/api/operator-profile", token, {
+    method: "PUT",
+    body: { skills: [] },
+  });
+  assert.deepEqual(deleted.payload.skills, []);
+
+  await stopTestServer(child, { token });
+  child = spawnTestServer({ env });
+  const emptyAgain = await jsonRequest(new URL(await waitForUrl(child)).origin, "/api/operator-profile", token);
+  assert.deepEqual(emptyAgain.payload.skills, []);
+});

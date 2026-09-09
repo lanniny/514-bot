@@ -259,12 +259,30 @@ test("Bot fail-closed actions are explicit and do not impersonate backend suppor
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
   ]);
-  for (const action of ["computer-update", "computer-reset", "private-skill-add", "routine-toggle"]) {
+  for (const action of ["computer-update", "computer-reset", "routine-toggle"]) {
     assert.match(html, new RegExp(`data-bot-action="${action}"`));
   }
   assert.match(app, /function botHandleAction\(action, button\)/);
   assert.match(app, /成员电脑 Reset 尚未接入真实快照后端/);
-  assert.match(app, /Private skill 草稿已更新；写入真源尚未接入/);
+  assert.doesNotMatch(app, /写入真源尚未接入/);
+});
+
+test("Bot private skills persist through operator-profile and start empty", async () => {
+  const [html, app] = await Promise.all([
+    readFile(`${appRoot}/public/index.html`, "utf8"),
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+  ]);
+  assert.doesNotMatch(html, /Inbox triage/);
+  assert.doesNotMatch(html, /Summarize and label incoming mail/);
+  assert.match(html, /id="bot-private-skill-list"/);
+  assert.match(html, /还没有 Private skill/);
+  assert.match(html, /data-bot-action="private-skill-add"/);
+  assert.match(html, /id="bot-private-skill-id"[^>]+type="hidden"/);
+  assert.match(app, /function botRenderPrivateSkills\(/);
+  assert.match(app, /async function botPersistPrivateSkills\(/);
+  assert.match(app, /async function botDeletePrivateSkill\(/);
+  assert.match(app, /API\.operatorProfile/);
+  assert.match(app, /botRenderPrivateSkills\(\)/);
 });
 
 test("Bot Appearance and Plugins are real structured controls", async () => {
@@ -292,7 +310,7 @@ test("Bot settings keep account, plugin library, and member sub-settings inside 
     readFile(`${appRoot}/public/app.js`, "utf8"),
     readFile(`${appRoot}/public/forge/bot-shell.css`, "utf8"),
   ]);
-  for (const marker of ["Your plugins", "Private skills", "bot-plugin-capabilities", "bot-private-skill-editor"]) {
+  for (const marker of ["Your plugins", "Private skills", "bot-plugin-capabilities", "bot-private-skill-editor", "bot-private-skill-list"]) {
     assert.match(html, new RegExp(marker.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
   assert.match(html, /id="bot-agent-settings-panel"[^>]+role="dialog"[^>]+aria-modal="true"[^>]+inert/);

@@ -59,6 +59,7 @@ test("operator avatar defaults to AEMEATH and round-trips a custom photo", async
   assert.equal(initial.label, OPERATOR_DEFAULT_LABEL);
   assert.equal(initial.avatar, "");
   assert.deepEqual(initial.hiddenMemberIds, []);
+  assert.deepEqual(initial.skills, []);
   await assert.rejects(() => avatars.readOperatorFile(), { code: "AVATAR_NOT_FOUND" });
 
   const saved = await avatars.setOperatorAvatar(jpegDataUrl());
@@ -92,6 +93,58 @@ test("operator nickname is validated and survives avatar changes", async (t) => 
   assert.equal(withAvatar.label, "LO 的工作台");
   assert.equal(withAvatar.avatar, "custom");
   assert.deepEqual(withAvatar.hiddenMemberIds, ["grok-search", "kimi-frontend"]);
+  assert.deepEqual(withAvatar.skills, []);
+});
+
+test("operator private skills persist, edit, delete, and survive label/avatar writes", async (t) => {
+  const { avatars } = await fixture(t);
+  await assert.rejects(
+    () => avatars.setOperatorProfile({ skills: [{ name: "Only name", description: "", instructions: "x" }] }),
+    { code: "VALIDATION_FAILED" },
+  );
+  await assert.rejects(
+    () => avatars.setOperatorProfile({ skills: "not-an-array" }),
+    { code: "VALIDATION_FAILED" },
+  );
+
+  const created = await avatars.setOperatorProfile({
+    skills: [{
+      name: "Inbox triage",
+      description: "Summarize and label incoming mail",
+      instructions: "Read new messages, summarize them, and suggest a label.",
+    }],
+  });
+  assert.equal(created.label, OPERATOR_DEFAULT_LABEL);
+  assert.equal(created.skills.length, 1);
+  assert.match(created.skills[0].id, /^[A-Za-z0-9][A-Za-z0-9._-]*$/);
+  assert.equal(created.skills[0].name, "Inbox triage");
+  const skillId = created.skills[0].id;
+
+  const renamed = await avatars.setOperatorProfile({ label: "LO 的工作台" });
+  assert.equal(renamed.label, "LO 的工作台");
+  assert.equal(renamed.skills[0].id, skillId);
+  assert.equal(renamed.skills[0].name, "Inbox triage");
+
+  const edited = await avatars.setOperatorProfile({
+    skills: [{
+      id: skillId,
+      name: "Inbox triage v2",
+      description: "Cluster and label incoming mail",
+      instructions: "Group related threads before labelling.",
+    }],
+  });
+  assert.equal(edited.skills[0].id, skillId);
+  assert.equal(edited.skills[0].name, "Inbox triage v2");
+  assert.equal(edited.label, "LO 的工作台");
+
+  const withAvatar = await avatars.setOperatorAvatar(jpegDataUrl());
+  assert.equal(withAvatar.avatar, "custom");
+  assert.equal(withAvatar.skills[0].name, "Inbox triage v2");
+
+  const emptied = await avatars.setOperatorProfile({ skills: [] });
+  assert.deepEqual(emptied.skills, []);
+  assert.equal(emptied.label, "LO 的工作台");
+  assert.equal(emptied.avatar, "custom");
 });
 
 test("member avatar writes the catalog flag and rejects unknown members before storing bytes", async (t) => {

@@ -15,6 +15,12 @@ export const OPERATOR_DEFAULT_LABEL = "AEMEATH";
 const STORE_VERSION = 1;
 const HIDDEN_MEMBER_MAX = 512;
 const MEMBER_ID_MAX = 128;
+const PRIVATE_SKILL_MAX = 64;
+const PRIVATE_SKILL_ID_MAX = 64;
+const PRIVATE_SKILL_NAME_MAX = 80;
+const PRIVATE_SKILL_DESCRIPTION_MAX = 200;
+const PRIVATE_SKILL_INSTRUCTIONS_MAX = 4000;
+const PROTOTYPE_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 const IMAGE_EXT = Object.freeze({
   "image/png": "png",
   "image/jpeg": "jpg",
@@ -135,6 +141,51 @@ function cleanHiddenMemberIds(value) {
   return ids;
 }
 
+function cleanPrivateSkillText(value, label, max) {
+  if (typeof value !== "string") fail(`${label} must be a string`, "VALIDATION_FAILED");
+  const text = value.trim();
+  if (!text) fail(`${label} is required`, "VALIDATION_FAILED");
+  if (text.length > max) fail(`${label} exceeds ${max} characters`, "VALIDATION_FAILED");
+  return text;
+}
+
+function cleanPrivateSkills(value) {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) fail("skills must be an array", "VALIDATION_FAILED");
+  if (value.length > PRIVATE_SKILL_MAX) fail(`skills exceeds ${PRIVATE_SKILL_MAX} entries`, "VALIDATION_FAILED");
+  const skills = [];
+  const seen = new Set();
+  for (const raw of value) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      fail("skills entries must be objects", "VALIDATION_FAILED");
+    }
+    for (const key of Object.keys(raw)) {
+      if (PROTOTYPE_KEYS.has(key)) fail("skills contains a forbidden key", "VALIDATION_FAILED");
+    }
+    const name = cleanPrivateSkillText(raw.name, "skill name", PRIVATE_SKILL_NAME_MAX);
+    const description = cleanPrivateSkillText(raw.description, "skill description", PRIVATE_SKILL_DESCRIPTION_MAX);
+    const instructions = cleanPrivateSkillText(raw.instructions, "skill instructions", PRIVATE_SKILL_INSTRUCTIONS_MAX);
+    let id = typeof raw.id === "string" ? raw.id.trim() : "";
+    if (!id) id = randomUUID();
+    if (id.length > PRIVATE_SKILL_ID_MAX || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) {
+      fail("skills contains an invalid id", "VALIDATION_FAILED");
+    }
+    if (seen.has(id)) fail("skills contains a duplicate id", "VALIDATION_FAILED");
+    seen.add(id);
+    skills.push({ id, name, description, instructions });
+  }
+  return skills;
+}
+
+function readPrivateSkills(value) {
+  if (value === undefined || value === null) return [];
+  try {
+    return cleanPrivateSkills(value) ?? [];
+  } catch {
+    return [];
+  }
+}
+
 async function writeAtomicBytes(path, bytes) {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const temp = join(dirname(path), `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`);
@@ -227,6 +278,7 @@ export function createAvatarStore({ dataRoot, teamMembers } = {}) {
         label,
         avatar: parsed.avatar === "custom" ? "custom" : "",
         hiddenMemberIds: cleanHiddenMemberIds(parsed.hiddenMemberIds ?? []),
+        skills: readPrivateSkills(parsed.skills),
       };
     } catch (error) {
       if (error?.code === "ENOENT") return defaultOperator();
@@ -235,7 +287,7 @@ export function createAvatarStore({ dataRoot, teamMembers } = {}) {
   }
 
   function defaultOperator() {
-    return { label: OPERATOR_DEFAULT_LABEL, avatar: "", hiddenMemberIds: [] };
+    return { label: OPERATOR_DEFAULT_LABEL, avatar: "", hiddenMemberIds: [], skills: [] };
   }
 
   async function writeOperatorRecord(record) {
@@ -244,6 +296,7 @@ export function createAvatarStore({ dataRoot, teamMembers } = {}) {
       label: record.label,
       avatar: record.avatar === "custom" ? "custom" : "",
       hiddenMemberIds: cleanHiddenMemberIds(record.hiddenMemberIds ?? []),
+      skills: cleanPrivateSkills(record.skills ?? []) ?? [],
     });
     return readOperatorRecord();
   }
@@ -263,13 +316,18 @@ export function createAvatarStore({ dataRoot, teamMembers } = {}) {
     },
 
     async setOperatorProfile(input = {}) {
-      const label = typeof input?.label === "string" ? input.label.trim().slice(0, 48) : "";
-      if (!label) fail("operator label is required", "VALIDATION_FAILED");
       const current = await readOperatorRecord();
+      const label = Object.hasOwn(input, "label")
+        ? (typeof input.label === "string" ? input.label.trim().slice(0, 48) : "")
+        : current.label;
+      if (!label) fail("operator label is required", "VALIDATION_FAILED");
       const hiddenMemberIds = Object.hasOwn(input, "hiddenMemberIds")
         ? cleanHiddenMemberIds(input.hiddenMemberIds)
         : current.hiddenMemberIds;
-      return writeOperatorRecord({ ...current, label, hiddenMemberIds });
+      const skills = Object.hasOwn(input, "skills")
+        ? cleanPrivateSkills(input.skills)
+        : current.skills;
+      return writeOperatorRecord({ ...current, label, hiddenMemberIds, skills });
     },
 
     async setOperatorAvatar(dataUrl) {

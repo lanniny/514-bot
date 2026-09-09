@@ -787,7 +787,9 @@ body.team-bg-active .bot-composer {
 .bot-plugin-library { margin-top: 2px; }
 .bot-plugin-library-head { margin-bottom: 18px; padding-bottom: 12px; border-bottom: 1px solid var(--bot-line); }
 .bot-plugin-subsection { margin-bottom: 22px; }
-.bot-installed-list { display: grid; gap: 6px; margin-top: 8px; }
+.bot-installed-list,
+.bot-private-skill-list { display: grid; gap: 6px; margin-top: 8px; }
+.bot-private-skill-list .bot-plugin-empty { margin: 8px 0; }
 .bot-installed-row,
 .bot-private-skill-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 12px; border: 1px solid var(--bot-line); border-radius: 6px; background: var(--bot-panel); }
 .bot-installed-row > span,

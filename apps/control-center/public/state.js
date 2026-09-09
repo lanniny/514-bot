@@ -289,7 +289,7 @@ export const state = {
   editingTeamId: null,
   teamSurface: "orchestration",
   memberCatalog: [],
-  operatorProfile: { label: "AEMEATH", avatar: "" },
+  operatorProfile: { label: "AEMEATH", avatar: "", hiddenMemberIds: [], skills: [] },
   runtimeCatalog: [],
   adapterTemplatesData: null,
   runtimeSeatsData: null,
