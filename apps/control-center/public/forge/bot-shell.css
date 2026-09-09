@@ -488,7 +488,8 @@ body.team-bg-active .bot-composer {
 .bot-progress span { display: block; height: 100%; background: var(--bot-accent); }
 .bot-card-footnote { margin: 8px 14px 13px; color: var(--bot-muted); font-size: var(--text-xs); }
 
-.bot-typing { display: inline-flex; align-items: center; gap: 5px; padding: 11px 12px; }
+.bot-typing { display: inline-flex; max-width: 100%; align-items: center; flex-wrap: wrap; gap: 5px; padding: 11px 12px; }
+.bot-typing-name { min-width: 0; overflow: hidden; color: var(--bot-muted); font-size: var(--text-xs); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .bot-typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--bot-muted); animation: bot-typing-bounce 1.2s infinite ease-in-out; }
 .bot-typing i:nth-child(2) { animation-delay: .15s; }
 .bot-typing i:nth-child(3) { animation-delay: .3s; }
@@ -1055,8 +1056,8 @@ html.is-bot-surface #view-bot {
   .bot-computer-screen-large { max-height: none; }
   .bot-computer-handoff { align-items: stretch; flex-direction: column; }
   .bot-settings-layout { display: block; }
-  .bot-settings-tabs { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; padding: 8px; border-right: 0; border-bottom: 1px solid var(--bot-line); overflow-x: auto; }
-  .bot-settings-tabs button { min-width: 92px; padding: 0 8px; text-align: center; }
+  .bot-settings-tabs { display: flex; flex-wrap: nowrap; gap: 4px; padding: 8px; border-right: 0; border-bottom: 1px solid var(--bot-line); overflow-x: auto; }
+  .bot-settings-tabs button { flex: 0 0 auto; min-width: 72px; padding: 0 8px; text-align: center; }
   .bot-settings-content { padding: 20px 14px; }
   .bot-theme-options { grid-template-columns: 1fr; }
   .bot-update-track .bot-text-button { margin-left: 0; }
@@ -1098,6 +1099,25 @@ html.is-bot-surface #view-bot {
 .bot-workspace-mount { width: min(1120px, 100%); min-width: 0; margin: 0 auto; box-sizing: border-box; padding: 20px clamp(16px, 4vw, 48px) 36px; }
 .bot-seat-workspace-mount { width: min(1320px, 100%); padding-top: 12px; }
 .bot-seat-workspace-mount > .runtime-seat-layout { min-height: min(760px, calc(100vh - 190px)); grid-template-rows: minmax(420px, 1fr); }
+
+@media (max-width: 560px) {
+  .bot-member-settings-identity { flex-wrap: wrap; }
+  .bot-member-settings-status { width: 100%; }
+  .bot-member-runtime-facts { grid-template-columns: 1fr; }
+  .bot-agent-settings-actions { flex-wrap: wrap; justify-content: stretch; }
+  .bot-agent-settings-actions .bot-action-spacer { display: none; }
+  .bot-agent-settings-actions .bot-text-button,
+  .bot-agent-settings-actions .bot-card-confirm { flex: 1 1 calc(50% - 8px); min-height: 44px; }
+  .bot-agent-settings-actions .is-danger { flex-basis: 100%; }
+  .bot-member-seat-actions .bot-text-button,
+  .bot-member-seat-actions .bot-card-confirm { min-height: 44px; }
+  .bot-collab-tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; }
+  .bot-collab-tabs button { min-height: 44px; }
+  .bot-conversation-header,
+  .bot-panel-header,
+  .bot-settings-header { min-height: 56px; padding: 10px 12px; gap: 8px; }
+  .bot-window-controls { display: none; }
+}
 
 @media (max-width: 680px) {
   .bot-workspace-header { padding-inline: 14px; }

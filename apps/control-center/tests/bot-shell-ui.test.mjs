@@ -497,6 +497,22 @@ test("Bot roster channels and composer kickoff follow real sources (Grok parity 
   assert.match(app, /点名 @成员 或直接下达任务/);
 });
 
+test("Bot 390px walkthrough keeps critical surfaces wrapping (Grok parity W6)", async () => {
+  const [shell, workspace, parity] = await Promise.all([
+    readFile(`${appRoot}/public/forge/bot-shell.css`, "utf8"),
+    readFile(`${appRoot}/public/forge/bot-workspace.css`, "utf8"),
+    readFile(`${appRoot}/public/forge/bot-grok-parity.css`, "utf8"),
+  ]);
+  assert.match(parity, /W6：390px 小屏走查/);
+  assert.match(parity, /@media \(max-width: 560px\)[\s\S]*\.bot-routine-dialog[\s\S]*width: calc\(100vw - 16px\)/);
+  assert.match(parity, /@media \(max-width: 560px\)[\s\S]*\.bot-relay-meta[\s\S]*flex-direction: column/);
+  assert.match(shell, /@media \(max-width: 560px\)[\s\S]*\.bot-agent-settings-actions[\s\S]*flex-wrap: wrap/);
+  assert.match(shell, /@media \(max-width: 700px\)[\s\S]{0,400}\.bot-settings-tabs \{ display: flex; flex-wrap: nowrap;/);
+  assert.match(workspace, /@media \(max-width: 560px\)[\s\S]*#view-bot \.bot-composer \{ padding: 8px 10px 10px; \}/);
+  const pack = await readFile(`${appRoot}/package.json`, "utf8");
+  assert.match(pack, /"qa:bot-390": "node scripts\/qa-bot-390\.mjs"/);
+});
+
 test("Bot render ignores late runs from a non-active conversation for the same agent (P0-03)", async () => {
   const [app, header] = await Promise.all([
     readFile(`${appRoot}/public/app.js`, "utf8"),
@@ -967,9 +983,15 @@ test("Bot messages keep coherent Markdown, visible identities, compact activity 
   assert.match(app, /body: \{ source: "bot-composer-stop" \}/);
   assert.match(css, /\.bot-send-button\.is-stop/);
   // 打字指示只在 queued/running 且最后一条是用户消息时出现；等待类状态不冒充输入中。
-  assert.match(app, /data-bot-typing="1"/);
-  assert.match(app, /botRunPresentation\(run\)\?\.className === "is-running"/);
+  // W7：群聊按成员投影，不再用当前选中席位冒充「谁在输入」。
+  const typing = await readFile(`${appRoot}/public/modules/bot-typing-indicators.js`, "utf8");
+  assert.match(app, /import \{ botTypingMarkup, botTypingMembers \} from "\.\/modules\/bot-typing-indicators\.js"/);
+  assert.match(app, /botTypingMembers\(run, \{ conversation: activeConversation, fallbackMemberId: agentId \}\)/);
+  assert.match(typing, /data-bot-typing="1"/);
+  assert.match(typing, /data-bot-typing-member/);
+  assert.match(typing, /workspace_group/);
   assert.match(css, /\.bot-typing i/);
+  assert.match(css, /\.bot-typing-name/);
   assert.match(css, /prefers-reduced-motion/);
   // 深色主题的 accent 不再配白字：主按钮/用户气泡都有成对 ink 变量。
   assert.match(css, /--bot-accent-ink: #ffffff/);
