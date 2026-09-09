@@ -12,8 +12,10 @@
 
 /* ---- 新建例行 dialog ---- */
 .bot-routine-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 20px; border: 1px solid var(--bot-line); border-radius: 8px; background: var(--bot-panel); color: var(--bot-ink); }
+.bot-routine-dialog[open] { display: flex; flex-direction: column; }
 .bot-routine-dialog::backdrop { background: color-mix(in srgb, black 35%, transparent); }
-.bot-routine-dialog header, .bot-routine-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.bot-routine-dialog header, .bot-routine-dialog footer { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; gap: 12px; }
+.bot-routine-dialog header { position: sticky; top: 0; z-index: 1; padding-bottom: 8px; background: var(--bot-panel); }
 .bot-routine-dialog header h2 { margin: 0; font-size: var(--text-base); }
 .bot-routine-dialog footer { margin-top: 16px; justify-content: flex-end; }
 .bot-routine-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
@@ -60,3 +62,38 @@
 .bot-routine-history-status.is-triggered { color: var(--bot-warn, var(--bot-muted)); }
 .bot-routine-history-status.is-succeeded { color: var(--bot-ok, var(--bot-muted)); }
 .bot-routine-history-status.is-failed { color: var(--bot-danger, var(--bot-muted)); }
+
+/* ---- W6：390px 小屏走查（标准档 --bp-sm 560；目标视口 390×844） ---- */
+.bot-routine-dialog { box-sizing: border-box; overflow: hidden; }
+.bot-routine-dialog form { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
+.bot-routine-dialog .bot-routine-hint,
+.bot-routine-dialog .bot-routine-grid,
+.bot-routine-dialog .bot-routine-error { min-width: 0; }
+.bot-routine-dialog .bot-routine-grid { flex: 1 1 auto; overflow: auto; }
+.bot-routine-dialog footer { position: sticky; bottom: 0; padding-top: 12px; background: var(--bot-panel); }
+.bot-relay-route,
+.bot-relay-meta { min-width: 0; flex-wrap: wrap; }
+.bot-relay-text { overflow-wrap: anywhere; }
+.bot-relay-row { min-width: 0; }
+
+@media (max-width: 560px) {
+  .bot-routine-dialog {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    padding: 14px;
+  }
+  .bot-routine-dialog header { align-items: flex-start; }
+  .bot-routine-dialog header h2 { overflow-wrap: anywhere; }
+  .bot-routine-dialog footer { flex-wrap: wrap; }
+  .bot-routine-dialog footer button { min-height: 44px; flex: 1 1 8rem; }
+  .bot-routine-grid { grid-template-columns: 1fr; }
+  .bot-section-heading { flex-wrap: wrap; min-height: 0; }
+  .bot-section-heading .bot-text-button { min-height: 36px; }
+  .bot-relay-summary { flex-wrap: wrap; }
+  .bot-relay-meta { flex-direction: column; align-items: flex-start; }
+  .bot-relay-meta .bot-text-button { min-height: 44px; }
+  .bot-channel-mini { min-width: 0; }
+  .bot-routine-history li { flex-wrap: wrap; }
+  .bot-routine-history time { margin-left: 0; }
+}

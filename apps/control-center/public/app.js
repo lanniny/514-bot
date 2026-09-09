@@ -152,6 +152,7 @@ import { renderBotRoutines, bindRoutineDialog, openRoutineDialog } from "./modul
 import { loadBotProfileSection, saveBotProfileSection, markBotProfileDirty } from "./modules/bot-profile-editor.js";
 import { renderRelayBoard } from "./modules/bot-relay-board.js";
 import { postRelayKickoff } from "./modules/bot-collab-api.js";
+import { botTypingMarkup, botTypingMembers } from "./modules/bot-typing-indicators.js";
 import {
   state, ACTIVE_RUN_STATES, TERMINAL_RUN_STATES, VIEW_TITLES,
   DEFAULT_COMPONENTS, DEFAULT_MODELS, DEFAULT_POLICIES, DEFAULT_SECRETS,
@@ -19025,14 +19026,26 @@ function botRenderConversationMessages(agentId, run, messages) {
   if (!askHtml && botState.answerTarget?.runId === String(run?.id || "")) botState.answerTarget = null;
   // 代理收到消息还没开口时显示打字指示：这是 Grok Bot 黑盒感最强的时刻。
   // 只认 queued/running；waiting 类状态有审批卡/提问卡表达，不冒充「正在输入」。
+  // 群聊按 turn/inflight/task 落到具体成员，不再用当前选中席位冒充「谁在输入」。
+  // live-delta 常驻 hidden 占位不能吞掉打字泡；仅当 live-turn 已点名成员时让位，避免一活两显。
   const lastKind = merged.at(-1)?.kind;
-  const typingHtml = !askHtml && lastKind === "user" && botRunPresentation(run)?.className === "is-running"
-    ? `<div class="bot-message bot-message-agent" data-bot-typing="1">${botMessageAvatar(agentId)}<div><div class="bot-bubble bot-typing" role="status" aria-label="${escapeHtml(botMeta(agentId).label)} 正在输入"><i></i><i></i><i></i></div></div></div>`
+  const liveProcess = run && !page.after ? liveProcessRowsMarkup(run) : "";
+  const liveTurn = run && !page.after ? liveTurnMarkup(run) : "";
+  const liveDelta = run && !page.after
+    ? liveDeltaMarkup(run, { agentId: activeConversation?.kind === "direct" ? agentId : null })
     : "";
-  const liveMarkup = run && !page.after
-    ? liveProcessRowsMarkup(run) + liveTurnMarkup(run) + liveDeltaMarkup(run, { agentId: activeConversation?.kind === "direct" ? agentId : null })
-    : "";
-  const html = `${messageHtml}${liveMarkup || typingHtml}${approvalOutcomeHtml}`;
+  const liveMarkup = `${liveProcess}${liveTurn}${liveDelta}`;
+  const typingMembers = !askHtml && lastKind === "user" && !liveTurn
+    ? botTypingMembers(run, { conversation: activeConversation, fallbackMemberId: agentId })
+    : [];
+  const typingHtml = botTypingMarkup({
+    members: typingMembers,
+    run,
+    conversation: activeConversation,
+    avatarHtml: (id) => botMessageAvatar(id),
+    labelFor: (id) => botMeta(id).label,
+  });
+  const html = `${messageHtml}${liveMarkup}${typingHtml}${approvalOutcomeHtml}`;
   renderWorkspaceAttention();
   const conversationLabel = botState.activeGroupRunId && String(run?.id) === String(botState.activeGroupRunId)
     ? botGroupTitle(run)

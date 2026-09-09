@@ -269,3 +269,14 @@ body.team-bg-active #view-bot .bot-composer-row { background: transparent; }
   .workspace-history-row { align-items: flex-start; }
   .workspace-history-row #workspace-current-state { padding: 6px 12px 6px 0; }
 }
+
+@media (max-width: 560px) {
+  #view-bot .bot-composer { padding: 8px 10px 10px; }
+  #view-bot .bot-composer-row { gap: 6px; padding: 8px; }
+  #view-bot .bot-composer-footer { gap: 6px 8px; }
+  #view-bot .bot-composer-footer select { max-width: 46%; min-width: 0; }
+  #view-bot .workspace-advanced-mode span { display: none; }
+  #view-bot .bot-conversation-heading { flex-basis: min(160px, 42vw); min-width: 0; }
+  #view-bot .bot-conversation-actions { flex-wrap: wrap; justify-content: flex-end; }
+  #view-bot .bot-member-seat-entry span { display: none; }
+}

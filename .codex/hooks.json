@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python I:/514claude/514cc/.codex/hooks/mirror-gate-codex.py",
+            "command": "python \".codex/hooks/mirror-gate-codex.py\"",
             "timeout": 10,
             "statusMessage": "514cc mirror gate"
           }
@@ -18,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python I:/514claude/514cc/.codex/hooks/route-gate-codex.py",
+            "command": "python \".codex/hooks/route-gate-codex.py\"",
             "timeout": 10,
             "statusMessage": "514cc route gate"
           }
@@ -30,7 +30,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python I:/514claude/514cc/.codex/hooks/stop-gate-codex.py",
+            "command": "python \".codex/hooks/stop-gate-codex.py\"",
             "timeout": 10,
             "statusMessage": "514cc stop gate"
           }
