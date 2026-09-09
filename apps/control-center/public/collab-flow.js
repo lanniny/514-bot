@@ -617,12 +617,12 @@ function setInboxStatus(root, text, tone = "neutral") {
 /** 本地启发式：镜像 src/router.mjs classifyTask 的关键词口径，供单测与旧探针复用。
     gemini-research 已除名——该 profile 当前禁用（.ai-shared/context.md），不建议不可执行席位。 */
 const SUGGEST_RULES = Object.freeze([
-  { type: "current-research", label: "实时情报", re: /最新|当前|今天|实时|搜索|调研|search|news/i, prefer: ["grok-search", "grok-build"], why: "检索/取证能力" },
+  { type: "current-research", label: "实时情报", re: /最新|当前|今天|实时|搜索|调研|search|news/i, prefer: ["codex-technical"], why: "执行后端调用检索工具" },
   { type: "frontend", label: "前端工程", re: /前端|界面|样式|页面|组件|UI|CSS|HTML/i, prefer: ["kimi-frontend"], why: "前端/UI 专席" },
   { type: "review", label: "评审审计", re: /评审|审计|安全|review|security/i, prefer: ["codex-technical"], why: "评审与验证" },
   { type: "debugging", label: "排障修复", re: /修复|报错|错误|异常|故障|失败|debug|bug/i, prefer: ["codex-technical", "grok-build"], why: "实现与排障" },
   { type: "resident", label: "扩展与 RPC", re: /扩展|插件|RPC|工具编排|resident|extension/i, prefer: ["pi-resident"], why: "RPC/工具编排" },
-  { type: "long-context", label: "长上下文", re: /长文档|全文|研究|论文|document|research/i, prefer: ["grok-search"], why: "研究/长上下文" },
+  { type: "long-context", label: "长上下文", re: /长文档|全文|研究|论文|document|research/i, prefer: ["claude-fable", "grok-build"], why: "研究/长上下文" },
   { type: "coding", label: "编码实现", re: /实现|写代码|开发|编码|构建|implement|code|build/i, prefer: ["codex-technical", "grok-build"], why: "编码执行" },
   { type: "planning", label: "规划架构", re: /规划|方案|架构|设计|plan|architecture/i, prefer: [], why: "当前团队主脑规划" },
 ]);

@@ -5,6 +5,8 @@
 // 僵尸进程。UI 全部由内核 Web 面板提供。
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod desktop_layout;
+mod kernel_access;
 mod native;
 
 use std::io::{BufRead, BufReader};
@@ -316,6 +318,20 @@ where
     }
 }
 
+fn cancel_after_kernel_eof<R>(
+    state: &WindowLaunchState,
+    handshake_seen: bool,
+    rollback: R,
+) -> Result<bool, String>
+where
+    R: FnOnce() -> Result<(), String>,
+{
+    if !handshake_seen {
+        return Ok(false);
+    }
+    cancel_window_launch(state, rollback)
+}
+
 fn hide_main_window(app: &AppHandle) -> Result<(), String> {
     match app.get_webview_window("main") {
         Some(window) => window.hide().map_err(|error| error.to_string()),
@@ -324,6 +340,7 @@ fn hide_main_window(app: &AppHandle) -> Result<(), String> {
 }
 
 fn cancel_main_window(app: &AppHandle, state: &WindowLaunchState, context: &str) -> bool {
+    kernel_access::revoke(app);
     match cancel_window_launch(state, || hide_main_window(app)) {
         Ok(changed) => changed,
         Err(error) => {
@@ -334,10 +351,7 @@ fn cancel_main_window(app: &AppHandle, state: &WindowLaunchState, context: &str)
 }
 
 fn repo_root() -> PathBuf {
-    // 自用系统：默认写死 514cc 仓库根，可用 CC_ROOT 环境变量覆盖（如仓库迁移）。
-    std::env::var("CC_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from(r"I:\514claude\514cc"))
+    desktop_layout::current().workspace_root.clone()
 }
 
 /// 挑一个当前空闲的 127.0.0.1 端口。写死 KERNEL_PORT 的历史问题：僵尸内核 / dev
@@ -414,6 +428,9 @@ fn show_fatal_error(title: &str, message: &str) {
 /// 解析 node 可执行路径。桌面壳从快捷方式/资源管理器启动时，PATH 常不含 fnm/node，
 /// 仅写 `node` 会 spawn 失败并秒退——这是 LO 反馈「没看到启动」的主因之一。
 fn resolve_node_binary() -> PathBuf {
+    if let Some(node) = &desktop_layout::current().node {
+        return node.clone();
+    }
     if let Ok(path) = std::env::var("CC_NODE") {
         let candidate = PathBuf::from(path);
         if candidate.is_file() {
@@ -448,7 +465,7 @@ fn resolve_node_binary() -> PathBuf {
 }
 
 fn boot_dir() -> PathBuf {
-    let dir = repo_root().join(".scratch").join("desktop-launch");
+    let dir = desktop_layout::current().log_root.clone();
     let _ = std::fs::create_dir_all(&dir);
     dir
 }
@@ -475,7 +492,7 @@ fn boot_log(message: &str) {
 }
 
 fn spawn_kernel(port: u16) -> std::io::Result<Child> {
-    let cc_dir = repo_root().join("apps").join("control-center");
+    let cc_dir = desktop_layout::current().kernel_dir.clone();
     let node = resolve_node_binary();
     boot_log(&format!(
         "spawn_kernel port={port} node={} cwd={}",
@@ -488,6 +505,11 @@ fn spawn_kernel(port: u16) -> std::io::Result<Child> {
         .arg(cc_dir.join("server.mjs"))
         .current_dir(&cc_dir)
         .env("CONTROL_CENTER_PORT", port.to_string())
+        .env("CONTROL_CENTER_REPO_ROOT", repo_root())
+        .env(
+            "CONTROL_CENTER_DATA_DIR",
+            &desktop_layout::current().data_root,
+        )
         .env("CC_ROOT", repo_root())
         .stdout(Stdio::piped());
     // stderr 直接落文件：内核启动期崩溃/端口占用必须留痕可诊断。历史做法 Stdio::null()
@@ -544,8 +566,8 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        activate_window, cancel_window_launch, parse_kernel_url, window_phase, WindowLaunchPhase,
-        WindowLaunchState, KERNEL_PORT,
+        activate_window, cancel_after_kernel_eof, cancel_window_launch, parse_kernel_url,
+        window_phase, WindowLaunchPhase, WindowLaunchState, KERNEL_PORT,
     };
 
     #[test]
@@ -610,6 +632,27 @@ mod tests {
         );
         assert_eq!(visibility_calls.load(Ordering::SeqCst), 0);
         assert_eq!(window_phase(&state), WindowLaunchPhase::Cancelled);
+    }
+
+    #[test]
+    fn pre_handshake_eof_keeps_retry_pending_but_post_handshake_eof_cancels() {
+        let state = WindowLaunchState::new();
+        assert_eq!(
+            cancel_after_kernel_eof(&state, false, || panic!("no window to hide")),
+            Ok(false)
+        );
+        assert_eq!(window_phase(&state), WindowLaunchPhase::Pending);
+        assert_eq!(
+            activate_window(&state, || Ok(()), || Ok(()), || Ok(())),
+            Ok(true)
+        );
+        assert_eq!(window_phase(&state), WindowLaunchPhase::Live);
+        assert_eq!(cancel_after_kernel_eof(&state, true, || Ok(())), Ok(true));
+        assert_eq!(window_phase(&state), WindowLaunchPhase::Cancelled);
+        assert_eq!(
+            activate_window(&state, || Ok(()), || Ok(()), || Ok(())),
+            Ok(false)
+        );
     }
 
     #[test]
@@ -1080,20 +1123,23 @@ fn start_stdout_reader(
                 if !url_sent {
                     if let Some(url) = parse_kernel_url(&line, expected_port) {
                         url_sent = true;
-                        boot_log(&format!("kernel URL ready: {url}"));
+                        boot_log("kernel URL ready (bootstrap credential omitted)");
                         if tx_reader.send(Event::UrlFound(url)).is_err() {
                             return;
                         }
                     } else if line.contains("514cc Control Center:") {
-                        boot_log(&format!("kernel banner rejected by URL parser: {line}"));
+                        boot_log("kernel banner rejected by URL parser");
                     }
                 }
             }
-            cancel_main_window(
-                &app_for_reader,
-                &window_launch_state,
-                "failed to hide main window after kernel stdout EOF",
-            );
+            if url_sent {
+                kernel_access::revoke(&app_for_reader);
+            }
+            if let Err(error) = cancel_after_kernel_eof(&window_launch_state, url_sent, || {
+                hide_main_window(&app_for_reader)
+            }) {
+                eprintln!("failed to hide main window after kernel stdout EOF: {error}");
+            }
             let _ = tx_reader.send(Event::StdoutEof);
         })
         .is_ok();
@@ -1111,15 +1157,9 @@ struct LockOwner {
     image: String,
 }
 
-/// 启动前清理上一代残留的孤儿内核。
-///
-/// 桌面端崩溃 / 被任务管理器强杀 / 断电时，内核进程可能未被清理，仍持有实例锁。
-/// 新桌面端启动后，内核读取到锁文件中 PID 仍在运行 → INSTANCE_ACTIVE → stdout EOF →
-/// 桌面端重试 2 次后弹 "内核多次在握手前退出" 错误框。
-///
-/// 此函数在 supervisor 启动内核之前执行：读锁文件 → 杀残留 PID → 删锁文件。
-/// 安全性：单实例插件保证只有一个桌面端；如果我们要启动内核，不应有已存在的内核。
-fn kill_orphan_kernel() {
+/// A shared lock is not proof of desktop process ownership. The kernel's
+/// instance-lock service attests stale owners; live or unknown owners are kept.
+fn inspect_kernel_lock() {
     let lock_path = repo_root()
         .join(".ai-shared")
         .join("control-center")
@@ -1131,37 +1171,14 @@ fn kill_orphan_kernel() {
     let owner: LockOwner = match serde_json::from_str(&content) {
         Ok(o) => o,
         Err(_) => {
-            boot_log("malformed lock file; removing");
-            let _ = std::fs::remove_file(&lock_path);
+            boot_log("malformed lock file; deferring recovery to kernel instance-lock");
             return;
         }
     };
-    if owner.pid == std::process::id() {
-        return; // 自己不动
-    }
     boot_log(&format!(
-        "stale lock found (PID {}, image {}); killing orphan",
+        "existing lock (PID {}, image {}); ownership verification delegated to kernel",
         owner.pid, owner.image
     ));
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        let _ = Command::new("taskkill")
-            .args(["/PID", &owner.pid.to_string(), "/T", "/F"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    }
-    #[cfg(not(windows))]
-    {
-        let _ = Command::new("kill")
-            .args(["-9", &owner.pid.to_string()])
-            .status();
-    }
-    std::thread::sleep(Duration::from_millis(500));
-    let _ = std::fs::remove_file(&lock_path);
-    boot_log(&format!("orphan kernel PID {} cleaned", owner.pid));
 }
 
 /// supervisor：独占 Child，事件驱动。返回前保证内核树已清理（有界）。
@@ -1174,7 +1191,7 @@ fn supervisor(
     exit_requested: Arc<AtomicBool>,
     window_launch_state: Arc<WindowLaunchState>,
 ) {
-    kill_orphan_kernel();
+    inspect_kernel_lock();
     // 每次内核启动都挑当次空闲端口（重试时再换新端口），从构造上避开僵尸/残留进程的端口占用。
     let mut kernel_port = pick_free_kernel_port();
     let mut retries_left = KERNEL_START_RETRIES;
@@ -1236,7 +1253,19 @@ fn supervisor(
         };
         match rx.recv_timeout(timeout) {
             Ok(Event::UrlFound(url)) => {
+                if let Err(error) =
+                    app.state::<kernel_access::KernelAccess>()
+                        .grant(kernel_port, |capability| {
+                            app.add_capability(capability)
+                                .map_err(|error| error.to_string())
+                        })
+                {
+                    eprintln!("kernel native access grant rejected: {error}");
+                    break;
+                }
                 handshake_seen = true;
+                // 猫窗 URL 的 base origin（无 fragment）；猫页凭据由前端桥交，壳不经手 token
+                native::set_pet_overlay_origin(url.origin().ascii_serialization());
                 // 给窗口构建留出独立预算，消除"URL 已到却被启动超时误杀"的边界
                 deadline = Instant::now() + WINDOW_READY_TIMEOUT;
                 ready_delivery_grace_used = false;
@@ -1378,11 +1407,13 @@ fn supervisor(
                 break;
             }
             Ok(Event::StdoutEof) => {
-                cancel_main_window(
-                    &app,
-                    &window_launch_state,
-                    "failed to retry main window hide after stdout EOF",
-                );
+                if handshake_seen {
+                    cancel_main_window(
+                        &app,
+                        &window_launch_state,
+                        "failed to retry main window hide after stdout EOF",
+                    );
+                }
                 // 关窗与内核死亡可能竞速到达（烛 R2/R3）：先查共享退出意图（ExitRequested
                 // 阶段已置位，早于 Shutdown 消息入队），再 drain 通道兜已入队的 Shutdown
                 if exit_requested.load(Ordering::SeqCst) {
@@ -1498,6 +1529,40 @@ fn supervisor(
 }
 
 fn main() {
+    // Read the compiled identity before initializing any user directories or GUI.
+    if std::env::args().any(|arg| arg == "--application-info") {
+        let context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+        println!(
+            "{}",
+            serde_json::json!({
+                "identifier": context.config().identifier,
+                "productName": context.config().product_name,
+                "version": context.config().version,
+            })
+        );
+        return;
+    }
+    let runtime_info = std::env::args().any(|arg| arg == "--runtime-info");
+    match desktop_layout::initialize() {
+        Ok(layout) if runtime_info => {
+            println!(
+                "{}",
+                serde_json::to_string(layout).expect("serializable runtime layout")
+            );
+            return;
+        }
+        Ok(_) => {}
+        Err(error) => {
+            if !runtime_info {
+                show_fatal_error(
+                    "514 Bot 启动失败",
+                    &format!("运行资源或用户数据目录不可用：{error}"),
+                );
+            }
+            eprintln!("desktop layout unavailable: {error}");
+            std::process::exit(1);
+        }
+    }
     let (tx, rx) = mpsc::channel::<Event>();
     let rx_slot: Arc<Mutex<Option<Receiver<Event>>>> = Arc::new(Mutex::new(Some(rx)));
     let sup_handle: Arc<Mutex<Option<JoinHandle<()>>>> = Arc::new(Mutex::new(None));
@@ -1512,6 +1577,7 @@ fn main() {
 
     let builder = tauri::Builder::default()
         .manage(native::NativeState::default())
+        .manage(kernel_access::KernelAccess::default())
         .plugin(tauri_plugin_deep_link::init())
         .invoke_handler(tauri::generate_handler![
             native::get_native_capabilities,
@@ -1525,17 +1591,29 @@ fn main() {
             native::enter_lightweight_mode,
             native::exit_lightweight_mode,
             native::is_lightweight_mode,
+            native::set_pet_overlay,
         ])
-        .on_window_event(|window, event| {
-            if window.label() != "main" {
-                return;
-            }
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                if let Err(error) = native::hide_forge_window(window.app_handle()) {
-                    eprintln!("failed to hide Forge on close request: {error}");
+        .on_window_event(|window, event| match window.label() {
+            "main" => {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    if let Err(error) = native::hide_forge_window(window.app_handle()) {
+                        eprintln!("failed to hide Forge on close request: {error}");
+                    }
                 }
             }
+            "pet-overlay" => {
+                if let tauri::WindowEvent::CloseRequested { .. } = event {
+                    if let Some(pet_window) = window
+                        .app_handle()
+                        .get_webview_window(native::PET_OVERLAY_LABEL)
+                    {
+                        native::save_pet_overlay_geometry_for_window(&pet_window);
+                    }
+                    native::publish_pet_visibility(window.app_handle(), false);
+                }
+            }
+            _ => {}
         });
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]

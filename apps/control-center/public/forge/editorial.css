@@ -1,0 +1,163 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   514 Forge · EDITORIAL · 叙事层排版层（UI-ELEVATION W1）
+   ═══════════════════════════════════════════════════════════════════════════
+   双轨制：UI 轨（--text-xs…--text-5xl）服务骨架层，由 primitives.css 等
+   控制台组件消费；本层是另一条 opt-in 类名轨道，只服务叙事层——
+   首屏 / 空状态 / 视图标题 / 关键指标 / 成果页 / 数据可视化标题。
+
+   用法：组件挂上 .editorial-* 类即可享用展示轨。绝不混入骨架层的组件
+   选择器，避免误伤密度。三件事：
+     1. 字号走 --display-*（fluid clamp，窄屏不撑破）
+     2. 行高走 --leading-display（接近 1，大字号不松垮）
+     3. 字距走 --tracking-display（负值，大字号收紧）
+
+   衬线展示体（--font-editorial = Songti SC / Noto Serif SC 优先；西文
+   退化到 Iowan Old Style / Baskerville）只在这里消费，骨架层不动。
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Display track consumers ── */
+
+.editorial-display-2xl { font-size: var(--display-2xl); line-height: var(--leading-display); letter-spacing: var(--tracking-display-tight); font-weight: 600; font-family: var(--font-editorial); }
+.editorial-display-xl  { font-size: var(--display-xl);  line-height: var(--leading-display); letter-spacing: var(--tracking-display); font-weight: 600; font-family: var(--font-editorial); }
+.editorial-display-lg  { font-size: var(--display-lg);  line-height: var(--leading-display-snug); letter-spacing: var(--tracking-display); font-weight: 600; font-family: var(--font-editorial); }
+.editorial-display-md  { font-size: var(--display-md);  line-height: var(--leading-display-snug); letter-spacing: var(--tracking-display); font-weight: 500; font-family: var(--font-editorial); }
+.editorial-display-sm  { font-size: var(--display-sm);  line-height: var(--leading-snug); letter-spacing: -0.01em; font-weight: 500; font-family: var(--font-editorial); }
+.editorial-display-xs  { font-size: var(--display-xs);  line-height: var(--leading-snug); letter-spacing: -0.005em; font-weight: 500; font-family: var(--font-editorial); }
+
+/* ── Semantic editorial surfaces ── */
+
+/* 视图标题：每个面板进入时第一眼看到的「我们在这里做什么」。 */
+.editorial-headline {
+  font-size: var(--display-xl);
+  line-height: var(--leading-display);
+  letter-spacing: var(--tracking-display);
+  font-weight: 600;
+  font-family: var(--font-editorial);
+  color: var(--text);
+  margin: 0;
+}
+
+/* 副标题：headline 下方的一句话补充，铜橙强调色只在这里出现一次。 */
+.editorial-subhead {
+  font-size: var(--display-md);
+  line-height: var(--leading-display-snug);
+  letter-spacing: var(--tracking-display);
+  font-weight: 500;
+  font-family: var(--font-editorial);
+  color: var(--text-muted, var(--text-soft));
+  margin: 0;
+}
+
+/* 引言段：比正文字号大、留白更多，用于空状态正文 / Hero 区解释文案。 */
+.editorial-lede {
+  font-size: var(--display-sm);
+  line-height: var(--leading-normal);
+  letter-spacing: -0.01em;
+  font-weight: 400;
+  color: var(--text);
+  max-width: 60ch;
+}
+
+/* 关键指标数字：tabular-nums 让数字等宽，刷新时不会跳。 */
+.editorial-figure {
+  font-size: var(--display-2xl);
+  line-height: 1;
+  letter-spacing: var(--tracking-display-tight);
+  font-weight: 600;
+  font-family: var(--font-editorial);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* 看板数字：克制版 display-md，走系统字体（数字辨识度优先），
+   配 tabular-nums 让位数变化时不抖。 */
+.editorial-stat {
+  font-size: var(--display-md);
+  line-height: 1;
+  letter-spacing: var(--tracking-display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+/* 空状态容器：中央对齐 + 充足呼吸。叙事层的「抬头处」主战场之一。 */
+.editorial-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-10) var(--space-6);
+  text-align: center;
+}
+
+.editorial-empty .editorial-headline,
+.editorial-empty .editorial-display-lg {
+  margin: 0;
+  color: var(--text);
+}
+
+.editorial-empty .editorial-lede {
+  color: var(--text-muted, var(--text-soft));
+  margin: 0;
+}
+
+/* 装饰性细线：分隔叙事层与上下文。0.5px，hairline 级，几乎不可见但有呼吸感。 */
+.editorial-divider {
+  height: 0;
+  border: 0;
+  border-top: 0.5px solid var(--glass-border, var(--border));
+  margin: var(--space-6) 0;
+}
+
+/* 醒目短语：用于在 headline 中强调某个关键词（铜橙脉冲色，仅用于强调词）。 */
+.editorial-emphasis {
+  color: var(--accent-ink, var(--primary));
+  font-style: italic;
+  font-feature-settings: "ss01" on;
+}
+
+/* ── Motion choreography seeds（为 W2 编排层埋点，现在先有痕迹，后面接入）──
+   叙事层入场：opacity + 极短下移；尊重 prefers-reduced-motion。 */
+@media (prefers-reduced-motion: no-preference) {
+  .editorial-enter {
+    animation: editorial-enter var(--dur-slow) var(--ease-emphasis) both;
+  }
+}
+
+@keyframes editorial-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ── Themed variants ── */
+
+[data-theme="dark"] .editorial-emphasis {
+  color: var(--accent-ink, var(--primary));
+}
+
+.editorial-empty .editorial-icon {
+  /* 让 Lucide 图标也呼吸起来：与文案同色调但更低饱和 */
+  color: var(--text-soft);
+  opacity: 0.85;
+}
+
+/* 标题先锋切光遮罩微揭示（UI-ELEVATION W4 先锋交互装置） */
+@media (prefers-reduced-motion: no-preference) {
+  .editorial-reveal {
+    clip-path: inset(0 0 0 0);
+    animation: editorial-reveal-in var(--dur-slow) var(--ease-out) both;
+  }
+}
+
+@keyframes editorial-reveal-in {
+  from {
+    clip-path: inset(0 0 100% 0);
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+    transform: translateY(0);
+    opacity: 1;
+  }
+}

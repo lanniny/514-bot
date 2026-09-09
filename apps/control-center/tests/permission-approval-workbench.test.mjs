@@ -83,7 +83,7 @@ test("adapter catalog declares approval ownership instead of inferring it in the
   const templates = new Map(adapterTemplateCatalog().map((template) => [template.id, template]));
   assert.equal(templates.get("codex-app-server").approvalChannel, "broker-action");
   assert.equal(templates.get("codex-exec-json").approvalChannel, "unavailable");
-  assert.equal(templates.get("grok-mcp-via-codex-app-server").approvalChannel, "broker-action");
+  assert.equal(templates.has("grok-mcp-via-codex-app-server"), false, "MCP tools are not runtime seat backends");
   assert.equal(templates.get("claude-stream-json").approvalChannel, "governed-build");
   assert.equal(templates.get("pi-rpc").approvalChannel, "unavailable");
 });

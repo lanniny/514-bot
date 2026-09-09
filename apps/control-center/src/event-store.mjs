@@ -586,6 +586,7 @@ export class EventStore {
       agentId: context.agentId ?? null,
       correlationId: context.correlationId ?? null,
       causationId: context.causationId ?? null,
+      traceId: context.traceId ?? context.correlationId ?? null,
       sensitivity: context.sensitivity ?? "internal",
       ...(sourceRefs.length ? { sourceRefs } : {}),
       data,

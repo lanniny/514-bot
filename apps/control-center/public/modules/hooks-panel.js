@@ -397,7 +397,7 @@ export function mountHooksPanel({
         </div>
         <p class="hooks-hint">${icon("info")} Hook 配置变更将在新会话中生效。${state.loading ? " 读取中…" : ` 当前 ${count} 条`}。</p>
       </div>
-      <div class="hooks-groups">
+      <div class="hooks-groups" data-surface-body>
         ${groups.length ? groups.map((group) => `<section class="hooks-group">
           <h3>${escapeHtml(group.event)}<em>${group.hooks.length}</em></h3>
           ${group.hooks.map(cardMarkup).join("")}

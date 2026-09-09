@@ -12,7 +12,6 @@ export function testModelProfiles() {
   return [
     { id: "claude-fable", label: "Fable", role: "primary-coordinator", provider: "anthropic", adapter: "claude-stream-json", command: "claude", model: "fable", capabilities: [], enabled: true },
     { id: "codex-technical", label: "Codex", role: "technical-executor", provider: "openai", adapter: "codex-app-server", command: "codex", model: null, capabilities: [], enabled: true },
-    { id: "grok-search", label: "Grok Search", role: "current-intelligence", provider: "xai-compatible", adapter: "grok-mcp-via-codex-app-server", command: null, model: null, capabilities: [], enabled: true },
     { id: "grok-build", label: "Grok Build", role: "fast-executor", provider: "xai", adapter: "grok-build-headless", command: "grok", model: null, capabilities: [], enabled: true },
     { id: "kimi-frontend", label: "Kimi", role: "frontend-engineer", provider: "moonshot", adapter: "kimi-headless-resume", command: "kimi", model: null, capabilities: [], enabled: true },
     { id: "pi-resident", label: "Pi", role: "resident-agent", provider: "multi-provider", adapter: "pi-rpc", command: "pi", model: null, capabilities: [], enabled: true },
@@ -167,23 +166,17 @@ export async function stopTestServer(child, { token, timeoutMs = 5_000 } = {}) {
       ? `[test-fixture] server output tail follows (shutdown phase timings are the [shutdown] lines):\n${outputTail}\n`
       : "[test-fixture] server produced no captured output\n"),
   );
-  const exitedAfterKill = new Promise((resolveExit, rejectExit) => {
-    const onExit = (code, signal) => {
-      child.off("error", onError);
-      resolveExit({ code, signal });
-    };
-    const onError = (error) => {
-      child.off("exit", onExit);
-      rejectExit(error);
-    };
-    child.once("exit", onExit);
-    child.once("error", onError);
-    if (exited(child)) onExit(child.exitCode, child.signalCode);
-  });
   if (!child.kill() && !exited(child)) {
     throw new Error(`test server pid ${ownedPid} did not accept fallback termination`);
   }
-  await exitedAfterKill;
+  if (!await waitForExit(child, 1_000)) {
+    child.kill("SIGKILL");
+    if (!await waitForExit(child, 1_000)) {
+      throw Object.assign(new Error(`owned test server pid ${ownedPid} did not exit after bounded termination`), {
+        code: "TEST_SERVER_FORCE_SHUTDOWN_FAILED", outputTail,
+      });
+    }
+  }
   const result = { graceful: false, fallback: true };
   throw Object.assign(
     new Error(`test server pid ${ownedPid} required fallback termination instead of the authorized shutdown endpoint`),

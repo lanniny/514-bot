@@ -28,7 +28,7 @@ test("configuration topology fuses providers, capabilities and sources into one 
     assert.match(html, new RegExp(`role="tab"[^>]+aria-controls="config-surface-${surface}"[^>]+data-config-surface="${surface}"`));
     assert.match(html, new RegExp(`id="config-surface-${surface}"[^>]+data-config-surface-panel="${surface}"[^>]+role="tabpanel"`));
   }
-  assert.match(html, /id="config-topology-tabs"[^>]+role="tablist"/);
+  assert.match(html, /id="settings-destinations"[^>]+role="tablist"/);
   assert.match(html, /id="config-surface-capabilities"[\s\S]+id="cap-skills-body"[\s\S]+id="cap-mcp-body"/);
   for (const id of [
     "cap-overview",
@@ -59,11 +59,12 @@ test("configuration topology fuses providers, capabilities and sources into one 
   assert.doesNotMatch(html, /<tbody id="cap-mcp-body"/, "MCP 已改为卡片网格，不再是表格 tbody");
   assert.match(html, /id="runtime-connection-deck"[\s\S]+id="provider-columns"/);
   assert.match(html, /id="config-surface-local-runtime"[\s\S]+id="ccswitch-workbench"/);
-  assert.doesNotMatch(
+  assert.match(
     html.slice(html.indexOf('id="config-surface-providers"'), html.indexOf('id="config-surface-local-runtime"')),
     /id="provider-columns"/,
-    "local provider deck moved into seats; topology providers panel is a remote-only stub",
+    "connections own the providers surface",
   );
+  assert.doesNotMatch(html.slice(html.indexOf('id="runtime-seat-component"'), html.indexOf('id="runtime-raw-source-workspace"')), /provider-columns|runtime-connection-deck/);
   assert.match(html, /href="\.\/forge\/runtime-workbench\.css"/);
   assert.match(html, /id="config-surface-sources"[\s\S]+class="config-shell"/);
   assert.doesNotMatch(html, /id="config-surface-runtime"/, "runtime seats belong inside the existing sources surface");
@@ -91,10 +92,9 @@ test("configuration topology fuses providers, capabilities and sources into one 
   assert.doesNotMatch(html, /能力包络|Routing Envelope/);
   assert.match(seatManagerSource, /capabilities:\s*\["\*"\]/);
   assert.doesNotMatch(seatManagerSource, /capabilityEnvelope|runtime-seat-capabilities-wall"\)\.querySelectorAll/);
-  assert.match(html, /id="config-topology-providers"[^>]+hidden/);
+  assert.doesNotMatch(html, /id="config-topology-providers"[^>]+hidden/);
   // UI-AUDIT P0-6：散写灰字已换成规范空态（单一真源 modules/placeholders.js），id 保留以稳住 e2e 选择器
-  assert.match(appSource, /renderPlaceholder\(columns, emptyState\(\{/);
-  assert.match(appSource, /id: "provider-unlocked-empty"/);
+  assert.doesNotMatch(appSource, /id: "provider-unlocked-empty"/, "connection management does not require an open seat editor");
   assert.match(seatManagerSource, /function connectionApp\(/);
   assert.match(html, /id="runtime-connection-deck"/);
   assert.match(stateSource, /configSurface:\s*"sources"/);
@@ -229,10 +229,12 @@ test("configuration topology fuses providers, capabilities and sources into one 
   assert.match(css, /@media \(max-width: 1000px\)[\s\S]+\.runtime-seat-layout[\s\S]+grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(css, /@media \(max-width: 720px\)[\s\S]+\.runtime-seat-field-grid[\s\S]+grid-template-columns: minmax\(0, 1fr\)/);
   assert.match(css, /@media \(max-width: 560px\)[\s\S]+\.runtime-seat-form-actions[\s\S]+grid-template-columns: minmax\(0, 1fr\)/);
-  // v42：分区导航与配置目标合成一条紧凑 sticky 工具条（原巨型流程 band + 独立目标条已撤）
-  const toolbarBlock = html.match(/<div class="config-toolbar">([\s\S]*?)<\/div>\s*\n\s*<section class="config-surface-panel/);
+  // The page header owns target controls; settings navigation stays outside it.
+  const toolbarBlock = html.match(/<header class="config-page-header">([\s\S]*?)<\/header>/);
   assert.ok(toolbarBlock, "配置图谱页头应有 config-toolbar 容器");
-  assert.match(toolbarBlock[1], /id="config-topology-nav"[\s\S]+id="config-host-bar"/, "工具条内顺序＝分区导航在左、配置目标在右");
+  assert.match(toolbarBlock[1], /class="config-toolbar"/);
+  assert.match(toolbarBlock[1], /id="config-host-bar"/);
+  assert.doesNotMatch(toolbarBlock[1], /config-topology-nav/, "settings navigation must not repeat inside the page");
   assert.doesNotMatch(html, /config-topology-link/, "流程箭头会暗示不存在的向导顺序，已随 segmented control 撤掉");
   assert.match(css, /#view-config \.config-toolbar\s*\{[\s\S]{0,220}position:\s*sticky/);
   assert.match(css, /#view-config \.config-topology-track\s*\{[\s\S]{0,320}overflow-x:\s*auto/);
@@ -244,7 +246,19 @@ test("configuration topology fuses providers, capabilities and sources into one 
   assert.match(qaSource, /main content horizontal overflow/);
   assert.match(qaSource, /CONTROL_CENTER_TOKEN:\s*qaToken/);
   assert.match(qaSource, /async function stopQaServer\(\)/);
-  assert.match(qaSource, /if \(browser\) await browser\.close\(\);[\s\S]+await stopQaServer\(\);[\s\S]+await resetFaultDomainFixtures\(\)/);
+  // 收尾顺序：browser → server → fixture 清理。第三段原为 resetFaultDomainFixtures()
+  // （把 fixture 写回干净态给下一次运行复用），2026-09-05 改为 rm(fixtureRoot)：
+  // 运行时 fixture 已移到 mkdtemp 临时目录，本次运行独占，整体删掉即可。
+  // 断言守的是"顺序"这个意图，不是某个函数名的快照。
+  assert.match(qaSource, /if \(browser\) await browser\.close\(\);[\s\S]+await stopQaServer\(\);[\s\S]+await rm\(fixtureRoot,/);
+  // 运行时 fixture 必须在 mkdtemp 下，不能回到 .qa-output 的固定路径 ——
+  // 那条路径已被 Codex 沙箱账户的 DACL 占住（icacls/Get-Acl/takeown 全被拒、
+  // 连删都删不掉），固定路径一用就 EPERM，整套 QA 死在启动阶段。
+  assert.match(qaSource, /const fixtureRoot = await mkdtemp\(join\(tmpdir\(\)/);
+  assert.match(qaSource, /const dataRoot = resolve\(fixtureRoot,/);
+  assert.match(qaSource, /const runtimeHome = resolve\(fixtureRoot,/);
+  // 产物（png + report.json）反过来必须留在仓库内：它们是给人看的证据。
+  assert.match(qaSource, /const outputRoot = resolve\(appRoot, "\.qa-output", "config-topology"\)/);
   assert.match(remoteQaSource, /data-config-surface="providers"[\s\S]{0,400}config-remote-provider-deck/);
   assert.match(remoteQaSource, /providerPlans/);
   assert.match(remoteQaSource, /teamPartialFailure/);
@@ -254,11 +268,10 @@ test("configuration topology fuses providers, capabilities and sources into one 
   assert.match(remoteQaSource, /await stopQaServer\(\)/);
   assert.doesNotMatch(css, /#view-capabilities/);
 
-  assert.match(html, /data-config-surface-jump="sources"[\s\S]{0,220}<span>连接<\/span>/);
+  assert.match(html, /data-config-surface="providers"[\s\S]{0,220}<span>连接档案<\/span>/);
   assert.doesNotMatch(html, /模型设置/);
   assert.match(html, /id="provider-query"/);
   assert.match(html, /id="provider-spine"[^>]+aria-label="关系脊柱"/);
-  assert.match(html, /Provider → Adapter → 席位 → 成员/);
   assert.match(html, /id="provider-save-enable-button"/);
   assert.match(html, /id="provider-save-button"[^>]*>仅保存/);
   assert.match(html, /id="provider-kimi-type"/);
@@ -295,6 +308,18 @@ test("configuration topology fuses providers, capabilities and sources into one 
   assert.match(css, /\.provider-row-list:has\(\.provider-row\)[\s\S]{0,260}gap:\s*0/);
   assert.match(css, /Configuration bus[\s\S]+?#config-surface-capabilities \.cap-overview\s*\{[\s\S]{0,240}overflow:\s*hidden/);
   assert.match(css, /@keyframes config-plane-arrive/);
-  assert.match(artDirectionCss, /\.app-shell\.is-settings #view-config\.view \.page-heading\.compact-heading\s*\{[\s\S]{0,180}min-height:\s*84px/);
-  assert.match(artDirectionCss, /\.app-shell\.is-settings #view-config\.view \.page-heading\.compact-heading h1\s*\{[\s\S]{0,160}font-size:\s*clamp\(30px,\s*3\.2vw,\s*46px\)/);
+  // 配置页 hero 必须是坐标条而不是编辑式着陆页（art-direction 的 is-settings 例外）。
+  // 断言守的是**意图**不是快照值：原先写死 min-height:84px / clamp(30px,3.2vw,46px)，
+  // v49 U1-a 把 heading 从实测 121.67px 压到 48px（min-height 归 0、h1 收敛回全局
+  // clamp(22px,1.8vw,26px)、副标题全宽度收起——它逐字就是下方五个 tab 的枚举），
+  // 那条快照式断言随即变红。压得更狠与它守的方向一致，所以改成：
+  //   ① 例外块仍在（配置页不吃全局 clamp(150px,24vh,270px) 的 hero 高度）
+  //   ② h1 不得超过全局 UI 档上限 26px（46px 的编辑大字在操作面换不来信息）
+  assert.match(artDirectionCss, /\.app-shell\.is-settings #view-config\.view \.page-heading\.compact-heading\s*\{[\s\S]{0,200}min-height:\s*0;/);
+  const configH1 = artDirectionCss.match(
+    /\.app-shell\.is-settings #view-config\.view \.page-heading\.compact-heading h1\s*\{[\s\S]{0,200}?\}/,
+  )?.[0];
+  assert.ok(configH1, "配置页 h1 的例外规则不见了");
+  const h1Max = configH1.match(/font-size:\s*clamp\([^,]+,[^,]+,\s*(\d+)px\)/)?.[1];
+  assert.ok(h1Max && Number(h1Max) <= 26, `配置页 h1 上限 ${h1Max}px 超过全局 UI 档 26px —— 操作面不该有编辑式大字`);
 });

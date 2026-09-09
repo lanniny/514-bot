@@ -9,3 +9,4 @@ update_tray_menu
 enter_lightweight_mode
 exit_lightweight_mode
 is_lightweight_mode
+set_pet_overlay

@@ -22,16 +22,18 @@ test("nav-config covers every setView-able chrome view exactly once across group
   }
 });
 
-test("renderNavigation fills all three surfaces with the same unified view order", () => {
+test("renderNavigation fills all four surfaces with the same unified view order", () => {
   const mounts = {
     '[data-nav-surface="primary"]': { innerHTML: "" },
     '[data-nav-surface="topbar"]': { innerHTML: "" },
     '[data-nav-surface="mobile"]': { innerHTML: "" },
+    '[data-nav-surface="settings"]': { innerHTML: "" },
   };
   const doc = { querySelector: (sel) => mounts[sel] ?? null };
   const rendered = renderNavigation({ doc });
   assert.ok(rendered.primary.includes("nav-group-label"), "primary nav renders groups");
   assert.ok(rendered.topbar.includes("topnav-divider"), "topbar nav separates groups");
+  assert.ok(rendered.settings.includes("settings-rail-item"), "settings rail renders migrated nav items");
   for (const mount of Object.values(mounts)) {
     assert.match(mount.innerHTML, /data-view="workbench"/);
     assert.match(mount.innerHTML, /data-view="config"/);
@@ -40,19 +42,21 @@ test("renderNavigation fills all three surfaces with the same unified view order
   const dataViews = (html) => [...html.matchAll(/data-view="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(dataViews(mounts['[data-nav-surface="topbar"]'].innerHTML), navViews());
   assert.deepEqual(dataViews(mounts['[data-nav-surface="mobile"]'].innerHTML), navViews());
+  assert.deepEqual(dataViews(mounts['[data-nav-surface="settings"]'].innerHTML), navViews());
 });
 
-test("index.html keeps exactly the three empty nav mounts and app.js renders before first setView", async () => {
+test("index.html keeps exactly the four empty nav mounts and app.js renders before first setView", async () => {
   const [html, app] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
   ]);
-  assert.equal(html.match(/data-nav-surface="/g)?.length, 3, "exactly three nav mounts");
+  // 2026-09-09 侧栏迁移：第四个挂载面 = 设置轨内的迁移导航（data-nav-surface="settings"）
+  assert.equal(html.match(/data-nav-surface="/g)?.length, 4, "exactly four nav mounts");
   assert.doesNotMatch(html, /class="topnav-item"/, "topbar buttons must come from nav-config, not static markup");
   assert.doesNotMatch(html, /class="mobile-nav-item"/, "mobile buttons must come from nav-config, not static markup");
   assert.match(app, /renderNavigation\(\)/);
   assert.ok(
-    app.indexOf("renderNavigation()") < app.indexOf("const initialRoute = parseForgeRoute()"),
+    app.indexOf("renderNavigation()") < app.indexOf("const initialRoute = parseForgeRoute(startupHash)"),
     "nav must render before initial route resolution applies is-active",
   );
 });

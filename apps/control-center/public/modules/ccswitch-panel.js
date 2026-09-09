@@ -1,6 +1,7 @@
 import { request as apiRequest } from "../api.js";
 import { officialCliIconMarkup } from "./avatars.js";
 import { escapeHtml, formatDate } from "../utils.js";
+import { skillPublicationStatus, skillRecoveryReason } from "./skill-publication-status.js";
 
 const PROVIDER_STORAGE_APPS = Object.freeze(["claude", "claude-desktop", "codex", "gemini", "grokbuild", "kimi", "opencode", "openclaw", "hermes"]);
 const PROVIDER_SCHEME_APPS = Object.freeze(PROVIDER_STORAGE_APPS.filter((app) => app !== "claude-desktop"));
@@ -216,6 +217,7 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
     workspace: null, workspaceFile: "AGENTS.md", workspaceContent: "", dailyFilename: new Date().toISOString().slice(0, 10) + ".md",
     dailyContent: "", workspaceSearch: [], hermesKind: "memory", hermesContent: "",
     cliEnv: null, cliEnvError: null, cliEnvLoading: false, cliEnvBusy: {},
+    recovery: null, recoveryFresh: false, recoveryChecks: {}, recoveryBusy: false,
   };
 
   function message(text, tone = "success") {
@@ -229,6 +231,9 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
   function load({ force = false } = {}) {
     if (loadPromise && !force) return loadPromise;
     const run = async () => {
+      state.recoveryFresh = false;
+      state.recoveryChecks = {};
+      renderRecovery();
       const paths = [
         "/api/ccswitch/domain", "/api/ccswitch/proxy/status", "/api/providers",
         "/api/ccswitch/proxy/usage/summary?days=30", "/api/ccswitch/proxy/logs?limit=50",
@@ -240,6 +245,8 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
         state.domain = domain.value.state;
         state.configPaths = domain.value.configPaths ?? {};
         state.live = domain.value.live ?? { mcps: [], skills: [] };
+        state.recovery = domain.value.recovery ?? null;
+        state.recoveryFresh = Boolean(state.recovery);
       }
       if (proxy.status === "fulfilled") state.proxy = proxy.value.status;
       if (providers.status === "fulfilled") state.providers = providers.value;
@@ -307,9 +314,8 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
   }
 
   function shell() {
-    // 页头只讲这块面板「是什么」：外部产品名与版本属实现来源，留在代码注释与 DESIGN-NOTES，不占用户界面
-    return `<div class="ccs-heading"><div><p class="eyebrow">本机运行时</p><h2>运行与配置工作台</h2><p class="ccs-heading-sub">CLI 环境 · 本地代理 · 资源库 · 云同步 · OAuth 账户</p></div><div class="ccs-heading-actions"><span class="ccs-inline-status" data-ccs-status data-tone="neutral">就绪</span><button class="icon-button" type="button" data-ccs-action="refresh" title="刷新工作台" aria-label="刷新运行与配置工作台">${icon("refresh-cw")}</button></div></div>
-      <div class="ccs-tabs" data-ccs-tabs role="tablist" aria-label="运行与配置工作台视图">${tabButtons()}</div>${nativeMarkup()}<div class="ccs-panel-body" data-ccs-body></div>`;
+    return `<div class="ccs-heading"><div class="ccs-tabs" data-ccs-tabs role="tablist" aria-label="运行与配置工作台视图">${tabButtons()}</div><div class="ccs-heading-actions"><span class="ccs-inline-status" data-ccs-status data-tone="neutral">就绪</span><button class="icon-button" type="button" data-ccs-action="refresh" title="刷新运行时" aria-label="刷新运行与配置工作台">${icon("refresh-cw")}</button></div></div>
+      ${nativeMarkup()}<div class="ccs-panel-body" data-ccs-body data-surface-body></div>`;
   }
 
   function render() {
@@ -391,8 +397,51 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
       ? items.map((item) => `<div><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description || item.source?.repo || item.source || "local")}</small></span><button class="icon-button" type="button" data-ccs-skill-delete="${attr(item.id)}" title="卸载" aria-label="卸载 ${attr(item.name)}">${icon("trash-2")}</button><div class="ccs-mini-apps">${PROMPT_APPS.map((app) => `<label title="${APP_LABELS[app]}"><input type="checkbox" data-ccs-skill-toggle="${attr(item.id)}|${app}"${checked(item.apps?.[app])}><span>${appFaceMarkup(app, "ccs-mini-logo")}<em>${escapeHtml(appShortLabel(app))}</em></span></label>`).join("")}</div></div>`).join("")
       : emptyState("暂无本机安装副本", unmanaged.length ? `能力中心的 Skill 是仓库声明（成员范围），不会自动出现在这里。CLI live 目录里已有 ${unmanaged.length} 个，可导入后投影。` : "能力中心列出的是仓库声明，不是本机安装。右侧粘贴 SKILL.md，或从 CLI live 目录导入。");
     const liveList = unmanaged.length ? `${sectionLabel("CLI live 未托管", `${unmanaged.length} 个`)}<div class="ccs-list">${unmanaged.map((item) => `<div><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml((item.sources ?? []).map((source) => APP_SHORT[source.app] || source.app).join("、") || "live")}</small></span><button class="button compact secondary" type="button" data-ccs-skill-adopt="${attr(item.id)}">${icon("file-input")}导入</button></div>`).join("")}</div>` : "";
-    return `<div class="ccs-resource-layout"><section class="ccs-tool"><div class="ccs-tool-heading"><h3>Skill</h3><span>${items.length} 托管${unmanaged.length ? ` · ${unmanaged.length} 未导入` : ""}</span></div><div class="ccs-list">${empty}</div>${liveList}<button class="button secondary" type="button" data-ccs-action="skill-import"${unmanaged.length ? "" : " disabled"}>${icon("file-input")}导入 live Skill</button></section>
+    return `<div data-ccs-recovery>${recoveryMarkup()}</div><div class="ccs-resource-layout"><section class="ccs-tool"><div class="ccs-tool-heading"><h3>Skill</h3><span>${items.length} 托管${unmanaged.length ? ` · ${unmanaged.length} 未导入` : ""}</span></div><div class="ccs-list">${empty}</div>${liveList}<button class="button secondary" type="button" data-ccs-action="skill-import"${unmanaged.length ? "" : " disabled"}>${icon("file-input")}导入 live Skill</button></section>
       <section class="ccs-tool"><div class="ccs-tool-heading"><h3>安装本地 Skill</h3></div><form data-ccs-form="skill"><label class="field"><span class="field-label">名称</span><input name="name" maxlength="64" pattern="[A-Za-z0-9][A-Za-z0-9._-]*" required></label><label class="field"><span class="field-label">说明</span><input name="description" maxlength="1000"></label><label class="field"><span class="field-label">SKILL.md</span><textarea name="skillMd" rows="12" spellcheck="false">---\nname: skill-name\ndescription: description\n---\n</textarea></label>${appChecks("skill", { claude: true, codex: true }, PROMPT_APPS)}<div class="ccs-actions"><button class="button primary" type="submit">${icon("package-plus")}安装</button></div></form></section></div>`;
+  }
+
+  function recoveryMarkup() {
+    const recovery = state.recovery;
+    const pending = recovery?.items ?? [];
+    const blocked = state.domain?.storeStatus?.state === "blocked";
+    if (state.recoveryFresh && !recovery.unavailable && !pending.length && !blocked) return "";
+    const title = !state.recoveryFresh ? "恢复状态尚未确认" : "配置写入已冻结";
+    const note = !state.recoveryFresh ? "最新状态读取未完成" : recovery.unavailable ? "发布记录目录无法完整读取" : !pending.length ? "配置存储不可用，需核对本地文件" : `${pending.length} 条发布记录待核对`;
+    return `<section class="ccs-recovery" aria-label="Skill 发布恢复"><header><div>${icon("shield-alert")}<strong>${title}</strong><span>${note}</span></div><button class="icon-button" type="button" data-ccs-action="refresh" title="刷新恢复状态" aria-label="刷新恢复状态">${icon("refresh-cw")}</button></header>
+      <div role="status" aria-live="polite">${pending.map((item) => {
+        const check = state.recoveryChecks[item.id];
+        const ready = state.recoveryFresh && check?.status === "ready";
+        const status = ready ? check.outcome === "committed" ? "文件与已发布配置一致" : "文件与发布前配置一致" : skillRecoveryReason(check?.reason || item.reason);
+        return `<div class="ccs-recovery-row"><div><code>${escapeHtml(item.id || "无效记录")}</code><p>${escapeHtml(status)}</p></div><div class="ccs-recovery-actions">${item.id ? `<button class="button secondary compact" type="button" data-ccs-recovery-check="${attr(item.id)}"${!state.recoveryFresh || state.recoveryBusy ? " disabled" : ""}>${icon("scan-search")}检查现状</button>` : ""}${ready ? `<button class="button primary compact" type="button" data-ccs-recovery-confirm="${attr(item.id)}"${state.recoveryBusy ? " disabled" : ""}>${icon("check")}确认记录</button>` : ""}</div></div>`;
+      }).join("")}</div>${recovery?.journalRoot ? `<details><summary>恢复材料</summary><dl><dt>发布记录</dt><dd>${escapeHtml(recovery.journalRoot)}</dd><dt>保留副本</dt><dd>${escapeHtml(recovery.backupRoot)}</dd></dl></details>` : ""}</section>`;
+  }
+
+  function renderRecovery() {
+    const slot = root.querySelector("[data-ccs-recovery]");
+    if (slot) slot.innerHTML = recoveryMarkup();
+  }
+
+  async function recoverSkill(id, confirm) {
+    if (state.recoveryBusy || state.busy || !state.recoveryFresh) return;
+    state.recoveryBusy = true;
+    renderRecovery();
+    try {
+      if (!confirm) {
+        const result = await request(`/api/ccswitch/domain/skills/recovery/${encodeURIComponent(id)}/check`, { method: "POST", body: {} });
+        if (state.recoveryFresh) state.recoveryChecks[id] = result.item;
+      } else {
+        const check = state.recoveryChecks[id];
+        if (check?.status !== "ready") return;
+        if (!await askConfirm({ eyebrow: "Skill 发布恢复", title: "确认这条发布记录？", rows: [["记录", id], ["核对结果", check.outcome === "committed" ? "文件与已发布配置一致" : "文件与发布前配置一致"], ["变更范围", "仅确认发布记录，不覆盖 Skill 文件；保留全部恢复副本"]], confirmLabel: "确认记录" })) return;
+        if (!state.recoveryFresh || state.recoveryChecks[id] !== check) return;
+        const result = await act(() => request(`/api/ccswitch/domain/skills/recovery/${encodeURIComponent(id)}/confirm`, { method: "POST", body: { confirmed: true, planToken: check.planToken } }));
+        if (result) message(result.item.unlocked ? "发布记录已确认，配置写入已解锁" : "记录已确认，其他恢复项仍需处理", result.item.unlocked ? "success" : "warning");
+      }
+    } catch (error) {
+      delete state.recoveryChecks[id];
+      message(skillRecoveryReason(error.code || error.payload?.error?.code || error.payload?.code), "warning");
+    } finally { state.recoveryBusy = false; renderRecovery(); }
   }
 
   function profilesMarkup() {
@@ -520,8 +569,15 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
 
   async function act(task, success) {
     if (state.busy) return null; state.busy = true;
-    try { const result = await task(); if (success) message(success); await load({ force: true }); return result; }
-    catch (error) { message(error.message || String(error), "error"); throw error; }
+    try {
+      const result = await task();
+      const publication = skillPublicationStatus(result);
+      if (publication) message(publication.message, publication.tone);
+      else if (success) message(success);
+      await load({ force: true });
+      return result;
+    }
+    catch (error) { await load({ force: true }); message(error.message || String(error), "error"); throw error; }
     finally { state.busy = false; }
   }
 
@@ -706,6 +762,7 @@ export function mountCcSwitchPanel({ root, notify = null, request: requestClient
     if (button.dataset.ccsTab) { state.tab = button.dataset.ccsTab; render(); if (state.tab === "env" && !state.cliEnv && !state.cliEnvLoading && !state.cliEnvError) void loadCliEnv(); return; }
     if (button.dataset.ccsResourceTab) { state.resourceTab = button.dataset.ccsResourceTab; render(); if (state.resourceTab === "backups") void refreshBackups(); if (state.resourceTab === "workspace") void refreshWorkspace().catch((error) => message(error.message, "error")); return; }
     const action = button.dataset.ccsAction;
+    if (button.dataset.ccsRecoveryCheck || button.dataset.ccsRecoveryConfirm) { await recoverSkill(button.dataset.ccsRecoveryCheck || button.dataset.ccsRecoveryConfirm, Boolean(button.dataset.ccsRecoveryConfirm)); return; }
     if (action === "refresh") { const result = await load(); message(result.ok ? "已刷新" : `刷新未完全成功：${result.errors.length} 项加载失败`, result.ok ? "success" : "warning"); return; }
     if (action === "clienv-refresh") { await loadCliEnv(true); message(state.cliEnvError ? `环境检查失败：${state.cliEnvError}` : "环境检查已完成", state.cliEnvError ? "error" : "success"); return; }
     if (action === "clienv-upgrade-all") { await upgradeAllCliTools(); return; }

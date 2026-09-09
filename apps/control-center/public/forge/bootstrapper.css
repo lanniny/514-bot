@@ -59,7 +59,7 @@
   align-items: start;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 820px) {
   .bootstrapper-body {
     grid-template-columns: 1fr;
   }
@@ -1016,7 +1016,7 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-@media (max-width: 720px) {
+@media (max-width: 820px) {
   .boot-flavors {
     grid-template-columns: 1fr;
   }

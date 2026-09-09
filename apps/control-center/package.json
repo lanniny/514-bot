@@ -24,6 +24,7 @@
     "qa:ui": "node scripts/qa-ui-fixture.mjs",
     "qa:bot-p0": "node scripts/qa-bot-p0.mjs",
     "qa:bot-collab-dialog": "node scripts/qa-bot-collab-dialog.mjs",
+    "qa:bot-grok-parity": "node scripts/qa-bot-grok-parity.mjs",
     "qa:permission-approval": "node scripts/qa-permission-approval.mjs",
     "qa:team": "node scripts/qa-team-workspace.mjs",
     "qa:environment": "node scripts/qa-workbench-environment.mjs",
@@ -35,13 +36,21 @@
     "smoke:collaboration": "node scripts/smoke-collaboration.mjs",
     "qa:walkthrough": "node scripts/qa-config-walkthrough.mjs",
     "qa:delivery": "node scripts/qa-delivery-manifest.mjs",
-    "qa:delivery:desktop": "node scripts/qa-delivery-manifest.mjs --desktop"
+    "qa:delivery:desktop": "node scripts/qa-delivery-manifest.mjs --desktop",
+    "qa:source": "node scripts/source-inventory.mjs --check-js",
+    "vendor:pptx": "node scripts/repack-pptxgenjs.mjs"
   },
   "devDependencies": {
     "lucide": "^0.511.0",
-    "playwright": "1.61.1"
+    "playwright": "1.61.1",
+    "tar-stream": "2.2.0"
+  },
+  "overrides": {
+    "exceljs": { "uuid": "11.1.1" },
+    "brace-expansion@1": "1.1.18"
   },
   "dependencies": {
+    "ajv": "^8.17.1",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
     "docx": "^9.7.1",
@@ -49,7 +58,7 @@
     "highlight.js": "^11.11.1",
     "json5": "^2.2.3",
     "node-pty": "^1.1.0",
-    "pptxgenjs": "^4.0.1",
+    "pptxgenjs": "file:vendor/pptxgenjs-4.0.1-514cc.1.tgz",
     "ssh2": "^1.17.0",
     "undici": "^7.29.0",
     "yaml": "^2.9.0",

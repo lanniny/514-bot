@@ -1,0 +1,51 @@
+{
+  "schema": "514cc.vendorPatch/v1",
+  "name": "pptxgenjs",
+  "upstreamVersion": "4.0.1",
+  "patchedVersion": "4.0.1-514cc.1",
+  "upstreamIntegrity": "sha512-TeJISr8wouAuXw4C1F/mC33xbZs/FuEG6nH9FG1Zj+nuPcGMP5YRHl6X+j3HSUnS1f3at6k75ZZXPMZlA5Lj9A==",
+  "upstreamSha256": "305e8870cc03c4402efb99d4a62cb73f611af64998b8988915d6c65b7fe7a5f0",
+  "patchedSha256": "0c504ba2ffe7d0829357ea3b862bdc02b54509b1d08e8bb17697e022eeb59d44",
+  "changedFiles": [
+    "package/package.json"
+  ],
+  "preservedFiles": [
+    {
+      "path": "package/LICENSE",
+      "sha256": "7a2bfe96150786ed1908b8e63f98ebab88875c1e79e28faff6649e0f11f77e52"
+    },
+    {
+      "path": "package/dist/pptxgen.bundle.js",
+      "sha256": "4fb9eac5cfefb213e2d8743c2b7151025f31bfb3f834c73c12062916daa0f3f8"
+    },
+    {
+      "path": "package/dist/pptxgen.cjs.js",
+      "sha256": "873d182a8e2e1c0b5e522ef146117936b96b9b2024667bd4c1de59e2b031d27a"
+    },
+    {
+      "path": "package/dist/pptxgen.es.js",
+      "sha256": "05844c5625e2cda3b449eb967c2246dd57ca57341886a7c28eeebca263b29bd4"
+    },
+    {
+      "path": "package/dist/pptxgen.min.js",
+      "sha256": "097f0b92e15035a72bba72b59ef1ece62ab45ec6075ac85fe0e2d80d3f59b8e3"
+    },
+    {
+      "path": "package/dist/pptxgen.bundle.js.map",
+      "sha256": "7052233dd27e06d32d9f0431ce98030a64936f74f7f463ff05fea98c4f7fd0e0"
+    },
+    {
+      "path": "package/dist/pptxgen.min.js.map",
+      "sha256": "3cfaf38a822a934a114fd5b7f0ff59bfffdf90ccde85bb3aa8d61aa69d949ed6"
+    },
+    {
+      "path": "package/README.md",
+      "sha256": "e36118997c58ec08a1fff55e1d9744a47420945167af1efc360af3d1ccaf0d3b"
+    },
+    {
+      "path": "package/types/index.d.ts",
+      "sha256": "0726d015dbcb55ccfa75546cb2fd43fe13a0dfeb783d08572f1c62f59193bbe5"
+    }
+  ],
+  "reason": "Remove an unused image-size dependency; published library code and license are unchanged."
+}

@@ -3,9 +3,11 @@
   "identifier": "ccswitch-native-bridge",
   "description": "Allow the 514cc loopback control-center page to call the explicit desktop bridge commands.",
   "local": false,
-  "windows": ["main"],
+  "windows": [
+    "main"
+  ],
   "remote": {
-    "urls": ["http://127.0.0.1:51400/*"]
+    "urls": []
   },
   "permissions": [
     "allow-get-native-capabilities",
@@ -18,6 +20,7 @@
     "allow-update-tray-menu",
     "allow-enter-lightweight-mode",
     "allow-exit-lightweight-mode",
-    "allow-is-lightweight-mode"
+    "allow-is-lightweight-mode",
+    "allow-set-pet-overlay"
   ]
 }

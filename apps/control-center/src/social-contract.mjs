@@ -40,12 +40,12 @@ export function projectSocialContract({
   const depth = Math.max(1, Math.min(8, Number(delegationDepthLimit) || 4));
   const budget = Number(maxBudgetUsdPerTurn);
   const hops = Number(pingPongLimit) || SOCIAL_PING_PONG_LIMIT;
-  if (!Number.isFinite(rounds) || rounds < 1) fail("social mode requires a round cap");
+  if (!Number.isFinite(rounds) || rounds < 1) fail("social 协作需要设置轮次上限");
   // social 多 agent 往复成本不可控："无限"单轮预算被显式拒绝（区别于缺失预算的报错）
-  if (budget > 0 && !Number.isFinite(budget)) fail("social mode rejects an unlimited per-turn budget; set a finite cap", "SOCIAL_UNLIMITED_BUDGET_REJECTED");
-  if (!Number.isFinite(budget) || budget <= 0) fail("social mode requires a per-turn budget cap");
-  if (!Number.isFinite(depth) || depth < 1) fail("social mode requires a delegation depth cap");
-  if (!Number.isFinite(hops) || hops < 1) fail("social mode requires a loop cap");
+  if (budget > 0 && !Number.isFinite(budget)) fail("social 协作需要有限的单轮预算上限：当前为无限，请设置有限金额（如 $5.00）", "SOCIAL_UNLIMITED_BUDGET_REJECTED");
+  if (!Number.isFinite(budget) || budget <= 0) fail("social 协作需要设置单轮预算上限");
+  if (!Number.isFinite(depth) || depth < 1) fail("social 协作需要设置委派深度上限");
+  if (!Number.isFinite(hops) || hops < 1) fail("social 协作需要设置往复轮次上限");
   return {
     optedIn: true,
     mode: SOCIAL_ORCHESTRATION_MODE,

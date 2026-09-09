@@ -489,18 +489,24 @@ body.atelier .sidebar .nav-item.nav-primary.is-active {
 
 .task-composer .composer-shell {
   width: min(var(--codex-reading-width), 100%);
-  padding: 8px 10px 8px;
-  border: 1px solid var(--border-strong);
-  border-left: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: 0 8px 24px rgba(26, 26, 23, 0.08), 0 1px 3px rgba(26, 26, 23, 0.05);
+  padding: 10px 14px 10px;
+  border: 1px solid var(--glass-border);
+  border-left: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl, 14px);
+  background: var(--surface-level-2);
+  box-shadow: var(--glass-specular), var(--glass-inset-glow), var(--shadow-floating);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  transition: border-color var(--dur-fast) var(--ease-spring),
+    box-shadow var(--dur-fast) var(--ease-spring),
+    transform var(--dur-fast) var(--ease-spring);
 }
 
 .task-composer .composer-shell:focus-within {
-  border-color: color-mix(in srgb, var(--composer-target-color) 58%, var(--border-strong));
-  border-left-color: color-mix(in srgb, var(--composer-target-color) 58%, var(--border-strong));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--composer-target-color) 12%, transparent), 0 8px 24px rgba(26, 26, 23, 0.08);
+  border-color: color-mix(in srgb, var(--composer-target-color, var(--primary)) 75%, var(--glass-border));
+  border-left-color: color-mix(in srgb, var(--composer-target-color, var(--primary)) 75%, var(--glass-border));
+  box-shadow: var(--glow-accent-ring), var(--glass-specular), var(--shadow-floating);
+  transform: translateY(-2px);
 }
 
 .composer-target-head {
@@ -646,12 +652,26 @@ body.atelier .sidebar .nav-item.nav-primary.is-active {
    （发送 / 新任务 / 存为自动化）正好落在浮层下方不可点。与终端抽屉同款让位
    （rail-tools.css 终端规则），保住 UX-04「抽屉开关不破坏主工作面」的验收。 */
 @media (min-width: 821px) {
-  .workbench-shell:not(.mc-collapsed) .task-composer {
+  .workbench-shell .task-composer,
+  .workbench-shell .conversation-heading,
+  .workbench-shell .conv-tabs {
+    transition: margin-inline-end var(--dur-fast) ease-out;
+  }
+
+  .workbench-shell:not(.mc-collapsed) .task-composer,
+  .workbench-shell:not(.mc-collapsed) .conversation-heading,
+  .workbench-shell:not(.mc-collapsed) .conv-tabs {
     margin-inline-end: calc(var(--codex-context-width, 326px) + 8px);
   }
 }
 
-.mc-expand-strip {
+/* 右栏改成浮层抽屉后（上方 translateX(100%+18px) + visibility:hidden），
+   注入在**栏内部**的手柄会随栏一起滑出视口，留着只是个不可点的残影 —— 关掉它。
+   v49 W-03 把手柄改挂到 .workbench-shell 直接子级（不受 rail 的 transform /
+   visibility / inert 影响），所以这条限定在 .context-rail 内，
+   不再一刀切关掉所有 .mc-expand-strip：那会让新的 shell 级手柄也失效，
+   右栏 326px 的环境信息面就又只剩顶栏一个 30px 图标钮作为唯一入口。 */
+.context-rail .mc-expand-strip {
   display: none !important;
 }
 

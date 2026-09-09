@@ -231,6 +231,12 @@
           "markdownDescription": "Enables the set_auto_launch command without any pre-configured scope."
         },
         {
+          "description": "Enables the set_pet_overlay command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-pet-overlay",
+          "markdownDescription": "Enables the set_pet_overlay command without any pre-configured scope."
+        },
+        {
           "description": "Enables the set_window_theme command without any pre-configured scope.",
           "type": "string",
           "const": "allow-set-window-theme",
@@ -295,6 +301,12 @@
           "type": "string",
           "const": "deny-set-auto-launch",
           "markdownDescription": "Denies the set_auto_launch command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_pet_overlay command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-pet-overlay",
+          "markdownDescription": "Denies the set_pet_overlay command without any pre-configured scope."
         },
         {
           "description": "Denies the set_window_theme command without any pre-configured scope.",

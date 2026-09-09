@@ -38,4 +38,13 @@ test("plugin settings page is a centered manager, not a left-aligned empty note"
   assert.match(css, /\.market-row \{/);
   assert.match(css, /\.market-row-detail \{/);
   assert.match(css, /\.market-kind-filters \{/);
+
+  // M1-M4: MCP & Skill settings overhaul assertions
+  assert.match(html, /data-config-surface-jump="capabilities"/, "HTML header bridges to capabilities matrix");
+  assert.match(panel, /data-config-surface-jump="capabilities"/, "Market panel provides reciprocal bridge");
+  assert.match(panel, /class="[^"]*market-app-pill/, "CLI targets use rich brand pills");
+  assert.match(panel, /class="[^"]*market-review-card/, "Pre-install review renders structured audit card");
+  assert.match(css, /\.market-app-pill/, "CSS provides styling for CLI brand pills");
+  assert.match(css, /\.waveg-review\.market-review-card/, "CSS elevates pre-install review card");
+  assert.match(css, /1320px/, "Market container expanded from cramped 800px");
 });

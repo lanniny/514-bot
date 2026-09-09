@@ -1,0 +1,197 @@
+/* Settings owns one destination strip; each configuration surface stays unframed. */
+html body.atelier .app-shell.is-settings {
+  grid-template-rows: var(--topbar-height) auto minmax(0, 1fr) var(--statusbar-height) !important;
+}
+html body.atelier .app-shell.is-settings .settings-rail {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16px;
+  width: auto;
+  min-width: 0;
+  height: auto;
+  max-height: none;
+  padding: 0 24px;
+  background: var(--surface);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+}
+html body.atelier .settings-rail-toolbar { flex: 0 0 150px; padding: 0; border: 0; }
+html body.atelier .settings-search-toggle { display: none; }
+html body.atelier .settings-rail-empty { flex: 1; margin: 0; color: var(--text-muted); font-size: var(--text-sm); }
+html body.atelier .settings-rail-search { width: 100%; min-width: 0; background: var(--surface-muted); border-radius: 5px; }
+html body.atelier .settings-rail-nav { flex: 1; display: flex; flex-direction: row; align-items: stretch; gap: 16px; min-width: 0; padding: 0; overflow-x: auto; }
+html body.atelier #config-topology-nav { display: flex; flex: 0 0 auto; margin: 0; padding: 0; }
+html body.atelier #config-topology-tabs { display: flex; gap: 16px; }
+html body.atelier .settings-rail-item {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  width: auto;
+  min-height: 48px;
+  gap: 7px;
+  margin: 0;
+  padding: 0 2px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: 500 var(--text-sm)/1.4 var(--sans);
+  letter-spacing: 0;
+  white-space: nowrap;
+  cursor: pointer;
+}
+html body.atelier .settings-rail-item > :is(span, strong) { overflow: visible; font: inherit; }
+html body.atelier .settings-rail-item .icon { width: 16px; height: 16px; flex: 0 0 16px; }
+html body.atelier .settings-rail-item:hover { color: var(--text-strong); background: transparent; }
+html body.atelier .settings-rail-item.is-active { color: var(--accent-ink); background: transparent; border-bottom-color: var(--accent-ink); box-shadow: none; }
+html body.atelier .settings-rail-item:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -3px; }
+html body.atelier .settings-rail-item:is(.is-error, .is-warning)::after { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--product-danger); }
+html body.atelier .settings-rail-item .config-nav-count { display: none; }
+html body.atelier .settings-rail-account { flex: 0 0 auto; padding: 0; border: 0; }
+html body.atelier .settings-avatar-button { min-width: 30px; width: 30px; height: 30px; min-height: 30px; padding: 0; }
+html body.atelier .settings-avatar-preview { width: 30px; height: 30px; }
+html body.atelier .settings-avatar-copy { display: none; }
+html body.atelier .app-shell.is-settings #main-content:not(:has(#view-bot.is-active)) {
+  padding: 20px 28px !important;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--surface);
+  overflow-y: auto;
+}
+html body.atelier .app-shell.is-settings #view-config.view {
+  width: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+html body.atelier .app-shell.is-settings #view-config.view .config-page-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 32px;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 0;
+}
+html body.atelier #view-config .config-page-heading::after { display: none; }
+html body.atelier #view-config .config-page-heading #config-title { margin: 0; font: 650 22px/1.4 var(--sans); letter-spacing: 0; }
+html body.atelier #view-config .config-toolbar { position: static; margin: 0 0 16px; padding: 0 0 12px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+html body.atelier #view-config #config-host-bar { width: 100%; max-width: none; margin: 0; padding: 0; flex-wrap: wrap; background: transparent; border: 0; }
+html body.atelier #view-config .config-surface-panel { margin: 0; border: 0; border-radius: 0; box-shadow: none; }
+html body.atelier #view-config .config-surface-panel::before { display: none; }
+html body.atelier #view-config .config-surface-heading { min-height: 0; margin: 0 0 12px; padding: 0; border: 0; justify-content: flex-end; }
+html body.atelier #config-surface-sources .runtime-workspace-tabs { display: flex; width: max-content; max-width: 100%; gap: 4px; margin: 0 0 16px; padding: 3px; border: 0; border-radius: 6px; background: var(--surface-muted); }
+html body.atelier #config-surface-sources .runtime-workspace-tabs button { min-height: 32px; padding: 6px 12px; border: 0; border-radius: 4px; box-shadow: none; }
+html body.atelier #config-surface-sources .runtime-workspace-tabs button.is-active { background: var(--surface); color: var(--text-strong); }
+html body.atelier #view-config #runtime-seat-component {
+  grid-template-columns: 244px minmax(0, 1fr);
+  grid-template-rows: auto;
+  min-height: 0;
+  gap: 24px;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+html body.atelier #view-config #runtime-seat-component .runtime-seat-index { align-self: start; position: sticky; top: 0; max-height: calc(100dvh - 160px); padding-right: 16px; background: transparent; }
+html body.atelier #view-config #runtime-seat-component :is(.runtime-seat-index-header, .runtime-seat-editor-header) { min-height: 40px; margin: 0 0 14px; padding: 0 0 12px; background: transparent; }
+html body.atelier #view-config #runtime-seat-component .runtime-seat-search { margin: 0 0 8px; }
+html body.atelier #view-config #runtime-seat-component .runtime-seat-filters { margin: 0 0 8px; }
+html body.atelier #view-config #runtime-seat-component .runtime-seat-list { padding: 0; }
+html body.atelier #view-config #runtime-seat-component .runtime-seat-form-body { overflow: visible; padding: 0 0 24px; scrollbar-gutter: auto; gap: 16px; }
+html body.atelier #view-config #runtime-seat-component .runtime-seat-bindings-strip { padding-block: 0 12px; }
+html body.atelier #runtime-seat-component :is(input:not([type="checkbox"]):not([type="range"]), select, textarea) { min-width: 0; min-height: 36px; max-width: 100%; padding-block: 7px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); color: var(--text); }
+html body.atelier #runtime-seat-component .button { border-radius: 5px; }
+html body.atelier #runtime-seat-component .button.danger { background: transparent; color: var(--product-danger); border: 1px solid var(--border); }
+html body.atelier #view-config #runtime-seat-component .runtime-seat-form-section { padding-top: 8px; }
+html body.atelier #view-config #runtime-seat-component .runtime-seat-section-heading .eyebrow { display: none; }
+html body.atelier #runtime-seat-component .runtime-seat-management-actions { display: flex; flex-wrap: wrap; gap: 12px; padding: 16px 0; border-top: 1px solid var(--border); }
+html body.atelier #runtime-seat-component .runtime-seat-form-actions { justify-content: flex-end; }
+html body.atelier #view-config #runtime-seat-component .runtime-seat-form-actions { position: sticky; bottom: 0; z-index: 2; padding: 12px 0; border-top: 1px solid var(--border); background: var(--surface); }
+html body.atelier #config-surface-providers #runtime-connection-deck { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+html body.atelier #config-surface-providers .provider-deck-heading { display: flex; align-items: center; gap: 12px; margin: 0 0 16px; padding: 0; border: 0; }
+html body.atelier #config-surface-providers .provider-deck-actions { width: auto; flex: 0 0 auto; }
+html body.atelier #config-surface-providers .provider-search { flex: 1; width: auto; min-width: 0; margin: 0; border-radius: 6px; background: var(--surface); box-shadow: none; }
+html body.atelier #config-surface-providers .provider-team-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
+html body.atelier #config-surface-providers .provider-team-apply { display: flex; align-items: center; gap: 12px; margin: 0; }
+html body.atelier #config-surface-providers .provider-team-apply select { min-width: 160px; min-height: 34px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); }
+html body.atelier #config-surface-providers .provider-global-empty { min-height: 120px; padding: 24px 0; border: 0; border-radius: 0; background: transparent; }
+html body.atelier #view-config .config-file-status { margin-bottom: 12px; }
+html body.atelier #view-config :is(.ccswitch-workbench, .cap-matrix-section, .cap-mcp-section, .hooks-workbench) { margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+html body.atelier #view-config .ccswitch-workbench .ccs-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 16px; padding: 0; border: 0; }
+html body.atelier #view-config .ccswitch-workbench :is(.ccs-tabs, .ccs-subtabs) { border: 0; border-radius: 6px; background: var(--surface-muted); }
+html body.atelier #view-config .ccswitch-workbench :is(.ccs-tab, .ccs-subtabs button) { border-radius: 4px; box-shadow: none; }
+html body.atelier #view-config .ccswitch-workbench .ccs-tool { padding: 16px 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; }
+html body.atelier #view-config .ccswitch-workbench :is(h2, h3, h4) { font-family: var(--sans); letter-spacing: 0; }
+html body.atelier #config-surface-capabilities :is(.cap-overview, .capability-bus) { border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; }
+html body.atelier #config-surface-capabilities .cap-stat { background: transparent; box-shadow: none; }
+html body.atelier #config-surface-capabilities .capability-bus-track > button { border: 0; border-radius: 0; background: transparent; box-shadow: none; }
+html body.atelier #config-surface-capabilities .cap-workspace-switcher { border: 0; border-radius: 6px; background: var(--surface-muted); }
+html body.atelier #config-surface-capabilities .cap-workspace-tab { border-radius: 4px; box-shadow: none; }
+html body.atelier #config-surface-providers .provider-app-bar { margin: 0 0 16px; border: 0; border-radius: 0; padding: 0 0 12px; border-bottom: 1px solid var(--border); background: transparent; }
+html body.atelier #config-surface-providers .provider-app-tab { border-radius: 5px; }
+html body.atelier #view-config :is(.provider-app-tab, .config-host-chip).is-active { background: var(--rose-soft); color: var(--accent-ink); border-color: var(--rose-line); }
+@media (min-width: 821px) {
+  html body.atelier .app-shell.is-settings { grid-template-columns: 176px minmax(0, 1fr) !important; grid-template-areas: "sidebar topbar" "sidebar settings" "sidebar main" "sidebar statusbar" !important; }
+  html body.atelier .app-shell.is-settings #view-config.view { max-width: 1320px; }
+  html body.atelier #view-config .config-page-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; margin-bottom: 20px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }
+  html body.atelier .app-shell.is-settings #view-config.view .config-page-heading { flex: 1 1 280px; justify-content: flex-start; margin: 0; }
+  html body.atelier #view-config .config-toolbar { flex: 1 1 440px; margin: 0; padding: 0; border: 0; }
+  html body.atelier #view-config #config-host-bar { justify-content: flex-end; }
+  html body.atelier #view-config .config-host-manage { margin-left: 0; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-bindings-strip { min-height: 36px; gap: 10px; padding-bottom: 12px; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-filters { padding: 3px; background: var(--surface-muted); border-radius: 6px; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-item { min-height: 62px; border-radius: 6px; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-item:hover { background: var(--surface-muted); }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-item.is-active { background: var(--rose-soft); border-color: var(--rose-line); }
+  html body.atelier #view-config .button.secondary { background: var(--surface-muted); border-color: var(--border); color: var(--text); }
+  html body.atelier #view-config #runtime-seat-component :is(.runtime-seat-item-copy strong, .field > span) { font-size: var(--text-sm); }
+  html body.atelier #view-config #runtime-seat-component .field > :is(input, select, textarea) { width: 100%; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-adapter-picker { display: flex; width: 100%; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-adapter-picker select { width: 100%; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-connection-actions { grid-column: 1 / -1; }
+  html body.atelier .app-shell.is-settings #main-content:has(#view-config.is-active #config-surface-sources:not([hidden]) #runtime-seat-workspace:not([hidden])) { padding-bottom: 0 !important; }
+}
+@media (min-width: 1101px) {
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-form-section { display: grid; grid-template-columns: 132px minmax(0, 1fr); align-items: start; column-gap: 24px; row-gap: 12px; padding-block: 20px 4px; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-section-heading { grid-column: 1; grid-row: 1; padding: 0; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-form-section > :not(.runtime-seat-section-heading) { grid-column: 2; min-width: 0; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-field-grid { gap: 14px 16px; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-native-settings .runtime-seat-section-heading { flex-direction: column; align-items: flex-start; gap: 12px; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-native-settings-actions { flex-wrap: wrap; }
+}
+@media (min-width: 821px) and (max-width: 1100px) {
+  html body.atelier .app-shell.is-settings { grid-template-columns: 164px minmax(0, 1fr) !important; }
+  html body.atelier .settings-rail-toolbar { flex-basis: 110px; }
+  html body.atelier .settings-rail-nav, html body.atelier #config-topology-tabs { gap: 12px; }
+  html body.atelier #view-config #runtime-seat-component { grid-template-columns: 200px minmax(0, 1fr); gap: 18px; }
+}
+@media (max-width: 820px) {
+  html body.atelier .app-shell.is-settings .settings-rail { flex-wrap: wrap; gap: 4px 8px; padding: 0 12px; }
+  html body.atelier .settings-rail-toolbar { display: flex; align-items: center; gap: 8px; flex: 0 0 36px; }
+  html body.atelier .settings-search-toggle { display: inline-flex; flex: 0 0 36px; width: 36px; height: 40px; }
+  html body.atelier .settings-rail-search { display: none; }
+  html body.atelier .settings-rail.is-search-open .settings-rail-toolbar { flex: 1 1 100%; padding-top: 8px; }
+  html body.atelier .settings-rail.is-search-open .settings-rail-search { display: flex; flex: 1; }
+  html body.atelier .settings-rail-account { display: block; order: 0; }
+  html body.atelier .settings-rail-nav { order: 0; flex: 1 1 0; }
+  html body.atelier .app-shell.is-settings #main-content:not(:has(#view-bot.is-active)) { padding: 16px !important; }
+  html body.atelier #view-config .config-page-heading #config-title { font-size: var(--text-xl); }
+  html body.atelier .app-shell.is-settings #view-config.view .config-page-heading { flex-direction: row; align-items: center; text-align: left; }
+  html body.atelier #view-config #runtime-seat-component { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-index { position: static; max-height: none; border: 0; padding: 0; }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 180px; overflow-y: auto; gap: 4px; }
+  html body.atelier #runtime-seat-component .runtime-seat-form-actions { grid-template-columns: auto minmax(0, 1fr); }
+}
+@media (max-width: 560px) {
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-list { grid-template-columns: minmax(0, 1fr); }
+  html body.atelier #view-config #runtime-seat-component .runtime-seat-item { min-height: 56px; }
+}

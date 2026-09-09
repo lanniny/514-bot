@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { closeChannelService } from "./channels/routes.mjs";
 import { join, resolve } from "node:path";
 import { EventStore } from "./event-store.mjs";
+import { attachConversationPreview } from "./conversation-preview.mjs";
 import { configureChildRegistry } from "./child-registry.mjs";
 import { ConfigManager } from "./config-manager.mjs";
 import { HealthService } from "./health.mjs";
@@ -15,12 +16,15 @@ import { createCapabilities } from "./capabilities.mjs";
 import { ModelDiscovery } from "./model-discovery.mjs";
 import { CapabilityWatcher, capabilityWatchTargets } from "./capability-watcher.mjs";
 import { ObservabilityService } from "./observability.mjs";
+import { ProductTelemetry } from "./product-telemetry.mjs";
+import { ProductFeedbackStore } from "./product-feedback.mjs";
 import { SessionAggregator } from "./sessions.mjs";
 import { TeamStore } from "./teams.mjs";
 import { TeamMemberStore } from "./team-members.mjs";
 import { ConversationStore } from "./conversations.mjs";
 import { ConversationContextStore } from "./conversation-contexts.mjs";
 import { ProjectRegistry } from "./projects.mjs";
+import { ProjectPluginStore } from "./project-plugins.mjs";
 import { ProviderStore } from "./providers.mjs";
 import { CcSwitchProxyService } from "./ccswitch/proxy.mjs";
 import { CcSwitchDomainService } from "./ccswitch/domain.mjs";
@@ -291,6 +295,7 @@ export async function createControlCenter(options = {}) {
   }).init();
   teams.assertCatalogCompatible(teamMembers.list());
   projects = await new ProjectRegistry({ dataRoot }).init();
+  const projectPlugins = await new ProjectPluginStore({ dataRoot, projects }).init();
   conversations = await new ConversationStore({ dataRoot, projects }).init();
   conversationContexts = await new ConversationContextStore({ dataRoot }).init();
   // cc-switch 迁移：统一供应商档案（baseUrl+apiKey 一处录入，按 app 投影 live 配置）；
@@ -352,6 +357,7 @@ export async function createControlCenter(options = {}) {
     // v41 波二：远程 run 桥——懒解析 ssh service 单例（registerSshRoutes 建），ssh 门闸随 assertRunnable
     remoteRunner: createRemoteRunner({ getService: getSshService, gates: remoteGates }),
     macroStore,
+    projectPlugins,
   }).init();
   let generation = 1;
   let closed = false;
@@ -361,6 +367,8 @@ export async function createControlCenter(options = {}) {
   // 每个关闭步骤只启动一次；超时后下一次 close() 继续等待同一 Promise，避免
   // 对仍在运行的资源操作重复发起并发清理。已拒绝的步骤会在下一次尝试重新创建。
   const closeTasks = new Map();
+  // Grok 对标：会话列表最近消息预览（面模块 src/conversation-preview.mjs，订阅事件流回填）。
+  attachConversationPreview({ eventStore, orchestrator, conversations, isClosed: () => closed });
   let state;
   configManager = await new ConfigManager({
     repoRoot,
@@ -414,6 +422,17 @@ export async function createControlCenter(options = {}) {
 
   const aiSharedRoot = join(repoRoot, ".ai-shared");
   const observability = new ObservabilityService({ aiSharedRoot, repoRoot });
+  // P-21 产品行为埋点（v48 S0）：独立 JSONL、独立配额，不混入 events.jsonl —— 理由见
+  // product-telemetry.mjs 顶部"为什么不复用主 EventStore"。默认开启，可经 API 关闭并清空。
+  const productTelemetry = await new ProductTelemetry({
+    path: join(dataRoot, "product-telemetry.jsonl"),
+    enabled: options.productTelemetryEnabled !== false,
+  }).init();
+  // P-24 产品反馈闭环（v48 S0-5）：与埋点分离存储——埋点是 append-only 哈希链不可改，
+  // 反馈需要标记处理状态可改；合并会让其中一个的语义被另一个绑架。
+  const productFeedback = await new ProductFeedbackStore({
+    path: join(dataRoot, "product-feedback.json"),
+  }).init();
   const sessions = new SessionAggregator({ aiSharedRoot });
   // v3.7 Automations：composer 快照定时/手动 headless 执行（走 orchestrator 全治理链）。
   // pulseProvider 惰性引用 state.collectPulse（server 层组装 observability+runtime 双面数据）
@@ -437,12 +456,15 @@ export async function createControlCenter(options = {}) {
     repoRoot,
     dataRoot,
     observability,
+    productTelemetry,
+    productFeedback,
     sessions,
     automations,
     capabilities,
     providers: providerStore,
     ccswitchProxy,
     ccswitchDomain,
+    projectPlugins,
     ccswitchAuth,
     teams,
     teamMembers,
@@ -686,6 +708,9 @@ export async function createControlCenter(options = {}) {
           ["conversationContexts.close", () => conversationContexts.close()],
           ["conversations.close", () => conversations.close()],
           ["projects.close", () => projects.close()],
+          // 埋点 store 先于主 eventStore 关闭：它是附属度量面，任何关闭异常都不应
+          // 挡在 Run 证据落盘的前面。
+          ["productTelemetry.close", () => productTelemetry.close()],
           ["eventStore.close", () => eventStore.close({ deadlineMs: resourceDeadline })],
           ["childRegistry.flush", () => childReg.flush()],
           ["channels.close", () => closeChannelService()],

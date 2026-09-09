@@ -109,10 +109,13 @@ export function createBotActivityTimeline({
     const itemCount = items.reduce((sum, item) => sum + botActivityItemCount(item), 0);
     const memberCount = new Set(items.map(botActivityAgentId).filter(Boolean)).size;
     const last = items.at(-1);
-    return `<section class="bot-activity-group" data-bot-activity-count="${itemCount}" aria-label="协作过程">
-    <header class="bot-activity-summary"><span class="bot-activity-icon">${lucideIcon("workflow", "icon lucide")}</span><span><strong>协作过程</strong><small>成员回复与工具记录按发生顺序排列</small></span><b>${memberCount ? `${memberCount} 位 · ` : ""}${itemCount} 条</b><time>${escapeHtml(formatTime(last?.created_at || last?.timestamp))}</time></header>
+    // 聊天化收纳（2026-09-09）：思考/工具/文件改动等中间过程默认折叠成一行摘要，
+    // 消息流直接呈现最终结果；点开摘要才展开过程时间线（details 原生语义，
+    // reconcileMessageMarkup 对 DETAILS 保留 open 态，流式更新不打断用户展开）。
+    return `<details class="bot-activity-group" data-bot-activity-count="${itemCount}" aria-label="协作过程">
+    <summary class="bot-activity-summary"><span class="bot-activity-icon">${lucideIcon("workflow", "icon lucide")}</span><span><strong>协作过程</strong><small>思考、工具调用与文件改动已收纳——点开核对</small></span><b>${memberCount ? `${memberCount} 位 · ` : ""}${itemCount} 条</b><time>${escapeHtml(formatTime(last?.created_at || last?.timestamp))}</time><svg class="icon lucide bot-activity-group-chevron" aria-hidden="true"><use href="#lucide-chevron-down"></use></svg></summary>
     <div class="bot-activity-timeline">${timelineMarkup || botActivitySegmentMarkup(items)}</div>
-  </section>`;
+  </details>`;
   }
 
   function botConversationMessagesMarkup(messages) {

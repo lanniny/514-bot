@@ -63,9 +63,10 @@ function esc(text) {
 
 function appBoxes(prefix, selected = { claude: true, codex: true }, targets = MCP_TARGETS) {
   return `<div class="market-app-grid">${targets.map(([id, label]) => `
-    <label class="ccs-check">
+    <label class="market-app-pill ccs-check is-app-${esc(id)}${selected[id] ? " is-checked" : ""}">
       <input type="checkbox" data-${prefix}-app="${esc(id)}"${selected[id] ? " checked" : ""} />
-      <span>${esc(label)}</span>
+      <span class="market-app-pill-dot" aria-hidden="true"></span>
+      <span class="market-app-pill-label">${esc(label)}</span>
     </label>`).join("")}</div>`;
 }
 
@@ -119,8 +120,8 @@ function rowKey(kind, id) {
 function appBadges(apps) {
   const on = MCP_TARGETS.filter(([id]) => apps?.[id]);
   const short = (label) => label.replace(" Code", "").replace(" Desktop", "").replace(" Build", "");
-  const shown = on.slice(0, 3).map(([, label]) => ({ text: short(label), on: true }));
-  if (on.length > 3) shown.push({ text: `+${on.length - 3}`, on: false });
+  const shown = on.slice(0, 3).map(([id, label]) => ({ id, text: short(label), on: true }));
+  if (on.length > 3) shown.push({ id: "more", text: `+${on.length - 3}`, on: false });
   return shown;
 }
 
@@ -183,6 +184,7 @@ function render(root) {
           <p>管理已安装的 Skill 与 MCP。Skills 来自 GitHub 仓库扫描，MCP 来自官方 Registry / Smithery；确认后写入项目与 CLI live 配置。</p>
         </div>
         <div class="market-head-actions">
+          <button type="button" class="button secondary compact market-bridge-btn" data-config-surface-jump="capabilities" data-cap-workspace="skills" title="前往项目成员 Skill 声明矩阵">${lucideIcon("shield-check", "icon lucide")} 成员授权矩阵</button>
           <button type="button" class="button secondary" data-market-tab="repos">${lucideIcon("folder-git-2", "icon lucide")} 仓库</button>
           <div class="market-add">
             <button type="button" class="button primary" id="market-add-toggle" aria-expanded="${state.addOpen}">${lucideIcon("plus", "icon lucide")} 添加</button>
@@ -376,11 +378,15 @@ function row({ kind, id, title, meta, badges = [], actions = "", detail = "" }) 
     <article class="market-row${open ? " is-open" : ""}" data-kind="${esc(kind)}" data-row-toggle="${esc(key)}">
       <span class="market-row-icon" aria-hidden="true">${lucideIcon(iconFor(kind), "icon lucide")}</span>
       <div class="market-row-copy">
-        <strong>${esc(title)}</strong>
-        <span>${esc(meta)}</span>
+        <div class="market-row-heading">
+          <strong>${esc(title)}</strong>
+          <span class="market-kind-pill is-kind-${esc(kind)}">${esc(kind.toUpperCase())}</span>
+        </div>
+        <span class="market-row-desc">${esc(meta)}</span>
       </div>
-      <div class="market-row-meta">${badges.map((badge) => `<span class="waveg-badge${badge.on ? " is-on" : ""}">${esc(badge.text)}</span>`).join("")}</div>
+      <div class="market-row-meta">${badges.map((badge) => `<span class="waveg-badge${badge.on ? " is-on" : ""}${badge.id ? ` is-app-${badge.id}` : ""}">${esc(badge.text)}</span>`).join("")}</div>
       <div class="market-row-actions">${actions}</div>
+      <span class="market-row-chevron" aria-hidden="true">${lucideIcon(open ? "chevron-up" : "chevron-down", "icon lucide")}</span>
     </article>
     ${open && detail ? `<div class="market-row-detail" data-row-detail="${esc(key)}">${detail}</div>` : ""}`;
 }
@@ -402,33 +408,60 @@ function paintPane(root) {
 function skillDetail(skill, apps) {
   const ledger = ledgerSkill(skill.name);
   return `
-    <p>${esc(skill.description || "本地 Skill")}</p>
-    <dl class="waveg-kv">
-      <dt>安装时间</dt><dd>${esc(formatWhen(ledger?.installedAt) || "—")}</dd>
-      <dt>哈希</dt><dd>${esc(hashHint(ledger?.hash || ledger?.review?.sha256) || "—")}</dd>
-    </dl>
-    <p class="subtle">投影到</p>
-    ${appBoxes(`skill-${skill.name}`, apps || { claude: true, codex: true }, SKILL_TARGETS)}
-    <div class="waveg-card-actions">
-      <button type="button" class="button primary" data-skill-apps="${esc(skill.name)}">${lucideIcon("check", "icon lucide")} 更新投影</button>
+    <div class="market-detail-shell">
+      <div class="market-detail-hero">
+        <p class="market-detail-desc">${esc(skill.description || "本地 Skill 扩展")}</p>
+        <dl class="waveg-kv market-detail-kv">
+          <div><dt>安装时间</dt><dd>${esc(formatWhen(ledger?.installedAt) || "已随仓库注册")}</dd></div>
+          <div><dt>哈希指纹</dt><dd><code>${esc(hashHint(ledger?.hash || ledger?.review?.sha256) || "本地真源")}</code></dd></div>
+        </dl>
+      </div>
+      <div class="market-detail-projections">
+        <div class="market-detail-projections-head">
+          <strong>运行时投影目标</strong>
+          <span class="subtle">勾选允许该 CLI 在启动时加载此 Skill</span>
+        </div>
+        ${appBoxes(`skill-${skill.name}`, apps || { claude: true, codex: true }, SKILL_TARGETS)}
+      </div>
+      <div class="waveg-card-actions market-detail-actions">
+        <button type="button" class="button primary" data-skill-apps="${esc(skill.name)}">${lucideIcon("check", "icon lucide")} 更新投影</button>
+        <button type="button" class="button secondary compact" data-config-surface-jump="capabilities" data-cap-workspace="skills" title="前往项目成员 Skill 声明矩阵">
+          ${lucideIcon("shield-check", "icon lucide")} 项目成员授权
+        </button>
+      </div>
     </div>`;
 }
 
 function mcpDetail(item) {
   const review = item.review ?? {};
+  const cmd = review.command ?? review.config?.command ?? "—";
+  const args = (review.args ?? review.config?.args ?? []).join(" ") || "—";
+  const url = review.url ?? review.config?.url ?? "—";
   return `
-    <p>${esc(review.description || item.id)}</p>
-    <dl class="waveg-kv">
-      <dt>命令</dt><dd>${esc(review.command ?? review.config?.command ?? "—")}</dd>
-      <dt>参数</dt><dd>${esc((review.args ?? review.config?.args ?? []).join(" ") || "—")}</dd>
-      <dt>URL</dt><dd>${esc(review.url ?? review.config?.url ?? "—")}</dd>
-      <dt>来源</dt><dd>${esc(item.source || "mcp")}</dd>
-      <dt>安装时间</dt><dd>${esc(formatWhen(item.installedAt) || "—")}</dd>
-    </dl>
-    <p class="subtle">投影到</p>
-    ${appBoxes(`mcp-${item.id}`, item.apps || { claude: true })}
-    <div class="waveg-card-actions">
-      <button type="button" class="button primary" data-mcp-apps="${esc(item.id)}">${lucideIcon("check", "icon lucide")} 更新投影</button>
+    <div class="market-detail-shell">
+      <div class="market-detail-hero">
+        <p class="market-detail-desc">${esc(review.description || item.id)}</p>
+        <dl class="waveg-kv market-detail-kv">
+          <div><dt>协议传输</dt><dd><code>${esc(review.transport || (url !== "—" ? "SSE / HTTP" : "stdio"))}</code></dd></div>
+          <div><dt>执行入口</dt><dd><code>${esc(cmd)} ${esc(args)}</code></dd></div>
+          <div><dt>端点 URL</dt><dd><code>${esc(url)}</code></dd></div>
+          <div><dt>扩展来源</dt><dd>${esc(item.source || "MCP Registry")}</dd></div>
+          <div><dt>安装时间</dt><dd>${esc(formatWhen(item.installedAt) || "—")}</dd></div>
+        </dl>
+      </div>
+      <div class="market-detail-projections">
+        <div class="market-detail-projections-head">
+          <strong>运行时投影目标</strong>
+          <span class="subtle">勾选允许写入该 CLI 的 live MCP 配置文件</span>
+        </div>
+        ${appBoxes(`mcp-${item.id}`, item.apps || { claude: true })}
+      </div>
+      <div class="waveg-card-actions market-detail-actions">
+        <button type="button" class="button primary" data-mcp-apps="${esc(item.id)}">${lucideIcon("check", "icon lucide")} 更新投影</button>
+        <button type="button" class="button secondary compact" data-config-surface-jump="capabilities" data-cap-workspace="mcp" title="前往 MCP 运行与启停状态">
+          ${lucideIcon("server", "icon lucide")} 查看运行态
+        </button>
+      </div>
     </div>`;
 }
 
@@ -762,28 +795,38 @@ function renderReview(root) {
   const box = root.querySelector("#market-review");
   if (!box || !state.review) return;
   if (state.review.kind === "error") {
-    box.innerHTML = `<div class="waveg-review"><strong>${lucideIcon("triangle-alert", "icon lucide")} 审查失败</strong><p class="subtle">${esc(state.review.error)}</p></div>`;
+    box.innerHTML = `<div class="waveg-review market-review-card is-error"><strong>${lucideIcon("triangle-alert", "icon lucide")} 审查失败</strong><p class="subtle">${esc(state.review.error)}</p></div>`;
     return;
   }
   const { kind, review } = state.review;
   const rows = kind === "mcp"
-    ? `<dt>命令</dt><dd>${esc(review.command ?? review.config?.command ?? "（远端未声明）")}</dd>
-       <dt>参数</dt><dd>${esc((review.args ?? review.config?.args ?? []).join(" "))}</dd>
-       <dt>URL</dt><dd>${esc(review.url ?? review.config?.url ?? "—")}</dd>
-       <dt>环境变量</dt><dd>${esc((review.envKeys ?? []).join("、") || "无")}</dd>`
-    : `<dt>名称</dt><dd>${esc(review.name)}</dd>
-       <dt>描述</dt><dd>${esc(review.description)}</dd>
-       <dt>文件数</dt><dd>${review.files?.length ?? 0}</dd>`;
+    ? `<div><dt>执行命令</dt><dd><code>${esc(review.command ?? review.config?.command ?? "（远端未声明）")}</code></dd></div>
+       <div><dt>启动参数</dt><dd><code>${esc((review.args ?? review.config?.args ?? []).join(" ") || "无附加参数")}</code></dd></div>
+       <div><dt>端点 URL</dt><dd><code>${esc(review.url ?? review.config?.url ?? "—")}</code></dd></div>
+       <div><dt>环境变量</dt><dd>${esc((review.envKeys ?? []).join("、") || "无敏感环境变量声明")}</dd></div>`
+    : `<div><dt>技能名称</dt><dd><strong>${esc(review.name)}</strong></dd></div>
+       <div><dt>技能描述</dt><dd>${esc(review.description || "—")}</dd></div>
+       <div><dt>文件数量</dt><dd>${review.files?.length ?? 0} 个文件（含 SKILL.md）</dd></div>`;
   box.innerHTML = `
-    <div class="waveg-review">
-      <strong>${lucideIcon("shield-check", "icon lucide")} 安装前审查（${kind === "mcp" ? "MCP" : "Skill"}）</strong>
-      <dl class="waveg-kv">${rows}</dl>
-      <p class="subtle">投影到</p>
-      ${appBoxes("review", { claude: true, codex: kind === "skill" }, kind === "skill" ? SKILL_TARGETS : MCP_TARGETS)}
-      <p class="subtle">确认即写入勾选应用的 live 配置；Skill 还会落到当前项目 .agents/skills。</p>
-      <div class="waveg-card-actions">
-        <button type="button" class="button primary" id="review-confirm">${lucideIcon("check", "icon lucide")} 确认安装</button>
-        <button type="button" class="button" id="review-cancel">放弃</button>
+    <div class="waveg-review market-review-card">
+      <div class="market-review-head">
+        <span class="market-review-icon" aria-hidden="true">${lucideIcon("shield-check", "icon lucide")}</span>
+        <div>
+          <strong>安装前安全审查（${kind === "mcp" ? "MCP 扩展服务" : "Skill 技能指令"}）</strong>
+          <p class="subtle">安装即写入勾选应用的 live 配置；Skill 会同时落到当前项目 .agents/skills。</p>
+        </div>
+      </div>
+      <dl class="waveg-kv market-review-kv">${rows}</dl>
+      <div class="market-review-projections">
+        <div class="market-detail-projections-head">
+          <strong>投影到哪些 CLI 运行时</strong>
+          <span class="subtle">各客户端将在重启或重载时加载此扩展</span>
+        </div>
+        ${appBoxes("review", { claude: true, codex: kind === "skill" }, kind === "skill" ? SKILL_TARGETS : MCP_TARGETS)}
+      </div>
+      <div class="waveg-card-actions market-review-actions">
+        <button type="button" class="button primary" id="review-confirm">${lucideIcon("check", "icon lucide")} 确认安装并生效</button>
+        <button type="button" class="button secondary" id="review-cancel">放弃</button>
       </div>
     </div>`;
   box.querySelector("#review-confirm").addEventListener("click", () => void reviewConfirm(root));

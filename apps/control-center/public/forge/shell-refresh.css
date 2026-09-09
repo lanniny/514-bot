@@ -1,0 +1,445 @@
+/* shell-refresh.css — 壳层刷新（2026-09-09）
+ * 一、桌面隐藏左侧栏：原导航整体迁入设置配置面板（nav-config 单一真源渲染进设置轨），
+ *    全局设置入口固定左下角（Grok 式底栏坞）。
+ * 二、协作台聊天化：消息气泡深度美化（圆角/阴影/间距/动效/悬停反馈），
+ *    协作过程（思考/工具/文件改动）默认收纳为一行摘要，点开才展开。
+ * 全部消费既有 Forge/Bot 令牌，暗色主题自动跟随，不引入裸色值。
+ */
+
+/* ============ 一、侧栏隐藏与栅格重写（桌面 ≥821px，移动端抽屉行为不变） ============ */
+@media (min-width: 821px) {
+  /* 注意优先级战场：product-shell.css 用 html body.atelier .app-shell:not(.nav-open) #sidebar
+   * (ID+3类) 强制 display:flex !important——同级选择器 + 更晚加载才能压过，两种 nav 态都覆盖。 */
+  html body.atelier .app-shell:not(.nav-open) #sidebar,
+  html body.atelier .app-shell.nav-open #sidebar {
+    display: none !important;
+  }
+
+  html body.atelier .app-shell {
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-areas:
+      "topbar"
+      "main"
+      "statusbar" !important;
+  }
+
+  /* 设置表面：设置轨升为唯一左栏（承载迁移后的全部功能导航 + 配置目的地） */
+  html body.atelier .app-shell.is-settings {
+    grid-template-columns: 232px minmax(0, 1fr) !important;
+    grid-template-areas:
+      "settings topbar"
+      "settings main"
+      "settings statusbar" !important;
+  }
+
+  html body.atelier .app-shell.is-settings .settings-rail {
+    width: 232px;
+    min-width: 0;
+  }
+}
+
+/* ============ 设置面板内部：目的地条回归纵向轨 ============
+ * config-workspace.css 把设置铬层定为「顶栏下横向条」（flex-direction: row）——
+ * 迁移导航 15 项 + 原设置 8 项在横条里不可达（横向裁剪）。侧栏隐藏后设置面板
+ * 需要真正的纵向导航轨（VSCode 设置式）：全部目的地垂直可滚、搜索常驻。 */
+@media (min-width: 821px) {
+  html body.atelier .app-shell.is-settings .settings-rail {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 6px;
+    height: auto;
+    max-height: none;
+    padding: 10px 8px;
+    background: var(--sidebar);
+    border: 0;
+    border-right: 1px solid var(--border);
+  }
+
+  html body.atelier .app-shell.is-settings .settings-rail-toolbar {
+    flex: 0 0 auto;
+    width: 100%;
+    padding: 2px 2px 8px;
+  }
+
+  /* 搜索常驻（23 个目的地需要过滤），不再藏在 toggle 后 */
+  html body.atelier .app-shell.is-settings .settings-rail-search,
+  html body.atelier .app-shell.is-settings .settings-rail.is-search-open .settings-rail-search {
+    display: flex;
+    width: 100%;
+  }
+
+  html body.atelier .app-shell.is-settings .settings-rail-nav {
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    min-height: 0;
+    padding: 2px;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  html body.atelier .app-shell.is-settings #config-topology-nav {
+    display: block;
+    flex: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  html body.atelier .app-shell.is-settings #config-topology-tabs {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  html body.atelier .app-shell.is-settings .settings-rail-item {
+    display: flex;
+    width: 100%;
+    min-height: 32px;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 0 8px;
+    border: 0;
+    border-bottom-color: transparent;
+    border-radius: 7px;
+    background: transparent;
+    color: var(--text-muted);
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color var(--dur-med) ease, color var(--dur-med) ease;
+  }
+
+  html body.atelier .app-shell.is-settings .settings-rail-item:hover {
+    background: var(--surface-muted);
+    color: var(--text-strong);
+  }
+
+  html body.atelier .app-shell.is-settings .settings-rail-item.is-active {
+    background: var(--rose-soft);
+    color: var(--text-strong);
+    border-bottom-color: transparent;
+    box-shadow: none;
+  }
+
+  html body.atelier .app-shell.is-settings .settings-rail-item .config-nav-count {
+    display: inline;
+    margin-left: auto;
+    color: var(--text-soft);
+    font-size: var(--text-xs);
+  }
+
+  html body.atelier .app-shell.is-settings .settings-rail-label {
+    margin: 12px 8px 4px;
+  }
+
+  html body.atelier .app-shell.is-settings .settings-rail-account {
+    flex: 0 0 auto;
+    padding: 8px 2px 2px;
+    border-top: 1px solid var(--border);
+  }
+
+  html body.atelier .app-shell.is-settings .settings-avatar-button {
+    display: flex;
+    width: 100%;
+    height: auto;
+    min-height: 38px;
+    align-items: center;
+    gap: 9px;
+    padding: 4px 6px;
+  }
+
+  html body.atelier .app-shell.is-settings .settings-avatar-copy {
+    display: flex;
+  }
+}
+
+/* ============ 设置坞：固定左下角的全局设置入口 ============ */
+.settings-dock {
+  position: fixed;
+  z-index: 60;
+  left: 14px;
+  bottom: calc(var(--statusbar-height, 26px) + 12px);
+}
+
+.settings-dock-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 16px 0 13px;
+  border: 1px solid var(--border, rgba(33, 29, 24, .12));
+  border-radius: 999px;
+  background: var(--surface, #fbf9f4);
+  color: var(--text, #211d18);
+  font-size: var(--text-sm, 13px);
+  font-weight: 620;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(59, 48, 38, .08), 0 6px 18px rgba(59, 48, 38, .10);
+  transition: transform var(--dur-med) ease, box-shadow var(--dur-med) ease, border-color var(--dur-med) ease, background-color var(--dur-med) ease;
+}
+
+.settings-dock-button .icon {
+  width: 15px;
+  height: 15px;
+  color: var(--text-muted, #5f584f);
+  transition: transform var(--dur-base) ease, color var(--dur-med) ease;
+}
+
+.settings-dock-button:hover {
+  border-color: var(--border-strong, rgba(33, 29, 24, .22));
+  background: var(--surface-strong, #ffffff);
+  box-shadow: 0 2px 4px rgba(59, 48, 38, .10), 0 10px 26px rgba(59, 48, 38, .14);
+  transform: translateY(-1px);
+}
+
+.settings-dock-button:hover .icon {
+  color: var(--accent, #984126);
+  transform: rotate(36deg);
+}
+
+.settings-dock-button:active {
+  transform: translateY(0) scale(.97);
+}
+
+/* 设置面板展开时坞让位（设置轨即导航，含返回各视图入口） */
+html body.atelier .app-shell.is-settings .settings-dock {
+  display: none;
+}
+
+/* 协作台视图的左下角已有 roster 底部设置入口（同源打开配置面板），坞不与其重叠 */
+html body.atelier .app-shell:has(#view-bot.is-active) .settings-dock {
+  display: none;
+}
+
+/* 移动端底栏已有全量导航，坞不占位 */
+@media (max-width: 820px) {
+  .settings-dock {
+    display: none;
+  }
+}
+
+/* ============ 设置轨内迁移导航（原侧栏分组，沉底——设置目的地优先） ============ */
+.settings-nav-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px solid var(--border, rgba(33, 29, 24, .12));
+}
+
+.settings-nav-groups .settings-rail-label {
+  margin: 12px 10px 4px;
+}
+
+.settings-nav-groups .settings-rail-label:first-child {
+  margin-top: 4px;
+}
+
+/* ============ 二、协作台聊天化美化 ============ */
+
+/* 消息入场：轻浮起 + 淡入（reconcile 保节点身份，只在真正插入时播一次） */
+@keyframes bot-message-in {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.bot-message {
+  animation: bot-message-in var(--dur-base) cubic-bezier(.22, .8, .36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bot-message {
+    animation: none;
+  }
+}
+
+/* 气泡：聊天软件式大圆角 + 方向性小尾巴角 + 细腻投影 + 悬停反馈 */
+.bot-bubble {
+  position: relative;
+  padding: 10px 14px;
+  border-radius: 16px;
+  box-shadow: 0 1px 2px rgba(33, 29, 24, .06);
+  transition: box-shadow var(--dur-base) ease, transform var(--dur-base) ease, background-color var(--dur-base) ease;
+}
+
+.bot-message-agent .bot-bubble {
+  border-top-left-radius: 5px;
+}
+
+.bot-message-user .bot-bubble {
+  border-top-right-radius: 5px;
+  box-shadow: 0 1px 2px rgba(33, 29, 24, .10), 0 4px 14px rgba(33, 29, 24, .10);
+}
+
+.bot-message:hover .bot-bubble {
+  box-shadow: 0 2px 5px rgba(33, 29, 24, .08), 0 8px 22px rgba(33, 29, 24, .10);
+}
+
+.bot-message-user:hover .bot-bubble {
+  box-shadow: 0 2px 6px rgba(33, 29, 24, .14), 0 10px 26px rgba(33, 29, 24, .14);
+}
+
+/* 分组连发：气泡间距收紧、头像列占位对齐（真实聊天软件的视觉节奏） */
+.bot-message.is-grouped {
+  margin-top: -8px;
+}
+
+.bot-message-author {
+  letter-spacing: .01em;
+}
+
+/* 时间戳：默认低调，悬停消息行时完整显现（iMessage 式降噪） */
+.bot-message time {
+  opacity: .55;
+  transition: opacity var(--dur-med) ease;
+}
+
+.bot-message:hover time,
+.bot-message:focus-within time {
+  opacity: 1;
+}
+
+/* 头像：环形微描边 + 悬停轻放大，身份更立体 */
+.bot-message-avatar {
+  border-radius: 50%;
+  box-shadow: 0 0 0 1px var(--bot-line, rgba(33, 29, 24, .12));
+  transition: transform var(--dur-base) ease, box-shadow var(--dur-base) ease;
+}
+
+.bot-message:hover .bot-message-avatar {
+  transform: scale(1.06);
+  box-shadow: 0 0 0 1px var(--bot-line-strong, rgba(33, 29, 24, .24)), 0 2px 6px rgba(33, 29, 24, .12);
+}
+
+/* ============ 协作过程默认收纳：details 摘要行 ============ */
+details.bot-activity-group {
+  display: block;
+  width: min(760px, 100%);
+}
+
+details.bot-activity-group > summary.bot-activity-summary {
+  cursor: pointer;
+  list-style: none;
+  border-radius: 10px;
+  transition: background-color var(--dur-med) ease, border-color var(--dur-med) ease, box-shadow var(--dur-med) ease;
+}
+
+details.bot-activity-group > summary.bot-activity-summary::-webkit-details-marker {
+  display: none;
+}
+
+details.bot-activity-group > summary.bot-activity-summary:hover {
+  border-color: var(--bot-line-strong, rgba(33, 29, 24, .24));
+  background: var(--bot-panel, #f6f2ea);
+  box-shadow: 0 2px 6px rgba(20, 40, 80, .10);
+}
+
+details.bot-activity-group > summary.bot-activity-summary .bot-activity-group-chevron {
+  width: 14px;
+  height: 14px;
+  color: var(--bot-muted, #5f584f);
+  transition: transform var(--dur-base) ease;
+}
+
+details.bot-activity-group[open] > summary.bot-activity-summary .bot-activity-group-chevron {
+  transform: rotate(180deg);
+}
+
+details.bot-activity-group > .bot-activity-timeline {
+  margin-top: 8px;
+  padding-left: 6px;
+  border-left: 2px solid var(--bot-line, rgba(33, 29, 24, .12));
+}
+
+/* 输入区：聚焦态更细腻的浮起感（既有 24px 药丸形基础上加过渡与层次） */
+.bot-composer {
+  box-shadow: 0 1px 3px rgba(33, 29, 24, .06), 0 6px 20px rgba(33, 29, 24, .06);
+  transition: border-color var(--dur-base) ease, box-shadow var(--dur-base) ease, transform var(--dur-base) ease;
+}
+
+.bot-composer:hover {
+  border-color: var(--bot-line-strong, rgba(33, 29, 24, .24));
+}
+
+.bot-composer:focus-within {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bot-accent, #984126) 14%, transparent),
+    0 4px 10px rgba(33, 29, 24, .08), 0 12px 32px rgba(33, 29, 24, .10);
+  transform: translateY(-1px);
+}
+
+/* ============ 三、壁纸态阅读纱幕（team-bg-active 门控，无壁纸零回归） ============
+   问题：壁纸态下会话面板玻璃 alpha 可被用户滑杆拉低，而 agent 气泡在 bot-workspace
+   设计里是「无边框透明底」的编辑式排版——文字直接坐在锐利壁纸上，可读性与精致度
+   双输。方案（Telegram 式聊天美学）：面板透明度仍尊重用户滑杆，但所有「阅读面」
+   （agent 气泡 / 协作过程卡 / 流式气泡 / 输入行）统一升为 --forge-reading-alpha
+   阅读档玻璃卡（JS 派生：滑杆值 +14 且地板 86%，低滑杆下依然可读），头部用 mid
+   档磨砂条分出铬层。壁纸依旧从卡片间隙与面板边缘透出，美感与可读兼得。 */
+
+/* agent 气泡：透明编辑式 → 玻璃阅读卡（选择器加 body.team-bg-active 压 bot-workspace 的 ID 规则） */
+body.team-bg-active #view-bot .bot-message-agent .bot-bubble {
+  padding: 12px 16px;
+  border: 1px solid color-mix(in oklab, var(--bot-line, rgba(33, 29, 24, .12)) 70%, transparent);
+  border-radius: 16px;
+  border-top-left-radius: 5px;
+  background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) var(--forge-reading-alpha, 94%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  box-shadow: 0 1px 2px rgba(33, 29, 24, .06), 0 6px 18px rgba(33, 29, 24, .08);
+}
+
+body.team-bg-active #view-bot .bot-message-agent:hover .bot-bubble {
+  box-shadow: 0 2px 5px rgba(33, 29, 24, .08), 0 10px 26px rgba(33, 29, 24, .10);
+}
+
+/* 协作过程收纳卡：摘要行 + 展开态整体升为玻璃卡，与气泡同一视觉语法 */
+body.team-bg-active #view-bot details.bot-activity-group {
+  border: 1px solid color-mix(in oklab, var(--bot-line, rgba(33, 29, 24, .12)) 70%, transparent);
+  border-radius: 12px;
+  background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) var(--forge-reading-alpha, 94%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  box-shadow: 0 1px 2px rgba(33, 29, 24, .05), 0 4px 14px rgba(33, 29, 24, .06);
+}
+
+body.team-bg-active #view-bot details.bot-activity-group > summary.bot-activity-summary:hover {
+  border-color: transparent;
+  background: color-mix(in oklab, var(--bot-ink, #2b2620) 5%, transparent);
+  box-shadow: none;
+}
+
+body.team-bg-active #view-bot details.bot-activity-group > .bot-activity-timeline {
+  border-left-color: color-mix(in oklab, var(--bot-line, rgba(33, 29, 24, .12)) 80%, transparent);
+}
+
+/* 流式增量气泡：88% 固定染色 → 高档玻璃令牌，流式阅读同样清晰 */
+body.team-bg-active #view-bot .live-delta-bubble {
+  background: color-mix(in oklab, var(--glass-tint, var(--forge-paper, var(--card))) var(--forge-reading-alpha, 94%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+}
+
+/* 会话头部：mid 档磨砂条，铬层与消息流分出层次 */
+body.team-bg-active #view-bot .bot-conversation-header {
+  background: color-mix(in oklab, var(--glass-tint, var(--bot-bg)) var(--forge-glass-alpha-mid, 92%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+}
+
+/* 输入行：壁纸态从全透明改为高档玻璃卡，键入文字始终可读 */
+body.team-bg-active #view-bot .bot-composer-row {
+  background: color-mix(in oklab, var(--glass-tint, var(--bot-sidebar)) var(--forge-reading-alpha, 94%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+}

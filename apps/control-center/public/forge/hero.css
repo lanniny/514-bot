@@ -17,11 +17,13 @@
 .team-starmap-shell {
   position: relative;
   overflow: hidden;
-  border-radius: calc(var(--radius-xl) - 4px);
+  border-radius: var(--radius-xl, 14px);
   background:
-    radial-gradient(ellipse 80% 70% at 50% 48%, color-mix(in oklab, var(--primary) 9%, transparent), transparent 64%),
+    radial-gradient(ellipse 80% 70% at 50% 48%, color-mix(in oklab, var(--primary) 12%, transparent), transparent 64%),
     color-mix(in oklab, var(--muted) 28%, var(--card));
-  box-shadow: inset 0 0 0 1px var(--border);
+  box-shadow: var(--glass-specular), var(--glass-inset-glow), inset 0 0 0 1px var(--glass-border), var(--shadow-sm);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
 }
 
 .team-starmap-shell.is-focus-pulse {
@@ -59,9 +61,8 @@
   border-radius: 9999px;
   background: color-mix(in oklab, var(--card, var(--on-accent)) 80%, transparent);
   -webkit-backdrop-filter: blur(10px) saturate(150%);
-  backdrop-filter: blur(10px) saturate(150%);
-  box-shadow: inset 0 0 0 1px var(--border, #e4e1ea);
-  color: var(--foreground, #1c1917);
+  box-shadow: var(--glass-inset-glow), inset 0 0 0 1px var(--glass-border);
+  color: var(--foreground);
   font-size: var(--text-xs);
   font-weight: 500;
   letter-spacing: 0.02em;
@@ -97,7 +98,7 @@
   letter-spacing: 0.14em;
   line-height: 1;
   color: transparent;
-  -webkit-text-stroke: 1px color-mix(in oklch, var(--foreground, #1c1917) 34%, transparent);
+  -webkit-text-stroke: 1px color-mix(in oklch, var(--foreground) 34%, transparent);
 }
 
 .hero-type-latin {
@@ -108,7 +109,7 @@
   font-weight: 600;
   letter-spacing: 0.32em;
   line-height: 1.7;
-  color: color-mix(in oklch, var(--muted-foreground, #78716c) 80%, transparent);
+  color: color-mix(in oklch, var(--muted-foreground) 80%, transparent);
 }
 
 .hero-count {
@@ -129,6 +130,7 @@
   letter-spacing: -0.05em;
   color: transparent;
   -webkit-text-stroke: 1.5px color-mix(in oklch, var(--primary) 55%, transparent);
+  text-shadow: 0 0 32px color-mix(in oklch, var(--primary) 28%, transparent);
   font-variant-numeric: tabular-nums;
 }
 
@@ -138,7 +140,7 @@
   font-weight: 600;
   letter-spacing: 0.22em;
   line-height: 1.6;
-  color: color-mix(in oklch, var(--muted-foreground, #78716c) 75%, transparent);
+  color: color-mix(in oklch, var(--muted-foreground) 75%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -153,7 +155,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@media (max-width: 820px) {
   .hero-stage {
     height: 260px;
     min-height: 240px;

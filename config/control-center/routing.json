@@ -12,7 +12,7 @@
   "rules": [
     {"id": "plan-primary", "taskTypes": ["planning", "requirements", "coordination"], "prefer": ["claude-fable"], "reason": "规划任务软偏好团队默认主脑；其他健康成员仍可执行。"},
     {"id": "technical-codex", "taskTypes": ["coding", "debugging", "review", "architecture", "testing"], "prefer": ["codex-technical"], "reason": "技术任务软偏好技术执行席；能力标签不参与准入或评分。"},
-    {"id": "current-grok", "taskTypes": ["current-research", "web-search"], "prefer": ["grok-search"], "reason": "当前资料任务需要已接入实时来源的 Grok Search MCP 通道。", "constraints": {"allowedProviders": ["grok-search"]}},
+    {"id": "current-harness", "taskTypes": ["current-research", "web-search"], "prefer": ["codex-technical"], "reason": "实时来源检索由 Codex harness 调用 MCP 工具；MCP 本身不作为运行席位。", "constraints": {"allowedProviders": ["codex-technical"]}},
     {"id": "general-context", "taskTypes": ["long-context", "multimodal", "document-analysis"], "prefer": ["grok-build", "claude-fable"], "reason": "图片与长上下文只做已验证通道的软偏好，不限制其他健康成员。"},
     {"id": "resident-pi", "taskTypes": ["resident-session", "extension-work"], "prefer": ["pi-resident"], "reason": "常驻会话与扩展工作依赖 Pi 的进程常驻 RPC 生命周期。", "constraints": {"allowedProviders": ["pi-resident"]}}
   ],

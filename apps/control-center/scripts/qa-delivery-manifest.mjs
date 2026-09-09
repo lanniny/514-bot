@@ -15,6 +15,7 @@ export const DEFAULT_FOCUS_PATHS = Object.freeze([
   "apps/control-center/public",
   "apps/control-center/tests",
   "apps/control-center/scripts",
+  "apps/control-center/vendor",
   "apps/control-center/server.mjs",
   "apps/control-center/delivery-ownership.json",
   "apps/control-center/package.json",
@@ -29,6 +30,7 @@ export const DEFAULT_FOCUS_PATHS = Object.freeze([
  */
 export const DESKTOP_FOCUS_PATHS = Object.freeze([
   "apps/desktop/README.md",
+  "apps/desktop/ui",
   "apps/desktop/src-tauri/Cargo.toml",
   "apps/desktop/src-tauri/Cargo.lock",
   "apps/desktop/src-tauri/build.rs",
@@ -45,7 +47,7 @@ export const OWNERSHIP_CLASSES = Object.freeze(["must_ship", "generated", "scrat
 const INTENTIONAL_UNTRACKED = new Set(["generated", "scratch", "deferred"]);
 
 const CODE_EXTENSIONS = new Set([
-  ".cjs", ".css", ".html", ".jsx", ".js", ".json", ".mjs", ".ps1", ".py", ".rs", ".ts", ".tsx", ".yaml", ".yml",
+  ".cjs", ".css", ".html", ".jsx", ".js", ".json", ".mjs", ".ps1", ".py", ".rs", ".ts", ".tsx", ".yaml", ".yml", ".tgz",
 ]);
 
 function toRepoPath(path) {
@@ -284,12 +286,16 @@ export async function collectDesktopManifest({
     ownershipPath: null,
     excludePaths: DESKTOP_EXCLUDE_SCOPE_PATHS,
   });
+  const requiredFiles = ["apps/desktop/ui/index.html"];
+  const missingRequiredFiles = requiredFiles.filter((path) => !manifest.physicalFiles.includes(path));
   // Desktop focus paths are an explicit must-ship allowlist. Unlike the Web manifest,
   // there is no ownership table that can classify a focused asset as intentional drift,
   // so any non-ignored untracked or deleted file must fail strict delivery.
   return {
     ...manifest,
-    strictFailure: manifest.untrackedFiles.length > 0 || manifest.deletedTrackedFiles.length > 0,
+    missingRequiredFiles,
+    clean: manifest.clean && missingRequiredFiles.length === 0,
+    strictFailure: manifest.untrackedFiles.length > 0 || manifest.deletedTrackedFiles.length > 0 || missingRequiredFiles.length > 0,
   };
 }
 

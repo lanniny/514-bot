@@ -1,0 +1,229 @@
+{
+  "updatedAt": "2026-09-05T00:00:00.000Z",
+  "goal": 0.4,
+  "regressionTolerance": 0.005,
+  "slackBeforeTighten": 0.05,
+  "note": "首屏 chrome 预算棘轮基线。high=当轮实测占比（存量为技术债、新增零容忍，与 scripts/ui-baseline.json 同制）。判定不依赖任何 chrome 类名清单：ratio 取活跃 panel 内第一个可见 [data-surface-body] 的 top / innerHeight，chrome 恒等于锚点之上的一切。chrome 字段只作诊断展示，不参与判定。",
+  "faces": {
+    "sources@1600x1000@bus-open": {
+      "high": 0.4251,
+      "chrome": [
+        "config-surface-heading:64",
+        "runtime-workspace-tabs:42",
+        "runtime-seat-definition:61"
+      ],
+      "debt": "config-surface-heading 64px 与 tab 语义重复；runtime-seat-definition 61px 为首访教学层，可比照 capability-bus 折叠"
+    },
+    "capabilities@1600x1000@bus-open": {
+      "high": 0.5764,
+      "chrome": [
+        "config-surface-heading:64",
+        "cap-overview:98",
+        "capability-bus:101",
+        "cap-workspace-switcher:42"
+      ],
+      "debt": "C-01/C-02 待压：cap-overview 98px 可压单行、capability-bus 已可折叠、cap-workspace-switcher 与 config-topology 构成双层 tab"
+    },
+    "hooks@1600x1000@bus-open": {
+      "high": 0.5634,
+      "chrome": [
+        "hooks-heading:96",
+        "hooks-stores:68",
+        "search-field:33",
+        "hooks-toolbar:57"
+      ],
+      "debt": "hooks-panel.js 四层 chrome（heading 96 + stores 68 + search 33 + toolbar 57）待收；本轮首次被量到，此前被硬编码清单漏掉"
+    },
+    "local-runtime@1600x1000@bus-open": {
+      "high": 0.3858,
+      "chrome": [
+        "ccs-heading:85",
+        "ccs-tabs:42"
+      ]
+    },
+    "sources@1440x900@bus-open": {
+      "high": 0.4723,
+      "chrome": [
+        "config-surface-heading:64",
+        "runtime-workspace-tabs:42",
+        "runtime-seat-definition:61"
+      ],
+      "debt": "config-surface-heading 64px 与 tab 语义重复；runtime-seat-definition 61px 为首访教学层，可比照 capability-bus 折叠"
+    },
+    "capabilities@1440x900@bus-open": {
+      "high": 0.6404,
+      "chrome": [
+        "config-surface-heading:64",
+        "cap-overview:98",
+        "capability-bus:101",
+        "cap-workspace-switcher:42"
+      ],
+      "debt": "C-01/C-02 待压：cap-overview 98px 可压单行、capability-bus 已可折叠、cap-workspace-switcher 与 config-topology 构成双层 tab"
+    },
+    "hooks@1440x900@bus-open": {
+      "high": 0.626,
+      "chrome": [
+        "hooks-heading:96",
+        "hooks-stores:68",
+        "search-field:33",
+        "hooks-toolbar:57"
+      ],
+      "debt": "hooks-panel.js 四层 chrome（heading 96 + stores 68 + search 33 + toolbar 57）待收；本轮首次被量到，此前被硬编码清单漏掉"
+    },
+    "local-runtime@1440x900@bus-open": {
+      "high": 0.4286,
+      "chrome": [
+        "ccs-heading:85",
+        "ccs-tabs:42"
+      ],
+      "debt": "ccswitch-panel.js 的 ccs-heading 85px 与 tab 语义重复"
+    },
+    "sources@1280x800@bus-open": {
+      "high": 0.5276,
+      "chrome": [
+        "config-surface-heading:64",
+        "runtime-workspace-tabs:42",
+        "runtime-seat-definition:61"
+      ],
+      "debt": "config-surface-heading 64px 与 tab 语义重复；runtime-seat-definition 61px 为首访教学层，可比照 capability-bus 折叠"
+    },
+    "capabilities@1280x800@bus-open": {
+      "high": 0.7377,
+      "chrome": [
+        "config-surface-heading:64",
+        "cap-overview:98",
+        "capability-bus:118",
+        "cap-workspace-switcher:42"
+      ],
+      "debt": "C-01/C-02 待压：cap-overview 98px 可压单行、capability-bus 已可折叠、cap-workspace-switcher 与 config-topology 构成双层 tab"
+    },
+    "hooks@1280x800@bus-open": {
+      "high": 0.6989,
+      "chrome": [
+        "hooks-heading:95",
+        "hooks-stores:68",
+        "search-field:33",
+        "hooks-toolbar:57"
+      ],
+      "debt": "hooks-panel.js 四层 chrome（heading 96 + stores 68 + search 33 + toolbar 57）待收；本轮首次被量到，此前被硬编码清单漏掉"
+    },
+    "local-runtime@1280x800@bus-open": {
+      "high": 0.4769,
+      "chrome": [
+        "ccs-heading:84",
+        "ccs-tabs:42"
+      ],
+      "debt": "ccswitch-panel.js 的 ccs-heading 85px 与 tab 语义重复"
+    },
+    "sources@1600x1000@bus-closed": {
+      "high": 0.4251,
+      "chrome": [
+        "config-surface-heading:64",
+        "runtime-workspace-tabs:42",
+        "runtime-seat-definition:61"
+      ],
+      "debt": "config-surface-heading 64px 与 tab 语义重复；runtime-seat-definition 61px 为首访教学层，可比照 capability-bus 折叠"
+    },
+    "capabilities@1600x1000@bus-closed": {
+      "high": 0.5163,
+      "chrome": [
+        "config-surface-heading:64",
+        "cap-overview:98",
+        "capability-bus:41",
+        "cap-workspace-switcher:42"
+      ],
+      "debt": "C-01/C-02 待压：cap-overview 98px 可压单行、capability-bus 已可折叠、cap-workspace-switcher 与 config-topology 构成双层 tab"
+    },
+    "hooks@1600x1000@bus-closed": {
+      "high": 0.5634,
+      "chrome": [
+        "hooks-heading:96",
+        "hooks-stores:68",
+        "search-field:33",
+        "hooks-toolbar:57"
+      ],
+      "debt": "hooks-panel.js 四层 chrome（heading 96 + stores 68 + search 33 + toolbar 57）待收；本轮首次被量到，此前被硬编码清单漏掉"
+    },
+    "local-runtime@1600x1000@bus-closed": {
+      "high": 0.3858,
+      "chrome": [
+        "ccs-heading:85",
+        "ccs-tabs:42"
+      ]
+    },
+    "sources@1440x900@bus-closed": {
+      "high": 0.4723,
+      "chrome": [
+        "config-surface-heading:64",
+        "runtime-workspace-tabs:42",
+        "runtime-seat-definition:61"
+      ],
+      "debt": "config-surface-heading 64px 与 tab 语义重复；runtime-seat-definition 61px 为首访教学层，可比照 capability-bus 折叠"
+    },
+    "capabilities@1440x900@bus-closed": {
+      "high": 0.5736,
+      "chrome": [
+        "config-surface-heading:64",
+        "cap-overview:98",
+        "capability-bus:41",
+        "cap-workspace-switcher:42"
+      ],
+      "debt": "C-01/C-02 待压：cap-overview 98px 可压单行、capability-bus 已可折叠、cap-workspace-switcher 与 config-topology 构成双层 tab"
+    },
+    "hooks@1440x900@bus-closed": {
+      "high": 0.626,
+      "chrome": [
+        "hooks-heading:96",
+        "hooks-stores:68",
+        "search-field:33",
+        "hooks-toolbar:57"
+      ],
+      "debt": "hooks-panel.js 四层 chrome（heading 96 + stores 68 + search 33 + toolbar 57）待收；本轮首次被量到，此前被硬编码清单漏掉"
+    },
+    "local-runtime@1440x900@bus-closed": {
+      "high": 0.4286,
+      "chrome": [
+        "ccs-heading:85",
+        "ccs-tabs:42"
+      ],
+      "debt": "ccswitch-panel.js 的 ccs-heading 85px 与 tab 语义重复"
+    },
+    "sources@1280x800@bus-closed": {
+      "high": 0.5276,
+      "chrome": [
+        "config-surface-heading:64",
+        "runtime-workspace-tabs:42",
+        "runtime-seat-definition:61"
+      ],
+      "debt": "config-surface-heading 64px 与 tab 语义重复；runtime-seat-definition 61px 为首访教学层，可比照 capability-bus 折叠"
+    },
+    "capabilities@1280x800@bus-closed": {
+      "high": 0.6416,
+      "chrome": [
+        "config-surface-heading:64",
+        "cap-overview:98",
+        "capability-bus:41",
+        "cap-workspace-switcher:42"
+      ],
+      "debt": "C-01/C-02 待压：cap-overview 98px 可压单行、capability-bus 已可折叠、cap-workspace-switcher 与 config-topology 构成双层 tab"
+    },
+    "hooks@1280x800@bus-closed": {
+      "high": 0.6989,
+      "chrome": [
+        "hooks-heading:95",
+        "hooks-stores:68",
+        "search-field:33",
+        "hooks-toolbar:57"
+      ],
+      "debt": "hooks-panel.js 四层 chrome（heading 96 + stores 68 + search 33 + toolbar 57）待收；本轮首次被量到，此前被硬编码清单漏掉"
+    },
+    "local-runtime@1280x800@bus-closed": {
+      "high": 0.4769,
+      "chrome": [
+        "ccs-heading:84",
+        "ccs-tabs:42"
+      ],
+      "debt": "ccswitch-panel.js 的 ccs-heading 85px 与 tab 语义重复"
+    }
+  }
+}

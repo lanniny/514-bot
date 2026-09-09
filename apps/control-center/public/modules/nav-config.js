@@ -15,16 +15,16 @@
  * terminal / browser / appearance 保持工具定位（底栏终端 + 设置轨），不占导航位。
  */
 export const NAV_GROUPS = [
-  { id: "collab", label: "协作", views: ["bot", "workbench", "team", "channels"] },
-  { id: "create", label: "创建", views: ["bootstrapper", "office"] },
-  { id: "observe", label: "观测", views: ["overview", "observability", "sessions"] },
-  { id: "resources", label: "资源", views: ["market", "hosts", "config"] },
-  { id: "govern", label: "治理", views: ["automations", "security"] },
+  { id: "collab", label: "工作空间", views: ["bot", "automations", "plugins", "sessions"] },
+  { id: "create", label: "协作工具", views: ["team", "workbench", "office", "bootstrapper", "channels"] },
+  { id: "resources", label: "配置与资源", views: ["config", "market", "hosts"] },
+  { id: "observe", label: "运行与安全", views: ["overview", "observability", "security"] },
 ];
 
 export const NAV_ITEMS = {
   bot: { icon: "messages-square", label: "514 Bot", short: "对话", tooltip: "514 Bot 项目与对话", primary: true },
-  workbench: { icon: "panel-left", label: "协作台", short: "协作台", tooltip: "514 Bot 协作台" },
+  workbench: { icon: "terminal", label: "运行控制台", short: "控制台", tooltip: "运行控制台" },
+  plugins: { icon: "puzzle", label: "插件中心", short: "插件", tooltip: "项目插件中心" },
   team: { icon: "users", label: "团队协作", short: "团队", tooltip: "团队协作" },
   channels: { icon: "satellite-dish", label: "渠道", short: "渠道", tooltip: "渠道" },
   bootstrapper: { icon: "rocket", label: "项目启动器", short: "启动器", tooltip: "项目启动器" },
@@ -57,6 +57,7 @@ export function renderNavigation({ doc = document } = {}) {
     primary: doc.querySelector('[data-nav-surface="primary"]'),
     topbar: doc.querySelector('[data-nav-surface="topbar"]'),
     mobile: doc.querySelector('[data-nav-surface="mobile"]'),
+    settings: doc.querySelector('[data-nav-surface="settings"]'),
   };
   const rendered = {};
   if (mounts.primary) {
@@ -70,6 +71,17 @@ export function renderNavigation({ doc = document } = {}) {
         + `          </div>`;
     }).join("\n\n");
     mounts.primary.innerHTML = rendered.primary;
+  }
+  if (mounts.settings) {
+    // 侧栏隐藏后，原导航整体迁入设置配置面板（同一真源，杜绝双写漂移）：
+    // settings-rail-item 复用设置轨既有样式/搜索过滤/激活态同步，data-view 走全局委托切视图。
+    rendered.settings = NAV_GROUPS.map((group) => {
+      const items = group.views
+        .map((view) => buttonMarkup(view, NAV_ITEMS[view], { labelKey: "label", className: "settings-rail-item" }))
+        .join("\n");
+      return `<p class="settings-rail-label">${group.label}</p>\n${items}`;
+    }).join("\n");
+    mounts.settings.innerHTML = rendered.settings;
   }
   if (mounts.topbar) {
     rendered.topbar = NAV_GROUPS.map((group) => group.views

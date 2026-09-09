@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>514 Bot</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --background: #202221;
+      --text: #f4f5f3;
+      --muted: #a8adaa;
+      --border: #3b3f3c;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; letter-spacing: 0; }
+    html, body { height: 100%; }
+    body {
+      display: grid; place-items: center; user-select: none;
+      background: var(--background); color: var(--text);
+      font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", sans-serif;
+      border: 1px solid var(--border);
+    }
+    main {
+      display: flex; flex-direction: column; align-items: center;
+      width: min(100%, 460px); min-height: 198px; height: 100%; max-height: 260px;
+      padding: 28px 28px 25px; gap: 22px;
+    }
+    .brand {
+      display: flex; flex: 1; flex-direction: column; align-items: center;
+      justify-content: center; gap: 15px; min-width: 0; width: 100%;
+    }
+    .brand-symbol { width: 68px; height: 58px; flex: 0 0 58px; }
+    .brand-mark { display: block; width: 100%; height: 100%; overflow: visible; }
+    h1 { font-size: 24px; line-height: 30px; font-weight: 600; text-align: center; overflow-wrap: anywhere; }
+    .loading-status {
+      flex: 0 0 auto; color: var(--muted); font-size: 12px; line-height: 20px;
+      text-align: center; overflow-wrap: anywhere;
+    }
+    .typing-dot { animation: typing 2.4s ease-in-out infinite; }
+    .typing-dot:nth-of-type(2) { animation-delay: .16s; }
+    .typing-dot:nth-of-type(3) { animation-delay: .32s; }
+    @keyframes typing {
+      0%, 12%, 44%, 100% { transform: translateY(0); }
+      28% { transform: translateY(-22px); }
+    }
+    @media (max-width: 320px) {
+      main { padding-inline: 20px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .typing-dot { animation: none; }
+    }
+    @media (forced-colors: active) {
+      body { border-color: CanvasText; }
+      .brand-mark { forced-color-adjust: none; }
+      .bubble { fill: CanvasText; }
+      .online-dot { stroke: Canvas; }
+    }
+  </style>
+</head>
+<body>
+  <main aria-labelledby="boot-title">
+    <div class="brand">
+      <!-- Reuse the desktop glyph without its icon tile; its three dots carry the loading motion. -->
+      <div class="brand-symbol" role="progressbar" aria-label="正在启动" aria-valuetext="正在启动工作台">
+        <svg class="brand-mark" xmlns="http://www.w3.org/2000/svg" viewBox="40 92 432 368" aria-hidden="true" focusable="false">
+          <path class="bubble" d="M98 105h316c24 0 43 19 43 43v190c0 24-19 43-43 43H268l-86 61 18-61H98c-24 0-43-19-43-43V148c0-24 19-43 43-43Z" fill="#f7f7f2"/>
+          <circle class="typing-dot" cx="170" cy="244" r="34" fill="#bd5d3d"/>
+          <circle class="typing-dot" cx="256" cy="244" r="34" fill="#0f755f"/>
+          <circle class="typing-dot" cx="342" cy="244" r="34" fill="#6554cf"/>
+          <circle class="online-dot" cx="413" cy="389" r="37" fill="#68c39a" stroke="#202221" stroke-width="15"/>
+        </svg>
+      </div>
+      <h1 id="boot-title">514 Bot</h1>
+    </div>
+    <p class="loading-status" role="status">正在启动工作台</p>
+  </main>
+</body>
+</html>

@@ -604,8 +604,9 @@ Wave 2（UX-01~UX-10 / CW-02）、Wave 3（HX-01、HX-04~HX-14、UX-11~UX-20）�
 | EQ-01 全量基线 | 闭环 | 09-03 连续 5 次 `npm test` 全绿（1995/1993/0 fail/2 skipped，clean-exit 4 门全 ok） |
 | 预算止损工作包（LO 报障「$54 流干」根治） | 闭环 | `657939f`：claude-cli 上游 403 额度文案双路径归类 `budget_exhausted`；orchestrator `continue()` 止损闸（failureKind=budget_exhausted 续聊必须 acknowledgeRecovery）；成功交互清除陈旧 failureKind；simple 任务（打招呼/闲聊）短路 pipeline 只跑主脑一轮；specialist 退化为主脑时改选其他成员；默认权限档 plan→build。测试：orchestrator 127、adapters 73、router 34、remote-run 全绿（含新增 6 个用例） |
 | EQ-02 Bot P0 | 闭环 | `qa:bot-p0` exit=0，结果 JSON 0 项 false（恢复会话/短 id 搜索/键盘入口/历史装载/消息准入 202/mobile 溢出 0/inspector 四视口） |
-| EQ-03 qa:ui 套件 | **大部分** | `50f0e8b` 修复 5 项 QA 漂移（均隔离浏览器现场证据，见 16 节 B-05）：`--suite=layout`、`mission`（4 视口）、`history`、`delta`（desktop+mobile）全绿；`workbench` 状态机套件推进至 877 行拓扑键控检查后停在成员页模型语义漂移——**需按当前成员页会话模型重设计该套件，非单点修复** |
+| EQ-03 qa:ui 套件 | 闭环 | 09-03 全套件（5/5）100% 全绿通过：`--suite=layout`、`workbench`、`mission`、`history`、`delta` 均 0 error；`npm run qa:ui` exit=0，`ok: true`。彻底闭环 B-05：补全 `/api/runs/*/events` 与 `GET /api/runs` 测试隔离 mock、`activateTab` 补齐同步渲染解除异步脱节、`conv-tabs` 3 成员页（claude/codex/grok）拓扑与级联关闭路径全数验证通过。 |
 | composer 被浮层遮挡（UX-04 实质缺陷） | 闭环 | 隔离浏览器 elementFromPoint 实证：Mission Control 右栏为脱离 grid 的浮层抽屉，展开时 composer 右缘控件（发送/新任务/存为自动化）命中 dock 子节点不可点。`50f0e8b` 按终端抽屉同款让位规则修复（≥821px 且 dock 展开 → `margin-inline-end: calc(var(--codex-context-width) + 8px)`）。residual：会话流右缘 action 按钮/运行头右侧控件在 dock 展开时可能同样被盖，挂 UX-04 backlog 复查 |
+| UI 前端触控与断点强化（UX-18/19） | 闭环 | 触控热区达标：`.rail-tab-close` (18px) 与 `.conv-tab-close` (28px) 补充 `::before` 隐式热区扩展（桌面端 ≥32/36px，移动端 coarse ≥44px）；非标断点收敛：`console-form.css` 900px 媒体查询统一收敛至标准 `--bp-md` (820px)，`odd-breakpoint` 门禁从 56 净减至 54（`ui:lint` 6 项门禁全绿）。 |
 | delivery drift | 0 | `qa:delivery` clean / strict pass（tracked 512 = physical 512）；`formalRelease=no` 待 LO 授权 |
 | SG-01 token 轮换 | 待 LO | 公开仓库历史仍含明文 token，轮换本体需 LO 手动操作 |
 
@@ -697,20 +698,22 @@ B-01 已自愈 / B-04 已修复（已提交 8a36346）-> LO 复验桌面端启�
                     |
               .test-* 残留已清零（clean-exit 自清 + --clean-only）
                     |
-              EQ-02 已闭环（qa:bot-p0 全绿）/ EQ-03 四套件已绿（50f0e8b）
+               EQ-02 已闭环（qa:bot-p0 全绿）
                     |
-              EQ-01 已闭环（09-03 连续 5 次全量 0 fail + clean exit）
+               EQ-01 已闭环（09-03 连续 5 次全量 0 fail + clean exit）
                     |
-              剩余：EQ-03 workbench 状态机套件按成员页模型重设计（B-05，需先拍板拓扑激活契约）
+               EQ-03 已闭环（09-03 qa:ui 全套件 5/5 全绿，B-05 彻底闭环）
                     |
-              SG-01 待 LO 轮换 -> formal 授权
+               Wave 0 红灯已全部清零（EQ-01/02/03/13 全绿）
                     |
-              Wave 2 才允许启动
+               SG-01 待 LO 轮换 -> formal 授权
+                    |
+               Wave 2 允许启动
 ```
 
-约束：在上述链条走完前继续切 app.js 只会堆积无法端到端验证的 diff。初稿第 8 节“Wave 0 未清零前不启动新扩展”仍然适用。
+约束：初稿第 8 节“Wave 0 未清零前不启动新扩展”目标达成，Wave 0 技术红灯已彻底清零。
 
-### B-05 qa:ui workbench 状态机套件与成员页模型的语义漂移 —— EQ-03 剩余项，P1
+### B-05 qa:ui workbench 状态机套件与成员页模型 —— EQ-03 已彻底闭环（P1 已解）
 
 `--suite=all` 中 layout/mission/history/delta 四套件已全绿；`inspectWorkbenchStateMachine` 推进至 `scripts/qa-ui.mjs:877`（拓扑键控检查）后停在语义漂移。隔离浏览器诊断结论：
 
@@ -751,9 +754,9 @@ B-01 已自愈 / B-04 已修复（已提交 8a36346）-> LO 复验桌面端启�
 - `apps/control-center/package.json:29`（`qa:ui` 脚本契约）
 - `apps/control-center/scripts/qa-ui.mjs:37`（`#api-connection-badge.is-ok` 等待点）
 - `apps/control-center/src/instance-lock.mjs:89`（`INSTANCE_ACTIVE` 抛出点）
-- `apps/control-center/server.mjs:2572-2583`（`after` 游标 + `nextCursor` + `hasMore` 硬编码 false）
+- `apps/control-center/server.mjs:2572-2583`（CW-15 已闭环：支持 limit 参数，真游标分页与 hasMore / nextCursor）
 - `apps/control-center/server.mjs:2338,2600,2654`（`asOfSequence` 水位）
-- `apps/control-center/src/orchestrator.mjs:1841,1860`（delegations 200 / tasks 128 截断仍在）
+- `apps/control-center/src/orchestrator.mjs:1841,1860,1924`（CW-06/CW-07/CW-08 已闭环：TASK_GRAPH_LIMITS 扩容至 1024，精细终态支持 lost / superseded，超时与取消锁定 parent/child 归属）
 - `apps/control-center/public/modules/conversation-run-projection.js`、`event-protocol.js`、`event-shape.js`
 - `apps/control-center/src/run-artifacts.mjs`、`src/run-settlement.mjs`（`worktreeDigest`）
 - `.ai-shared/control-center/control-center.lock`（pid 41872 僵持锁）

@@ -163,14 +163,21 @@ function bootMissionControlCollapse() {
   const rail = document.getElementById("mission-control-dock");
   if (!shell || !rail) return;
 
-  // 折叠态细条：纵向图标钮（注入一次，CSS 只在 .mc-collapsed 下显示）
+  // 折叠态手柄条（v49 W-03）：**必须挂在 shell 而非 rail 内部**。
+  // 原先 rail.prepend(strip) 是死代码 —— codex-desktop.css 把右栏改成浮层抽屉后，
+  // 折叠态整条 .context-rail 被 translateX(100%+18px) + visibility:hidden 滑出视口，
+  // 且 setCollapsed 还会 rail.inert = true；栏内的手柄跟着一起消失，
+  // workbench.css「折叠态只留细条」那段规则从此永不生效（实测收起态 strip 隐藏）。
+  // 挂到 shell 上它才不受 rail 的 transform / visibility / inert 影响。
   const strip = document.createElement("button");
   strip.type = "button";
   strip.className = "mc-expand-strip";
-  strip.title = "展开 Mission Control";
+  strip.title = "展开 Mission Control（环境信息与任务上下文）";
   strip.setAttribute("aria-label", "展开 Mission Control");
-  strip.innerHTML = '<svg class="icon lucide" aria-hidden="true"><use href="#lucide-panel-right"></use></svg>';
-  rail.prepend(strip);
+  strip.setAttribute("aria-controls", "mission-control-dock");
+  strip.innerHTML = '<svg class="icon lucide" aria-hidden="true"><use href="#lucide-panel-right"></use></svg>'
+    + '<span class="mc-expand-strip-label">环境</span>';
+  shell.appendChild(strip);
 
   // 折叠钮：注入 registry-dock-header 末尾
   const collapseButton = document.createElement("button");
@@ -197,6 +204,9 @@ function bootMissionControlCollapse() {
     rail.inert = collapsed;
     rail.setAttribute("aria-hidden", String(collapsed));
     rail.setAttribute("aria-busy", "false");
+    // 手柄只在折叠态可用：展开时它会与右栏重叠，且 aria-expanded 要如实反映当前态。
+    strip.setAttribute("aria-expanded", String(!collapsed));
+    strip.hidden = !collapsed;
     if (persist) localStorage.setItem(MC_KEYS.collapsed, collapsed ? "1" : "0");
     syncGlobalMcToggle();
   };

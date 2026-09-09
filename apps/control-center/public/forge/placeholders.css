@@ -29,8 +29,98 @@
   color: var(--foreground, var(--text-strong));
 }
 
+.empty-state-illustration {
+  width: 64px;
+  height: 64px;
+  margin-bottom: var(--space-2);
+  color: var(--muted-foreground);
+  transition: transform var(--dur-slow) var(--ease-standard);
+}
+
+.empty-state:hover .empty-state-illustration {
+  transform: translateY(-2px) scale(1.02);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .empty-state-illustration {
+    transition: none;
+    transform: none;
+  }
+}
+
 .empty-state-action {
   margin-top: var(--space-2);
+}
+
+/* ==========================================================================
+   展示轨：空状态是叙事层主战场（UI-ELEVATION W1）
+   ==========================================================================
+   实测：全库 52 处 emptyState() 调用，标题统一锁死在 --text-sm(13px)、描述
+   --text-xs(12px)，是全站「抬头处」最平的一块——用户第一次见到某个面板时的
+   第一眼，却用着骨架层的密度。按双轨制，这里属于叙事层，应当进展示轨。
+
+   真源归一：此前 `.view .empty-state-*` 在 data.css §6 另有一套，与 styles.css
+   的旧规则三处竞争，仅凭加载序分胜负（典型的写了不生效）。现将视图内空态
+   统一收回本文件，data.css 侧整段移除；本文件是空状态唯一真源。
+
+   骨架层纪律：`--compact` 是面板内小块空态（最小高度 120px），保持 12–13px
+   密度不放——叙事层只接管「铺满型」空态。
+   ========================================================================== */
+
+.view .empty-state {
+  min-height: 200px;
+  gap: var(--space-3);
+}
+
+/* 旧结构（<strong>）与新结构（<p class="empty-state-title">）一并接管。 */
+.view .empty-state:not(.empty-state--compact) strong,
+.view .empty-state:not(.empty-state--compact) .empty-state-title {
+  margin: 0;
+  color: var(--foreground, var(--text-strong));
+  font-family: var(--font-editorial);
+  font-size: var(--display-xs);
+  font-weight: 600;
+  line-height: var(--leading-display-snug);
+  letter-spacing: var(--tracking-display);
+}
+
+.view .empty-state:not(.empty-state--compact) > span,
+.view .empty-state:not(.empty-state--compact) .empty-state-desc {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--muted-foreground, var(--text-soft));
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+}
+
+/* 图标槽：空态是唯一允许「大图标」的位置——它是这一屏唯一的视觉主体。
+   > span 之外的动作按钮内 span 不受 .empty-state-desc 影响（非直接子元素）。 */
+.view .empty-state:not(.empty-state--compact) .empty-state-icon {
+  width: 52px;
+  height: 52px;
+  margin-bottom: var(--space-2);
+  color: color-mix(in srgb, var(--muted-foreground, var(--text-soft)) 60%, transparent);
+  opacity: 1;
+}
+
+.view .empty-state:not(.empty-state--compact) .empty-state-illustration {
+  width: 88px;
+  height: 88px;
+}
+
+.view .empty-icon {
+  width: 40px;
+  height: 40px;
+  margin-bottom: 4px;
+  color: color-mix(in srgb, var(--muted-foreground, var(--text-soft)) 60%, transparent);
+  stroke: currentColor;
+}
+
+/* 紧凑态守住密度：只把描述提到正文基准，标题与图标一律不动。 */
+.view .empty-state--compact .empty-state-desc {
+  max-width: 46ch;
+  font-size: var(--text-sm);
+  line-height: var(--leading-snug);
 }
 
 /* 行内极简空提示：表格单元、键值列表等放不下插画的位置唯一合法出口 */

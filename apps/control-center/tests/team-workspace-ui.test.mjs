@@ -139,11 +139,13 @@ test("team workspace contains a first-class editable member registry wired back 
   assert.match(api, /adapterTemplates:\s*"\/api\/adapter-templates"/);
   assert.match(api, /runtimeSeats:\s*"\/api\/runtime-seats"/);
   assert.match(app, /createMemberLibrary\(\{/);
-  assert.match(app, /account-dock/);
   assert.match(app, /requestBlob/);
+  // 头像快捷设置入口已移除：app 不再引用 account-dock，HTML 不再含其节点；
+  // 头像上传链（settings-avatar-button）仍在设置页内保留。
+  assert.doesNotMatch(app, /account-dock/);
+  assert.doesNotMatch(index, /id="account-dock"/);
+  assert.doesNotMatch(index, /id="account-dock-label"/);
   assert.match(memberLibrary, /memberAvatarMarkup/);
-  assert.match(index, /id="account-dock"/);
-  assert.match(index, /id="account-dock-label"/);
   assert.match(index, /id="settings-avatar-button"/);
   assert.match(teamPanel, /memberAvatarMarkup/);
   assert.doesNotMatch(teamPanel, /tp-avatar[\s\S]{0,80}lucide-bot/, "team cards default to official CLI icons, not a generic bot glyph");

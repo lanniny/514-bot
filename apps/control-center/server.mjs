@@ -78,6 +78,9 @@ import { registerMarketRoutes } from "./src/market/routes.mjs";
 import { registerCcSwitchRoutes } from "./src/ccswitch/routes.mjs";
 import { registerCliEnvRoutes } from "./src/cli-env/routes.mjs";
 import { registerHooksRoutes } from "./src/hooks/routes.mjs";
+import { registerPetRoutes } from "./src/pet/routes.mjs";
+import { registerPluginRoutes } from "./src/plugins/routes.mjs";
+import { registerBotsRoutes } from "./src/bots/routes.mjs";
 import { homedir } from "node:os";
 
 const appRoot = fileURLToPath(new URL(".", import.meta.url));
@@ -346,6 +349,9 @@ registerMarketRoutes(surfaceRouter, surfaceCtx);
 registerCcSwitchRoutes(surfaceRouter, surfaceCtx);
 registerCliEnvRoutes(surfaceRouter, surfaceCtx);
 registerHooksRoutes(surfaceRouter, surfaceCtx);
+registerPetRoutes(surfaceRouter, surfaceCtx);
+registerPluginRoutes(surfaceRouter, surfaceCtx);
+registerBotsRoutes(surfaceRouter, surfaceCtx); // 514 Bot 协作体系（Grok Bot 对标：profiles/relay/routines）
 async function dispatchSurfaceRoute(request, response, url) {
   for (const route of surfaceRoutes) {
     if (request.method !== route.method) continue;
@@ -592,6 +598,7 @@ function normalizeRuntimeSeatControls(profile, template) {
 function buildCustomRuntimeSeat(input) {
   const payload = runtimeSeatPayload(input);
   const id = normalizeRuntimeSeatId(payload.id);
+  if (id === "grok-search") throw runtimeSeatError("grok-search is retired; use MCP through a CLI or harness seat", "ADAPTER_MANIFEST_INVALID", { runtimeProfileId: id });
   const adapter = String(payload.adapter ?? "").trim();
   const template = runtimeSeatTemplate(adapter, id);
   return normalizeRuntimeSeatControls({
@@ -1507,6 +1514,43 @@ async function api(request, response, url, requestId) {
   const handoffMatch = pathname.match(/^\/api\/observability\/handoffs\/([^/]+)$/);
   if (request.method === "GET" && handoffMatch) return json(response, 200, await state.observability.handoffContent(decodeURIComponent(handoffMatch[1])));
   if (request.method === "POST" && pathname === "/api/observability/drift") return json(response, 200, await state.observability.drift());
+  // P-21 产品行为埋点（v48 S0）：纯本地度量面，无任何出站。record 永不抛错——
+  // 度量失败不得影响被度量的主流程，所以这里只回 { recorded: bool } 而非 4xx。
+  if (request.method === "GET" && pathname === "/api/telemetry/summary") {
+    return json(response, 200, await state.productTelemetry.summary());
+  }
+  if (request.method === "POST" && pathname === "/api/telemetry/record") {
+    const payload = await body(request);
+    const recorded = await state.productTelemetry.record(payload?.type, payload?.fields);
+    return json(response, 200, { recorded });
+  }
+  if (request.method === "POST" && pathname === "/api/telemetry/settings") {
+    const payload = await body(request);
+    // 返回体含 persisted：持久化失败时如实上报，不让"关闭"看起来成功了实际重启就复活
+    return json(response, 200, await state.productTelemetry.setEnabled(payload?.enabled));
+  }
+  // 一键清空（LO 授权前提之二）：物理删除埋点文件，不影响 events.jsonl 的 Run 证据
+  if (request.method === "DELETE" && pathname === "/api/telemetry") {
+    return json(response, 200, await state.productTelemetry.clear());
+  }
+  // P-24 产品反馈闭环（v48 S0-5）：用户主动写的问题，允许自由文本（仍过脱敏）
+  if (request.method === "GET" && pathname === "/api/feedback") {
+    return json(response, 200, await state.productFeedback.list({
+      status: url.searchParams.get("status") || null,
+      limit: Number(url.searchParams.get("limit")) || 100,
+    }));
+  }
+  if (request.method === "POST" && pathname === "/api/feedback") {
+    return json(response, 201, await state.productFeedback.submit(await body(request)));
+  }
+  const feedbackStatusMatch = pathname.match(/^\/api\/feedback\/([^/]+)\/status$/);
+  if (request.method === "PUT" && feedbackStatusMatch) {
+    const payload = await body(request);
+    return json(response, 200, await state.productFeedback.setStatus(
+      decodeURIComponent(feedbackStatusMatch[1]),
+      payload?.status,
+    ));
+  }
   // v4.0 Forge 统一搜索：handoff/doc/memory/session/skill 五源分组（空 q 回空 groups）
   if (request.method === "GET" && pathname === "/api/search") {
     return json(response, 200, await searchService.search({
@@ -2570,17 +2614,23 @@ if (request.method === "DELETE" && conversationMatch) {
         });
       }
       const afterSequence = Math.max(0, Math.floor(Number(url.searchParams.get("after") || 0)));
+      const rawLimit = url.searchParams.get("limit");
+      const hasExplicitLimit = rawLimit !== null && rawLimit !== "";
+      const limit = hasExplicitLimit
+        ? Math.min(5000, Math.max(1, Math.floor(Number(rawLimit) || 5000)))
+        : 5000;
       const events = await state.eventStore.listByRun(runId, 5000, { signal });
       const asOfSequence = state.eventStore.sequenceTip();
       const filtered = afterSequence > 0 ? events.filter((event) => event.sequence > afterSequence) : events;
-      const hasMore = false;
-      const nextCursor = filtered.length ? filtered[filtered.length - 1].sequence : null;
+      const hasMore = hasExplicitLimit ? filtered.length > limit : false;
+      const paged = hasMore ? filtered.slice(0, limit) : filtered;
+      const nextCursor = paged.length ? paged[paged.length - 1].sequence : null;
       const uiView = url.searchParams.get("view") === "ui";
       const projectEvent = (event) => eventForPublic(event, run, uiView);
       if (representation === "ndjson") {
-        return ndjson(response, filtered, { transform: projectEvent });
+        return ndjson(response, paged, { transform: projectEvent });
       }
-      return json(response, 200, { events: filtered.map(projectEvent), hasMore, asOfSequence, nextCursor });
+      return json(response, 200, { events: paged.map(projectEvent), hasMore, asOfSequence, nextCursor });
     }, { request });
   }
   const replayMatch = pathname.match(/^\/api\/runs\/([^/]+)\/replay$/);
@@ -3163,6 +3213,9 @@ const server = createServer(async (request, response) => {
       // W3.15 观察者 token：只放行幂等读，写操作一律拒绝（fail-closed）
       if (auth.observer && request.method !== "GET" && request.method !== "HEAD") {
         return json(response, 403, { error: { code: "OBSERVER_READ_ONLY", message: "Observer token is read-only; writes are not permitted", requestId } });
+      }
+      if (auth.observer && url.searchParams.getAll("includeSecrets").includes("1")) {
+        return json(response, 403, { error: { code: "OBSERVER_SECRET_ACCESS_DENIED", message: "Observer token cannot reveal credentials", requestId } });
       }
       return await api(request, response, url, requestId);
     }

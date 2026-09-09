@@ -12,7 +12,7 @@
       "provider": "anthropic",
       "adapter": "claude-stream-json",
       "command": "claude",
-      "model": null,
+      "model": "claude-opus-5",
       "systemPromptFile": "config/control-center/claude-coordinator.md",
       "capabilities": [
         "*"
@@ -30,8 +30,8 @@
         },
         {
           "source": "governance",
-          "detail": "current-research is an explicit special route to the authenticated Grok Search MCP transport. This is a transport constraint with an auditable reason, not an Adapter or member capability envelope.",
-          "verifiedAt": "2026-07-28"
+          "detail": "Current research runs through the Codex harness and its MCP tools. MCP search services are tools, not standalone runtime seats.",
+          "verifiedAt": "2026-09-07"
         },
         {
           "source": "local-cli",
@@ -181,46 +181,6 @@
           "source": "governance",
           "detail": "Disabled per D-2026-07-16-005: research role fully migrated to grok-4.5 (514claude.xyz); Gemini CLI remains installed but idle, re-enable requires a new decision record",
           "verifiedAt": "2026-07-17"
-        }
-      ],
-      "modelOptions": [
-        {
-          "id": "",
-          "label": "默认"
-        }
-      ],
-      "effortLevels": []
-    },
-    {
-      "id": "grok-search",
-      "builtin": true,
-      "label": "Grok 时效搜索",
-      "role": "current-intelligence",
-      "description": "时效情报席，负责联网检索、来源交叉核对、事实取证与快速综合。",
-      "systemPrompt": "你负责时效检索和取证。优先返回可核查的一手来源、发布时间与关键原文，交叉核对冲突信息；检索失败必须如实说明，不得用记忆补成当前事实。",
-      "provider": "xai-compatible",
-      "adapter": "grok-mcp-via-codex-app-server",
-      "command": null,
-      "model": null,
-      "capabilities": [
-        "*"
-      ],
-      "defaultPermissionMode": "read-only",
-      "quality": 0.84,
-      "speed": 0.93,
-      "costTier": 3,
-      "enabled": true,
-      "healthMode": "external",
-      "evidence": [
-        {
-          "source": "repo-runtime",
-          "detail": "grok-search-rs MCP is executed through Codex app-server mcpServerStatus/list + mcpServer/tool/call; no standalone Grok coding CLI is installed",
-          "verifiedAt": "2026-07-15"
-        },
-        {
-          "source": "generated-schema",
-          "detail": "Codex app-server 0.144.1 and 0.144.2 expose typed MCP inventory and direct tool-call requests",
-          "verifiedAt": "2026-07-15"
         }
       ],
       "modelOptions": [
@@ -397,7 +357,7 @@
       "provider": "multi-provider",
       "adapter": "opencode-run-json",
       "command": "opencode",
-      "model": null,
+      "model": "opencode/muse-spark-1.3-contributor-free",
       "capabilities": [
         "*"
       ],

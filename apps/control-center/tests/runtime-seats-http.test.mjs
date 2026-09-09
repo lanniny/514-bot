@@ -107,6 +107,14 @@ test("Provider -> runtime seat -> member -> non-Claude coordinator is editable w
 
   const templates = await jsonRequest(origin, "/api/adapter-templates", token);
   assert.equal(templates.response.status, 200);
+  assert.equal(templates.payload.templates.some(item => item.transport === "mcp"), false);
+  const retiredSeat = await jsonRequest(origin, "/api/runtime-seats", token, {
+    method: "POST", body: { id: "grok-search", adapter: "codex-app-server", command: "codex" },
+  });
+  assert.equal(retiredSeat.response.status, 422);
+  assert.equal(retiredSeat.payload.error.code, "ADAPTER_MANIFEST_INVALID");
+  const retiredSnapshot = await jsonRequest(origin, "/api/runtime-seats", token);
+  assert.equal(retiredSnapshot.payload.seats.some(item => item.id === "grok-search"), false);
   assert.ok(templates.payload.templates.some((item) => (
     item.id === "codex-app-server"
     && item.providerApp === "codex"

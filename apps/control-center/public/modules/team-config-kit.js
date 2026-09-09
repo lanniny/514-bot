@@ -13,7 +13,6 @@ export const TEAM_PACK_VERSION = 1;
 const SEAT = Object.freeze({
   claude: "claude-fable",
   codex: "codex-technical",
-  grokSearch: "grok-search",
   grokBuild: "grok-build",
   kimi: "kimi-frontend",
   pi: "pi-resident",
@@ -45,22 +44,22 @@ export const TEAM_PRESETS = Object.freeze([
   Object.freeze({
     id: "research-desk",
     label: "研究写作团",
-    summary: "Claude 主脑综合 + 织检索取证 + Kimi 成稿，长文/调研导向",
+    summary: "Claude 主脑综合 + Codex 调用检索工具 + Kimi 成稿，长文/调研导向",
     name: "研究写作团",
     description: "情报检索、交叉取证、长文综合：先事实后观点，出处随行。",
     systemPrompt: "协作风格：事实先于观点，每条关键论断带出处；检索席给原始材料与链接，主脑负责综合成文，禁止无源断言。",
     coordinator: SEAT.claude,
-    members: [SEAT.claude, SEAT.grokSearch, SEAT.kimi],
+    members: [SEAT.claude, SEAT.codex, SEAT.kimi],
   }),
   Object.freeze({
     id: "full-ensemble",
     label: "全栈混编团",
-    summary: "全部六席位：规划/执行/评审/检索/前端/RPC 工具编排一网打尽",
+    summary: "五个执行席位：规划、实现、评审、前端与工具编排",
     name: "全栈混编团",
-    description: "六席位全编：任意任务类型都有对应专长席位，主脑按需派工。",
+    description: "CLI 与 harness 席位协作，主脑按需派工，搜索通过 MCP 工具完成。",
     systemPrompt: "协作风格：按任务类型派给最专长的席位，不平均用力；跨席交接必须写清上下文与验收标准。",
     coordinator: SEAT.claude,
-    members: [SEAT.claude, SEAT.codex, SEAT.grokSearch, SEAT.grokBuild, SEAT.kimi, SEAT.pi],
+    members: [SEAT.claude, SEAT.codex, SEAT.grokBuild, SEAT.kimi, SEAT.pi],
   }),
 ]);
 

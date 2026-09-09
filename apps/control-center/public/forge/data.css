@@ -20,7 +20,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-xl, 14px);
   background: var(--card, var(--surface));
-  box-shadow: var(--shadow-sm, var(--shadow-low));
+  box-shadow: var(--glass-specular), var(--shadow-sm, var(--shadow-low));
 }
 
 .view .data-table th,
@@ -957,19 +957,26 @@
   min-width: 0;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
-  padding: 12px 14px;
+  gap: 4px;
+  padding: 14px 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl, 14px);
   background: var(--card, var(--surface));
+  box-shadow: var(--glass-specular), var(--shadow-xs);
   color: inherit;
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition:
+    transform var(--dur-fast) var(--ease-spring),
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 
 #config-surface-capabilities .cap-stat:hover {
-  border-color: color-mix(in srgb, var(--primary, var(--rose)) 28%, var(--border));
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--primary, var(--rose)) 38%, var(--border));
+  box-shadow: var(--glass-specular), var(--shadow-sm);
 }
 
 #config-surface-capabilities .cap-stat:focus-visible,
@@ -982,13 +989,13 @@
 #config-surface-capabilities[data-cap-active-workspace="skills"] .cap-stat[data-cap-jump="skills"],
 #config-surface-capabilities[data-cap-active-workspace="mcp"] .cap-stat[data-cap-jump="mcp"] {
   border-color: color-mix(in srgb, var(--primary, var(--rose)) 38%, var(--border));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary, var(--rose)) 12%, transparent);
+  box-shadow: var(--glass-specular), inset 0 0 0 1px color-mix(in srgb, var(--primary, var(--rose)) 18%, transparent);
 }
 
 #config-surface-capabilities .cap-stat-label,
 #config-surface-capabilities .cap-stat-sub {
   color: var(--muted-foreground, var(--text-muted));
-  font-size: var(--text-xs, 11px);
+  font-size: var(--text-xs);
 }
 
 #config-surface-capabilities .cap-stat-value {
@@ -1007,34 +1014,113 @@
 
 #config-surface-capabilities .capability-bus {
   display: grid;
-  grid-template-columns: minmax(210px, 0.72fr) minmax(0, 1.8fr);
-  gap: 18px;
+  grid-template-columns: minmax(180px, 0.6fr) minmax(0, 2fr);
+  align-items: center;
+  gap: 16px;
   margin: 0 0 14px;
-  padding: 14px 16px;
+  padding: 10px 16px;
   border: 1px solid color-mix(in srgb, var(--primary, var(--rose)) 24%, var(--border));
   border-radius: var(--radius-xl, 14px);
   background:
     linear-gradient(120deg, color-mix(in oklab, var(--primary) 7%, transparent), transparent 42%),
     var(--card, var(--surface));
+  box-shadow: var(--glass-specular), var(--shadow-xs);
 }
 
 #config-surface-capabilities .capability-bus header {
   align-self: center;
 }
 
-#config-surface-capabilities .capability-bus h3 {
-  margin: 2px 0 4px;
+/* ── 折叠态（v49 C-01）────────────────────────────────────────────────
+   整个 header 变成折叠开关：eyebrow + 标题 + 摘要一行。折叠后网格塌成单列，
+   摘要行仍显示"本机安装 → 团队菜单 → 成员范围" —— 收起来不等于信息消失，
+   三层关系还在，只是不再占 97px（实测它是配置页 646px 首屏 chrome 的第二大块）。 */
+#config-surface-capabilities .capability-bus.is-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+#config-surface-capabilities .capability-bus-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+#config-surface-capabilities .capability-bus-toggle .chevron {
+  flex: none;
+  color: var(--muted-foreground, var(--text-muted));
+  transition: transform var(--dur-fast) var(--ease-standard);
+}
+
+#config-surface-capabilities .capability-bus.is-collapsed .capability-bus-toggle .chevron {
+  transform: rotate(-90deg);
+}
+
+#config-surface-capabilities .capability-bus-toggle:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--ring);
+  outline-offset: 3px;
+}
+
+#config-surface-capabilities .capability-bus-title-row {
   color: var(--foreground, var(--text-strong));
   font-family: var(--forge-display, inherit);
-  font-size: var(--text-lg);
-  font-weight: 620;
+  font-size: var(--text-sm);
+  font-weight: 650;
+}
+
+/* 折叠态摘要：展开时隐藏（下方正文已讲全），折叠时接管信息传递。 */
+#config-surface-capabilities .capability-bus-digest {
+  display: none;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground, var(--text-muted));
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#config-surface-capabilities .capability-bus.is-collapsed .capability-bus-digest {
+  display: block;
+}
+
+#config-surface-capabilities .capability-bus-body {
+  display: grid;
+  gap: 8px;
+}
+
+/* 折叠时概述随 body 一起收起：摘要行已接管信息传递。 */
+#config-surface-capabilities .capability-bus.is-collapsed .capability-bus-note {
+  display: none;
+}
+
+/* v49 C-01 起标题由 .capability-bus-title-row（span + role=heading）承担 ——
+   原 h3 已换成 span 以便整行进折叠按钮，此选择器保留兼容其他 surface 的同名结构。 */
+#config-surface-capabilities .capability-bus h3 {
+  margin: 0;
+  color: var(--foreground, var(--text-strong));
+  font-family: var(--forge-display, inherit);
+  font-size: var(--text-sm);
+  font-weight: 650;
 }
 
 #config-surface-capabilities .capability-bus p {
-  margin: 0;
+  margin: 2px 0 0;
   color: var(--muted-foreground, var(--text-muted));
-  font-size: var(--text-xs);
-  line-height: 1.55;
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 #config-surface-capabilities .capability-bus-track {
@@ -1248,24 +1334,25 @@
   min-height: 40px;
   margin: 0;
   cursor: pointer;
+  border-radius: var(--radius-sm, 6px);
+  transition: background-color var(--dur-fast) var(--ease-standard);
+}
+
+#config-surface-capabilities .cap-cell-toggle:hover {
+  background: color-mix(in oklch, var(--primary) 10%, transparent);
 }
 
 #config-surface-capabilities .cap-cell-toggle input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
 }
 
 #config-surface-capabilities .cap-cell.is-declared {
-  background: color-mix(in srgb, var(--primary, var(--rose)) 8%, transparent);
-}
-
-#config-surface-capabilities .cap-agent-chip.is-focusable {
-  cursor: pointer;
-}
-
-#config-surface-capabilities .cap-agent-chip.is-member-focus {
-  border-color: color-mix(in srgb, var(--primary, var(--rose)) 45%, var(--border));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary, var(--rose)) 25%, transparent);
+  background: color-mix(in oklch, var(--primary) 12%, var(--surface-level-2));
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--primary) 22%, transparent);
 }
 
 #config-surface-capabilities .cap-matrix-toolbar,
@@ -1318,42 +1405,83 @@
 
 #config-surface-capabilities .cap-mcp-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
 }
 
 #config-surface-capabilities .cap-mcp-card {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px;
+  gap: 10px;
+  padding: 16px;
   border: 1px solid var(--border);
   border-radius: var(--radius-xl, 14px);
-  background: color-mix(in oklab, var(--card, var(--surface)) 96%, var(--muted, var(--surface-muted)));
+  background: var(--card, var(--surface));
+  box-shadow: var(--glass-specular), var(--shadow-xs);
   transition:
-    transform var(--dur-med, var(--dur-fast)) var(--ease-out, ease),
-    border-color var(--dur-med, var(--dur-fast)) var(--ease-out, ease),
-    box-shadow var(--dur-med, var(--dur-fast)) var(--ease-out, ease);
+    transform var(--dur-fast) var(--ease-spring),
+    border-color var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out);
 }
 
 #config-surface-capabilities .cap-mcp-card.is-writable {
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--primary, var(--rose)) 55%, transparent);
+  box-shadow: var(--glass-specular), inset 2.5px 0 0 color-mix(in srgb, var(--primary, var(--rose)) 65%, transparent);
 }
 
 #config-surface-capabilities .cap-mcp-card:hover {
-  border-color: color-mix(in srgb, var(--primary, var(--rose)) 24%, var(--border));
-  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--primary, var(--rose)) 38%, var(--border));
+  box-shadow: var(--glass-specular), var(--shadow-md);
+  transform: translateY(-2px);
 }
 
 #config-surface-capabilities .cap-mcp-card.is-disabled {
-  opacity: 0.72;
+  opacity: 0.65;
+  background: color-mix(in oklab, var(--card) 92%, var(--muted));
 }
 
 #config-surface-capabilities .cap-mcp-card-head {
   display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+#config-surface-capabilities .cap-mcp-avatar {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in srgb, var(--primary, var(--rose)) 12%, transparent);
+  color: var(--primary, var(--rose));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary, var(--rose)) 18%, transparent);
+}
+
+#config-surface-capabilities .cap-mcp-avatar.is-http {
+  background: var(--info-soft, color-mix(in oklch, var(--info) 14%, transparent));
+  color: var(--info);
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--info) 24%, transparent);
+}
+
+#config-surface-capabilities .cap-mcp-avatar .icon {
+  width: 18px;
+  height: 18px;
+}
+
+#config-surface-capabilities .cap-mcp-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+#config-surface-capabilities .cap-mcp-title-row {
+  display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 
@@ -1362,19 +1490,20 @@
   margin: 0;
   overflow: hidden;
   color: var(--foreground, var(--text));
-  font-size: var(--text-base);
-  font-weight: 650;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 #config-surface-capabilities .cap-mcp-transport {
   flex: 0 0 auto;
-  padding: 2px 7px;
+  padding: 1px 6px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--primary, var(--rose)) 12%, transparent);
   color: var(--primary, var(--rose));
-  font-size: var(--text-xs);
+  font-size: var(--text-2xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -1382,11 +1511,215 @@
 
 #config-surface-capabilities .cap-mcp-card[data-transport="http" i] .cap-mcp-transport,
 #config-surface-capabilities .cap-mcp-card[data-transport="sse" i] .cap-mcp-transport {
-  background: var(--info-soft);
+  background: var(--info-soft, color-mix(in oklch, var(--info) 14%, transparent));
   color: var(--info);
 }
 
+#config-surface-capabilities .cap-mcp-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted-foreground, var(--text-muted));
+  font-size: var(--text-2xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 #config-surface-capabilities .cap-mcp-card-head .status-label {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: var(--text-2xs);
+  font-weight: 600;
+}
+
+#config-surface-capabilities .cap-mcp-entry-pill {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in oklab, var(--border) 65%, transparent);
+  border-radius: var(--radius-md, 8px);
+  background: color-mix(in oklab, var(--muted) 40%, transparent);
+  color: var(--foreground, var(--text));
+  min-width: 0;
+}
+
+#config-surface-capabilities .cap-mcp-entry-pill .cap-entry-icon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  color: var(--muted-foreground, var(--text-muted));
+}
+
+#config-surface-capabilities .cap-mcp-entry-pill code {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#config-surface-capabilities .cap-mcp-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+#config-surface-capabilities .cap-mcp-tag {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary, var(--rose)) 10%, transparent);
+  color: var(--primary, var(--rose));
+  font-size: var(--text-2xs);
+  font-weight: 600;
+}
+
+#config-surface-capabilities .cap-mcp-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  margin-top: auto;
+  padding-top: 6px;
+  border-top: 1px dashed color-mix(in oklab, var(--border) 55%, transparent);
+}
+
+#config-surface-capabilities .cap-mcp-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+#config-surface-capabilities .cap-mcp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 0 9px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: var(--radius-sm, 6px);
+}
+
+#config-surface-capabilities .cap-mcp-btn .icon {
+  width: 13px;
+  height: 13px;
+}
+
+#config-surface-capabilities .cap-mcp-btn.is-disable {
+  color: var(--destructive);
+  border-color: color-mix(in oklch, var(--destructive) 30%, var(--border));
+}
+
+#config-surface-capabilities .cap-mcp-btn.is-disable:hover {
+  background: color-mix(in oklch, var(--destructive) 10%, transparent);
+  border-color: var(--destructive);
+}
+
+#config-surface-capabilities .cap-mcp-btn.is-enable {
+  background: var(--primary);
+  color: var(--on-accent, var(--primary-foreground));
+}
+
+#config-surface-capabilities .cap-mcp-readonly-note {
+  font-size: var(--text-2xs);
+  color: var(--muted-foreground);
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--muted) 50%, transparent);
+}
+
+#config-surface-capabilities .cap-skill-icon {
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+  flex: 0 0 auto;
+}
+
+#config-surface-capabilities .cap-skill-icon .icon {
+  width: 13px;
+  height: 13px;
+}
+
+#config-surface-capabilities .cap-toggle-indicator {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid var(--border-strong, var(--border));
+  border-radius: 6px;
+  background: var(--surface);
+  transition: all var(--dur-fast) var(--ease-out);
+}
+
+#config-surface-capabilities .cap-cell-toggle input[type="checkbox"]:checked + .cap-toggle-indicator {
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--primary) 45%, transparent);
+}
+
+#config-surface-capabilities .cap-cell-toggle input[type="checkbox"]:checked + .cap-toggle-indicator::after {
+  content: "";
+  width: 5px;
+  height: 9px;
+  border: solid var(--on-accent, var(--surface));
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-0.5px, -0.5px);
+}
+
+#config-surface-capabilities .cap-agent-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl, 14px);
+  background: var(--card, var(--surface));
+  box-shadow: var(--glass-specular), var(--shadow-xs);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  transition: transform var(--dur-fast) var(--ease-spring), border-color var(--dur-fast) var(--ease-out);
+}
+
+#config-surface-capabilities .cap-agent-chip:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+}
+
+#config-surface-capabilities .cap-agent-chip.is-member-focus {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--card));
+  box-shadow: var(--glass-specular), 0 0 0 1px var(--primary);
+}
+
+#config-surface-capabilities .cap-agent-chip-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+#config-surface-capabilities .cap-agent-chip-text strong {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--foreground);
+}
+
+#config-surface-capabilities .cap-agent-chip-text span {
+  font-size: var(--text-2xs);
+  color: var(--muted-foreground);
+}
+
+#config-surface-capabilities .cap-agent-chip code {
+  font-size: var(--text-2xs);
+  font-family: var(--mono);
+  color: var(--muted-foreground);
   margin-left: auto;
 }
 
@@ -1414,14 +1747,6 @@
   color: var(--foreground, var(--text));
 }
 
-#config-surface-capabilities .cap-skill-title-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
 #config-surface-capabilities .cap-skill-scope {
   padding: 1px 6px;
   border-radius: 999px;
@@ -1430,41 +1755,6 @@
   font-size: var(--text-xs);
   font-weight: 600;
   white-space: nowrap;
-}
-
-#config-surface-capabilities .cap-mcp-entry {
-  margin: 0;
-  overflow: hidden;
-  color: var(--muted-foreground, var(--text-muted));
-  font-family: var(--mono, ui-monospace, monospace);
-  font-size: var(--text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-#config-surface-capabilities .cap-mcp-card-foot {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-#config-surface-capabilities .cap-mcp-meta {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--muted-foreground, var(--text-muted));
-  font-size: var(--text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-#config-surface-capabilities .cap-mcp-card-foot .cap-source-button,
-#config-surface-capabilities .cap-mcp-card-foot .text-button {
-  margin-left: auto;
-}
-
-#config-surface-capabilities .cap-mcp-card-foot .text-button {
-  flex: 0 0 auto;
 }
 
 #config-surface-capabilities .cap-empty {
@@ -1515,8 +1805,8 @@
 }
 
 #config-surface-sources .runtime-workspace-tabs button:focus-visible,
-#config-surface-sources .runtime-seat-item:focus-visible,
-#config-surface-sources .runtime-seat-filters button:focus-visible {
+#runtime-seat-component .runtime-seat-item:focus-visible,
+#runtime-seat-component .runtime-seat-filters button:focus-visible {
   outline: 2px solid var(--ring, var(--primary));
   outline-offset: -2px;
 }
@@ -1558,11 +1848,11 @@
   line-height: 1.45;
 }
 
-#config-surface-sources .runtime-seat-layout {
+#runtime-seat-component.runtime-seat-layout {
   display: grid;
   min-height: 650px;
   grid-template-columns: minmax(250px, 300px) minmax(0, 1fr);
-  grid-template-rows: minmax(420px, 1fr) minmax(280px, 42vh);
+  grid-template-rows: minmax(420px, 1fr);
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 8px);
@@ -1570,7 +1860,7 @@
   box-shadow: var(--shadow-sm, var(--shadow-low));
 }
 
-#config-surface-sources .runtime-seat-connection-actions {
+#runtime-seat-component .runtime-seat-connection-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
@@ -1586,7 +1876,7 @@
   padding: 12px 14px 16px;
 }
 
-#config-surface-sources .runtime-seat-index {
+#runtime-seat-component .runtime-seat-index {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -1594,8 +1884,8 @@
   background: color-mix(in srgb, var(--card, var(--surface)) 94%, var(--muted, var(--surface-muted)));
 }
 
-#config-surface-sources .runtime-seat-index-header,
-#config-surface-sources .runtime-seat-editor-header {
+#runtime-seat-component .runtime-seat-index-header,
+#runtime-seat-component .runtime-seat-editor-header {
   display: flex;
   min-height: 66px;
   align-items: center;
@@ -1605,7 +1895,7 @@
   border-bottom: 1px solid var(--border);
 }
 
-#config-surface-sources :is(.runtime-seat-index-header, .runtime-seat-editor-header) h3 {
+#runtime-seat-component :is(.runtime-seat-index-header, .runtime-seat-editor-header) h3 {
   margin: 2px 0 0;
   color: var(--foreground, var(--text));
   font-size: var(--text-lg, 16px);
@@ -1613,14 +1903,14 @@
   letter-spacing: 0;
 }
 
-#config-surface-sources .runtime-seat-search {
+#runtime-seat-component .runtime-seat-search {
   position: relative;
   display: flex;
   align-items: center;
   margin: 12px 12px 8px;
 }
 
-#config-surface-sources .runtime-seat-search .icon {
+#runtime-seat-component .runtime-seat-search .icon {
   position: absolute;
   left: 10px;
   width: 15px;
@@ -1629,14 +1919,14 @@
   pointer-events: none;
 }
 
-#config-surface-sources .runtime-seat-search input {
+#runtime-seat-component .runtime-seat-search input {
   width: 100%;
   min-width: 0;
   min-height: 34px;
   padding-left: 32px;
 }
 
-#config-surface-sources .runtime-seat-filters {
+#runtime-seat-component .runtime-seat-filters {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 3px;
@@ -1646,7 +1936,7 @@
   background: var(--muted, var(--surface-muted));
 }
 
-#config-surface-sources .runtime-seat-filters button {
+#runtime-seat-component .runtime-seat-filters button {
   min-width: 0;
   min-height: 30px;
   overflow: hidden;
@@ -1663,13 +1953,13 @@
   cursor: pointer;
 }
 
-#config-surface-sources .runtime-seat-filters button.is-active {
+#runtime-seat-component .runtime-seat-filters button.is-active {
   background: var(--card, var(--surface));
   color: var(--foreground, var(--text));
   box-shadow: var(--shadow-sm, var(--shadow-low));
 }
 
-#config-surface-sources .runtime-seat-list {
+#runtime-seat-component .runtime-seat-list {
   display: flex;
   min-height: 0;
   flex: 1 1 auto;
@@ -1679,7 +1969,7 @@
   padding: 3px 8px 12px;
 }
 
-#config-surface-sources .runtime-seat-item {
+#runtime-seat-component .runtime-seat-item {
   display: grid;
   width: 100%;
   min-width: 0;
@@ -1698,16 +1988,16 @@
   cursor: pointer;
 }
 
-#config-surface-sources .runtime-seat-item:hover {
+#runtime-seat-component .runtime-seat-item:hover {
   background: var(--muted, var(--surface-muted));
 }
 
-#config-surface-sources .runtime-seat-item.is-active {
+#runtime-seat-component .runtime-seat-item.is-active {
   border-color: color-mix(in srgb, var(--primary) 38%, var(--border));
   background: color-mix(in srgb, var(--primary) 8%, var(--card, var(--surface)));
 }
 
-#config-surface-sources .runtime-seat-item-icon {
+#runtime-seat-component .runtime-seat-item-icon {
   display: grid;
   width: 34px;
   height: 34px;
@@ -1718,61 +2008,61 @@
   color: var(--muted-foreground, var(--text-muted));
 }
 
-#config-surface-sources .runtime-seat-item-icon .icon {
+#runtime-seat-component .runtime-seat-item-icon .icon {
   width: 16px;
   height: 16px;
 }
 
-#config-surface-sources .runtime-seat-item-copy {
+#runtime-seat-component .runtime-seat-item-copy {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 2px;
 }
 
-#config-surface-sources .runtime-seat-item-copy strong,
-#config-surface-sources .runtime-seat-item-copy span {
+#runtime-seat-component .runtime-seat-item-copy strong,
+#runtime-seat-component .runtime-seat-item-copy span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-#config-surface-sources .runtime-seat-item-copy strong {
+#runtime-seat-component .runtime-seat-item-copy strong {
   font-size: var(--text-sm, 12.5px);
   font-weight: 650;
 }
 
-#config-surface-sources .runtime-seat-item-copy span {
+#runtime-seat-component .runtime-seat-item-copy span {
   color: var(--muted-foreground, var(--text-muted));
   font-size: var(--text-xs, 11px);
 }
 
-#config-surface-sources .runtime-seat-item-state {
+#runtime-seat-component .runtime-seat-item-state {
   width: 8px;
   height: 8px;
   border-radius: 50%;
   background: var(--muted-foreground, var(--text-muted));
 }
 
-#config-surface-sources .runtime-seat-item-state.is-ready {
+#runtime-seat-component .runtime-seat-item-state.is-ready {
   background: var(--success);
 }
 
-#config-surface-sources .runtime-seat-empty {
+#runtime-seat-component .runtime-seat-empty {
   padding: 24px 14px;
   color: var(--muted-foreground, var(--text-muted));
   font-size: var(--text-sm, 12.5px);
   text-align: center;
 }
 
-#config-surface-sources .runtime-seat-editor,
-#config-surface-sources .runtime-seat-form {
+#runtime-seat-component .runtime-seat-editor,
+#runtime-seat-component .runtime-seat-form {
   display: flex;
   min-width: 0;
   flex-direction: column;
 }
 
-#config-surface-sources .runtime-seat-editor-empty {
+#runtime-seat-component .runtime-seat-editor-empty {
   display: grid;
   min-height: 420px;
   flex: 1 1 auto;
@@ -1784,17 +2074,17 @@
   text-align: center;
 }
 
-#config-surface-sources .runtime-seat-editor-empty .icon {
+#runtime-seat-component .runtime-seat-editor-empty .icon {
   width: 34px;
   height: 34px;
 }
 
-#config-surface-sources .runtime-seat-editor-empty p {
+#runtime-seat-component .runtime-seat-editor-empty p {
   margin: 0;
   font-size: var(--text-sm, 12.5px);
 }
 
-#config-surface-sources .runtime-seat-form-body {
+#runtime-seat-component .runtime-seat-form-body {
   display: flex;
   min-height: 0;
   flex: 1 1 auto;
@@ -1805,7 +2095,7 @@
   scrollbar-gutter: stable;
 }
 
-#config-surface-sources .runtime-seat-source-strip {
+#runtime-seat-component .runtime-seat-source-strip {
   display: flex;
   min-width: 0;
   align-items: center;
@@ -1814,14 +2104,14 @@
   border-bottom: 1px solid var(--border);
 }
 
-#config-surface-sources .runtime-seat-source-strip > span:last-child {
+#runtime-seat-component .runtime-seat-source-strip > span:last-child {
   overflow-wrap: anywhere;
   color: var(--muted-foreground, var(--text-muted));
   font-size: var(--text-xs, 11px);
   line-height: 1.45;
 }
 
-#config-surface-sources .runtime-seat-form-section {
+#runtime-seat-component .runtime-seat-form-section {
   display: flex;
   flex-direction: column;
   gap: 13px;
@@ -1829,12 +2119,12 @@
   border-top: 1px solid var(--border);
 }
 
-#config-surface-sources .runtime-seat-form-section:first-of-type {
+#runtime-seat-component .runtime-seat-form-section:first-of-type {
   padding-top: 0;
   border-top: 0;
 }
 
-#config-surface-sources .runtime-seat-section-heading h4 {
+#runtime-seat-component .runtime-seat-section-heading h4 {
   margin: 2px 0 0;
   color: var(--foreground, var(--text));
   font-size: var(--text-base, 14px);
@@ -1842,18 +2132,18 @@
   letter-spacing: 0;
 }
 
-#config-surface-sources .runtime-seat-field-grid {
+#runtime-seat-component .runtime-seat-field-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-#config-surface-sources .runtime-seat-field-wide {
+#runtime-seat-component .runtime-seat-field-wide {
   grid-column: 1 / -1;
 }
 
-#config-surface-sources .runtime-seat-scope-note,
-#config-surface-sources .runtime-seat-coordinator-reason {
+#runtime-seat-component .runtime-seat-scope-note,
+#runtime-seat-component .runtime-seat-coordinator-reason {
   margin: 0;
   overflow-wrap: anywhere;
   color: var(--muted-foreground, var(--text-muted));
@@ -1861,37 +2151,37 @@
   line-height: 1.5;
 }
 
-#config-surface-sources .runtime-seat-scope-note.is-warning {
+#runtime-seat-component .runtime-seat-scope-note.is-warning {
   color: var(--warning);
 }
 
 /* T5：CLI 原生设置（只读快照）——分组卡片 + 键值行，视觉与 Adapter 详情同语言 */
-#config-surface-sources .runtime-seat-native-settings .runtime-seat-section-heading {
+#runtime-seat-component .runtime-seat-native-settings .runtime-seat-section-heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
 
-#config-surface-sources .runtime-seat-native-settings-actions {
+#runtime-seat-component .runtime-seat-native-settings-actions {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   gap: 10px;
 }
 
-#config-surface-sources .runtime-seat-native-settings-time {
+#runtime-seat-component .runtime-seat-native-settings-time {
   color: var(--muted-foreground, var(--text-muted));
   font-size: var(--text-xs, 11px);
 }
 
-#config-surface-sources .runtime-seat-native-settings-body {
+#runtime-seat-component .runtime-seat-native-settings-body {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 12px;
 }
 
-#config-surface-sources .runtime-seat-native-settings-group {
+#runtime-seat-component .runtime-seat-native-settings-group {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1901,7 +2191,7 @@
   background: color-mix(in srgb, var(--card, var(--surface)) 92%, var(--muted, var(--surface-muted)));
 }
 
-#config-surface-sources .runtime-seat-native-settings-group-title {
+#runtime-seat-component .runtime-seat-native-settings-group-title {
   margin: 0;
   color: var(--muted-foreground, var(--text-muted));
   font-size: var(--text-xs, 11px);
@@ -1909,26 +2199,26 @@
   letter-spacing: 0.04em;
 }
 
-#config-surface-sources .runtime-seat-native-settings-fields {
+#runtime-seat-component .runtime-seat-native-settings-fields {
   display: flex;
   flex-direction: column;
   gap: 7px;
   margin: 0;
 }
 
-#config-surface-sources .runtime-seat-native-settings-field {
+#runtime-seat-component .runtime-seat-native-settings-field {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
 }
 
-#config-surface-sources .runtime-seat-native-settings-field dt {
+#runtime-seat-component .runtime-seat-native-settings-field dt {
   color: var(--muted-foreground, var(--text-muted));
   font-size: var(--text-sm, 12.5px);
 }
 
-#config-surface-sources .runtime-seat-native-settings-field dd {
+#runtime-seat-component .runtime-seat-native-settings-field dd {
   display: flex;
   align-items: center;
   gap: 7px;
@@ -1939,7 +2229,7 @@
   text-align: right;
 }
 
-#config-surface-sources .runtime-seat-native-settings-semantic {
+#runtime-seat-component .runtime-seat-native-settings-semantic {
   padding: 1px 7px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -1948,7 +2238,7 @@
   white-space: nowrap;
 }
 
-#config-surface-sources .runtime-seat-integration-boundary {
+#runtime-seat-component .runtime-seat-integration-boundary {
   margin: 0;
   padding: 9px 10px;
   border-left: 3px solid var(--warning);
@@ -1958,11 +2248,11 @@
   line-height: 1.5;
 }
 
-#config-surface-sources .runtime-seat-integration-boundary strong {
+#runtime-seat-component .runtime-seat-integration-boundary strong {
   color: var(--foreground, var(--text));
 }
 
-#config-surface-sources .runtime-seat-adapter-details {
+#runtime-seat-component .runtime-seat-adapter-details {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
@@ -1972,7 +2262,7 @@
   background: var(--border);
 }
 
-#config-surface-sources .runtime-seat-adapter-details > div {
+#runtime-seat-component .runtime-seat-adapter-details > div {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -1981,18 +2271,18 @@
   background: var(--card, var(--surface));
 }
 
-#config-surface-sources .runtime-seat-adapter-details > div span {
+#runtime-seat-component .runtime-seat-adapter-details > div span {
   color: var(--muted-foreground, var(--text-muted));
   font-size: var(--text-xs, 11px);
 }
 
-#config-surface-sources .runtime-seat-adapter-details > div strong {
+#runtime-seat-component .runtime-seat-adapter-details > div strong {
   overflow-wrap: anywhere;
   color: var(--foreground, var(--text));
   font-size: var(--text-sm, 12.5px);
 }
 
-#config-surface-sources .runtime-seat-adapter-details > p {
+#runtime-seat-component .runtime-seat-adapter-details > p {
   grid-column: 1 / -1;
   margin: 0;
   padding: 8px 10px;
@@ -2002,13 +2292,13 @@
   line-height: 1.5;
 }
 
-#config-surface-sources .runtime-seat-toggle-grid {
+#runtime-seat-component .runtime-seat-toggle-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
-#config-surface-sources .runtime-seat-toggle {
+#runtime-seat-component .runtime-seat-toggle {
   display: grid;
   min-width: 0;
   grid-template-columns: 18px minmax(0, 1fr);
@@ -2021,44 +2311,44 @@
   cursor: pointer;
 }
 
-#config-surface-sources .runtime-seat-toggle input {
+#runtime-seat-component .runtime-seat-toggle input {
   width: 16px;
   height: 16px;
   margin: 2px 0 0;
   accent-color: var(--primary);
 }
 
-#config-surface-sources .runtime-seat-toggle span {
+#runtime-seat-component .runtime-seat-toggle span {
   display: flex;
   min-width: 0;
   flex-direction: column;
   gap: 3px;
 }
 
-#config-surface-sources .runtime-seat-toggle strong {
+#runtime-seat-component .runtime-seat-toggle strong {
   color: var(--foreground, var(--text));
   font-size: var(--text-sm, 12.5px);
 }
 
-#config-surface-sources .runtime-seat-toggle small {
+#runtime-seat-component .runtime-seat-toggle small {
   overflow-wrap: anywhere;
   color: var(--muted-foreground, var(--text-muted));
   font-size: var(--text-xs, 11px);
   line-height: 1.45;
 }
 
-#config-surface-sources .runtime-seat-capability-wall {
+#runtime-seat-component .runtime-seat-capability-wall {
   max-height: 150px;
   overflow-y: auto;
 }
 
-#config-surface-sources .runtime-seat-metric-grid {
+#runtime-seat-component .runtime-seat-metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 
-#config-surface-sources .runtime-seat-metric-grid label {
+#runtime-seat-component .runtime-seat-metric-grid label {
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -2067,13 +2357,13 @@
   font-size: var(--text-xs, 11px);
 }
 
-#config-surface-sources .runtime-seat-metric-grid output {
+#runtime-seat-component .runtime-seat-metric-grid output {
   color: var(--foreground, var(--text));
   font-variant-numeric: tabular-nums;
   font-weight: 650;
 }
 
-#config-surface-sources .runtime-seat-form-actions {
+#runtime-seat-component .runtime-seat-form-actions {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2083,22 +2373,22 @@
 }
 
 @media (max-width: 1000px) {
-  #config-surface-sources .runtime-seat-layout {
+  #runtime-seat-component.runtime-seat-layout {
     min-height: 0;
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #config-surface-sources .runtime-seat-index {
+  #runtime-seat-component .runtime-seat-index {
     max-height: 330px;
     border-right: 0;
     border-bottom: 1px solid var(--border);
   }
 
-  #config-surface-sources .runtime-seat-list {
+  #runtime-seat-component .runtime-seat-list {
     min-height: 170px;
   }
 
-  #config-surface-sources .runtime-seat-adapter-details {
+  #runtime-seat-component .runtime-seat-adapter-details {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2112,41 +2402,14 @@
 }
 
 /* --------------------------------------------------------------------------
-   §6 空态抛光：图标槽 muted-foreground/60 + 排版间距（无动画，安全）
+   §6 空态抛光：已于 UI-ELEVATION W1 迁出。
+
+   此前本节重复声明了一组 `.view .empty-state-*`，与 styles.css 的旧空态规则、
+   forge/placeholders.css 三处竞争，仅凭加载序分胜负。按 W0 定的层叠契约，
+   空状态单一真源是 forge/placeholders.css（配套 modules/placeholders.js），
+   W1 的展示轨化空态也已落在那里。此处若再留一份，改一次空态得同时改两处
+   才算数——等于把「写了不生效」重新请回来。
    -------------------------------------------------------------------------- */
-
-.view .empty-state {
-  min-height: 200px;
-  gap: 8px;
-}
-
-.view .empty-state strong,
-.view .empty-state-title {
-  color: var(--foreground, var(--text-strong));
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-
-.view .empty-state span,
-.view .empty-state-desc {
-  max-width: 46ch;
-  color: var(--muted-foreground, var(--text-soft));
-  font-size: var(--text-xs);
-  line-height: 1.6;
-}
-
-.view .empty-icon {
-  width: 40px;
-  height: 40px;
-  margin-bottom: 4px;
-  color: color-mix(in srgb, var(--muted-foreground, var(--text-soft)) 60%, transparent);
-  stroke: currentColor;
-}
-
-.view .empty-state-icon {
-  color: color-mix(in srgb, var(--muted-foreground, var(--text-soft)) 60%, transparent);
-  opacity: 1;
-}
 
 @media (max-width: 720px) {
   #config-surface-capabilities .capability-bus-track {
@@ -2257,38 +2520,38 @@
   }
 
   #config-surface-sources .runtime-seat-definition,
-  #config-surface-sources .runtime-seat-field-grid,
-  #config-surface-sources .runtime-seat-toggle-grid,
-  #config-surface-sources .runtime-seat-metric-grid,
-  #config-surface-sources .runtime-seat-adapter-details {
+  #runtime-seat-component .runtime-seat-field-grid,
+  #runtime-seat-component .runtime-seat-toggle-grid,
+  #runtime-seat-component .runtime-seat-metric-grid,
+  #runtime-seat-component .runtime-seat-adapter-details {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #config-surface-sources .runtime-seat-field-wide {
+  #runtime-seat-component .runtime-seat-field-wide {
     grid-column: auto;
   }
 
-  #config-surface-sources .runtime-seat-editor-header,
-  #config-surface-sources .runtime-seat-source-strip {
+  #runtime-seat-component .runtime-seat-editor-header,
+  #runtime-seat-component .runtime-seat-source-strip {
     align-items: flex-start;
     flex-wrap: wrap;
   }
 
-  #config-surface-sources .runtime-seat-form-body {
+  #runtime-seat-component .runtime-seat-form-body {
     overflow: visible;
     padding: 14px;
   }
 
-  #config-surface-sources .runtime-seat-form-actions {
+  #runtime-seat-component .runtime-seat-form-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  #config-surface-sources .runtime-seat-form-actions .dialog-actions-spacer {
+  #runtime-seat-component .runtime-seat-form-actions .dialog-actions-spacer {
     display: none;
   }
 
-  #config-surface-sources .runtime-seat-form-actions .button {
+  #runtime-seat-component .runtime-seat-form-actions .button {
     width: 100%;
     min-width: 0;
     white-space: normal;
@@ -2301,15 +2564,15 @@
     display: none;
   }
 
-  #config-surface-sources .runtime-seat-form-actions {
+  #runtime-seat-component .runtime-seat-form-actions {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #config-surface-sources .runtime-seat-index-header {
+  #runtime-seat-component .runtime-seat-index-header {
     padding-inline: 10px;
   }
 
-  #config-surface-sources .runtime-seat-form :is(input, select, textarea) {
+  #runtime-seat-component .runtime-seat-form :is(input, select, textarea) {
     min-width: 0;
     max-width: 100%;
   }
@@ -2351,7 +2614,7 @@
 
 /* ─── 席位配置面完善波（2026-08-02）：绑定成员区块 / 品牌徽标 ─── */
 
-#config-surface-sources .runtime-seat-bindings-strip {
+#runtime-seat-component .runtime-seat-bindings-strip {
   display: flex;
   align-items: flex-start;
   gap: 9px;
@@ -2360,7 +2623,7 @@
   border-bottom: 1px solid var(--border);
 }
 
-#config-surface-sources .runtime-seat-bindings-label {
+#runtime-seat-component .runtime-seat-bindings-label {
   flex: 0 0 auto;
   padding-top: 3px;
   color: var(--muted-foreground, var(--text-muted));
@@ -2369,7 +2632,7 @@
   white-space: nowrap;
 }
 
-#config-surface-sources .runtime-seat-bindings-list {
+#runtime-seat-component .runtime-seat-bindings-list {
   display: flex;
   min-width: 0;
   flex: 1 1 auto;
@@ -2378,7 +2641,7 @@
   gap: 6px;
 }
 
-#config-surface-sources .runtime-seat-binding-chip {
+#runtime-seat-component .runtime-seat-binding-chip {
   max-width: 100%;
   min-height: 24px;
   overflow: hidden;
@@ -2396,47 +2659,47 @@
   cursor: pointer;
 }
 
-#config-surface-sources .runtime-seat-binding-chip:hover {
+#runtime-seat-component .runtime-seat-binding-chip:hover {
   border-color: color-mix(in oklab, var(--primary) 45%, var(--border));
   background: color-mix(in oklab, var(--primary) 8%, var(--card));
 }
 
-#config-surface-sources .runtime-seat-binding-chip:focus-visible {
+#runtime-seat-component .runtime-seat-binding-chip:focus-visible {
   outline: 2px solid var(--ring, var(--primary));
   outline-offset: 1px;
 }
 
-#config-surface-sources .runtime-seat-bindings-empty {
+#runtime-seat-component .runtime-seat-bindings-empty {
   padding-top: 3px;
   color: var(--muted-foreground, var(--text-muted));
   font-size: var(--text-xs, 11px);
 }
 
-#config-surface-sources .runtime-seat-item[data-brand] .runtime-seat-item-icon {
+#runtime-seat-component .runtime-seat-item[data-brand] .runtime-seat-item-icon {
   border-color: color-mix(in oklab, var(--agent-accent, var(--border)) 38%, var(--border));
   background: color-mix(in oklab, var(--agent-accent, var(--muted)) 9%, var(--card));
   color: var(--agent-accent, var(--muted-foreground));
 }
 
-#config-surface-sources .runtime-seat-logo {
+#runtime-seat-component .runtime-seat-logo {
   width: 18px;
   height: 18px;
   fill: currentColor;
   stroke: none;
 }
 
-#config-surface-sources .runtime-seat-integration-boundary code {
+#runtime-seat-component .runtime-seat-integration-boundary code {
   font-size: var(--text-xs);
 }
 
 /* ─── Adapter 模板 CLI 命名 + 品牌图标（2026-08-03）─── */
 
-#config-surface-sources .runtime-seat-adapter-picker {
+#runtime-seat-component .runtime-seat-adapter-picker {
   position: relative;
   display: block;
 }
 
-#config-surface-sources .runtime-seat-adapter-icon {
+#runtime-seat-component .runtime-seat-adapter-icon {
   position: absolute;
   top: 50%;
   left: 10px;
@@ -2453,18 +2716,18 @@
   transform: translateY(-50%);
 }
 
-#config-surface-sources .runtime-seat-adapter-picker select {
+#runtime-seat-component .runtime-seat-adapter-picker select {
   padding-left: 34px;
 }
 
-#config-surface-sources .runtime-seat-adapter-details strong[data-brand] {
+#runtime-seat-component .runtime-seat-adapter-details strong[data-brand] {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   color: var(--agent-accent, var(--foreground));
 }
 
-#config-surface-sources .runtime-seat-logo-inline {
+#runtime-seat-component .runtime-seat-logo-inline {
   width: 15px;
   height: 15px;
 }
@@ -2873,7 +3136,7 @@
 
 #config-surface-capabilities .cap-matrix-section,
 #config-surface-capabilities .cap-mcp-section,
-#config-surface-sources .runtime-seat-layout {
+#runtime-seat-component.runtime-seat-layout {
   border-color: color-mix(in oklab, var(--border) 88%, var(--forge-copper, var(--primary)));
   box-shadow: 0 12px 34px color-mix(in oklab, var(--foreground) 6%, transparent);
 }
@@ -3075,3 +3338,55 @@
 #config-surface-capabilities .cap-map-grid {
   flex: 1 1 100%;
 }
+
+/* ── v49 A/B 影子对照面板 ────────────────────────────────────────────────
+   后端 createShadowPair + /api/runs/compare 此前零 UI 入口（2026-09-04 契约对账实测）。
+   这里只补面板专有的三处样式，容器/表格/字段全部复用既有类
+   （content-section / field-grid / table-scroll / data-table / heading-actions），
+   不新造一套平行的布局体系。 */
+
+.shadow-legs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--space-2, 8px);
+  margin: var(--space-3, 12px) 0;
+}
+
+.shadow-leg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  border-radius: var(--radius-lg, 10px);
+  background: color-mix(in oklab, var(--aqua) 6%, transparent);
+}
+
+.shadow-leg strong {
+  color: var(--text-strong, var(--text));
+  font-size: var(--text-sm);
+}
+
+.shadow-verdicts {
+  margin: var(--space-2, 8px) 0 0;
+  padding-left: var(--space-4, 16px);
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+}
+
+.shadow-verdicts:empty { display: none; }
+
+/* 只高亮两边真的不同的维度：相同的行不制造视觉噪音，
+   否则"哪里不一样"这个唯一问题反而被淹没在满屏底色里。 */
+.data-table tr[data-differs="1"] td {
+  background: color-mix(in oklab, var(--amber) 7%, transparent);
+}
+
+.data-table tr[data-differs="1"] td:first-child {
+  color: var(--text-strong, var(--text));
+  font-weight: 600;
+}
+
+/* 状态行三态：默认中性，ok 绿、warn 琥珀、error 红。 */
+#shadow-status[data-tone="ok"] { color: var(--green, var(--aqua)); }
+#shadow-status[data-tone="warn"] { color: var(--amber); }
+#shadow-status[data-tone="error"] { color: var(--red); }

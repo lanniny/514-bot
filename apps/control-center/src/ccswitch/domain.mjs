@@ -8,6 +8,10 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { checkReachability, parseDeeplink as parseProviderDeeplink } from "../provider-net.mjs";
 import { PROVIDER_APPS, PROVIDER_SCHEME_APPS } from "../providers.mjs";
 import { CCSWITCH_ENVIRONMENT_WATCH, createEnvironmentAdapter } from "./environment.mjs";
+import { renameWithRetry } from "../atomic-rename.mjs";
+import { hasPendingSkillPublication, resolveSkillTarget, SkillPublication } from "./skill-publication.mjs";
+import { SkillRecovery } from "./skill-recovery.mjs";
+import { skillDigest, skillStateProof } from "./skill-recovery-proof.mjs";
 
 const STATE_VERSION = 1;
 const MAX_TEXT = 1024 * 1024;
@@ -154,8 +158,10 @@ function normalizeState(raw) {
 async function atomicWrite(target, content, mode = 0o600) {
   await mkdir(dirname(target), { recursive: true });
   const temp = join(dirname(target), `.${basename(target)}.${randomUUID()}.tmp`);
-  await writeFile(temp, content, { encoding: "utf8", mode });
-  await rename(temp, target);
+  try {
+    await writeFile(temp, content, { encoding: "utf8", mode });
+    await renameWithRetry(temp, target);
+  } finally { await rm(temp, { force: true }).catch(() => {}); }
 }
 
 async function readObject(target, { json5 = false, yaml = false } = {}) {
@@ -440,9 +446,15 @@ export class CcSwitchDomainService {
     this.path = join(dataRoot, "ccswitch-domain.json");
     this.backupDir = join(dataRoot, "backups", "ccswitch");
     this.skillRoot = join(dataRoot, "ccswitch", "skills");
+    this.skillJournalRoot = join(dataRoot, "ccswitch", "skill-transactions");
     this.state = defaultState();
     this.storeStatus = { state: "missing", code: null, message: null };
     this.queue = Promise.resolve();
+    this.skillRecovery = new SkillRecovery({
+      journalRoot: this.skillJournalRoot, backupRoot: join(dataRoot, "backups", "skills"), statePath: this.path,
+      roots: (state) => [this.skillRoot, ...SKILL_APPS.map((app) => join(this.#configDir(app, state), "skills"))],
+      validateState: (raw) => raw === null ? defaultState() : normalizeState(raw),
+    });
   }
 
   async init() {
@@ -456,6 +468,9 @@ export class CcSwitchDomainService {
         this.storeStatus = { state: "blocked", code: error?.code || "DOMAIN_STORE_UNREADABLE", message: String(error?.message || error).slice(0, 300) };
       }
     }
+    try {
+      if (await hasPendingSkillPublication(this.skillJournalRoot)) this.#blockSkillRecovery();
+    } catch { this.#blockSkillRecovery(); }
     return this;
   }
 
@@ -468,15 +483,80 @@ export class CcSwitchDomainService {
       this.#assertWritable();
       return task();
     };
-    const pending = this.queue.then(guarded, guarded);
+    return this.#enqueue(guarded);
+  }
+
+  #enqueue(task) {
+    const pending = this.queue.then(task, task);
     this.queue = pending.then(() => undefined, () => undefined);
     return pending;
   }
 
-  async #commit() {
+  skillRecoverySummary() { return this.skillRecovery.summary(); }
+
+  checkSkillRecovery(id) {
+    return this.#enqueue(() => this.skillRecovery.check(id));
+  }
+
+  confirmSkillRecovery(id, input) {
+    return this.#enqueue(async () => {
+      const result = await this.skillRecovery.confirm(id, input);
+      this.#blockSkillRecovery();
+      this.state = result.normalized;
+      const recovery = await this.skillRecovery.summary();
+      if (!recovery.unavailable && !recovery.items.length) this.storeStatus = { state: result.stateExists ? "ready" : "missing", code: null, message: null };
+      await this.#audit("ccswitch.skill_recovery_confirmed", { id, outcome: result.outcome, mode: "record-only" });
+      return { id, outcome: result.outcome, unlocked: this.storeStatus.state !== "blocked", recovery };
+    });
+  }
+
+  async #commit(state = this.state) {
     this.#assertWritable();
-    await atomicWrite(this.path, `${JSON.stringify(this.state, null, 2)}\n`);
+    await atomicWrite(this.path, `${JSON.stringify(state, null, 2)}\n`);
+    this.state = state;
     this.storeStatus = { state: "ready", code: null, message: null };
+  }
+
+  #blockSkillRecovery() {
+    this.storeStatus = { state: "blocked", code: "SKILL_TRANSACTION_RECOVERY_REQUIRED", message: "An interrupted skill publication requires recovery; files and backups were retained." };
+  }
+
+  async #publishSkills(skills, changes, { canonicalId = null, skillId = canonicalId } = {}) {
+    this.#assertWritable();
+    const key = (path) => process.platform === "win32" ? path.toLowerCase() : path;
+    const canonical = await Promise.all(Object.entries(skills).map(async ([id, item]) => [id, key(await resolveSkillTarget(assertInside(this.skillRoot, item.path, "skill source")))]));
+    const liveClaims = new Map();
+    for (const [id, item] of Object.entries(skills)) for (const app of SKILL_APPS) if (item.apps?.[app]) {
+      const target = key(await resolveSkillTarget(this.#skillTarget(app, item.name)));
+      const owner = liveClaims.get(target);
+      if (owner && owner !== id) fail("different skills share an active app directory", "SKILL_TARGET_CONFLICT", 409);
+      for (const other of liveClaims.keys()) if (target !== other && (target.startsWith(other + sep) || other.startsWith(target + sep))) fail("active skill directories overlap", "SKILL_TARGET_CONFLICT", 409);
+      liveClaims.set(target, id);
+    }
+    const selected = [];
+    for (const change of changes) {
+      const target = key(await resolveSkillTarget(change.target));
+      for (const live of liveClaims.keys()) if (target !== live && (target.startsWith(live + sep) || live.startsWith(target + sep))) fail("skill change overlaps another active directory", "SKILL_TARGET_CONFLICT", 409);
+      const owner = liveClaims.get(target);
+      if (owner && (change.source === null || owner !== skillId)) fail("skill directory is still required by an active app", "SKILL_TARGET_CONFLICT", 409);
+      if (change.source && target === key(await resolveSkillTarget(change.source))) continue;
+      for (const [id, source] of canonical) {
+        if (target === source && id === canonicalId && change.source !== null) continue;
+        if (target === source || target.startsWith(source + sep) || source.startsWith(target + sep)) fail("skill destination overlaps a canonical skill", "SKILL_TARGET_CONFLICT", 409);
+      }
+      selected.push(change);
+    }
+    const nextState = { ...this.state, skills };
+    const before = await skillStateProof(this.path).then((proof) => proof.digest, () => null);
+    const publication = new SkillPublication({ journalRoot: this.skillJournalRoot, backupRoot: join(this.dataRoot, "backups", "skills"), stateProof: { before, after: skillDigest(`${JSON.stringify(nextState, null, 2)}\n`) } });
+    try {
+      const result = await publication.publish(selected, () => this.#commit(nextState));
+      if (result.recoveryRequired) this.#blockSkillRecovery();
+      return result;
+    } catch (error) {
+      if (error.code === "SKILL_TRANSACTION_RECOVERY_REQUIRED") this.#blockSkillRecovery();
+      throw error;
+    }
   }
 
   async #audit(type, detail) {
@@ -487,8 +567,8 @@ export class CcSwitchDomainService {
     return publicState(this.state, this.storeStatus);
   }
 
-  #configDir(app) {
-    const override = this.state.settings.configDirs[app];
+  #configDir(app, state = this.state) {
+    const override = state.settings.configDirs[app];
     if (override) return override;
     const defaults = {
       claude: join(this.runtimeHome, ".claude"),
@@ -906,7 +986,7 @@ export class CcSwitchDomainService {
         continue;
       }
       for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+        if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
         const id = entry.name;
         const skillDir = join(root, id);
         if (!(await stat(join(skillDir, "SKILL.md")).catch(() => null))) continue;
@@ -968,37 +1048,14 @@ export class CcSwitchDomainService {
           skipped.push({ id: item.id, reason: "missing SKILL.md" });
           continue;
         }
-        const root = join(this.skillRoot, item.id);
-        const swap = join(this.skillRoot, `.${item.id}.${randomUUID()}.swap`);
-        await rm(swap, { recursive: true, force: true });
-        await mkdir(swap, { recursive: true });
-        for (const [pathValue, content] of Object.entries(files)) {
-          const path = safeRelative(pathValue, "skill file path");
-          const target = assertInside(swap, join(swap, path), "skill file path");
-          await mkdir(dirname(target), { recursive: true });
-          await writeFile(target, content, { encoding: "utf8", mode: 0o600 });
-        }
-        await mkdir(this.skillRoot, { recursive: true });
-        await rm(root, { recursive: true, force: true });
-        await rename(swap, root);
         const apps = appMap(() => false);
         if (item.sources[0]?.app) apps[item.sources[0].app] = true;
-        this.state.skills[item.id] = {
-          id: item.id,
-          name: item.name,
-          description: "从本机 live Skill 目录导入",
-          source: "live-import",
-          path: root,
-          apps,
-          createdAt: now(),
-          updatedAt: now(),
-        };
+        await this.#installSkillFilesUnlocked({ id: item.id, name: item.name, files, apps, description: "从本机 live Skill 目录导入", source: "live-import" }, { materialize: false });
         imported.push(item.id);
         } catch (error) {
           skipped.push({ id: item.id, reason: error?.message || "import-failed" });
         }
       }
-      if (imported.length) await this.#commit();
       await this.#audit("ccswitch.skill_adopted", { imported, skipped: skipped.length });
       return { imported, skipped, observed: observed.length };
     });
@@ -1010,49 +1067,59 @@ export class CcSwitchDomainService {
   }
 
   async installSkillFiles(input = {}) {
+    return this.#serialize(() => this.#installSkillFilesUnlocked(input));
+  }
+
+  #assertSkillNameAvailable(id, name, apps) {
+    const key = (value) => process.platform === "win32" ? value.toLowerCase() : value;
+    for (const [otherId, other] of Object.entries(this.state.skills)) {
+      if (otherId === id) continue;
+      if (key(otherId) === key(id)) fail("skill id conflicts with an existing filesystem identity", "SKILL_ID_CONFLICT", 409);
+      if (key(other.name) === key(name) && SKILL_APPS.some((app) => apps[app] && other.apps?.[app])) fail("skill name is already active for this app", "SKILL_TARGET_CONFLICT", 409);
+    }
+  }
+
+  async #installSkillFilesUnlocked(input, { materialize = true } = {}) {
+    this.#assertWritable();
     const name = cleanId(input.name, "skill name");
     const id = input.id ? cleanId(input.id, "skill id") : name;
     const files = input.files;
     if (!files || typeof files !== "object" || Array.isArray(files) || !Object.keys(files).length) fail("skill files are required", "VALIDATION_FAILED");
     if (!Object.keys(files).some((path) => path.replace(/\\/g, "/") === "SKILL.md")) fail("skill requires SKILL.md", "VALIDATION_FAILED");
+    const existing = this.state.skills[id];
+    const description = cleanText(input.description ?? existing?.description, "skill description", 1000);
+    const apps = appMap((app) => Boolean(input.apps?.[app] ?? existing?.apps?.[app]));
+    this.#assertSkillNameAvailable(id, name, apps);
     const root = join(this.skillRoot, id);
-    // 临时目录只落到唯一的随机命名空间，无跨实例碰撞，可在串行区外安全预构建。
-    const swap = join(this.skillRoot, `.${id}.${randomUUID()}.swap`);
-    await rm(swap, { recursive: true, force: true });
-    await mkdir(swap, { recursive: true });
+    const prepared = [];
     let total = 0;
     for (const [pathValue, contentValue] of Object.entries(files)) {
       const path = safeRelative(pathValue, "skill file path");
       const content = String(contentValue ?? "");
       total += Buffer.byteLength(content);
       if (total > 8 * 1024 * 1024) fail("skill files exceed 8 MiB", "VALIDATION_FAILED", 413);
-      const target = assertInside(swap, join(swap, path), "skill file path");
-      await mkdir(dirname(target), { recursive: true });
-      await writeFile(target, content, { encoding: "utf8", mode: 0o600 });
+      assertInside(root, join(root, path), "skill file path");
+      prepared.push([path, content]);
     }
-    // 文件交换（root -> .old -> swap 换入 -> 清 .old）必须与 state commit 同处一个全局
-    // 串行区：此前在 #serialize 之外做，同 id 并发安装会互相覆盖 .old、混写 swap 或误删
-    // 备份。整体搬入串行区后，任何两个安装/其他写操作的 swap/backup/state 恒对应单一完整版本。
-    return this.#serialize(async () => {
-      const existing = this.state.skills[id];
-      const backup = `${root}.old`;
-      await rm(backup, { recursive: true, force: true });
-      if (await stat(root).catch(() => null)) await rename(root, backup);
-      await mkdir(this.skillRoot, { recursive: true });
-      try {
-        await rename(swap, root);
-      } catch (error) {
-        if (await stat(backup).catch(() => null)) await rename(backup, root).catch(() => {});
-        throw error;
+    const item = { id, name, description, source: input.source ?? existing?.source ?? "local", path: root, apps, createdAt: existing?.createdAt || now(), updatedAt: now() };
+    const inputRoot = join(this.skillRoot, `.${id}.${randomUUID()}.input`);
+    await mkdir(this.skillRoot, { recursive: true });
+    await mkdir(inputRoot, { mode: 0o700 });
+    try {
+      for (const [path, content] of prepared) {
+        const target = join(inputRoot, path);
+        await mkdir(dirname(target), { recursive: true });
+        await writeFile(target, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
       }
-      await rm(backup, { recursive: true, force: true });
-      const apps = appMap((app) => Boolean(input.apps?.[app] ?? existing?.apps?.[app]));
-      this.state.skills[id] = { id, name, description: cleanText(input.description ?? existing?.description, "skill description", 1000), source: input.source ?? existing?.source ?? "local", path: root, apps, createdAt: existing?.createdAt || now(), updatedAt: now() };
-      for (const app of SKILL_APPS) if (apps[app]) await this.#materializeSkill(app, id, true);
-      await this.#commit();
-      await this.#audit("ccswitch.skill_installed", { id, name });
-      return clone(this.state.skills[id]);
-    });
+      const changes = [{ target: root, source: inputRoot }];
+      if (materialize) for (const app of SKILL_APPS) {
+        if (existing?.apps?.[app] && (existing.name !== name || !apps[app])) changes.push({ target: this.#skillTarget(app, existing.name), source: null });
+        if (apps[app]) changes.push({ target: this.#skillTarget(app, name), source: inputRoot });
+      }
+      const publication = await this.#publishSkills({ ...this.state.skills, [id]: item }, changes, { canonicalId: id });
+      await this.#audit("ccswitch.skill_installed", { id, name, publicationId: publication.id });
+      return { ...clone(item), ...(publication.recoveryRequired || publication.cleanupPending ? { publication } : {}) };
+    } finally { await rm(inputRoot, { recursive: true, force: true }).catch(() => {}); }
   }
 
   async #materializeSkill(app, id, enabled) {
@@ -1060,16 +1127,7 @@ export class CcSwitchDomainService {
     if (!item) fail(`skill not found: ${id}`, "SOURCE_NOT_FOUND", 404);
     const source = assertInside(this.skillRoot, item.path, "skill source");
     const target = this.#skillTarget(app, item.name);
-    const backup = join(this.dataRoot, "backups", "skills", stamp(), app, item.name);
-    if (await stat(target).catch(() => null)) {
-      await mkdir(dirname(backup), { recursive: true });
-      await cp(target, backup, { recursive: true, force: true });
-    }
-    await rm(target, { recursive: true, force: true });
-    if (enabled) {
-      await mkdir(dirname(target), { recursive: true });
-      await cp(source, target, { recursive: true, force: true });
-    }
+    return this.#publishSkills(this.state.skills, [{ target, source: enabled ? source : null }], { skillId: id });
   }
 
   toggleSkill(idValue, appValue, enabledValue) {
@@ -1079,11 +1137,11 @@ export class CcSwitchDomainService {
     return this.#serialize(async () => {
       const item = this.state.skills[id];
       if (!item) fail(`skill not found: ${id}`, "SOURCE_NOT_FOUND", 404);
-      await this.#materializeSkill(app, id, enabled);
-      item.apps[app] = enabled;
-      item.updatedAt = now();
-      await this.#commit();
-      return clone(item);
+      if (!enabled && !item.apps?.[app]) return clone(item);
+      const next = { ...item, apps: { ...item.apps, [app]: enabled }, updatedAt: now() };
+      this.#assertSkillNameAvailable(id, next.name, next.apps);
+      const publication = await this.#publishSkills({ ...this.state.skills, [id]: next }, [{ target: this.#skillTarget(app, item.name), source: enabled ? assertInside(this.skillRoot, item.path, "skill source") : null }], { skillId: id });
+      return { ...clone(next), ...(publication.recoveryRequired || publication.cleanupPending ? { publication } : {}) };
     });
   }
 
@@ -1093,11 +1151,12 @@ export class CcSwitchDomainService {
     return this.#serialize(async () => {
       const item = this.state.skills[id];
       if (!item) fail(`skill not found: ${id}`, "SOURCE_NOT_FOUND", 404);
-      for (const app of SKILL_APPS) if (item.apps?.[app]) await this.#materializeSkill(app, id, false);
-      await rm(assertInside(this.skillRoot, item.path, "skill source"), { recursive: true, force: true });
-      delete this.state.skills[id];
-      await this.#commit();
-      return { removed: id };
+      const changes = SKILL_APPS.filter((app) => item.apps?.[app]).map((app) => ({ target: this.#skillTarget(app, item.name), source: null }));
+      changes.push({ target: assertInside(this.skillRoot, item.path, "skill source"), source: null });
+      const skills = { ...this.state.skills };
+      delete skills[id];
+      const publication = await this.#publishSkills(skills, changes);
+      return { removed: id, ...(publication.recoveryRequired || publication.cleanupPending ? { publication } : {}) };
     });
   }
 
@@ -1268,6 +1327,7 @@ export class CcSwitchDomainService {
   }
 
   async syncAllLive({ apps = PROVIDER_SCHEME_APPS } = {}) {
+    this.#assertWritable();
     const selectedApps = uniqueApps(apps);
     const selected = new Set(selectedApps);
     const warnings = [];
@@ -1276,7 +1336,16 @@ export class CcSwitchDomainService {
       if (current[app]) await this.providerStore.switchTo(app, current[app]).catch((error) => warnings.push({ app, kind: "provider", message: error.message }));
     }
     for (const item of Object.values(this.state.mcps)) for (const app of selectedApps) if (item.apps?.[app]) await this.#materializeMcp(app, item.id, true).catch((error) => warnings.push({ app, kind: "mcp", id: item.id, message: error.message }));
-    for (const item of Object.values(this.state.skills)) for (const app of SKILL_APPS) if (selected.has(app) && item.apps?.[app]) await this.#materializeSkill(app, item.id, true).catch((error) => warnings.push({ app, kind: "skill", id: item.id, message: error.message }));
+    await this.#serialize(async () => {
+      for (const item of Object.values(this.state.skills)) for (const app of SKILL_APPS) if (selected.has(app) && item.apps?.[app]) {
+        try {
+          const publication = await this.#materializeSkill(app, item.id, true);
+          if (publication.recoveryRequired || publication.cleanupPending) warnings.push({ app, kind: "skill", id: item.id, message: publication.recoveryRequired ? "SKILL_TRANSACTION_RECOVERY_REQUIRED" : "SKILL_CLEANUP_PENDING" });
+        } catch (error) { warnings.push({ app, kind: "skill", id: item.id, message: error.message }); }
+        if (this.storeStatus.state === "blocked") return;
+      }
+    });
+    if (this.storeStatus.state === "blocked") return warnings;
     for (const app of PROMPT_APPS.filter((app) => selected.has(app))) {
       const active = Object.values(this.state.prompts[app]).find((item) => item.enabled);
       if (active) await atomicWrite(this.#promptPath(app), active.content).catch((error) => warnings.push({ app, kind: "prompt", id: active.id, message: error.message }));

@@ -34,6 +34,19 @@ function normalizeRequestedAgentIds(value) {
   return ids;
 }
 
+const SUPPORTED_PERMISSION_MODES = new Set(["plan", "review", "build", "ask", "auto", "full-access", "config"]);
+
+function normalizeAutomationPermission(mode) {
+  const normalized = String(mode ?? "plan").toLowerCase().trim();
+  if (normalized.startsWith("native:")) {
+    return { permissionMode: "build", permission: normalized };
+  }
+  if (SUPPORTED_PERMISSION_MODES.has(normalized)) {
+    return { permissionMode: normalized, permission: null };
+  }
+  return { permissionMode: "plan", permission: null };
+}
+
 // 内置体检自动化（v3.7 拓展：Automation×社会编排——体系健康的常驻脉搏）。
 // 默认 manual：定时与否是 LO 的钱包决策，播种不擅自定时；改 every:1d 即每日体检。
 export const PULSE_CHECK_PROMPT = `对 514cc 体系做一次健康体检。以下是控制面实时聚合的体检数据（无需再用工具抓取，直接基于数据判断）：
@@ -349,7 +362,8 @@ export class AutomationStore {
       startAgentId: input.startAgentId ?? null,
       requestedAgentIds: normalizeRequestedAgentIds(input.requestedAgentIds),
       orchestrationMode: input.orchestrationMode === "social" ? "social" : "pipeline",
-      permissionMode: ["build", "review"].includes(input.permissionMode) ? input.permissionMode : "plan",
+      permissionMode: normalizeAutomationPermission(input.permissionMode).permissionMode,
+      permission: input.permission || normalizeAutomationPermission(input.permissionMode).permission || null,
       model: input.model || null,
       effort: input.effort || null,
       cwd: input.cwd || null,
@@ -394,8 +408,12 @@ export class AutomationStore {
         current.orchestrationMode = patch.orchestrationMode === "social" ? "social" : "pipeline";
       }
       if (patch.permissionMode !== undefined) {
-        const mode = String(patch.permissionMode ?? "plan").toLowerCase();
-        current.permissionMode = ["build", "review"].includes(mode) ? mode : "plan";
+        const perm = normalizeAutomationPermission(patch.permissionMode);
+        current.permissionMode = perm.permissionMode;
+        if (perm.permission) current.permission = perm.permission;
+      }
+      if (patch.permission !== undefined) {
+        current.permission = patch.permission || null;
       }
       return current;
     });
@@ -476,6 +494,7 @@ export class AutomationStore {
         prompt,
         execute: true,
         permissionMode: item.permissionMode,
+        permission: item.permission || undefined,
         teamId: item.teamId,
         startAgentId: item.startAgentId || undefined,
         requestedAgentIds,

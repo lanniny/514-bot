@@ -60,9 +60,9 @@ try {
   console.log("\n=== 桌面 1440×1000 ===");
   await shoot("01-overview", "概览");
 
-  await page.evaluate(() => { location.hash = "#config/sources"; });
+  await page.evaluate(() => { location.hash = "#config/providers"; });
   await page.waitForTimeout(1800);
-  await shoot("02-config-providers", "配置图谱·席位连接");
+  await shoot("02-config-providers", "连接档案");
 
   await page.evaluate(() => { location.hash = "#config/capabilities"; });
   await page.waitForTimeout(1500);
@@ -91,9 +91,9 @@ try {
 
   console.log("\n=== 移动 390×844 ===");
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.evaluate(() => { location.hash = "#config/sources"; });
+  await page.evaluate(() => { location.hash = "#config/providers"; });
   await page.waitForTimeout(1500);
-  await shoot("09-config-providers-390", "移动·席位连接");
+  await shoot("09-config-providers-390", "移动·连接档案");
   await page.evaluate(() => { location.hash = "#config/sources"; });
   await page.waitForTimeout(1500);
   await shoot("10-config-sources-390", "移动·真源");

@@ -3,7 +3,6 @@ import { CodexAppServerAdapter } from "./codex-app-server.mjs";
 import { CodexCliAdapter } from "./codex-cli.mjs";
 import { GeminiCliAdapter } from "./gemini-cli.mjs";
 import { GrokBuildAdapter } from "./grok-build.mjs";
-import { GrokMcpAdapter } from "./grok-mcp.mjs";
 import { KimiCliAdapter } from "./kimi-cli.mjs";
 import { OpencodeCliAdapter } from "./opencode-cli.mjs";
 import { PiRpcAdapter } from "./pi-rpc.mjs";
@@ -166,16 +165,6 @@ function buildFactoryEntries({ eventStore, cwd, approvalResolver, remote = null 
     resolve(cwd, "config/control-center/claude-headless-settings.json"),
     "Claude headless settings",
   );
-  const grokCompatScript = assertWithin(
-    cwd,
-    resolve(cwd, "scripts/grok_search_chat_compat.mjs"),
-    "Grok search compatibility MCP",
-  );
-  const grokRequiredEnv = [
-    "GROK_SEARCH_RS_COMPAT_API_URL",
-    "GROK_SEARCH_RS_COMPAT_API_KEY",
-    "GROK_SEARCH_RS_COMPAT_MODEL",
-  ];
   return [
     ["claude-cli", (profile, adapterTemplate) => new ClaudeCliAdapter(injRun({
       command: profile.command,
@@ -213,34 +202,6 @@ function buildFactoryEntries({ eventStore, cwd, approvalResolver, remote = null 
       eventStore,
       cwd,
     }))],
-    ["grok-mcp", (profile) => {
-      // 安全字段保持代码拥有：自定义席位不能替换 MCP 脚本、server 或 env allowlist。
-      const host = new CodexAppServerAdapter({
-        command: "codex",
-        model: null,
-        eventStore,
-        cwd,
-        approvalResolver,
-        disableMcp: true,
-        environmentProvider: "grok",
-        runtimeProfileId: profile.id,
-        environmentAllowlist: grokRequiredEnv,
-        mcpServers: [{
-          name: "grok-search-rs",
-          command: process.execPath,
-          args: [grokCompatScript],
-          envVars: grokRequiredEnv,
-          startupTimeoutSec: 30,
-          toolTimeoutSec: 120,
-        }],
-      });
-      return new GrokMcpAdapter({
-        host,
-        eventStore,
-        runtimeProfileId: profile.id,
-        requiredEnv: grokRequiredEnv,
-      });
-    }],
     ["grok-build", (profile) => new GrokBuildAdapter(injRun({ command: profile.command, model: profile.model, eventStore, cwd }))],
     ["kimi-cli", (profile) => new KimiCliAdapter(injRun({ command: profile.command, model: profile.model, eventStore, cwd }))],
     ["opencode-cli", (profile) => new OpencodeCliAdapter(injRun({ command: profile.command, model: profile.model, eventStore, cwd }))],

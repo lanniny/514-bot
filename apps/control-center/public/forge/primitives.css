@@ -469,3 +469,178 @@ kbd {
     transition: none;
   }
 }
+
+/* ==========================================================================
+   Forge 3.0 — Crystal Gem Badges & Elevation Primitives
+   ========================================================================== */
+
+/* —— 晶体药丸微徽标（内嵌高光与微透光） —— */
+.forge-badge-gem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 1px 9px;
+  border-radius: var(--radius-4xl);
+  border: 1px solid var(--glass-border);
+  background: var(--surface-level-1);
+  box-shadow: var(--glass-inset-glow), var(--shadow-sm);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.2;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* 呼吸小光点 */
+.forge-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+  animation: forge-pulse-glow var(--dur-slow) var(--ease-standard) infinite alternate;
+}
+
+@keyframes forge-pulse-glow {
+  0% { opacity: 0.45; transform: scale(0.85); }
+  100% { opacity: 1; transform: scale(1.15); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .forge-pulse-dot {
+    animation: none;
+  }
+}
+
+/* Agent 专属品牌微徽标 */
+.forge-badge-claude {
+  border-color: color-mix(in oklch, var(--agent-claude) 35%, transparent);
+  background: color-mix(in oklch, var(--agent-claude) 12%, var(--surface-level-2));
+  color: var(--accent-ink);
+  box-shadow: var(--glow-agent-claude);
+}
+
+.forge-badge-codex {
+  border-color: color-mix(in oklch, var(--agent-codex) 35%, transparent);
+  background: color-mix(in oklch, var(--agent-codex) 12%, var(--surface-level-2));
+  color: var(--agent-codex);
+  box-shadow: var(--glow-agent-codex);
+}
+
+.forge-badge-grok {
+  border-color: color-mix(in oklch, var(--agent-grok) 35%, transparent);
+  background: color-mix(in oklch, var(--agent-grok) 12%, var(--surface-level-2));
+  color: var(--agent-grok);
+  box-shadow: var(--glow-agent-grok);
+}
+
+.forge-badge-kimi {
+  border-color: color-mix(in oklch, var(--agent-kimi) 35%, transparent);
+  background: color-mix(in oklch, var(--agent-kimi) 12%, var(--surface-level-2));
+  color: var(--agent-kimi);
+  box-shadow: var(--glow-agent-kimi);
+}
+
+.forge-badge-pi {
+  border-color: color-mix(in oklch, var(--agent-pi) 35%, transparent);
+  background: color-mix(in oklch, var(--agent-pi) 12%, var(--surface-level-2));
+  color: var(--agent-pi);
+  box-shadow: var(--glow-agent-pi);
+}
+
+/* 表面标尺实用类 */
+.forge-surface-0 { background: var(--surface-level-0); }
+.forge-surface-1 {
+  background: var(--surface-level-1);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+.forge-surface-2 {
+  background: var(--surface-level-2);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-md);
+}
+.forge-surface-3 {
+  background: var(--surface-level-3);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--shadow-floating);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+/* ==========================================================================
+   Forge Awwwards SOTD — Editorial & Precision Reticle Primitives
+   ========================================================================== */
+
+/* 先锋典雅展示标题（人文宋体/衬线） */
+.forge-editorial-heading {
+  font-family: var(--font-editorial);
+  font-weight: 600;
+  letter-spacing: var(--letter-spacing-tight);
+  line-height: var(--leading-tight);
+}
+
+/* 瑞士精密等宽微标尺标签（宽间距大写） */
+.forge-spec-label {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--letter-spacing-editorial);
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+/* 巨型雕塑数字（Tabular Nums + 紧密字距） */
+.forge-stat-monolith {
+  font-family: var(--sans);
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  line-height: var(--leading-none);
+  letter-spacing: var(--letter-spacing-tight);
+  color: var(--text-strong);
+}
+
+/* 透光微折射玻璃表面（UI-ELEVATION W3 材质原语） */
+.forge-glass {
+  position: relative;
+  border: 1px solid var(--glass-border);
+  background: var(--surface-level-1);
+  box-shadow: var(--glass-specular), var(--shadow-sm);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+}
+
+/* 晶体微折射卡片（顶部高光入射 + 双层模糊 + 弹簧手感） */
+.forge-glass-card {
+  position: relative;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl, 14px);
+  background: var(--surface-level-2);
+  box-shadow: var(--glass-specular), var(--glass-inset-glow), var(--shadow-sm);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  transition: transform var(--dur-fast) var(--ease-spring),
+    box-shadow var(--dur-fast) var(--ease-spring),
+    border-color var(--dur-fast) var(--ease-spring);
+}
+
+.forge-glass-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--glass-specular), var(--glass-inset-glow), var(--shadow-md);
+  border-color: color-mix(in oklch, var(--primary) 40%, var(--glass-border));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .forge-glass-card:hover {
+    transform: none;
+  }
+}
+
+:root[data-motion="reduce"] .forge-glass-card:hover {
+  transform: none;
+}
+
+
+

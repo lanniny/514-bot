@@ -27,6 +27,17 @@ test("routeKey treats config surface and skill/mcp workspace as distinct pages",
   assert.equal(sameRoute(skills, { ...skills }), true);
 });
 
+test("automation history keeps list, editor and run-history destinations distinct", () => {
+  const list = { view: "automations" };
+  const editor = { view: "automations", automationHash: "#automations/task-a" };
+  const history = { view: "automations", automationHash: "#automations/task-a/history" };
+  assert.notEqual(routeKey(list), routeKey(editor));
+  assert.notEqual(routeKey(editor), routeKey(history));
+  assert.equal(sameRoute(history, { ...history, automationHash: "#bot/automations/task-a/history" }), true);
+  const next = stepHistory("back", { back: [history], forward: [], current: workbench });
+  assert.deepEqual(next.target, history);
+});
+
 test("recordRouteChange ignores mute, same route, and duplicate tops", () => {
   const first = recordRouteChange(workbench, appearance, { back: [] });
   assert.equal(first.recorded, true);

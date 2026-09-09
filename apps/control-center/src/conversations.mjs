@@ -61,6 +61,23 @@ function cleanRevision(value, label = "revision") {
   return revision;
 }
 
+const MAX_PREVIEW_TEXT = 240;
+const MAX_PREVIEW_FROM = 64;
+
+// 最近消息预览（Grok 式列表副标题）是派生展示数据：磁盘上的坏值降级为 null，
+// 不像 title 那样让整库 fail-closed；唯一写入通道是 noteMessagePreview——
+// HTTP update/create 均不读取该字段，请求体无法伪造预览。
+function cleanPreview(value) {
+  if (value == null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) return null;
+  const text = String(value.text ?? "").trim();
+  if (!text || text.length > MAX_PREVIEW_TEXT) return null;
+  const at = value.at == null ? null : String(value.at);
+  if (at != null && !Number.isFinite(Date.parse(at))) return null;
+  const from = String(value.from ?? "").trim().slice(0, MAX_PREVIEW_FROM) || null;
+  return { text, from, at };
+}
+
 function compareUpdatedAt(left, right) {
   const a = left.updatedAt == null ? -1 : Date.parse(left.updatedAt);
   const b = right.updatedAt == null ? -1 : Date.parse(right.updatedAt);
@@ -154,6 +171,7 @@ function normalizeRecord(raw, { legacy = false, project = null, roomRole = null 
     activeRunId: activeRunId || null,
     pinned: raw.pinned === true,
     unread: raw.unread === true,
+    preview: cleanPreview(raw.preview),
     hiddenAt: cleanTimestamp(raw.hiddenAt, "hiddenAt"),
     deletedAt: cleanTimestamp(raw.deletedAt, "deletedAt"),
     sourceConversationId: cleanId(raw.sourceConversationId, "sourceConversationId"),
@@ -397,6 +415,7 @@ export class ConversationStore {
         activeRunId,
         pinned: input.pinned === true,
         unread: input.unread === true,
+        preview: null,
         hiddenAt: null,
         deletedAt: null,
         sourceConversationId: cleanId(input.sourceConversationId, "sourceConversationId"),
@@ -446,6 +465,33 @@ export class ConversationStore {
       }
       nextRecord.revision += 1;
       nextRecord.updatedAt = new Date().toISOString();
+      const next = new Map(this.#items);
+      next.set(nextRecord.id, nextRecord);
+      await this.#persist(next);
+      return this.#public(nextRecord);
+    });
+  }
+
+  // Grok 式列表预览的唯一写入通道（内部字段纪律：update/create 不碰 preview）。
+  // 调用方是事件订阅回填（user.message / assistant.message），at 取事件时间戳；
+  // 乱序/迟到事件不允许把 updatedAt 倒车——排序锚点只前进。
+  async noteMessagePreview(id, { text, from = null, at = null } = {}) {
+    return this.#serialize(async () => {
+      this.#assertAvailable();
+      const current = this.#items.get(String(id));
+      if (!current) fail("conversation not found", "CONVERSATION_NOT_FOUND");
+      if (current.deletedAt) fail("deleted conversation cannot accept previews", "CONVERSATION_DELETED");
+      const stamp = cleanTimestamp(at, "preview.at") || new Date().toISOString();
+      const preview = cleanPreview({ text, from, at: stamp });
+      if (!preview) fail("preview text is required");
+      const currentStamp = Date.parse(current.updatedAt || "") || 0;
+      const nextStamp = Date.parse(stamp) || 0;
+      const nextRecord = {
+        ...current,
+        preview,
+        revision: current.revision + 1,
+        updatedAt: nextStamp > currentStamp ? stamp : current.updatedAt,
+      };
       const next = new Map(this.#items);
       next.set(nextRecord.id, nextRecord);
       await this.#persist(next);

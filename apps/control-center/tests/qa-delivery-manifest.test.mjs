@@ -76,6 +76,7 @@ test("desktop manifest closes the Tauri source tree and excludes target/ build a
   const root = await createGitFixture();
   t.after(() => rmRetry(root));
   const desktop = [
+    "apps/desktop/ui/index.html",
     "apps/desktop/src-tauri/Cargo.toml",
     "apps/desktop/src-tauri/src/main.rs",
     "apps/desktop/src-tauri/capabilities/native.json",
@@ -96,6 +97,7 @@ test("desktop manifest closes the Tauri source tree and excludes target/ build a
   assert.equal(manifest.clean, true, "all desktop source tracked; build artifact excluded from closure");
   assert.equal(manifest.strictFailure, false);
   assert.ok(manifest.trackedFiles.includes("apps/desktop/src-tauri/src/main.rs"), "desktop Rust source is closed");
+  assert.ok(manifest.trackedFiles.includes("apps/desktop/ui/index.html"), "embedded startup page is a build input");
   assert.ok(!manifest.trackedFiles.includes("apps/desktop/src-tauri/target/release/cc-desktop.exe"), "target/ is never part of the delivery closure");
   assert.ok(!manifest.physicalFiles.some((path) => path.includes("/target/")), "physical walk excludes target/");
   assert.ok(!manifest.untrackedFiles.some((path) => path.includes("/target/")), "git-untracked walk excludes target/");
@@ -107,6 +109,10 @@ test("desktop manifest closes the Tauri source tree and excludes target/ build a
   assert.equal(drifted.clean, false);
   assert.equal(drifted.strictFailure, true, "every focused desktop asset is must-ship even when it is not a code extension");
   assert.deepEqual(drifted.untrackedFiles, ["apps/desktop/src-tauri/icons/icon.svg"]);
+  await rm(resolve(root, "apps/desktop/ui/index.html"));
+  const missing = await collectDesktopManifest({ repoRoot: root });
+  assert.equal(missing.strictFailure, true);
+  assert.deepEqual(missing.missingRequiredFiles, ["apps/desktop/ui/index.html"]);
 });
 test("delivery manifest is clean when physical focus files equal Git delivery set", async (t) => {
   const root = await createGitFixture();

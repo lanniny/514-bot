@@ -4,12 +4,13 @@
   "version": "0.1.0",
   "identifier": "cc.p514.console",
   "build": {
-    "frontendDist": "../dist"
+    "frontendDist": "../ui"
   },
   "app": {
     "windows": [],
     "security": {
-      "csp": null
+      "csp": null,
+      "capabilities": [{ "identifier": "pre-handshake", "local": false, "windows": [], "permissions": [] }]
     }
   },
   "bundle": {

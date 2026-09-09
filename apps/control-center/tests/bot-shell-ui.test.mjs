@@ -5,14 +5,15 @@ import { fileURLToPath } from "node:url";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 
-test("514 Bot starts on the restored 514cc workbench while the Bot conversation route remains available", async () => {
-  const [html, app, state, palette, css, artDirection] = await Promise.all([
+test("514 Bot is the default work surface while the advanced workbench remains available", async () => {
+  const [html, app, state, palette, css, artDirection, nativeChrome] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
     readFile(`${appRoot}/public/state.js`, "utf8"),
     readFile(`${appRoot}/public/command-palette.js`, "utf8"),
     readFile(`${appRoot}/public/forge/bot-shell.css`, "utf8"),
     readFile(`${appRoot}/public/forge/art-direction.css`, "utf8"),
+    readFile(`${appRoot}/public/modules/desktop-window-chrome.js`, "utf8"),
   ]);
   assert.match(html, /id="view-bot"[^>]+data-view-panel="bot"/);
   assert.match(html, /id="bot-surface-tabs"[^>]+role="tablist"/);
@@ -23,11 +24,14 @@ test("514 Bot starts on the restored 514cc workbench while the Bot conversation 
   assert.match(html, /data-nav-surface="primary"/);
   assert.match(html, /data-nav-surface="topbar"/);
   assert.match(html, /data-nav-surface="mobile"/);
+  // 壳层刷新（2026-09-09）：第四套导航面——侧栏隐藏后原导航迁入设置配置面板
+  assert.match(html, /data-nav-surface="settings"/);
+  assert.match(await readFile(`${appRoot}/public/modules/nav-config.js`, "utf8"), /settings: doc\.querySelector\('\[data-nav-surface="settings"\]'\)/);
   assert.match(app, /renderNavigation\(\)/);
   assert.match(html, /id="view-workbench"[^>]+data-view-panel="workbench"[^>]+aria-labelledby="workbench-title"/);
-  assert.doesNotMatch(html, /id="view-workbench"[^>]+hidden/);
-  assert.match(html, /id="view-bot"[^>]+hidden/);
-  assert.doesNotMatch(html, /<html[^>]+is-bot-surface/);
+  assert.match(html, /id="view-workbench"[^>]+hidden/);
+  assert.doesNotMatch(html, /id="view-bot"[^>]+hidden/);
+  assert.match(html, /<html[^>]+is-bot-surface/);
   const restoredChrome = css.slice(
     css.indexOf("/* Bot 是默认工作面，但重新嵌入 514cc 单界面控制台壳。 */"),
     css.indexOf(".bot-first-response"),
@@ -36,9 +40,10 @@ test("514 Bot starts on the restored 514cc workbench while the Bot conversation 
   assert.doesNotMatch(restoredChrome, /html\.is-bot-surface \.global-statusbar(?:\s*[,\{])/);
   assert.match(css, /html\.is-bot-surface \.main-content[\s\S]*padding: 8px 10px 9px !important[\s\S]*overflow: hidden/);
   assert.match(state, /bot: "514 Bot"/);
-  assert.match(app, /const view = routeView \|\| "workbench"/);
+  assert.match(app, /const view = routeView === "experience" \? "bot" : routeView \|\| "bot"/);
   assert.match(app, /setView\(initialView/);
   assert.match(app, /function initBotShell\(/);
+  assert.match(nativeChrome, /if \(botControls\) botControls.hidden = Boolean\(controls\)/);
   assert.match(app, /if \(view === "bot"\) initBotShell\(\)/);
   // UI-AUDIT P0-5：命令面板图标改由导航单一真源派生（此前双写一份图标表，
   // 导航换图标时面板仍显示旧的）。锁住"派生关系"，而不是锁死某个字面量。
@@ -58,12 +63,12 @@ test("514 Bot starts on the restored 514cc workbench while the Bot conversation 
   assert.match(html, /<strong>514 Bot<\/strong>[\s\S]*<span>Control Center<\/span>/);
   assert.match(html, /id="global-status-version">514 Bot runtime/);
   assert.match(html, /id="bot-first-response"/);
-  assert.match(css, /html\.is-bot-surface \.sidebar[\s\S]*display: none !important/);
+  assert.doesNotMatch(css, /html\.is-bot-surface \.sidebar(?:\s*[,\{])/);
   assert.match(css, /html\.is-bot-surface #atelier-canvas/);
   assert.doesNotMatch(css, /html\.is-bot-surface \.atelier-stage[\s\S]{0,160}display: none !important/);
-  assert.match(css, /html\.is-bot-surface \.primary-nav/);
+  assert.doesNotMatch(css, /html\.is-bot-surface \.primary-nav(?:\s*[,\{])/);
   assert.match(css, /@media \(max-width: 820px\)[\s\S]*grid-template-areas: "topbar" "main" !important/);
-  assert.match(css, /html\.is-bot-surface \.topbar \.mobile-menu-button \{ display: none !important; \}/);
+  assert.doesNotMatch(css, /html\.is-bot-surface \.topbar \.mobile-menu-button \{ display: none !important; \}/);
   assert.match(app, /function syncBotSurfaceChrome\(/);
   assert.match(app, /\["\.topbar", "\.global-statusbar"\][\s\S]{0,360}node\.hidden = false/);
   assert.match(app, /document\.title = view === "bot" \? "514 Bot"/);
@@ -75,6 +80,103 @@ test("514 Bot starts on the restored 514cc workbench while the Bot conversation 
   assert.match(app, /data-bot-card="routine"/);
   assert.match(app, /data-bot-card="artifact"/);
   assert.match(app, /data-bot-card="attention"/);
+});
+
+test("Shell refresh hides the sidebar, docks settings bottom-left and stows process details", async () => {
+  const [html, app, refresh, navConfig, timeline] = await Promise.all([
+    readFile(`${appRoot}/public/index.html`, "utf8"),
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/forge/shell-refresh.css`, "utf8"),
+    readFile(`${appRoot}/public/modules/nav-config.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/bot-activity-timeline.js`, "utf8"),
+  ]);
+  // 一、侧栏隐藏（桌面）：元素保留在 DOM（既有 aria 契约不动），仅 CSS 收起；栅格改单栏
+  assert.match(html, /forge\/shell-refresh\.css/);
+  assert.match(html, /forge\/config-workspace\.css[\s\S]*forge\/shell-refresh\.css/); // 最后加载才能压过旧层
+  assert.match(refresh, /@media \(min-width: 821px\)[\s\S]*html body\.atelier \.app-shell:not\(\.nav-open\) #sidebar[\s\S]*display: none !important/);
+  assert.match(refresh, /html body\.atelier \.app-shell\.is-settings \{[\s\S]*"settings topbar"/);
+  // 侧栏 DOM 保留但不再承载唯一入口：迁移导航挂载点 + 单一真源渲染
+  assert.match(html, /data-nav-surface="settings"/);
+  assert.match(navConfig, /settings: doc\.querySelector/);
+  assert.match(navConfig, /className: "settings-rail-item"/);
+  // 二、左下角设置坞：固定入口 + app.js 开合接线（设置表面再点返回）
+  assert.match(html, /id="settings-dock"/);
+  assert.match(html, /id="settings-dock-button"[^>]*aria-label="打开设置面板"/);
+  assert.match(app, /byId\("settings-dock-button"\)\?\.addEventListener\("click"/);
+  assert.match(app, /state\.dockReturnView/);
+  assert.match(refresh, /\.settings-dock \{[\s\S]*position: fixed[\s\S]*bottom: calc\(var\(--statusbar-height/);
+  // 协作台 roster 底部已有同源设置入口，坞不与其重叠；设置面板展开时坞让位
+  assert.match(refresh, /\.app-shell\.is-settings \.settings-dock \{\s*display: none/);
+  assert.match(refresh, /:has\(#view-bot\.is-active\) \.settings-dock \{\s*display: none/);
+  // 三、协作过程默认收纳：details 摘要行（思考/工具/文件改动点开才展开）
+  assert.match(timeline, /<details class="bot-activity-group"/);
+  assert.match(timeline, /<summary class="bot-activity-summary"/);
+  assert.match(timeline, /bot-activity-group-chevron/);
+  assert.match(refresh, /details\.bot-activity-group\[open\][\s\S]*rotate\(180deg\)/);
+  // 四、气泡聊天化：方向性尾巴角 + 悬停反馈 + 入场动效（reconcile 保节点，只播一次）
+  assert.match(refresh, /\.bot-message-agent \.bot-bubble \{[\s\S]*border-top-left-radius/);
+  assert.match(refresh, /\.bot-message-user \.bot-bubble \{[\s\S]*border-top-right-radius/);
+  assert.match(refresh, /\.bot-message:hover \.bot-bubble/);
+  assert.match(refresh, /@keyframes bot-message-in/);
+  assert.match(refresh, /prefers-reduced-motion: reduce/);
+});
+
+test("Wallpaper reading veil lifts chat reading surfaces to high-alpha glass cards", async () => {
+  const refresh = await readFile(`${appRoot}/public/forge/shell-refresh.css`, "utf8");
+  // 门控：全部规则带 body.team-bg-active，无壁纸时零回归
+  const veilRules = refresh.match(/body\.team-bg-active #view-bot [^{]+\{/g) || [];
+  assert.ok(veilRules.length >= 6, "壁纸纱幕至少 6 条门控规则");
+  assert.doesNotMatch(
+    refresh.slice(refresh.indexOf("壁纸态阅读纱幕")),
+    /(^|\n)\s*(?:#view-bot )?\.bot-message-agent \.bot-bubble \{/,
+    "纱幕段内不允许出现无 team-bg-active 门控的气泡规则",
+  );
+  // agent 气泡：bot-workspace 的透明编辑式底在壁纸态升级为玻璃阅读卡
+  // （选择器带 body.team-bg-active，优先级压过 #view-bot 的 ID 规则）
+  assert.match(refresh, /body\.team-bg-active #view-bot \.bot-message-agent \.bot-bubble \{[\s\S]*?--forge-reading-alpha, 94%/);
+  assert.match(refresh, /body\.team-bg-active #view-bot \.bot-message-agent \.bot-bubble \{[\s\S]*?backdrop-filter: var\(--forge-glass-filter/);
+  assert.match(refresh, /body\.team-bg-active #view-bot \.bot-message-agent \.bot-bubble \{[\s\S]*?padding: 12px 16px/);
+  // 协作过程收纳卡 + 流式气泡：同一阅读档玻璃令牌，视觉语法统一
+  assert.match(refresh, /body\.team-bg-active #view-bot details\.bot-activity-group \{[\s\S]*?--forge-reading-alpha, 94%/);
+  assert.match(refresh, /body\.team-bg-active #view-bot \.live-delta-bubble \{[\s\S]*?--forge-reading-alpha, 94%/);
+  // 会话头部 mid 档磨砂条 + 输入行阅读档玻璃卡（键入可读性）
+  assert.match(refresh, /body\.team-bg-active #view-bot \.bot-conversation-header \{[\s\S]*?--forge-glass-alpha-mid, 92%/);
+  assert.match(refresh, /body\.team-bg-active #view-bot \.bot-composer-row \{[\s\S]*?--forge-reading-alpha, 94%/);
+  // 令牌真源：hi/mid/reading 由 app.js 在壁纸激活时按基线派生（不造第二真源）；
+  // 阅读档带 86% 地板——用户滑杆拉到最低时长文阅读面依然可读
+  const app = await readFile(`${appRoot}/public/app.js`, "utf8");
+  assert.match(app, /setProperty\("--forge-glass-alpha-hi"/);
+  assert.match(app, /setProperty\("--forge-glass-alpha-mid"/);
+  assert.match(app, /setProperty\("--forge-reading-alpha", `\$\{Math\.min\(Math\.max\(glassOut \+ 14, 86\), 96\)\}%`\)/);
+  assert.match(app, /removeProperty\("--forge-reading-alpha"\)/);
+});
+
+test("UI polish layer unifies brand focus, nav anchors, rhythm and touch targets", async () => {
+  const [html, polish] = await Promise.all([
+    readFile(`${appRoot}/public/index.html`, "utf8"),
+    readFile(`${appRoot}/public/forge/ui-polish.css`, "utf8"),
+  ]);
+  // 加载顺序：打磨层在壳层刷新之后（同为增量层，后加载者胜同优先级规则）
+  assert.match(html, /forge\/shell-refresh\.css[\s\S]*forge\/ui-polish\.css/);
+  // 设置面板 IA：设置目的地（配置中心）优先于迁移应用导航
+  assert.ok(
+    html.indexOf('settings-rail-label">配置中心') < html.indexOf('data-nav-surface="settings"'),
+    "设置目的地必须排在迁移应用导航之前",
+  );
+  // 焦点环品牌统一：冷蓝 --blue → 铜系 --accent-ink
+  assert.match(polish, /:focus-visible \{[\s\S]*outline-color: var\(--accent-ink/);
+  // 导航激活锚点：设置轨与会话行同款左指示条（跨面板一致的「我在哪」语言）
+  assert.match(polish, /\.settings-rail-item\.is-active::before/);
+  assert.match(polish, /\.bot-agent-row\.is-active::before/);
+  // 阅读节奏：消息流 16px 间距 + 气泡 1.6 行高
+  assert.match(polish, /\.bot-message-stream \{\s*gap: 16px/);
+  assert.match(polish, /\.bot-bubble \{\s*line-height: 1\.6/);
+  // 主操作微交互：发送按钮 active 压缩
+  assert.match(polish, /\.bot-send-button:active:not\(:disabled\) \{[\s\S]*scale\(\.92\)/);
+  // 触控目标：coarse pointer 下 44px（WCAG 2.5.5）
+  assert.match(polish, /@media \(pointer: coarse\)[\s\S]*min-height: 44px/);
+  // 中间档：821–1100px 设置轨收窄
+  assert.match(polish, /@media \(min-width: 821px\) and \(max-width: 1100px\)[\s\S]*208px/);
 });
 
 test("Bot global dialogs keep compact geometry while inheriting the Forge palette", async () => {
@@ -120,9 +222,11 @@ test("Bot global dialogs keep compact geometry while inheriting the Forge palett
   assert.match(dialogRegistry, /dialog\.dispatchEvent\(cancelEvent\)/);
   assert.match(dialogRegistry, /cancelEvent\.defaultPrevented && !automationWasClean/);
   assert.match(dialogRegistry, /dialog\.close\("cancel"\)/);
-  assert.match(app, /if \(!closeBotGlobalDialogs\(\)\)[\s\S]{0,120}history\.replaceState\(null, "", "#bot"\)/);
+  assert.match(app, /if \(!closeBotGlobalDialogs\(\)\)[\s\S]{0,150}history\.replaceState\(null, "", botWorkspace\?\.getRoute\(\) \|\| "#bot"\)/);
   assert.match(app, /function guardDirtyBotWorkspaceRoute\(view, options\)/);
-  assert.match(app, /botState\.workspaceTab !== "seats"[\s\S]{0,120}runtimeSeatManager\?\.isDirty\(\)/);
+  const workspaceGuard = app.slice(app.indexOf("function guardDirtyBotWorkspaceRoute"), app.indexOf("function setView"));
+  assert.match(workspaceGuard, /runtimeSeatManager\?\.isDirty\(\)/);
+  assert.doesNotMatch(workspaceGuard, /workspaceTab !== "seats"/);
   assert.match(app, /requestedHash[\s\S]{0,180}updateHash: requestedHash \? false : true/);
   assert.match(app, /botRequestCloseWorkspace\(\{ restoreFocus: false \}\)[\s\S]{0,360}setView\(target\.view, target\.options\)/);
   assert.match(app, /view === "bot" && botWorkspaceRouteGuardActive[\s\S]{0,80}pendingBotWorkspaceRoute = null/);
@@ -259,12 +363,56 @@ test("Bot fail-closed actions are explicit and do not impersonate backend suppor
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
   ]);
-  for (const action of ["computer-update", "computer-reset", "private-skill-add", "routine-toggle"]) {
+  // private-skill-add 已真源化（W1），从「fail-closed 占位」清单除名；电脑 Update/Reset 仍是显式未接入
+  for (const action of ["computer-update", "computer-reset", "private-skill-add"]) {
     assert.match(html, new RegExp(`data-bot-action="${action}"`));
   }
   assert.match(app, /function botHandleAction\(action, button\)/);
   assert.match(app, /成员电脑 Reset 尚未接入真实快照后端/);
-  assert.match(app, /Private skill 草稿已更新；写入真源尚未接入/);
+  assert.doesNotMatch(app, /Private skill 草稿已更新；写入真源尚未接入/); // 假数据时代的占位文案已除
+});
+
+test("Bot Routines panel is wired to the real /api/bots/routines backend (Grok parity)", async () => {
+  const [html, app, panel] = await Promise.all([
+    readFile(`${appRoot}/public/index.html`, "utf8"),
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/bot-routines-panel.js`, "utf8"),
+  ]);
+  // 假数据行已除：Routines 区 = 动态容器 + 新建入口；toggle 走 enable/pause 真 API
+  assert.doesNotMatch(html, /data-bot-action="routine-toggle"/);
+  assert.doesNotMatch(html, /每周工作台巡检/);
+  assert.match(html, /id="bot-routine-list"/);
+  assert.match(html, /id="bot-routine-create-button"/);
+  assert.match(html, /id="bot-routine-dialog"/);
+  assert.match(app, /renderBotRoutines\(/);
+  assert.match(app, /bindRoutineDialog\(/);
+  assert.match(panel, /\/api\/bots\/routines/);
+  assert.match(panel, /enableRoutine|pauseRoutine/);
+});
+
+test("Bot member settings carry the Grok-style collaboration profile section", async () => {
+  const [html, app, editor] = await Promise.all([
+    readFile(`${appRoot}/public/index.html`, "utf8"),
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/bot-profile-editor.js`, "utf8"),
+  ]);
+  for (const field of ["bot-profile-section", "bot-profile-handle", "bot-profile-owns", "bot-profile-rules", "bot-profile-require-approval", "bot-profile-never-allowed", "bot-profile-skills", "bot-profile-routine-quota", "bot-profile-status"]) {
+    assert.match(html, new RegExp(`id="${field}"`));
+  }
+  assert.match(app, /loadBotProfileSection\(/);
+  assert.match(app, /saveBotProfileSection\(/);
+  assert.match(editor, /\/api\/bots\//);
+});
+
+test("Bot collaboration tasks tab mounts the relay handoff board", async () => {
+  const [app, board] = await Promise.all([
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/bot-relay-board.js`, "utf8"),
+  ]);
+  assert.match(app, /data-relay-mount/);
+  assert.match(app, /renderRelayBoard\(/);
+  assert.match(board, /\/api\/bots\/relay\//);
+  assert.match(board, /openHandoffs|acknowledgedHandoffs/);
 });
 
 test("Bot Appearance and Plugins are real structured controls", async () => {
@@ -311,6 +459,42 @@ test("Bot settings keep account, plugin library, and member sub-settings inside 
   assert.match(css, /\.bot-agent-settings-panel/);
   assert.match(css, /\.bot-plugin-subsection/);
   assert.match(css, /\.bot-private-skill-row/);
+  // W1（Grok 对标）：私有技能真源化——假数据清零，CRUD 走 /api/bots/private-skills
+  assert.doesNotMatch(html, /Inbox triage/); // 硬编码示例已删
+  assert.match(html, /id="bot-private-skill-list"/);
+  assert.match(app, /async function botLoadPrivateSkills\(\)/);
+  assert.match(app, /\/api\/bots\/private-skills/);
+  assert.match(app, /function botSavePrivateSkill\(event\)/);
+});
+
+test("Bot roster channels and composer kickoff follow real sources (Grok parity W2/W4)", async () => {
+  const [html, app, css] = await Promise.all([
+    readFile(`${appRoot}/public/index.html`, "utf8"),
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/forge/bot-grok-parity.css`, "utf8"),
+  ]);
+  // W4：右栏 Channels 区接 /api/channels 真源（空态引导式，门闸态如实提示）
+  assert.match(html, /id="bot-channels-list"/);
+  assert.doesNotMatch(html, /还没有连接频道<\/p>/); // 硬编码空态已删
+  assert.match(app, /async function botLoadPanelChannels\(\)/);
+  assert.match(app, /request\("\/api\/channels"\)/);
+  assert.match(app, /REMOTE_GATE_BLOCKED/);
+  assert.match(css, /\.bot-channel-mini/);
+  // W2：composer 多 @ 群聊消息 → relay/kickoff（≥2 个点名成员才触发；失败不影响已发消息）
+  assert.match(app, /function botKickoffMentionTargets\(conversation, text\)/);
+  assert.match(app, /async function botMaybeKickoffRelay\(conversation, prompt, run\)/);
+  assert.match(app, /postRelayKickoff\(\{ runId: run\.id, from: "lo", text: normalized \}\)/);
+  assert.match(app, /void botMaybeKickoffRelay\(conversation, prompt, acceptedRun\)/);
+  assert.match(app, /from "\.\/modules\/bot-collab-api\.js"/);
+  // W3：Routines 行内显示最近运行历史
+  const routinesPanel = await readFile(`${appRoot}/public/modules/bot-routines-panel.js`, "utf8");
+  assert.match(routinesPanel, /function routineHistoryMarkup\(routine\)/);
+  assert.match(routinesPanel, /bot-routine-history/);
+  assert.match(css, /\.bot-routine-history/);
+  // 个性化空态：单聊带成员真实角色、群聊带成员数（真数据派生，非死文本）
+  assert.match(app, /还没有消息/);
+  assert.match(app, /直接说需求，或粘贴上下文让它接着做/);
+  assert.match(app, /点名 @成员 或直接下达任务/);
 });
 
 test("Bot render ignores late runs from a non-active conversation for the same agent (P0-03)", async () => {
@@ -430,7 +614,9 @@ test("Bot member settings persist the real member and runtime-seat contract with
   assert.match(app, /function botBindSelectedSeat\(/);
   assert.match(app, /function botRequestCloseWorkspace\(/);
   assert.match(app, /function botOpenMemberFromSeatWorkspace\(/);
-  assert.match(app, /botWorkspaceMoveNode\("config-surface-sources", "bot-seats-mount"\)/);
+  assert.match(app, /function botMountSeatComponent\(\)/);
+  assert.match(app, /byId\("runtime-seat-component"\)/);
+  assert.doesNotMatch(app, /botWorkspaceMoveNode/);
   assert.match(app, /botState\.workspaceTab === "seats"[\s\S]{0,180}botOpenMemberFromSeatWorkspace/);
 });
 
@@ -606,7 +792,7 @@ test("Bot personal settings persist nickname and reuse the audited operator avat
   assert.match(server, /state\.avatars\.setOperatorProfile/);
 });
 
-test("Bot workspaces keep channels and automations on the Bot surface", async () => {
+test("Bot routes domain pages to their owners and only hosts the member seat component", async () => {
   const [html, app, channelPanel, automations, settingsRailChrome] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
@@ -615,19 +801,15 @@ test("Bot workspaces keep channels and automations on the Bot surface", async ()
     readFile(`${appRoot}/public/modules/settings-rail-chrome.js`, "utf8"),
   ]);
   assert.match(html, /id="bot-workspace-panel"[^>]+role="dialog"[^>]+inert/);
-  assert.match(html, /data-bot-workspace-tab="automations"/);
-  assert.match(html, /data-bot-workspace-tab="channels"/);
-  assert.match(html, /data-bot-workspace-tab="seats"/);
+  assert.doesNotMatch(html, /data-bot-workspace-tab|id="bot-automations-mount"|id="bot-channels-mount"/);
   assert.match(html, /id="bot-seats-mount"/);
   assert.match(app, /function botOpenWorkspace\(tab = "automations"/);
-  assert.match(app, /botWorkspaceMoveNode\("automations-workbench", "bot-automations-mount"\)/);
-  assert.match(app, /botWorkspaceMoveNode\("channels-container", "bot-channels-mount"\)/);
-  assert.match(settingsRailChrome, /const paneInBotWorkspace = pane\?\.closest\("#bot-workspace-panel"\)/);
-  assert.match(settingsRailChrome, /if \(pane && !paneInBotWorkspace\)/);
+  assert.doesNotMatch(app, /botWorkspaceMoveNode|botWorkspaceRestoreNode/);
+  assert.match(app, /tab === "channels" \|\| tab === "automations"\) setView\(tab\)/);
+  assert.match(app, /setView\("config", \{ configSurface: tab \}\)/);
+  assert.doesNotMatch(settingsRailChrome, /paneInBotWorkspace/);
   assert.match(app, /case "routines"[\s\S]{0,120}botOpenWorkspace\("automations"/);
   assert.match(app, /case "channels"[\s\S]{0,120}botOpenWorkspace\("channels"/);
-  assert.doesNotMatch(app, /case "routines"[\s\S]{0,180}setView\("automations"/);
-  assert.doesNotMatch(app, /case "channels"[\s\S]{0,180}setView\("channels"/);
   assert.match(channelPanel, /export function refreshChannelsPanel\(rootOverride = null\)/);
   assert.match(automations, /parts\[0\] === "bot" && parts\[1\] === "automations"/);
   assert.match(automations, /routePrefix = ""/);
@@ -643,7 +825,7 @@ test("Bot parallel runs use a bounded queue and the existing event-history sourc
   assert.match(app, /const BOT_RUN_QUEUE_LIMIT = 6/);
   assert.match(app, /const BOT_PENDING_TIMEOUT_MS = 15_000/);
   assert.match(app, /function botScheduleSubmissionTimeout\(submission\)/);
-  assert.match(app, /function fetchRunEvents\(runId\)/);
+  assert.match(app, /function fetchRunEvents\(runId, \{ swallowErrors = true \} = \{\}\)/);
   assert.match(conversationMessages, /function historyMessagesForRun\(run, agentId, events\)/);
   assert.match(app, /function scheduleBotConversationSync\(runId\)/);
   assert.match(app, /conversationAdmissionToken/);
@@ -671,7 +853,7 @@ test("Bot run ownership survives a page refresh without creating a second runtim
   assert.match(app, /run\?\.startAgentId/);
   assert.match(app, /botHydrateRunQueuesFromRuns\(\);/);
   assert.match(app, /botReconcileRunQueues\(\);/);
-  assert.match(app, /fetchRunEvents\(run\.id\)/);
+  assert.match(app, /fetchRunEvents\(run\.id, \{ swallowErrors: false \}\)/);
 });
 
 test("Late Bot POST responses cannot resurrect timed-out submissions", async () => {
@@ -703,6 +885,53 @@ test("Bot project tree projects one highest-priority status per conversation", a
   assert.doesNotMatch(app, /data-bot-agent-load/);
   assert.doesNotMatch(css, /\.bot-agent-load/);
   assert.match(html, /id="bot-agent-list"/);
+});
+
+test("Bot roster rows carry Grok-style date badge and last-message preview with real wiring", async () => {
+  const [app, css, utils] = await Promise.all([
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/forge/bot-shell.css`, "utf8"),
+    readFile(`${appRoot}/public/utils.js`, "utf8"),
+  ]);
+  // 行结构：右侧 = 日期徽章 + 状态徽章（.bot-conversation-side 容器），副标题优先预览
+  assert.match(app, /function botConversationPreviewText\(conversation, \{ group = false \} = \{\}\)/);
+  assert.match(app, /function botConversationDateBadge\(conversation\)/);
+  assert.match(app, /<span class="bot-conversation-preview">\$\{escapeHtml\(directPreview\)\}<\/span>/);
+  assert.match(app, /<span class="bot-conversation-preview">\$\{escapeHtml\(groupPreview\)\}<\/span>/);
+  assert.match(app, /<span class="bot-conversation-side">\$\{botConversationDateBadge\(conversation\)\}/);
+  assert.match(css, /\.bot-conversation-side/);
+  assert.match(css, /\.bot-conversation-date/);
+  // 日期格式助手：当天 HH:mm / 当年 M\/d / 跨年 Y\/M\/d
+  assert.match(utils, /export function formatConversationStamp\(value, fallback = ""\)/);
+  // SSE 实时回填：本地增量 + 防抖重渲，不在事件主链发请求
+  assert.match(app, /function botNoteConversationPreview\(event\)/);
+  assert.match(app, /event\.type === "user\.message" \|\| event\.type === "assistant\.message"\) botNoteConversationPreview\(event\)/);
+  // 服务端权威源：ConversationStore 唯一写入通道 + 事件订阅回填（面模块）
+  const [store, serverApp, previewSurface] = await Promise.all([
+    readFile(`${appRoot}/src/conversations.mjs`, "utf8"),
+    readFile(`${appRoot}/src/app.mjs`, "utf8"),
+    readFile(`${appRoot}/src/conversation-preview.mjs`, "utf8"),
+  ]);
+  assert.match(store, /async noteMessagePreview\(id, \{ text, from = null, at = null \} = \{\}\)/);
+  assert.match(store, /preview: cleanPreview\(raw\.preview\)/);
+  assert.match(previewSurface, /export function attachConversationPreview\(\{ eventStore, orchestrator, conversations/);
+  assert.match(previewSurface, /noteMessagePreview\(conversationId, \{/);
+  assert.match(serverApp, /attachConversationPreview\(\{ eventStore, orchestrator, conversations/);
+});
+
+test("Bot conversation load failure renders Grok-style retry card instead of silent dead pane", async () => {
+  const [app, css] = await Promise.all([
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/forge/bot-shell.css`, "utf8"),
+  ]);
+  assert.match(app, /function botRenderConversationLoadError\(agentId, error\)/);
+  assert.match(app, /fetchRunEvents\(run\.id, \{ swallowErrors: false \}\)/);
+  assert.match(app, /function fetchRunEvents\(runId, \{ swallowErrors = true \} = \{\}\)/);
+  assert.match(app, /<strong>无法加载对话<\/strong>/);
+  assert.match(app, /无法加载此对话。请检查网络连接后重试。/);
+  assert.match(app, /data-bot-action="retry-conversation-sync"/);
+  assert.match(app, /case "retry-conversation-sync":/);
+  assert.match(css, /\.bot-message-error/);
 });
 
 test("Bot messages keep coherent Markdown, visible identities, compact activity and send-stop controls", async () => {
@@ -878,13 +1107,13 @@ test("Bot conversations expose the complete context menu and contacts resolve to
 test("Bot conversation bootstrap waits for the access token before querying the index", async () => {
   const app = await readFile(`${appRoot}/public/app.js`, "utf8");
   const shellStart = app.indexOf("function initBotShell()");
-  const shellEnd = app.indexOf("function bindEvents", shellStart + 1);
+  const shellEnd = shellStart + 1 + app.slice(shellStart + 1).search(/\n(?:async )?function /);
   assert.ok(shellStart >= 0 && shellEnd > shellStart);
   assert.doesNotMatch(app.slice(shellStart, shellEnd), /botLoadConversations\(\)/);
   const tokenReady = app.indexOf("await initializeAccessToken();");
   const conversationLoad = app.indexOf("await botLoadConversations();", tokenReady);
   assert.ok(tokenReady >= 0 && conversationLoad > tokenReady, "对话索引不能早于认证态加载");
-  assert.match(app, /const initialConversationRoute = Boolean\(state\.deepLinkConversationId\)/);
+  assert.match(app, /const initialConversationRoute = state\.deepLinkConversationId \? conversationDeepLinkFromHash\(startupHash\) : null/);
   assert.match(app, /const initialView = initialConversationRoute[\s\S]{0,160}\? "bot"[\s\S]{0,180}setView\(initialView/);
 });
 
@@ -943,7 +1172,8 @@ test("Bot approval cards project the real pending approval and reuse the audited
   assert.match(app, /actionSha256/);
   assert.match(app, /item\/permissions\/requestApproval/);
   assert.match(app, /function botApprovalCardsMarkup\(run\)/);
-  assert.match(app, /const approvalHtml = botApprovalCardsMarkup\(run\)/);
+  assert.match(app, /function renderWorkspaceAttention\(\)/);
+  assert.match(app, /botPendingAskCardMarkup\(run\) \+ botApprovalCardsMarkup\(run\)/);
   assert.match(app, /function rememberApprovalEventOutcome\(event\)/);
   assert.match(app, /approval\\\.\(resolved\|expired\)/);
   assert.match(app, /botState\.approvalInFlight/);
@@ -1061,4 +1291,25 @@ test("Workbench settlement distinguishes unavailable and blocked states", async 
   assert.match(app, /交付尚未确认/);
   assert.match(css, /\.settlement-card\.is-error/);
   assert.match(css, /\.settlement-card\.is-loading/);
+});
+
+test("Bot composer can explicitly acknowledge recovery so recovery_required runs stay continuable", async () => {
+  const [html, app, commands, workspaceCss] = await Promise.all([
+    readFile(`${appRoot}/public/index.html`, "utf8"),
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/conversation-commands.js`, "utf8"),
+    readFile(`${appRoot}/public/forge/bot-workspace.css`, "utf8"),
+  ]);
+  // 输入栏确认按钮：recovery_required 时显式确认，与工作台恢复条同语义
+  assert.match(html, /id="bot-recovery-ack"/);
+  assert.match(html, /确认恢复并继续/);
+  assert.match(app, /function syncBotRecoveryAck\(\)/);
+  assert.match(app, /byId\("bot-recovery-ack"\)\?\.addEventListener\("click"/);
+  // 会话准入透传一次性确认位，提交时消费（与工作台续聊同语义）
+  assert.match(commands, /acknowledgeRecovery = undefined/);
+  assert.match(commands, /\.\.\.\(command\.acknowledgeRecovery === undefined \? \{\} : \{ acknowledgeRecovery: command\.acknowledgeRecovery \}\)/);
+  assert.match(app, /const recoveryRun = botConversationActiveRun\(conversation\)/);
+  assert.match(app, /\.\.\.\(recoveryAck \? \{ acknowledgeRecovery: true \} : \{\}\)/);
+  assert.match(app, /if \(recoveryAck\) state\.recoveryAckRunId = null;/);
+  assert.match(workspaceCss, /#bot-recovery-ack \{/);
 });

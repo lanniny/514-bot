@@ -65,6 +65,10 @@ async function openControlCenter(page) {
   await page.waitForSelector("#api-connection-badge.is-ok", { timeout: 20_000 });
   const captured = await page.evaluate(() => sessionStorage.getItem("514cc-control-token") ?? "");
   if (captured) sharedAccessToken = captured; // 首页消费一次性 bootstrap；后续隔离 page 复用测试会话态
+  // These suites exercise the advanced console. Bot's default/alias entry is
+  // covered by qa-collaboration-fusion, so choose this surface explicitly.
+  await page.evaluate(() => { location.hash = "#workbench"; });
+  await page.waitForSelector("#view-workbench.is-active");
 }
 
 // 协作台只留头像进设置；其余视图走设置侧栏。隐藏抽屉不能再当可点入口。
@@ -774,6 +778,27 @@ async function inspectWorkbenchStateMachine(name, viewport) {
   await page.route("**/api/router/preview", (route) =>
     route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: { code: "QA_MOCK" } }) }),
   );
+  const mockRunPrimary = {
+    id: "qa-mock-run",
+    title: "QA 状态机验证任务",
+    status: "planning",
+    createdAt: new Date().toISOString(),
+    prompt: "qa",
+    orchestrationMode: "social",
+    coordinatorId: "claude-fable",
+    teamMembers: ["claude-fable", "codex-technical", "grok-researcher"],
+  };
+  const mockRunDegraded = {
+    id: "qa-mock-degraded",
+    title: "QA bus 审计降级任务",
+    status: "planning",
+    createdAt: new Date().toISOString(),
+    prompt: "qa",
+    orchestrationMode: "social",
+    coordinatorId: "claude-fable",
+    teamMembers: ["claude-fable", "codex-technical"],
+  };
+
   let busRequests = 0;
   let degradedBusRequests = 0;
   await page.route("**/api/runs/qa-mock-run/bus", async (route) => {
@@ -783,7 +808,10 @@ async function inspectWorkbenchStateMachine(name, viewport) {
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        messages: [{ from: "claude-fable", to: "codex-technical", text: "qa" }],
+        messages: [
+          { from: "claude-fable", to: "codex-technical", text: "qa" },
+          { from: "claude-fable", to: "grok-researcher", text: "qa2" },
+        ],
         diagnostics: { status: "ok", truncated: { bytes: true, messages: true } },
       }),
     });
@@ -803,25 +831,48 @@ async function inspectWorkbenchStateMachine(name, viewport) {
       }),
     });
   });
+  await page.route((candidate) => new RegExp(`/api/runs/(?:qa-mock-run|qa-mock-degraded)/events`).test(candidate.pathname), (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ events: [] }) })
+  );
+  await page.route((candidate) => new RegExp(`/api/runs/(?:qa-mock-run|qa-mock-degraded)/replay`).test(candidate.pathname), (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ events: [] }) })
+  );
+  await page.route((candidate) => new RegExp(`/api/runs/(?:qa-mock-run|qa-mock-degraded)/settlement`).test(candidate.pathname), (route) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ status: "not_started" }) })
+  );
+
   let createdRunCount = 0;
-  await page.route("**/api/runs", async (route) => {
-    if (route.request().method() !== "POST") return route.continue();
-    createdRunCount += 1;
-    const degraded = createdRunCount > 1;
-    await route.fulfill({
-      status: 202,
-      contentType: "application/json",
-      body: JSON.stringify({
-        id: degraded ? "qa-mock-degraded" : "qa-mock-run",
-        title: degraded ? "QA bus 审计降级任务" : "QA 状态机验证任务",
-        status: "planning",
-        createdAt: new Date().toISOString(),
-        prompt: "qa",
-        orchestrationMode: "social",
-        coordinatorId: "claude-fable",
-        teamMembers: ["claude-fable", "codex-technical"],
-      }),
-    });
+  await page.route((candidate) => candidate.pathname.endsWith("/api/runs"), async (route) => {
+    if (route.request().method() === "POST") {
+      createdRunCount += 1;
+      const degraded = createdRunCount > 1;
+      return route.fulfill({
+        status: 202,
+        contentType: "application/json",
+        body: JSON.stringify(degraded ? mockRunDegraded : mockRunPrimary),
+      });
+    }
+    if (route.request().method() === "GET" && createdRunCount > 0) {
+      const activeRuns = createdRunCount > 1 ? [mockRunDegraded, mockRunPrimary] : [mockRunPrimary];
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ runs: activeRuns }),
+      });
+    }
+    return route.continue();
+  });
+  await page.route((candidate) => candidate.pathname.endsWith("/api/runs/qa-mock-run"), (route) => {
+    if (route.request().method() === "GET") {
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(mockRunPrimary) });
+    }
+    return route.continue();
+  });
+  await page.route((candidate) => candidate.pathname.endsWith("/api/runs/qa-mock-degraded"), (route) => {
+    if (route.request().method() === "GET") {
+      return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(mockRunDegraded) });
+    }
+    return route.continue();
   });
   await page.fill("#task-input", "QA 状态机验证任务");
   await page.click("#submit-task-button");
@@ -848,6 +899,46 @@ async function inspectWorkbenchStateMachine(name, viewport) {
     errors.push("bounded social topology did not label windowed speech counts");
   }
 
+  // 社会拓扑：并发 render 只打一条 bus 请求；原生 button 的 Enter/Space 都能开成员页 tab。
+  // 拓扑面板异步重渲会让 press() 的聚焦与按键之间产生竞态（焦点落回早前遗留的
+  // .session-link 时，Enter 会错误打开 session preview）——这里用「聚焦校验 + 激活效果
+  // 断言 + 重试」的确定性激活：codex 卡（Space）应新建该 run 的 codex 成员 tab 并选中；
+  // claude 卡（Enter）应切回已存在的 claude 成员 tab。
+  const selectedTabKey = () => page.locator('#conv-tabs [role="tab"][aria-selected="true"]').getAttribute("data-tab-activate");
+  const tabCount = () => page.locator('#conv-tabs [role="tab"]').count();
+  const activateTopologyCard = async (index, key, expect, label) => {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const card = page.locator("#session-topology button[data-topology-agent]").nth(index);
+      if (!(await card.count())) {
+        await page.waitForTimeout(400);
+        continue;
+      }
+      await card.focus();
+      const focused = await page.evaluate((idx) => {
+        const card = document.querySelectorAll("#session-topology button[data-topology-agent]")[idx];
+        return Boolean(card && document.activeElement === card && !card.isDisabled?.());
+      }, index);
+      if (!focused) {
+        await page.waitForTimeout(400);
+        continue;
+      }
+      const pressKey = key === " " ? "Space" : key;
+      await page.keyboard.press(pressKey);
+      for (let settle = 0; settle < 8; settle += 1) {
+        await page.waitForTimeout(100);
+        if ((await selectedTabKey()) === expect) return;
+      }
+      // 效果未出现（可能又被异步重渲吃掉焦点）→ 重试整轮
+    }
+    errors.push(`${label}: ${key} activation did not select expected tab`);
+  };
+  const tabsBeforeActivations = await tabCount();
+  await activateTopologyCard(1, " ", "qa-mock-run::codex-technical", "codex card");
+  if ((await tabCount()) <= tabsBeforeActivations) errors.push("codex topology activation did not open a member tab");
+  await activateTopologyCard(0, "Enter", "qa-mock-run::claude-fable", "claude card");
+  await page.locator("#session-topology button[data-topology-agent]").nth(1).press("Space");
+  await page.waitForTimeout(50);
+
   await page.click("#composer-new-task");
   await page.fill("#task-input", "QA bus 审计降级任务");
   await page.click("#submit-task-button");
@@ -855,6 +946,13 @@ async function inspectWorkbenchStateMachine(name, viewport) {
   if (degradedBusRequests !== 1) errors.push(`degraded social topology request count was ${degradedBusRequests}`);
   if (!(await page.locator("#session-topology").textContent())?.includes("bus 审计降级")) {
     errors.push("missing materialized bus was rendered as a normal empty topology");
+  }
+
+  // 关闭降级 run 的临时页签，恢复以验证 run 为主线的会话页签集
+  const degradedTabClose = page.locator('#conv-tabs [data-tab-close^="qa-mock-degraded::"]').first();
+  if (await degradedTabClose.count()) {
+    await degradedTabClose.click();
+    await page.waitForTimeout(50);
   }
 
   // 行级省略号菜单：至少 24px、复制链接不含凭据、关闭后焦点回到触发器。
@@ -887,44 +985,18 @@ async function inspectWorkbenchStateMachine(name, viewport) {
   checkCleanDeepLink(errors, "session", await page.evaluate(() => sessionStorage.getItem("__qa_clipboard")), "session");
   if (!(await nativeSession.evaluate((node) => document.activeElement === node))) errors.push("session context menu did not restore focus after action");
 
-  // 社会拓扑：并发 render 只打一条 bus 请求；原生 button 的 Enter/Space 都能开成员页 tab。
-  // 拓扑面板异步重渲会让 press() 的聚焦与按键之间产生竞态（焦点落回早前遗留的
-  // .session-link 时，Enter 会错误打开 session preview）——这里用「聚焦校验 + 激活效果
-  // 断言 + 重试」的确定性激活：codex 卡（Space）应新建该 run 的 codex 成员 tab 并选中；
-  // claude 卡（Enter）应切回已存在的 claude 成员 tab。
-  const selectedTabKey = () => page.locator('#conv-tabs [role="tab"][aria-selected="true"]').getAttribute("data-tab-activate");
-  const tabCount = () => page.locator('#conv-tabs [role="tab"]').count();
-  const activateTopologyCard = async (index, key, expect, label) => {
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      const card = page.locator("#session-topology button[data-topology-agent]").nth(index);
-      if (!(await card.count())) {
-        await page.waitForTimeout(400);
-        continue;
-      }
-      await card.focus();
-      const focused = await page.evaluate((idx) => {
-        const card = document.querySelectorAll("#session-topology button[data-topology-agent]")[idx];
-        return Boolean(card && document.activeElement === card && !card.isDisabled?.());
-      }, index);
-      if (!focused) {
-        await page.waitForTimeout(400);
-        continue;
-      }
-      await page.keyboard.press(key);
-      for (let settle = 0; settle < 8; settle += 1) {
-        await page.waitForTimeout(100);
-        if ((await selectedTabKey()) === expect) return;
-      }
-      // 效果未出现（可能又被异步重渲吃掉焦点）→ 重试整轮
-    }
-    errors.push(`${label}: ${key} activation did not select expected tab`);
-  };
-  const tabsBeforeActivations = await tabCount();
-  await activateTopologyCard(1, " ", "qa-mock-run::codex-technical", "codex card");
-  if ((await tabCount()) <= tabsBeforeActivations) errors.push("codex topology activation did not open a member tab");
-  await activateTopologyCard(0, "Enter", "qa-mock-run::claude-fable", "claude card");
-  await page.locator("#session-topology button[data-topology-agent]").nth(1).press("Space");
-  await page.waitForTimeout(50);
+  // 确保 Mission Control 展开且处于 connections 面板（Escape 关闭菜单可能导致 dock 收起）
+  await expandMissionDock(page);
+  await page.waitForSelector('#mission-control-dock[aria-hidden="false"]');
+  const connectionsTabAfterMenu = page.locator('[data-registry-tab="connections"]');
+  if (await connectionsTabAfterMenu.count()) await connectionsTabAfterMenu.click();
+  await page.waitForSelector("#session-topology button[data-topology-agent]", { state: "visible" });
+
+  const grokCard = page.locator('#session-topology button[data-topology-agent="grok-researcher"]');
+  if (await grokCard.count()) {
+    await grokCard.click();
+    await page.waitForTimeout(50);
+  }
 
   const tabAudit = await page.locator("#conv-tabs").evaluate((bar) => {
     const tabs = [...bar.querySelectorAll('[role="tab"]')];
@@ -960,7 +1032,7 @@ async function inspectWorkbenchStateMachine(name, viewport) {
     const tab = page.locator(`#conv-tabs [role="tab"][data-tab-activate=${JSON.stringify(key)}]`);
     await tab.click();
     await tab.locator("..").locator("[data-tab-close]").click();
-    await page.waitForTimeout(50);
+    await page.waitForTimeout(100);
     const selected = page.locator('#conv-tabs [role="tab"][aria-selected="true"]');
     const actualKey = await selected.getAttribute("data-tab-activate");
     if (actualKey !== expectedKey) errors.push(`${label} close selected ${actualKey ?? "none"}, expected ${expectedKey}`);
@@ -1686,6 +1758,21 @@ async function inspectCollapsedProjectDom(name, viewport) {
   // 项目树 = 当前团队平铺项目列表 + 未归属兜底组（app.js projectTreeModel，LO 2026-08-04 团队工作区契约）。
   // 团队折叠节点已不存在；惰性挂载/焦点保持断言下沉到项目节点与未归属组
   // （state.expandedProjects / state.expandedTeams 语义不变）。
+  // 390px 下左栏是抽屉、toggle 在视口外 locator.click 会永远重试——与 mission/sse 等 8 套件同款：
+  // 窄视口用程序化点击验状态机语义，点击命中本身由桌面端覆盖。
+  const isNarrowViewport = viewport.width <= 700;
+  async function clickToggle(locator, selector) {
+    if (!isNarrowViewport) {
+      await locator.scrollIntoViewIfNeeded();
+      await locator.click();
+      return;
+    }
+    await page.evaluate((sel) => {
+      const node = document.querySelector(sel);
+      node?.focus({ preventScroll: true });
+      node?.click();
+    }, selector);
+  }
   try {
     await page.waitForSelector('#workbench-project-tree [data-project-toggle="qa-fold-d"]', { timeout: 10_000 });
   } catch (error) {
@@ -1713,15 +1800,20 @@ async function inspectCollapsedProjectDom(name, viewport) {
   if (await page.locator("#workbench-project-tree .session-link").count()) errors.push("collapsed projects mounted session rows");
 
   const projectToggle = page.locator('#workbench-project-tree [data-project-toggle="qa-fold-d"]');
-  await projectToggle.focus();
-  await projectToggle.click();
+  const projectSelector = '#workbench-project-tree [data-project-toggle="qa-fold-d"]';
+  if (!isNarrowViewport) {
+    await projectToggle.scrollIntoViewIfNeeded();
+    await projectToggle.focus();
+  }
+  await clickToggle(projectToggle, projectSelector);
   const projectControls = await projectToggle.getAttribute("aria-controls");
   const expandedSessions = await page.locator(`#${projectControls} .session-link`).count();
   if ((await projectToggle.getAttribute("aria-expanded")) !== "true" || expandedSessions !== 4) {
     errors.push(`project expansion mounted ${expandedSessions}/4 sessions`);
   }
   if (!(await projectToggle.evaluate((node) => document.activeElement === node))) errors.push("project expansion lost toggle focus");
-  await projectToggle.click();
+  if (!isNarrowViewport) await projectToggle.scrollIntoViewIfNeeded();
+  await clickToggle(projectToggle, projectSelector);
   if ((await projectToggle.getAttribute("aria-expanded")) !== "false" || await page.locator(`#${projectControls} .session-link`).count()) {
     errors.push("project collapse retained hidden session DOM");
   }
@@ -1729,14 +1821,19 @@ async function inspectCollapsedProjectDom(name, viewport) {
 
   // 未归属兜底组：默认展开；折叠后子树（项目节点）整体移除、焦点保持——原团队折叠断言的现行等价
   const unassignedToggle = page.locator('#workbench-project-tree [data-team-toggle="__unassigned__"]');
-  await unassignedToggle.focus();
-  await unassignedToggle.click();
+  const unassignedSelector = '#workbench-project-tree [data-team-toggle="__unassigned__"]';
+  if (!isNarrowViewport) {
+    await unassignedToggle.scrollIntoViewIfNeeded();
+    await unassignedToggle.focus();
+  }
+  await clickToggle(unassignedToggle, unassignedSelector);
   const unassignedControls = await unassignedToggle.getAttribute("aria-controls");
   if ((await unassignedToggle.getAttribute("aria-expanded")) !== "false" || await page.locator(`#${unassignedControls} [data-project-toggle]`).count()) {
     errors.push("unassigned group collapse retained hidden project DOM");
   }
   if (!(await unassignedToggle.evaluate((node) => document.activeElement === node))) errors.push("unassigned collapse lost toggle focus");
-  await unassignedToggle.click();
+  if (!isNarrowViewport) await unassignedToggle.scrollIntoViewIfNeeded();
+  await clickToggle(unassignedToggle, unassignedSelector);
   if ((await unassignedToggle.getAttribute("aria-expanded")) !== "true") errors.push("unassigned group did not re-expand");
 
   // 选择团队 → 树整棵切到该团队的项目列表（原团队节点同时退出）
@@ -1772,7 +1869,11 @@ async function inspectCollapsedProjectDom(name, viewport) {
     errors.push("reload restored the selected team but leaked another team's run");
   }
 
-  await page.locator("#refresh-button").click();
+  if (isNarrowViewport) {
+    await page.evaluate(() => document.querySelector("#refresh-button")?.click());
+  } else {
+    await page.locator("#refresh-button").click();
+  }
   await waitForNodeCondition(page, () => projectQueries.some((query) => new URLSearchParams(query).get("refresh") === "1"), "explicit refresh=1", errors);
   if (projectQueries[0] && new URLSearchParams(projectQueries[0]).has("refresh")) errors.push("initial project load incorrectly bypassed the TTL cache");
   findings.push({ name, viewport, projectQueries, errors });
@@ -3320,6 +3421,83 @@ async function inspectAutomationDegradedState(name, viewport) {
   findings.push({ name, viewport, scenarios: scenarios.map((item) => item.id), errors });
 }
 
+// 字号地板（v49 U0）：--text-sm / --text-xs 在内容面按 --ui-font-size 比例缩放，
+// 而那是用户可拖的滑杆（12–18px）。不设 max() 地板时逐档实测 xs 落到
+// 9.48 / 10.27 / 11.06(默认档) / 11.85px，全部击穿 forge/tokens.css 自述的 12px
+// 硬下限（"中文 10px 以下字形糊化、不可读"）—— 协作台首屏曾有 57% 的可见文字
+// 落在 11.06px。
+//
+// 为什么必须实测而不能靠 ui:lint：违规值由 calc(var(--ui-font-size) * 0.79) 在
+// **运行时**产生，静态扫描看到的只是公式，11.06px 这个数任何静态工具都得不到。
+// ui-lint 的 token-redefine 规则守"谁有资格重定义尺度令牌"，这里守"重定义后
+// 算出来的值合不合法"，两者缺一不可。
+const UI_FONT_FLOOR_PX = 12;
+async function inspectTypographyFloor(name, viewport) {
+  const page = await browser.newPage({ viewport });
+  const errors = [];
+  page.on("pageerror", (error) => { errors.push(`pageerror: ${error.message}`); process.stderr.write(`PAGEERROR ${error.message}\n`); });
+  await openControlCenter(page);
+
+  // 逐档拖滑杆，读 :root 与内容面两处的实算值，并抽查真实叶子文本节点。
+  const ladder = [];
+  for (const slider of [12, 13, 14, 15, 16, 17, 18]) {
+    ladder.push(await page.evaluate((px) => {
+      document.documentElement.style.setProperty("--ui-font-size", `${px}px`);
+      const host = document.querySelector(".main-content") ?? document.body;
+      const probe = document.createElement("div");
+      host.append(probe);
+      const resolve = (token) => {
+        probe.style.fontSize = `var(${token})`;
+        return Number.parseFloat(getComputedStyle(probe).fontSize);
+      };
+      const tokens = {
+        xs: resolve("--text-xs"),
+        sm: resolve("--text-sm"),
+        base: resolve("--text-base"),
+        lg: resolve("--text-lg"),
+      };
+      probe.remove();
+      // 真实渲染的叶子文本里最小的那个字号 —— 令牌合法但某处写死小字号也要抓到
+      let smallestLeaf = Infinity;
+      let smallestSelector = null;
+      for (const el of document.querySelectorAll(".main-content *, .page-heading *")) {
+        if (el.children.length > 0) continue;
+        if (!el.textContent?.trim()) continue;
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) continue;
+        const size = Number.parseFloat(getComputedStyle(el).fontSize);
+        if (size < smallestLeaf) {
+          smallestLeaf = size;
+          smallestSelector = `${el.tagName.toLowerCase()}.${(el.className || "").toString().split(" ")[0]}`;
+        }
+      }
+      return { tokens, smallestLeaf: Number.isFinite(smallestLeaf) ? smallestLeaf : null, smallestSelector };
+    }, slider));
+    ladder.at(-1).slider = slider; // slider 是 node 侧的值，不能从浏览器上下文回传
+  }
+
+  for (const rung of ladder) {
+    for (const [token, value] of Object.entries(rung.tokens)) {
+      if (value < UI_FONT_FLOOR_PX) {
+        errors.push(`--text-${token} resolved to ${value}px at slider ${rung.slider}px (floor ${UI_FONT_FLOOR_PX}px)`);
+      }
+    }
+    if (rung.smallestLeaf !== null && rung.smallestLeaf < UI_FONT_FLOOR_PX) {
+      errors.push(`rendered leaf text ${rung.smallestSelector} is ${rung.smallestLeaf}px at slider ${rung.slider}px (floor ${UI_FONT_FLOOR_PX}px)`);
+    }
+  }
+  // 地板不能是"把整条阶梯压平"换来的：滑杆拉到 18px 时必须重新按比例放大，
+  // 否则 max() 写成 max(12px, 12px) 也能过上面的断言。
+  const top = ladder.at(-1);
+  if (top && !(top.tokens.xs > UI_FONT_FLOOR_PX && top.tokens.sm > top.tokens.xs && top.tokens.base > top.tokens.sm)) {
+    errors.push(`typography ladder collapsed at slider 18px: ${JSON.stringify(top.tokens)}`);
+  }
+
+  await page.evaluate(() => document.documentElement.style.removeProperty("--ui-font-size"));
+  findings.push({ name, viewport, ladder, floorPx: UI_FONT_FLOOR_PX, errors });
+  await page.close();
+}
+
 try {
   if (suite === "mission" || suite === "all") {
     await inspectMissionControl("desktop", { width: 1440, height: 900 });
@@ -3359,6 +3537,7 @@ try {
     await inspect("compact-desktop", { width: 1280, height: 800 });
     await inspect("tablet", { width: 820, height: 1180 });
     await inspect("mobile", { width: 390, height: 844 });
+    await inspectTypographyFloor("typography-floor", { width: 1440, height: 900 });
   }
   if (suite === "history") {
     await inspectRunHistorySseContinuity("run-history-sse-continuity", { width: 1440, height: 900 });
