@@ -50,6 +50,8 @@ test("built-in palette items stay above the coverage bar and keep Ctrl/Cmd+K wir
   assert.ok(ids.has("bot:create-routine"));
   assert.ok(ids.has("bot:private-skills"));
   assert.ok(ids.has("bot:kickoff-help"));
+  assert.ok(ids.has("bot:product-tour"));
+  assert.ok(ids.has("bot:capability-map"));
   assert.ok(ids.has("refresh"));
 
   const [palette, app, html] = await Promise.all([
@@ -62,6 +64,8 @@ test("built-in palette items stay above the coverage bar and keep Ctrl/Cmd+K wir
   assert.match(app, /handleCatalogPaletteAction\(actionId\)/);
   assert.match(app, /case "bot:create-routine"/);
   assert.match(app, /case "bot:kickoff-help"/);
+  assert.match(app, /case "bot:product-tour"/);
+  assert.match(app, /case "bot:capability-map"/);
   assert.match(html, /id="command-palette-trigger"/);
 });
 

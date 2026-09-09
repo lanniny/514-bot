@@ -70,6 +70,25 @@
 .bot-routine-history-status.is-succeeded { color: var(--bot-ok, var(--bot-muted)); }
 .bot-routine-history-status.is-failed { color: var(--bot-danger, var(--bot-muted)); }
 
+/* ---- Phase C3：产品导览 / 能力地图（v48 P-19） ---- */
+.bot-product-tour-body,
+.bot-capability-map-body { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 12px; overflow: auto; }
+.bot-product-tour-step { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
+.bot-product-tour-step h3,
+.bot-capability-group h3 { margin: 0; font-size: var(--text-base); }
+.bot-product-tour-step p,
+.bot-capability-card p { margin: 0; color: var(--bot-muted); font-size: var(--text-sm); line-height: 1.6; }
+.bot-orientation-progress { letter-spacing: 0.04em; text-transform: uppercase; font-size: var(--text-xs); }
+.bot-orientation-dest { color: var(--bot-ink); }
+.bot-orientation-gate { padding: 8px 10px; border: 1px solid var(--bot-line); border-radius: 8px; font-size: var(--text-xs); line-height: 1.5; }
+.bot-orientation-gate.is-gated,
+.bot-orientation-gate.is-error { border-left: 3px solid var(--bot-warn, var(--bot-muted)); }
+.bot-capability-group { display: flex; min-width: 0; flex-direction: column; gap: 8px; }
+.bot-capability-card { display: flex; min-width: 0; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--bot-line); border-radius: 8px; }
+.bot-capability-card.is-gated { opacity: 0.84; }
+.bot-capability-card-actions { display: flex; flex: 0 0 auto; flex-wrap: wrap; gap: 6px; }
+.bot-capability-card-actions [disabled] { cursor: not-allowed; opacity: 0.6; }
+
 /* ---- W6：390px 小屏走查（标准档 --bp-sm 560；目标视口 390×844） ---- */
 .bot-routine-dialog { box-sizing: border-box; overflow: hidden; }
 .bot-routine-dialog form { display: flex; min-width: 0; min-height: 0; flex: 1; flex-direction: column; overflow: hidden; }
@@ -103,4 +122,10 @@
   .bot-channel-mini { min-width: 0; }
   .bot-routine-history li { flex-wrap: wrap; }
   .bot-routine-history time { margin-left: 0; }
+  .bot-product-tour-body,
+  .bot-capability-map-body { min-width: 0; }
+  .bot-capability-card { flex-direction: column; align-items: stretch; }
+  .bot-capability-card-actions { justify-content: stretch; }
+  .bot-capability-card-actions .bot-text-button,
+  .bot-capability-card-actions .bot-card-confirm { min-height: 44px; flex: 1 1 8rem; }
 }

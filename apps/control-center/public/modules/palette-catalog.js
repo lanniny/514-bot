@@ -60,6 +60,20 @@ export const BOT_PALETTE_ACTIONS = Object.freeze([
     keywords: "save skill private 沉淀 成功 run",
     detail: "仅对已成功的 run 开放；无成功 run 会如实提示",
   },
+  {
+    id: "bot:product-tour",
+    label: "产品导览",
+    icon: "compass",
+    keywords: "tour guide onboarding 导览 新手 帮助 first-run",
+    detail: "走一遍 514 Bot 现有表面，可随时跳过",
+  },
+  {
+    id: "bot:capability-map",
+    label: "能力地图",
+    icon: "layers",
+    keywords: "capability map 能力 地图 帮助 what can",
+    detail: "对照注册表列出可打开的真实入口",
+  },
 ]);
 
 export const PALETTE_DEEP_VIEWS = Object.freeze({

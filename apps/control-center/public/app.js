@@ -151,6 +151,14 @@ import { createShadowComparePanel } from "./modules/shadow-compare-panel.js";
 import { renderBotRoutines, bindRoutineDialog, openRoutineDialog } from "./modules/bot-routines-panel.js";
 import { draftPrivateSkillFromRun, isSucceededRun, saveSkillActionMarkup } from "./modules/private-skill-from-run.js";
 import { bindSaveSkillDialog, openSaveSkillDialog } from "./modules/save-skill-dialog.js";
+import {
+  capabilityMapMarkup,
+  listCapabilityMapItems,
+  productTourStepMarkup,
+  productTourStepModel,
+  shouldAutoStartProductTour,
+  writeProductTourDismissed,
+} from "./modules/product-orientation.js";
 import { loadBotProfileSection, saveBotProfileSection, markBotProfileDirty } from "./modules/bot-profile-editor.js";
 import { renderRelayBoard } from "./modules/bot-relay-board.js";
 import { postRelayKickoff } from "./modules/bot-collab-api.js";
@@ -2179,6 +2187,8 @@ function initializeChromeMenus() {
     { icon: "panelRight", label: "打开/关闭环境信息", action: () => byId("global-mc-toggle")?.click() },
   ]);
   bindMenu("chrome-menu-help", () => [
+    { icon: "eye", label: "产品导览", action: () => openProductTour({ reason: "help" }) },
+    { icon: "info", label: "能力地图", action: () => openCapabilityMap() },
     { icon: "eye", label: "体系观测", action: () => setView("observability") },
     { icon: "info", label: "关于 514 Bot", action: () => void confirmAction({
       eyebrow: "关于",
@@ -20239,6 +20249,170 @@ function openKickoffHelp() {
   toast("在协作室用 @成员1 @成员2 写下共同目标后发送，才会走 kickoff", "info", 5600);
 }
 
+let productTourIndex = 0;
+let productOrientationChannelStatus = "unknown";
+
+function settlementSurfacePresent() {
+  return Boolean(byId("bot-collab-tab-evidence"));
+}
+
+async function resolveOrientationChannelStatus() {
+  try {
+    const payload = await request("/api/channels");
+    const channels = Array.isArray(payload?.channels) ? payload.channels : [];
+    return channels.length ? "ready" : "empty";
+  } catch (error) {
+    if (error?.code === "REMOTE_GATE_BLOCKED" || error?.status === 501 || /REMOTE_GATE/.test(error.message || "")) {
+      return "gated";
+    }
+    return "error";
+  }
+}
+
+function renderProductTourStep() {
+  const dialog = byId("bot-product-tour-dialog");
+  if (!dialog) return;
+  const model = productTourStepModel(productTourIndex, {
+    settlementPresent: settlementSurfacePresent(),
+    channelStatus: productOrientationChannelStatus,
+  });
+  const mount = dialog.querySelector("[data-product-tour-step]");
+  if (mount) mount.innerHTML = productTourStepMarkup(model);
+  const back = dialog.querySelector("[data-product-tour-back]");
+  const next = dialog.querySelector("[data-product-tour-next]");
+  if (back) back.hidden = !model || model.isFirst;
+  if (next) next.textContent = model?.isLast ? "完成" : "下一步";
+}
+
+function dismissProductTour() {
+  writeProductTourDismissed(true);
+  const dialog = byId("bot-product-tour-dialog");
+  if (dialog?.open) dialog.close();
+}
+
+function openProductTour({ reason = "manual" } = {}) {
+  setView("bot");
+  bindProductOrientation();
+  const dialog = byId("bot-product-tour-dialog");
+  if (!dialog || typeof dialog.showModal !== "function") {
+    toast("导览对话框不可用", "warning");
+    return;
+  }
+  productTourIndex = 0;
+  renderProductTourStep();
+  if (!dialog.open) dialog.showModal();
+  void resolveOrientationChannelStatus().then((status) => {
+    productOrientationChannelStatus = status;
+    if (dialog.open) renderProductTourStep();
+  });
+  void reason;
+}
+
+function maybeStartProductTour() {
+  if (!shouldAutoStartProductTour()) return;
+  if (document.querySelector("dialog[open]")) return;
+  openProductTour({ reason: "first-run" });
+}
+
+function paintCapabilityMap(status = productOrientationChannelStatus) {
+  const mount = byId("bot-capability-map-dialog")?.querySelector("[data-capability-map-list]");
+  if (!mount) return;
+  mount.innerHTML = capabilityMapMarkup(listCapabilityMapItems({
+    channelStatus: status,
+    settlementPresent: settlementSurfacePresent(),
+  }));
+}
+
+function openCapabilityMap() {
+  setView("bot");
+  bindProductOrientation();
+  const dialog = byId("bot-capability-map-dialog");
+  if (!dialog || typeof dialog.showModal !== "function") {
+    toast("能力地图不可用", "warning");
+    return;
+  }
+  paintCapabilityMap();
+  if (!dialog.open) dialog.showModal();
+  void resolveOrientationChannelStatus().then((status) => {
+    productOrientationChannelStatus = status;
+    if (dialog.open) paintCapabilityMap(status);
+  });
+}
+
+function openBotEvidenceSurface() {
+  setView("bot");
+  botSetPanel(true);
+  const conversation = botActiveConversation();
+  if (conversation?.kind === "workspace_group") {
+    botActivateCollaborationTab("evidence");
+    return;
+  }
+  toast("结算与证据在协作室右栏「证据」页。当前不是协作室，不会假装有任务图。", "info", 5600);
+}
+
+function runCapabilityAction(actionId) {
+  const action = String(actionId || "");
+  if (!action) return;
+  byId("bot-capability-map-dialog")?.close();
+  if (action.startsWith("view:")) {
+    setView(action.slice("view:".length));
+    return;
+  }
+  if (action === "bot:evidence") {
+    openBotEvidenceSurface();
+    return;
+  }
+  if (!handleCatalogPaletteAction(action)) {
+    toast("该入口当前没有对应动作", "info", 3600);
+  }
+}
+
+function bindProductOrientation() {
+  const tour = byId("bot-product-tour-dialog");
+  if (tour && tour.dataset.orientationBound !== "1") {
+    tour.addEventListener("click", (event) => {
+      if (event.target.closest("[data-product-tour-skip], [data-product-tour-dismiss]")) {
+        event.preventDefault();
+        dismissProductTour();
+        return;
+      }
+      if (event.target.closest("[data-product-tour-back]")) {
+        event.preventDefault();
+        productTourIndex = Math.max(0, productTourIndex - 1);
+        renderProductTourStep();
+        return;
+      }
+      if (event.target.closest("[data-product-tour-next]")) {
+        event.preventDefault();
+        const model = productTourStepModel(productTourIndex, {
+          settlementPresent: settlementSurfacePresent(),
+          channelStatus: productOrientationChannelStatus,
+        });
+        if (!model || model.isLast) {
+          dismissProductTour();
+          return;
+        }
+        productTourIndex += 1;
+        renderProductTourStep();
+      }
+    });
+    tour.addEventListener("cancel", () => {
+      writeProductTourDismissed(true);
+    });
+    tour.dataset.orientationBound = "1";
+  }
+  const map = byId("bot-capability-map-dialog");
+  if (map && map.dataset.orientationBound !== "1") {
+    map.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-capability-action]");
+      if (!button || button.disabled) return;
+      event.preventDefault();
+      runCapabilityAction(button.dataset.capabilityAction);
+    });
+    map.dataset.orientationBound = "1";
+  }
+}
+
 function handleCatalogPaletteAction(actionId) {
   if (actionId.startsWith("bot-settings:")) {
     const tab = actionId.slice("bot-settings:".length);
@@ -20268,6 +20442,15 @@ function handleCatalogPaletteAction(actionId) {
       return true;
     case "bot:save-skill":
       openSaveSkillFromRun();
+      return true;
+    case "bot:product-tour":
+      openProductTour({ reason: "palette" });
+      return true;
+    case "bot:capability-map":
+      openCapabilityMap();
+      return true;
+    case "bot:evidence":
+      openBotEvidenceSurface();
       return true;
     default:
       return false;
@@ -20523,6 +20706,16 @@ function botHandleAction(action, button) {
       return;
     case "computer-reset":
       toast("成员电脑 Reset 尚未接入真实快照后端，未执行任何操作", "warning", 5000);
+      return;
+    case "product-tour":
+      openProductTour({ reason: "settings" });
+      return;
+    case "capability-map":
+      openCapabilityMap();
+      return;
+    case "product-tour-reset":
+      writeProductTourDismissed(false);
+      openProductTour({ reason: "reset" });
       return;
     default:
       return;
@@ -21107,7 +21300,9 @@ function initBotShell() {
     return;
   }
   root.dataset.botReady = "1";
+  bindProductOrientation();
   botRenderAgent(botState.agentId);
+  maybeStartProductTour();
   root.addEventListener("click", (event) => {
     const action = event.target.closest("[data-bot-action]")?.dataset.botAction;
     if (!action) return;
