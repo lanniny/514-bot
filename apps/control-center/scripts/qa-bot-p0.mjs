@@ -193,7 +193,10 @@ async function main() {
       contentType: "application/json",
       body: JSON.stringify({ schema: "514cc.workbench.environment/v1", available: false, source: "conversation-nav-qa" }),
     }));
-    await page.addInitScript((accessToken) => sessionStorage.setItem("514cc-control-token", accessToken), token);
+    await page.addInitScript((accessToken) => {
+      sessionStorage.setItem("514cc-control-token", accessToken);
+      localStorage.setItem("514cc-product-tour-dismissed", "1");
+    }, token);
     await page.goto(`${origin}/#bot`, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(
       () => document.querySelector("#api-connection-badge")?.classList.contains("is-ok") === true,

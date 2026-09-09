@@ -160,6 +160,7 @@ async function main() {
     page.on("pageerror", (error) => { throw error; });
     await page.addInitScript((accessToken) => {
       sessionStorage.setItem("514cc-control-token", accessToken);
+      localStorage.setItem("514cc-product-tour-dismissed", "1");
       // 复现 LO 截图条件：用户把全局玻璃滑杆拉到 32%（手动接管档，值域 20–95）
       localStorage.setItem("514cc-wallpaper-glass-alpha", "32");
     }, token);

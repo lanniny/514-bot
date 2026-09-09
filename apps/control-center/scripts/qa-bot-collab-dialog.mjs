@@ -337,7 +337,10 @@ async function main() {
       contentType: "application/json",
       body: JSON.stringify({ available: true, projects: [] }),
     }));
-    await page.addInitScript((accessToken) => sessionStorage.setItem("514cc-control-token", accessToken), token);
+    await page.addInitScript((accessToken) => {
+      sessionStorage.setItem("514cc-control-token", accessToken);
+      localStorage.setItem("514cc-product-tour-dismissed", "1");
+    }, token);
     await page.goto(liveOrigin, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.querySelector("#api-connection-badge")?.classList.contains("is-ok") === true, null, { timeout: 30_000 });
     assert.equal(await page.locator("#view-workbench").isVisible(), true);
