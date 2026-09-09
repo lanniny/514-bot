@@ -1,0 +1,193 @@
+/* ui-polish.css — 全界面设计打磨层（2026-09-09，UI Designer 审计后实施）
+ * 在 shell-refresh.css 之后加载，纯增量精修，不改任何结构与交互逻辑。
+ * 打磨维度：品牌一致性（焦点环）→ 导航锚点（指示条）→ 阅读节奏（消息流）→
+ * 操作反馈（按钮微交互）→ 状态呈现（空/错误态）→ 响应式（中间档 + 触控目标）。
+ * 全部消费既有 Forge/Bot 令牌，暗色主题自动跟随。
+ */
+
+/* ============ 1. 焦点环品牌统一 ============
+ * 旧全局焦点环用 --blue（冷蓝 #365fcf），与暖纸 + 铜墨的 Forge 调色板冲突——
+ * 焦点指示是品牌色最高频的出现位置之一，统一为铜系 --accent-ink。 */
+:focus-visible {
+  outline-color: var(--accent-ink, #a95430);
+}
+
+/* ============ 2. 导航激活锚点（左指示条） ============
+ * 仅背景色填充的激活态在扫读时锚点弱；3px 左指示条给「我在哪」一个
+ * 不变的视觉锚（VSCode/Linear 式导航惯例），背景保持柔和。 */
+html body.atelier .app-shell.is-settings .settings-rail-item {
+  position: relative;
+  min-height: 34px;
+}
+
+html body.atelier .app-shell.is-settings .settings-rail-item.is-active::before {
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent-ink, #a95430);
+  content: "";
+}
+
+/* 设置轨组标签：字距拉开 + 更稳的灰度层级，与可点项拉开「标签 vs 操作」距离 */
+html body.atelier .app-shell.is-settings .settings-rail-label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: .09em;
+  opacity: .62;
+  text-transform: uppercase;
+}
+
+/* 协作台会话行：同款左指示条（与设置轨同一锚点语言，跨面板一致） */
+.bot-agent-row {
+  position: relative;
+}
+
+.bot-agent-row.is-active::before {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--workspace-link, var(--bot-accent, #984126));
+  content: "";
+}
+
+.bot-agent-row.is-active {
+  border-left-color: transparent;
+}
+
+/* ============ 3. 消息流阅读节奏 ============
+ * 14px 消息间距在多轮对话里偏挤（气泡有阴影后更密）；16px 恢复呼吸感。
+ * 气泡行高 1.55 → 1.6：中文长文的黄金行高区间上沿，段落扫读更省力。 */
+.bot-message-stream {
+  gap: 16px;
+}
+
+.bot-bubble {
+  line-height: 1.6;
+}
+
+/* 气泡内联代码：暖调衬底与气泡同族，不再用冷灰默认色打破纸感 */
+.bot-bubble code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--bot-ink, #211d18) 6%, transparent);
+  font-size: .92em;
+}
+
+.bot-message-user .bot-bubble code {
+  background: color-mix(in srgb, var(--bot-user-bubble-ink, #f4f0e7) 16%, transparent);
+}
+
+/* ============ 4. 操作反馈微交互 ============
+ * 发送按钮：hover 上浮 + 阴影加深，active 压缩回弹——主操作给「按下去」的手感。 */
+.bot-send-button {
+  transition: transform var(--dur-med) cubic-bezier(.22, .8, .36, 1), box-shadow var(--dur-med) ease, background-color var(--dur-med) ease;
+}
+
+.bot-send-button:hover:not(:disabled) {
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--bot-accent, #984126) 34%, transparent);
+  transform: translateY(-1px);
+}
+
+.bot-send-button:active:not(:disabled) {
+  box-shadow: none;
+  transform: scale(.92);
+}
+
+/* 设置坞键盘焦点态补齐（鼠标有 hover，键盘用户此前只有细 outline） */
+.settings-dock-button:focus-visible {
+  outline: 2px solid var(--accent-ink, #a95430);
+  outline-offset: 2px;
+}
+
+/* ============ 5. 空态与错误态的节奏 ============
+ * 空态/错误态是用户「停下来读」的时刻：标题与引导语的间距、可读宽度精修。 */
+.bot-message-empty,
+.bot-message-error {
+  gap: 8px;
+  padding: 32px 24px;
+}
+
+.bot-message-empty span,
+.bot-message-error span {
+  max-width: 46ch;
+  line-height: 1.65;
+}
+
+.bot-message-error .bot-card-confirm {
+  margin-top: 10px;
+}
+
+/* ============ 6. 滚动条精修 ============
+ * 消息流与设置轨是高频滚动区：细轨道 + 悬停才显形的滑块，平时不占视觉。 */
+.bot-message-stream,
+html body.atelier .app-shell.is-settings .settings-rail-nav {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.bot-message-stream:hover,
+html body.atelier .app-shell.is-settings .settings-rail-nav:hover {
+  scrollbar-color: color-mix(in srgb, var(--bot-muted, #5f584f) 32%, transparent) transparent;
+}
+
+.bot-message-stream::-webkit-scrollbar,
+html body.atelier .app-shell.is-settings .settings-rail-nav::-webkit-scrollbar {
+  width: 6px;
+}
+
+.bot-message-stream::-webkit-scrollbar-thumb,
+html body.atelier .app-shell.is-settings .settings-rail-nav::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: transparent;
+}
+
+.bot-message-stream:hover::-webkit-scrollbar-thumb,
+html body.atelier .app-shell.is-settings .settings-rail-nav:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--bot-muted, #5f584f) 32%, transparent);
+}
+
+/* ============ 7. 顶栏面包屑层次 ============
+ * 组名（工作空间）与当前视图名的对比拉开：组名弱化为大写小字，视图名加重。 */
+.topbar-crumb-group {
+  font-size: var(--text-xs);
+  font-weight: 650;
+  letter-spacing: .07em;
+  opacity: .6;
+  text-transform: uppercase;
+}
+
+.topbar-title strong {
+  color: var(--text-strong);
+  font-size: var(--text-sm);
+  font-weight: 680;
+}
+
+/* ============ 8. 响应式中间档与触控目标 ============
+ * 821–1100px：设置轨收窄到 208px，主内容区让位；
+ * 触屏（coarse pointer）：设置轨与导航项提升到 44px 最小触控目标（WCAG 2.5.5）。 */
+@media (min-width: 821px) and (max-width: 1100px) {
+  html body.atelier .app-shell.is-settings {
+    grid-template-columns: 208px minmax(0, 1fr) !important;
+  }
+
+  html body.atelier .app-shell.is-settings .settings-rail {
+    width: 208px;
+  }
+}
+
+@media (pointer: coarse) {
+  html body.atelier .app-shell.is-settings .settings-rail-item,
+  .bot-agent-row {
+    min-height: 44px;
+  }
+
+  .settings-dock-button {
+    min-height: 44px;
+  }
+}

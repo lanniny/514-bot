@@ -62,8 +62,7 @@ test("initializeChromeMenus wires rail toggle, nav history, and four menus with 
   assertIncludes(fn, 'applyUiFontSize(14)', "视图菜单缺字号重置");
   assertIncludes(fn, "getVersion()", "帮助菜单的关于必须给真实版本");
   assertIncludes(fn, 'disabled: typeof invoke !== "function"', "关闭窗口在浏览器模式必须禁用（诚实降级）");
-  assertIncludes(fn, 'chromeNavigate("back")');
-  assertIncludes(fn, 'chromeNavigate("forward")');
+  assertIncludes(fn, "getChromeViewHistory().initialize()", "导航监听必须由独立控制器初始化");
   // PM 走查修复（2026-08-30）：「视图」菜单必须承载全局视图导航，且由 nav-config 单源驱动——
   // 此前 14 视图在桌面端只有 Ctrl+K 一个入口，名为「视图」的菜单里没有视图。
   assertIncludes(fn, "NAV_GROUPS.flatMap", "视图菜单缺 nav-config 驱动的视图导航");
@@ -73,18 +72,18 @@ test("initializeChromeMenus wires rail toggle, nav history, and four menus with 
   assertIncludes(boot, "initializeChromeMenus();", "启动序列未调用 initializeChromeMenus");
 });
 
-test("view navigation history records inside setView with mute suppression", async () => {
+test("view navigation history records inside setView with owned navigation receipts", async () => {
   const app = await source("public/app.js");
   const start = app.indexOf("function setView(view, {");
   const end = app.indexOf("\nfunction renderConfigTopology");
   assert.ok(start > -1 && end > start, "setView 找不到");
   const setViewFn = app.slice(start, end);
   assertIncludes(setViewFn, "const previousRoute = captureViewRoute();", "setView 必须在改 state 前拍快照");
-  assertIncludes(setViewFn, "rememberRouteChange(previousRoute)", "setView 必须把上一站写入 ‹ › 栈");
-  assertIncludes(app, 'from "./modules/view-history.js"', "历史栈逻辑必须抽到可测模块");
+  assertIncludes(setViewFn, "rememberRouteChange(previousRoute, navigationToken)", "setView 必须传递历史导航所有权");
+  assertIncludes(setViewFn, "onNavigationResult?.", "导航必须明确返回接受或拒绝结果");
+  assertIncludes(app, 'from "./modules/chrome-view-history.js"', "历史栈逻辑必须抽到可测模块");
   const nav = app.slice(app.indexOf("function chromeNavigate"), app.indexOf("function chromeNavigate") + 900);
-  assertIncludes(nav, "viewHistoryMute = true;", "前进/后退必须抑制历史回写（否则死循环）");
-  assertIncludes(nav, "stepHistory(direction", "chromeNavigate 必须走纯函数双栈");
+  assertIncludes(nav, "getChromeViewHistory().navigate(direction)", "前进后退必须等待导航控制器提交，不再提前移动栈");
 });
 
 test("unified chrome color + floating conversation card styles", async () => {

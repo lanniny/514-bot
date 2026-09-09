@@ -165,7 +165,7 @@ async function verifyComposer(page, outputDir, isolatedRepoRoot) {
     bridgeHidden: document.querySelector("#start-agent")?.hidden,
     legacyTargetVisible: Boolean(document.querySelector("#start-agent-pick, #followup-agent-pick")),
   }));
-  assert.deepEqual(initialTarget.targetIds, ["claude-fable", "codex-technical", "grok-search", "grok-build", "kimi-frontend", "pi-resident"]);
+  assert.deepEqual(initialTarget.targetIds, ["claude-fable", "codex-technical", "grok-build", "kimi-frontend", "pi-resident"]);
   assert.equal(initialTarget.activeTarget, "claude-fable");
   assert.equal(initialTarget.targetName, initialTarget.activeTargetLabel);
   assert.equal(initialTarget.targetRoute, "直接收件人");
@@ -446,7 +446,7 @@ async function verifyComposer(page, outputDir, isolatedRepoRoot) {
             execute: false,
             teamId: submittedBody.teamId,
             coordinatorId: "claude-fable",
-            teamMembers: ["claude-fable", "codex-technical", "grok-search", "grok-build", "kimi-frontend", "pi-resident"],
+            teamMembers: ["claude-fable", "codex-technical", "grok-build", "kimi-frontend", "pi-resident"],
             startAgentId: submittedBody.startAgentId,
             executionOwnerId: submittedBody.startAgentId,
             createdAt: now,
@@ -489,7 +489,7 @@ async function verifyComposer(page, outputDir, isolatedRepoRoot) {
           status: waitingForClaude ? "waiting_agent" : "succeeded",
           teamId: submittedBody.teamId,
           coordinatorId: "claude-fable",
-          teamMembers: ["claude-fable", "codex-technical", "grok-search", "grok-build", "kimi-frontend", "pi-resident"],
+          teamMembers: ["claude-fable", "codex-technical", "grok-build", "kimi-frontend", "pi-resident"],
           startAgentId: submittedBody.startAgentId,
           executionOwnerId: submittedBody.startAgentId,
           pendingAsk: waitingForClaude ? {
@@ -567,13 +567,9 @@ async function verifyComposer(page, outputDir, isolatedRepoRoot) {
 }
 
 async function verifyProviderDeck(page, outputDir) {
-  await page.evaluate(() => { location.hash = "config/sources"; });
-  await page.waitForSelector("#view-config:not([hidden]) #runtime-seat-list [data-runtime-seat-id]", { timeout: 30_000 });
-  await page.evaluate(() => {
-    const nodes = [...document.querySelectorAll("#runtime-seat-list [data-runtime-seat-id]")];
-    const codex = nodes.find((node) => /codex/i.test(`${node.getAttribute("data-runtime-seat-id") || ""} ${node.textContent || ""}`));
-    (codex || nodes[0])?.click();
-  });
+  await page.evaluate(() => { location.hash = "config/providers"; });
+  await page.waitForSelector('#provider-app-bar [data-provider-app-tab="claude"]');
+  await page.locator('#provider-app-bar [data-provider-app-tab="claude"]').click();
   await page.waitForSelector("#view-config:not([hidden]) #provider-columns .provider-global-empty, #view-config:not([hidden]) #provider-columns .provider-row-list", { timeout: 20_000 });
   await page.waitForSelector("#view-config:not([hidden]) #provider-columns .provider-global-empty", { timeout: 20_000 });
   const empty = await page.evaluate(() => ({
@@ -596,6 +592,7 @@ async function verifyProviderDeck(page, outputDir) {
   const providerRefresh = page.waitForResponse((response) => response.request().method() === "GET" && new URL(response.url()).pathname === "/api/providers");
   await page.locator("#refresh-button").click();
   await providerRefresh;
+  await page.locator('#provider-app-bar [data-provider-app-tab="codex"]').click();
   await page.waitForSelector("#provider-columns [data-provider-row], #provider-columns .provider-official-row", { timeout: 20_000 });
   const partial = await page.evaluate(() => ({
     appColumns: document.querySelectorAll("#provider-columns .provider-app-strip").length,
@@ -603,11 +600,11 @@ async function verifyProviderDeck(page, outputDir) {
     headerCtaVisible: !document.querySelector("#provider-add-button")?.hidden,
   }));
   assert.equal(partial.appColumns, 1);
-  assert.equal(partial.emptyApps, 0, "seat-locked connection deck must not advertise other apps");
+  assert.equal(partial.emptyApps, 1, "independent connections can switch between applications");
   assert.equal(partial.headerCtaVisible, true);
   await page.locator("#provider-add-button").click();
   await page.waitForSelector("#provider-dialog[open]");
-  assert.equal(await page.locator("#provider-app-codex").isChecked(), true);
+  assert.match(await page.locator("#provider-dialog-title").textContent(), /Codex/);
   await page.locator("#provider-close-button").click();
   await page.screenshot({ path: resolve(outputDir, "providers-partial-desktop.png") });
   return { providerId: provider.id, empty, partial };

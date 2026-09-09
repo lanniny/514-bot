@@ -768,6 +768,12 @@
             "null"
           ]
         },
+        "traceId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "sensitivity": {
           "type": "string",
           "enum": [

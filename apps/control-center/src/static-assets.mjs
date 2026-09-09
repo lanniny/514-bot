@@ -15,8 +15,8 @@ import { readFile, stat } from "node:fs/promises";
 import { extname, join, resolve, sep } from "node:path";
 import { brotliCompressSync, constants as zlibConstants, gzipSync } from "node:zlib";
 
-export const PUBLIC_ASSET_PREFIXES = ["/forge/", "/modules/", "/vendor/"];
-export const PUBLIC_ASSET_EXTS = new Set([".css", ".js", ".mjs", ".svg", ".json"]);
+export const PUBLIC_ASSET_PREFIXES = ["/forge/", "/modules/", "/vendor/", "/pet/"];
+export const PUBLIC_ASSET_EXTS = new Set([".css", ".js", ".mjs", ".svg", ".json", ".png", ".moc3", ".flac"]);
 
 export const STATIC_MAX_AGE_SECONDS = 60;
 export const COMPRESS_MIN_BYTES = 1024;
@@ -60,6 +60,9 @@ export const STATIC_ROUTES = Object.freeze({
   "/utils.js": "utils.js",
   "/api.js": "api.js",
   "/state.js": "state.js",
+  "/pet": "pet/index.html",
+  "/pet/": "pet/index.html",
+  "/pet/index.html": "pet/index.html",
 });
 
 export function contentTypeFor(file) {
@@ -67,6 +70,9 @@ export function contentTypeFor(file) {
   if (ext === ".js" || ext === ".mjs") return "text/javascript; charset=utf-8";
   if (ext === ".css") return "text/css; charset=utf-8";
   if (ext === ".svg") return "image/svg+xml; charset=utf-8";
+  if (ext === ".png") return "image/png";
+  if (ext === ".moc3") return "application/octet-stream";
+  if (ext === ".flac") return "audio/flac";
   return "text/html; charset=utf-8";
 }
 
@@ -160,6 +166,12 @@ export function createStaticServer({ publicRoot, securityHeaders = {} } = {}) {
       "cache-control": extname(file) === ".html" ? "no-cache" : `public, max-age=${STATIC_MAX_AGE_SECONDS}, must-revalidate`,
       vary: "Accept-Encoding",
     };
+    // Only the companion document is embeddable, and only by this exact origin.
+    if (file === "pet/index.html") {
+      const policy = String(headers["content-security-policy"] || "");
+      headers["content-security-policy"] = `${policy.replace(/(?:^|;)\s*frame-ancestors\s+[^;]*/gi, "").replace(/^;\s*/, "").replace(/;\s*$/, "")}; frame-ancestors 'self'`;
+      headers["x-frame-options"] = "SAMEORIGIN";
+    }
     const isHead = request?.method === "HEAD";
     // 条件请求：内容未变只回 304，不传响应体
     if (request?.headers?.["if-none-match"] === entry.etag) {

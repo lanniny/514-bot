@@ -85,6 +85,7 @@
 
 .rail-tab-close {
   display: inline-flex;
+  position: relative;
   width: 18px;
   height: 18px;
   align-items: center;
@@ -98,6 +99,23 @@
   cursor: pointer;
   /* 常显而非 hover 才显：隐藏时它仍占位，会把「打开文件」挤成「打开」，且悬停时布局会跳 */
   opacity: 0.55;
+}
+
+.rail-tab-close::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  min-width: 32px;
+  min-height: 32px;
+  transform: translate(-50%, -50%);
+}
+
+@media (pointer: coarse) {
+  .rail-tab-close::before {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 .rail-tab:hover .rail-tab-close,
@@ -124,6 +142,7 @@
 }
 
 .rail-tab-add {
+  position: relative;
   display: inline-flex;
   width: 26px;
   height: 26px;
@@ -135,6 +154,23 @@
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
+}
+
+.rail-tab-add::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 32px;
+  min-height: 32px;
+}
+
+@media (pointer: coarse) {
+  .rail-tab-add::before {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 .rail-tab-add .icon {
@@ -531,10 +567,28 @@
 }
 
 .rail-browser-bar .icon-button {
+  position: relative;
   width: 26px;
   height: 26px;
   flex: 0 0 auto;
   padding: 5px;
+}
+
+.rail-browser-bar .icon-button::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 32px;
+  min-height: 32px;
+}
+
+@media (pointer: coarse) {
+  .rail-browser-bar .icon-button::before {
+    min-width: 44px;
+    min-height: 44px;
+  }
 }
 
 /* 后退用同一枚箭头精灵镜像，不为一个方向再引一枚图标 */

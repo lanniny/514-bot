@@ -1,5 +1,5 @@
 /**
- * 侧栏契约：协作台不放左侧入口；所有入口在设置侧栏，并有返回协作台。
+ * Global navigation owns product pages; settings owns configuration destinations.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -9,28 +9,15 @@ import { fileURLToPath } from "node:url";
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 
 const SETTINGS_NAV_VIEWS = [
-  "workbench",
   "appearance",
   "browser",
-  "team",
-  "channels",
-  "bootstrapper",
-  "office",
-  "overview",
-  "observability",
-  "sessions",
-  "market",
-  "hosts",
-  "config",
   "security",
 ];
 
-test("settings rail owns every entry and a return to workbench", async () => {
+test("settings navigation has unique configuration destinations without duplicating product navigation", async () => {
   const html = await readFile(`${appRoot}/public/index.html`, "utf8");
   const rail = html.match(/<aside class="settings-rail" id="settings-rail"[\s\S]*?<\/aside>/);
   assert.ok(rail, "找不到 #settings-rail");
-  assert.match(rail[0], /settings-rail-back[^>]+data-view="workbench"/);
-  assert.match(rail[0], />返回协作台</);
   assert.match(rail[0], /id="settings-rail-query"/);
   assert.match(rail[0], /搜索设置/);
   for (const view of SETTINGS_NAV_VIEWS) {
@@ -38,25 +25,17 @@ test("settings rail owns every entry and a return to workbench", async () => {
   }
   assert.doesNotMatch(rail[0], /data-view="hero"/, "协作星图已并入团队页，设置侧栏不再单列");
   assert.doesNotMatch(rail[0], /data-view="router"|模型路由/, "模型路由已并入团队页，设置侧栏不再单列");
-  // 2026-08-30 IA 对齐：设置轨分组与主导航 NAV_GROUPS 同 taxonomy（观测/资源/治理），
-  // 自动化升为设置轨「治理」条目；「插件/市场」同目的地只留一个名字。
-  assert.match(rail[0], /data-view="automations"/, "治理组应有自动化入口");
-  assert.match(rail[0], />基础设置</);
-  assert.match(rail[0], />协作</);
-  assert.match(rail[0], />创建</);
-  assert.match(rail[0], />观测</);
-  assert.match(rail[0], />资源</);
-  assert.match(rail[0], />治理</);
-  assert.match(rail[0], />Agent 能力</);
-  assert.doesNotMatch(rail[0], />数据与统计</);
-  assert.doesNotMatch(rail[0], />进阶</);
-  assert.doesNotMatch(rail[0], />插件</, "插件与市场同目的地，只保留「市场」一个名字");
-  assert.match(rail[0], /data-config-surface-jump="sources"/);
-  assert.match(rail[0], /data-config-surface-jump="capabilities"[^>]+data-cap-workspace="skills"/);
-  assert.match(rail[0], /data-config-surface-jump="capabilities"[^>]+data-cap-workspace="mcp"/);
-  assert.match(rail[0], /data-config-surface-jump="hooks"/);
-  assert.match(rail[0], /data-settings-focus="memory"/);
-  assert.match(rail[0], />团队协作</);
+  assert.deepEqual([...rail[0].matchAll(/data-view="([^"]+)"/g)].map(match => match[1]).sort(), [...SETTINGS_NAV_VIEWS].sort());
+  for (const surface of ["sources", "providers", "capabilities", "hooks", "local-runtime"]) {
+    assert.equal((html.match(new RegExp(`data-config-surface="${surface}"`, "g")) || []).length, 1);
+    assert.match(rail[0], new RegExp(`data-config-surface="${surface}"`));
+  }
+  // 2026-09-09 侧栏迁移 IA：设置轨允许「配置中心」分组 label（设置目的地与迁移应用导航
+  // 分区）；迁移来的产品导航全部走动态挂载（data-nav-surface="settings"，静态 HTML 为空），
+  // 因此上面的 data-view 全集断言依然只命中静态设置目的地。
+  assert.match(rail[0], /settings-rail-label">配置中心/, "设置轨缺少配置中心分组 label");
+  assert.match(rail[0], /data-nav-surface="settings"/, "设置轨缺少迁移导航动态挂载点");
+  assert.doesNotMatch(rail[0], /settings-rail-back|data-config-surface-jump/);
   assert.doesNotMatch(rail[0], /命令文件|\.md 命令|索引库|Browser Use|开启内置浏览器控制/);
 });
 
@@ -102,11 +81,9 @@ test("appearance and browser settings pages stay honest", async () => {
   assert.doesNotMatch(html, /清除内置浏览器缓存|清除全部浏览器数据/);
 });
 
-test("workbench keeps its own rail; global nav rides the burger drawer at every size", async () => {
-  // 2026-08-30 PM 走查决策：旧契约「协作台不放左侧入口」把汉堡/抽屉全域休眠，
-  // 14 视图在桌面端只剩 Ctrl+K 一个全局入口（settings 视图才有设置轨）——最大
-  // 可用性缺陷。新契约：协作台保留自身 run-rail；全局导航走汉堡抽屉（全尺寸可见，
-  // nav-open 时滑出）+ 视图菜单；bot 表面维持无 chrome（bot-shell.css 单独全隐）。
+test("workbench keeps its own rail; global navigation is persistent on desktop and a drawer on mobile", async () => {
+  // The shared shell supersedes the old all-size drawer. Preserve legacy styles
+  // while the product shell owns desktop columns and mobile accessibility.
   const [html, app, css, settingsRailChrome] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
@@ -114,8 +91,14 @@ test("workbench keeps its own rail; global nav rides the burger drawer at every 
     readFile(`${appRoot}/public/modules/settings-rail-chrome.js`, "utf8"),
   ]);
 
-  assert.match(html, /id="run-rail"[\s\S]*id="account-dock"[\s\S]*id="account-dock-label"/);
-  assert.match(html, /id="account-heading-chip"/);
+  // 头像快捷设置入口已移除（Bot 左下角 / 运行控制台 rail 底部 / 会话头 chip）：
+  // 设置唯一入口收敛到左侧栏配置（nav-config 的 config 项），此处断言三处不再存在。
+  assert.match(html, /id="run-rail"/);
+  assert.match(html, /id="rail-statusline"/);
+  assert.doesNotMatch(html, /id="account-dock"/);
+  assert.doesNotMatch(html, /id="account-dock-label"/);
+  assert.doesNotMatch(html, /id="account-heading-chip"/);
+  assert.doesNotMatch(html, /id="bot-account-button"/);
   assert.match(html, /id="api-connection-badge"/);
   // 抽屉默认收起（仅 nav-open 滑出），而不是无条件 display:none——否则汉堡按了也没反应
   assert.match(css, /body\.atelier \.app-shell:not\(\.nav-open\) #sidebar/);
@@ -142,12 +125,15 @@ test("workbench keeps its own rail; global nav rides the burger drawer at every 
   assert.match(css, /html\[data-density="compact"\]/);
   assert.match(css, /-webkit-appearance: none;/);
   assert.match(settingsRailChrome, /function isSettingsChrome\(/);
-  assert.match(settingsRailChrome, /view !== "workbench" && view !== "automations"/);
+  const { createSettingsRailChrome } = await import("../public/modules/settings-rail-chrome.js");
+  const chrome = createSettingsRailChrome({ state: {} });
+  for (const view of ["config", "appearance", "browser", "security"]) assert.equal(chrome.isSettingsChrome(view), true);
+  for (const view of ["bot", "workbench", "automations", "plugins", "office", "sessions"]) assert.equal(chrome.isSettingsChrome(view), false);
   assert.match(settingsRailChrome, /function openSettings\(/);
   assert.match(settingsRailChrome, /function syncSettingsRailActive\(/);
   assert.match(app, /function applyThemePreference\(/);
-  assert.match(app, /openSettings\("appearance"\)/);
-  assert.match(app, /byId\("account-dock"\)\?\.addEventListener\("click", openAccountSettings\)/);
-  assert.match(app, /byId\("account-heading-chip"\)\?\.addEventListener\("click", openAccountSettings\)/);
+  // 头像快捷入口删除后，app.js 不再直调 settings 开关（入口收敛到侧栏配置轨）
+  assert.doesNotMatch(app, /openSettings\("appearance"\)/);
+  assert.doesNotMatch(app, /openAccountSettings/);
   assert.match(css, /\.account-dock-copy/);
 });

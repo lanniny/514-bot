@@ -148,7 +148,7 @@ async function main() {
         requestedProvider: "claude-fable",
       },
     });
-    const deletedA = (await api("/api/conversations", { method: "POST", body: { kind: "direct", title: "Deleted A", directMemberId: "grok-search" } })).conversation;
+    const deletedA = (await api("/api/conversations", { method: "POST", body: { kind: "direct", title: "Deleted A", directMemberId: "grok-build" } })).conversation;
     const deletedB = (await api("/api/conversations", { method: "POST", body: { kind: "direct", title: "Deleted B", directMemberId: "kimi-frontend" } })).conversation;
     const hiddenSeed = (await api("/api/conversations", { method: "POST", body: { kind: "direct", title: "Hidden stays", directMemberId: "claude-fable" } })).conversation;
     await api(`/api/conversations/${deletedA.id}`, { method: "DELETE", body: { expectedRevision: deletedA.revision } });
@@ -162,7 +162,7 @@ async function main() {
         title: "Visible team routing",
         projectId: project.projectId,
         roomRole: "task",
-        memberIds: ["claude-fable", "codex-technical", "grok-search"],
+        memberIds: ["claude-fable", "codex-technical", "grok-build"],
       },
     })).conversation;
     const duplicateLabelA = await api("/api/team-members", {
@@ -194,11 +194,11 @@ async function main() {
         conversationKind: "workspace_group",
         orchestrationMode: "social",
         startAgentId: "claude-fable",
-        requestedAgentIds: ["codex-technical", "grok-search"],
+        requestedAgentIds: ["codex-technical", "grok-build"],
         ephemeralTeam: {
           name: "QA team",
           coordinator: "claude-fable",
-          members: ["claude-fable", "codex-technical", "grok-search"],
+          members: ["claude-fable", "codex-technical", "grok-build"],
           skills: [], mcp: [], providers: {}, systemPrompt: "",
         },
       },
@@ -241,7 +241,7 @@ async function main() {
     const groupRunPath = resolve(dataRoot, "runs", `${groupRun.id}.json`);
     const persistedGroupRun = JSON.parse(await readFile(groupRunPath, "utf8"));
     const delegationStamp = new Date().toISOString();
-    persistedGroupRun.taskGraph.delegations = ["codex-technical", "grok-search"].map((toAgentId, index) => ({
+    persistedGroupRun.taskGraph.delegations = ["codex-technical", "grok-build"].map((toAgentId, index) => ({
       id: `qa-delegation-${index + 1}`,
       fromAgentId: "lo",
       toAgentId,

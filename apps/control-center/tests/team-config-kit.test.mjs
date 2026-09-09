@@ -14,7 +14,6 @@ const seat = (id, over = {}) => ({ id, teamMemberEligible: true, coordinatorElig
 const ALL_SEATS = [
   seat("claude-fable"),
   seat("codex-technical"),
-  seat("grok-search"),
   seat("grok-build"),
   seat("kimi-frontend"),
   seat("pi-resident"),
@@ -23,6 +22,7 @@ const ALL_SEATS = [
 test("presets never reference the disabled gemini seat and always have a coordinator plan", () => {
   for (const preset of TEAM_PRESETS) {
     assert.ok(!preset.members.includes("gemini-research"), `${preset.id} must not include gemini-research`);
+    assert.ok(!preset.members.includes("grok-search"), `${preset.id} must not include a retired tool seat`);
     assert.ok(preset.members.includes(preset.coordinator), `${preset.id} coordinator must be a member`);
     assert.ok(preset.name && preset.systemPrompt, `${preset.id} needs name + systemPrompt`);
   }
@@ -32,7 +32,7 @@ test("presets never reference the disabled gemini seat and always have a coordin
 
 test("resolvePreset filters missing/ineligible seats and falls back coordinator honestly", () => {
   const full = resolvePreset(presetById("full-ensemble"), ALL_SEATS);
-  assert.deepEqual(full.members, ["claude-fable", "codex-technical", "grok-search", "grok-build", "kimi-frontend", "pi-resident"]);
+  assert.deepEqual(full.members, ["claude-fable", "codex-technical", "grok-build", "kimi-frontend", "pi-resident"]);
   assert.equal(full.coordinator, "claude-fable");
   assert.deepEqual(full.dropped, []);
 

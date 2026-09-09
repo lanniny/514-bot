@@ -167,7 +167,7 @@ export function registerCcSwitchRoutes(router, ctx) {
   router.get("/api/ccswitch/domain", handled(async (request, response, url) => {
     const path = url.pathname;
     if (path === "/api/ccswitch/domain" || path === "/api/ccswitch/domain/status") {
-      ctx.json(response, 200, { ok: true, state: domain.summary(), configPaths: domain.configPaths(), live: await domain.observeLiveResources() });
+      ctx.json(response, 200, { ok: true, state: domain.summary(), configPaths: domain.configPaths(), live: await domain.observeLiveResources(), recovery: await domain.skillRecoverySummary() });
       return;
     }
     if (path === "/api/ccswitch/domain/prompts") {
@@ -240,6 +240,13 @@ export function registerCcSwitchRoutes(router, ctx) {
   router.post("/api/ccswitch/domain", handled(async (request, response, url) => {
     const path = url.pathname;
     const input = await ctx.body(request, 10 * 1024 * 1024);
+    const recovery = path.match(/^\/api\/ccswitch\/domain\/skills\/recovery\/([^/]+)\/(check|confirm)$/);
+    if (recovery) {
+      const id = decodeURIComponent(recovery[1]);
+      const item = recovery[2] === "check" ? await domain.checkSkillRecovery(id) : await domain.confirmSkillRecovery(id, input);
+      ctx.json(response, 200, { ok: true, item });
+      return;
+    }
     if (path === "/api/ccswitch/domain/prompts") {
       ctx.json(response, 200, { ok: true, item: await domain.upsertPrompt(input.app, input) });
       return;

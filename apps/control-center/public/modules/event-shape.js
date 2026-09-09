@@ -19,6 +19,7 @@ export const EVENT_ENVELOPE_FIELDS = Object.freeze({
   agentId: { type: ["string", "null"] },
   correlationId: { type: ["string", "null"] },
   causationId: { type: ["string", "null"] },
+  traceId: { type: ["string", "null"] },
   sensitivity: { type: "string", enum: ["public", "internal", "sensitive"], required: true },
   data: { type: "object", required: true },
   sourceRefs: {

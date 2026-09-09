@@ -5,6 +5,10 @@
  * v4.0 app.js 组件化第二步：API 请求 + token 管理独立模块。
  */
 
+import { createControlConnectionState } from "./modules/control-connection-state.js";
+
+export const controlConnection = createControlConnectionState();
+
 const API = Object.freeze({
   bootstrap: "/api/bootstrap",
   health: "/api/health",
@@ -31,6 +35,14 @@ const API = Object.freeze({
   obsHandoffs: "/api/observability/handoffs",
   obsDrift: "/api/observability/drift",
   obsOps: "/api/observability/ops",
+  // v48 S0 · P-21 产品行为埋点（纯本地，不外发）
+  telemetryRecord: "/api/telemetry/record",
+  telemetrySummary: "/api/telemetry/summary",
+  telemetrySettings: "/api/telemetry/settings",
+  telemetryClear: "/api/telemetry",
+  // v48 S0-5 · P-24 产品反馈闭环
+  feedback: "/api/feedback",
+  feedbackStatus: (id) => `/api/feedback/${encodeURIComponent(id)}/status`,
   worktrees: "/api/system/worktrees",
   sessions: "/api/sessions",
   sessionProjects: "/api/sessions/projects",
@@ -112,6 +124,7 @@ export function getAccessToken() {
 }
 
 export function setAccessToken(token) {
+  if (accessToken !== token) controlConnection.reset();
   accessToken = token;
   resolveApiReady(); // 无论哪条引导路径（api.js 或 app.js 本地 initializeAccessToken），token 落定即放行自举模块
 }
@@ -168,17 +181,29 @@ export async function request(path, options = {}) {
     init.body = typeof options.body === "string" ? options.body : JSON.stringify(options.body);
   }
 
+  const ticket = controlConnection.begin(safePath, { method });
   let response;
   try {
     response = await fetch(safePath, init);
   } catch (error) {
+    controlConnection.finish(ticket, { aborted: error?.name === "AbortError" });
     if (error?.name === "AbortError") throw error;
     throw new ApiError(`网络请求失败：${error?.message ?? error}`, 0, null);
   }
 
   const contentType = response.headers.get("content-type") ?? "";
   const isJson = contentType.includes("application/json");
-  const payload = isJson ? await response.json().catch(() => null) : await response.text().catch(() => null);
+  let payload;
+  try {
+    payload = isJson ? await response.json() : await response.text();
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      controlConnection.finish(ticket, { status: response.status, aborted: true });
+      throw error;
+    }
+    payload = null;
+  }
+  controlConnection.finish(ticket, { status: response.status, payload, decoded: isJson && payload !== null });
 
   if (!response.ok) {
     const errorPayload = payload && typeof payload === "object" ? payload.error ?? payload : null;
@@ -196,13 +221,16 @@ export async function requestBlob(path, options = {}) {
   const method = options.method ?? "GET";
   const headers = new Headers(options.headers ?? {});
   if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  const ticket = controlConnection.begin(safePath, { method, data: false });
   let response;
   try {
     response = await fetch(safePath, { method, headers, signal: options.signal });
   } catch (error) {
+    controlConnection.finish(ticket, { aborted: error?.name === "AbortError" });
     if (error?.name === "AbortError") throw error;
     throw new ApiError(`网络请求失败：${error?.message ?? error}`, 0, null);
   }
+  controlConnection.finish(ticket, { status: response.status });
   if (!response.ok) {
     const contentType = response.headers.get("content-type") ?? "";
     const payload = contentType.includes("application/json")
@@ -243,7 +271,7 @@ export async function initializeAccessToken() {
         throw new ApiError(`启动登录凭据兑换失败：${detail}`, response.status, payload);
       }
       sessionStorage.setItem(TOKEN_KEY, issuedToken);
-      accessToken = issuedToken;
+      setAccessToken(issuedToken);
     } finally {
       history.replaceState(null, "", `${url.pathname}${url.search}`);
     }
@@ -252,14 +280,14 @@ export async function initializeAccessToken() {
 
   if (fragmentToken) {
     sessionStorage.setItem(TOKEN_KEY, fragmentToken);
-    accessToken = fragmentToken;
+    setAccessToken(fragmentToken);
     history.replaceState(null, "", `${url.pathname}${url.search}`);
     return true;
   }
 
   const stored = sessionStorage.getItem(TOKEN_KEY)?.trim() ?? "";
   if (stored) {
-    accessToken = stored;
+    setAccessToken(stored);
     return true;
   }
 

@@ -62,7 +62,26 @@
   --radius-3xl: 22px;
   --radius-4xl: 26px;
 
-  /* —— Elevation —— */
+  /* —— Elevation & Surface Scale (Forge 3.0) —— */
+  --surface-level-0: var(--background);
+  --surface-level-1: color-mix(in oklab, var(--card) 85%, transparent);
+  --surface-level-2: var(--card);
+  --surface-level-3: color-mix(in oklab, var(--card) 96%, var(--foreground) 4%);
+
+  /* —— Glass & Inset Glow Tokens —— */
+  --glass-border: oklch(0.265 0.012 60 / 8%);
+  --glass-border-subtle: oklch(0.265 0.012 60 / 4%);
+  --glass-border-light: oklch(1 0 0 / 60%);
+  --glass-inset-glow: inset 0 1px 0 0 oklch(1 0 0 / 40%);
+  --shadow-floating: 0 16px 36px -6px rgb(0 0 0 / 0.12), 0 0 0 1px var(--glass-border);
+  --glow-accent-subtle: 0 0 20px -4px color-mix(in oklch, var(--primary) 22%, transparent);
+  --glow-accent-ring: 0 0 0 3px color-mix(in oklch, var(--primary) 18%, transparent);
+  --glow-agent-claude: 0 0 18px -3px color-mix(in oklch, var(--agent-claude) 30%, transparent);
+  --glow-agent-codex: 0 0 18px -3px color-mix(in oklch, var(--agent-codex) 30%, transparent);
+  --glow-agent-grok: 0 0 18px -3px color-mix(in oklch, var(--agent-grok) 30%, transparent);
+  --glow-agent-kimi: 0 0 18px -3px color-mix(in oklch, var(--agent-kimi) 30%, transparent);
+  --glow-agent-pi: 0 0 18px -3px color-mix(in oklch, var(--agent-pi) 30%, transparent);
+
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.07), 0 2px 4px -2px rgb(0 0 0 / 0.06);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.06);
@@ -88,6 +107,36 @@
   --text-4xl: 36px;
   --text-5xl: 44px;
 
+  /* —— Display track · 叙事层专用流体排版（UI-ELEVATION W1）————————————
+     实测消费：--text-xs 987 处 vs --text-5xl 2 处，全站字号天花板停在 19px。
+     不是缺令牌，是缺一条「敢用大字号」的轨道，于是所有人都挤在最小档。
+
+     UI 轨（--text-xs…--text-5xl）＝骨架层固定阶梯，服务表单 / 列表 / 导航，
+     本轮一个像素都不动。展示轨是另一条：只服务叙事层（视图标题 / 空状态 /
+     成果页 / 关键指标 / 数据可视化标题），用 clamp() 流体缩放——窄屏自动收小
+     不撑破布局，宽屏放到 104px 形成冲击力。
+
+     为何另起一轨而不扩 --text-6xl/7xl：语义不同。UI 轨是「控件尺寸」，
+     展示轨是「视觉层级」；混在同一条 scale 上，任何时候调密度都会误伤标题。
+
+     流体区间按 360px → 1440px 视口标定：clamp(min, fluid, max)。 */
+  --display-xs: clamp(1.25rem, 1.1rem + 0.75vw, 1.75rem); /*  20 →  28px */
+  --display-sm: clamp(1.5rem, 1.25rem + 1.25vw, 2.25rem); /*  24 →  36px */
+  --display-md: clamp(1.875rem, 1.45rem + 2.1vw, 3rem); /*  30 →  48px */
+  --display-lg: clamp(2.25rem, 1.6rem + 3.2vw, 3.75rem); /*  36 →  60px */
+  --display-xl: clamp(2.75rem, 1.75rem + 4.75vw, 4.75rem); /*  44 →  76px */
+  /* 2xl 的下限刻意压到 46px 而非 56px：这是视图标题档（art-direction 的
+     .page-heading h1），标题常是 8–12 个汉字，窄屏上 56px 会把一行标题
+     拆成三行。46px 是「仍然够震撼」与「窄屏不碎」的折中点。 */
+  --display-2xl: clamp(2.875rem, 1rem + 7.5vw, 6.5rem); /*  46 → 104px */
+
+  /* 大字号必须配套修正排版，否则会松垮失衡：行高压到接近 1、字距转负。
+     这两个只用于展示轨；正文继续走 --leading-* 三档。 */
+  --leading-display: 1.04;
+  --leading-display-snug: 1.12;
+  --tracking-display: -0.032em;
+  --tracking-display-tight: -0.045em;
+
   /* —— Line height & measure（UI-AUDIT P2-1 排版规范）—— */
   --leading-tight: 1.25;
   --leading-snug: 1.4;
@@ -112,13 +161,43 @@
   --density-leading: 1;
 
   /* —— Motion（UI-AUDIT P1-5：207 处 transition 归位到统一 token）——
-     语义约束：状态反馈 ≤160ms ｜ 视图转场 ≤240ms ｜ 引导性动效 ≤360ms ｜ 禁止 >400ms */
+     语义约束：状态反馈 ≤160ms ｜ 视图转场 ≤240ms ｜ 引导性动效 ≤360ms ｜ 禁止 >400ms
+
+     ── 归属合并（v49 U0 · 2026-09-04）──
+     此前 motion.css 也在 :root 声明 --dur-fast/--dur-slow/--ease-spring，且加载在后，
+     于是本块那三行是**死代码**：实测 --dur-fast 算出 100ms（不是这里曾写的 160ms）、
+     --dur-slow 算出 240ms（不是 360ms）、--ease-spring 算出 motion 的 bounce 曲线。
+     README 的层叠契约正是为这类"写了不生效"立的，但在 ui-lint 的 token-redefine
+     规则落地前没有机械承载 —— 该规则第一次运行就照出了这处，影响面 158 个
+     --dur-fast 消费者。
+
+     合并方式：把**实际生效的值**（motion.css 那一侧）搬到这里，motion.css 的
+     :root 块删除。**行为零变化**是硬要求 —— 实算值快照逐令牌比对通过；
+     若要调整时长语义（例如让 --dur-fast 真的变回 160ms），那是独立决策，
+     不能夹在归属整理里悄悄改掉 158 处动效手感。
+
+     命名重叠说明：--ease-spring 与 --ease-bounce 现为同一条曲线
+     （cubic-bezier(0.34, 1.56, 0.64, 1)，实测改前即如此）；--dur-slower 与
+     --ease-bounce 当前零消费者，保留待用。 */
   --dur-instant: 100ms;
-  --dur-fast: 160ms;
+  --dur-fast: 100ms;
+  --dur-med: 150ms;
   --dur-base: 240ms;
-  --dur-slow: 360ms;
+  --dur-slow: 240ms;
+  --dur-slower: 300ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-emphasis: cubic-bezier(0.2, 0, 0, 1.2);
+  --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* —— Awwwards SOTD 先锋排版与瑞士仪表盘标尺 —— */
+  --font-editorial: "Songti SC", "Noto Serif SC", "SimSun", serif;
+  --letter-spacing-editorial: 0.28em;
+  --letter-spacing-wide: 0.12em;
+  --letter-spacing-tight: -0.03em;
+  --hairline-border: 1px solid var(--glass-border);
+  --glass-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.18);
 
   /* —— Breakpoints（UI-AUDIT P0-4：22 档实测断点收敛为四档）——
      标准档：--bp-sm 560（手机）｜ --bp-md 820（平板/折叠）｜ --bp-lg 1100（笔电）｜ --bp-xl 1440（宽屏）
@@ -175,6 +254,27 @@
   --warning-soft: color-mix(in oklch, var(--warning) 17%, var(--background));
   --danger-soft: color-mix(in oklch, var(--danger) 15%, var(--background));
   --info-soft: color-mix(in oklch, var(--info) 15%, var(--background));
+
+  /* —— Dark Elevation & Surface Scale (Forge 3.0) —— */
+  --surface-level-0: var(--background);
+  --surface-level-1: color-mix(in oklab, var(--card) 75%, transparent);
+  --surface-level-2: var(--card);
+  --surface-level-3: color-mix(in oklab, var(--card) 92%, var(--foreground) 8%);
+
+  /* —— Dark Glass & Glow Tokens —— */
+  --glass-border: oklch(0.93 0.008 85 / 12%);
+  --glass-border-subtle: oklch(0.93 0.008 85 / 6%);
+  --glass-border-light: oklch(1 0 0 / 14%);
+  --glass-inset-glow: inset 0 1px 0 0 oklch(1 0 0 / 15%);
+  --shadow-floating: 0 20px 40px -8px rgb(0 0 0 / 0.65), 0 0 0 1px var(--glass-border);
+  --glow-accent-subtle: 0 0 24px -4px color-mix(in oklch, var(--primary) 28%, transparent);
+  --glow-accent-ring: 0 0 0 3px color-mix(in oklch, var(--primary) 25%, transparent);
+  --glow-agent-claude: 0 0 20px -2px color-mix(in oklch, var(--agent-claude) 38%, transparent);
+  --glow-agent-codex: 0 0 20px -2px color-mix(in oklch, var(--agent-codex) 38%, transparent);
+  --glow-agent-grok: 0 0 20px -2px color-mix(in oklch, var(--agent-grok) 38%, transparent);
+  --glow-agent-kimi: 0 0 20px -2px color-mix(in oklch, var(--agent-kimi) 38%, transparent);
+  --glow-agent-pi: 0 0 20px -2px color-mix(in oklch, var(--agent-pi) 38%, transparent);
+  --glass-specular: inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
 
   --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.5);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.5), 0 2px 4px -2px rgb(0 0 0 / 0.5);

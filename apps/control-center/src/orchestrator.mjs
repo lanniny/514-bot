@@ -37,9 +37,21 @@ function markPromptTransportFailure(run, error) {
 // 语义 = 该轮不按美元止损，只受步数/压缩/超时等既定上限兜底（LO 2026-08-30：硬上限门槛已废）。
 export const UNLIMITED_BUDGET = "unlimited";
 
+// CW-06: TaskGraph 拓扑上限扩充至 1024 任务与 1024 委派边，避免协作运行提前截断
+export const TASK_GRAPH_LIMITS = Object.freeze({
+  maxTasks: 1024,
+  maxDelegations: 1024,
+});
+
 // 数字预算的防手滑天花板（"无限"不受它管）。遗留真源字段 maxBudgetUsdPerTurn（"安全硬上限"）
 // 已废弃不再读取：resolve 不钳制、运行图不校验，schema 仅容忍旧配置文件里的残留键。
 const BUDGET_NUMERIC_CEILING = 50;
+
+// social 协作必须有限预算：当调用方未显式指定预算、而席位默认又是 "unlimited" 时，
+// 用该有限值兜底（Bot 页脚下拉默认 $5.00 同源），避免工作区群聊
+// （514 Bot 会话准入不带预算字段）直接被 SOCIAL_UNLIMITED_BUDGET_REJECTED 卡死。
+// 显式传入 "unlimited" 的 social 请求仍走原拒绝路径（需用户改选有限档）。
+const SOCIAL_IMPLICIT_BUDGET_FALLBACK = 5;
 
 export function isUnlimitedBudgetValue(value) {
   if (value === null || value === undefined) return false;
@@ -423,6 +435,7 @@ export class Orchestrator {
     teams = null,
     teamMembers = null,
     projects = null,
+    projectPlugins = null,
     conversations = null,
     conversationContexts = null,
     models = null,
@@ -445,6 +458,7 @@ export class Orchestrator {
     this.teams = teams;
     this.teamMembers = teamMembers;
     this.projects = projects;
+    this.projectPlugins = projectPlugins;
     this.conversations = conversations;
     this.conversationContexts = conversationContexts;
     this.remoteRunner = remoteRunner;
@@ -1842,8 +1856,8 @@ export class Orchestrator {
       timestamp: stamp,
     };
     run.taskGraph.delegations.push(edge);
-    if (run.taskGraph.delegations.length > 200) {
-      run.taskGraph.delegations = run.taskGraph.delegations.slice(-200);
+    if (run.taskGraph.delegations.length > TASK_GRAPH_LIMITS.maxDelegations) {
+      run.taskGraph.delegations = run.taskGraph.delegations.slice(-TASK_GRAPH_LIMITS.maxDelegations);
     }
     if (toAgentId && toAgentId !== "team" && toAgentId !== "lo" && toAgentId !== "memo") {
       const childId = busMessageId ? `task-route-${busMessageId}` : `task-route-${randomUUID()}`;
@@ -1861,9 +1875,9 @@ export class Orchestrator {
           createdAt: stamp,
           updatedAt: stamp,
         });
-        if (run.taskGraph.tasks.length > 128) {
+        if (run.taskGraph.tasks.length > TASK_GRAPH_LIMITS.maxTasks) {
           const root = run.taskGraph.tasks.find((item) => item.kind === "root") || run.taskGraph.tasks[0];
-          run.taskGraph.tasks = [root, ...run.taskGraph.tasks.filter((item) => item !== root).slice(-127)];
+          run.taskGraph.tasks = [root, ...run.taskGraph.tasks.filter((item) => item !== root).slice(-(TASK_GRAPH_LIMITS.maxTasks - 1))];
         }
       }
     }
@@ -1907,6 +1921,10 @@ export class Orchestrator {
       if (phase === "failed") return { task: "failed", edge: "failed" };
       if (phase === "rejected") return { task: "failed", edge: "rejected" };
       if (phase === "ambiguous") return { task: "recovery_required", edge: "ambiguous" };
+      if (phase === "lost") return { task: "lost", edge: "lost" };
+      if (phase === "superseded") return { task: "superseded", edge: "superseded" };
+      if (phase === "cancelled") return { task: "cancelled", edge: "cancelled" };
+      if (phase === "timed_out") return { task: "failed", edge: "timed_out" };
       if (["prepared", "session_ready", "submitting", "submitted"].includes(phase)) return { task: "running", edge: "running" };
       return null;
     };
@@ -1917,6 +1935,11 @@ export class Orchestrator {
       if (!edge && !task) continue;
       update(edge, "targetAttemptId", attempt.attemptId || null);
       update(task, "attemptId", attempt.attemptId || null);
+      // CW-08: Child timeout/cancel/failure must strictly preserve parentTaskId & sourceAttemptId ownership
+      if (edge && task) {
+        if (edge.parentTaskId && !task.parentTaskId) update(task, "parentTaskId", edge.parentTaskId);
+        if (edge.sourceAttemptId && !task.sourceAttemptId) update(task, "sourceAttemptId", edge.sourceAttemptId);
+      }
       const projected = attemptStatus(attempt.phase);
       if (projected) {
         setStatus(edge, "state", projected.edge);
@@ -1934,8 +1957,8 @@ export class Orchestrator {
             ? { task: "recovery_required", edge: "ambiguous" }
             : null;
     if (terminalProjection) {
-      const finalTaskStates = new Set(["succeeded", "failed", "cancelled", "skipped", "blocked", "recovery_required"]);
-      const finalEdgeStates = new Set(["completed", "failed", "cancelled", "skipped", "rejected", "ambiguous"]);
+      const finalTaskStates = new Set(["succeeded", "failed", "cancelled", "skipped", "blocked", "recovery_required", "lost", "superseded"]);
+      const finalEdgeStates = new Set(["completed", "failed", "cancelled", "skipped", "rejected", "ambiguous", "lost", "superseded", "timed_out"]);
       for (const task of graph.tasks) {
         if (task === root || finalTaskStates.has(task?.status)) continue;
         setStatus(task, "status", terminalProjection.task);
@@ -2071,9 +2094,11 @@ export class Orchestrator {
   async emitEvent(run, type, data = {}, context = {}) {
     try {
       const correlationId = context.correlationId || requestCorrelationMap.get(run) || null;
+      const traceId = context.traceId || run?.traceId || correlationId || null;
       return await this.eventStore.emit(type, data, {
         ...context,
         correlationId,
+        traceId,
         sourceRefs: normalizeRunSources(run?.sources),
       });
     } catch (error) {
@@ -2152,7 +2177,7 @@ export class Orchestrator {
   async create(input = {}, options = {}) {
     const idempotencyKey = input.idempotencyKey == null ? "" : String(input.idempotencyKey).trim();
     if (!idempotencyKey || idempotencyKey.length > 200 || !/^[A-Za-z0-9:._-]+$/.test(idempotencyKey)) {
-      const run = await this.#createOnce(input);
+      const run = await this.#createOnce(input, options);
       if (options.correlationId) requestCorrelationMap.set(run, options.correlationId);
       return run;
     }
@@ -2160,7 +2185,7 @@ export class Orchestrator {
     const claimKey = `${conversationScope}\0${idempotencyKey}`;
     const active = this.createClaims.get(claimKey);
     if (active) return active;
-    const operation = this.#createOnce(input);
+    const operation = this.#createOnce(input, options);
     this.createClaims.set(claimKey, operation);
     try {
       const run = await operation;
@@ -2288,15 +2313,18 @@ export class Orchestrator {
       },
       sources: request.sources,
       collaborationMode: previousRun?.collaborationMode === "deep" ? "deep" : "standard",
-      model: previousRun?.modelOverride || undefined,
-      effort: previousRun?.effortOverride || undefined,
+      model: request.model || previousRun?.modelOverride || undefined,
+      effort: request.effort || previousRun?.effortOverride || undefined,
+      // A Conversation carries context, not a previous Run's authority or budget.
+      // Explicit new grants still go through create() and its approval/lease gate.
       maxBudgetUsdPerTurn: request.maxBudgetUsdPerTurn,
-      permissionMode: "plan",
+      permissionMode: String(request.permissionMode ?? "").trim() || "plan",
+      permission: request.permission || undefined,
     };
     return { run: await this.create(createInput), created: true };
   }
 
-  async #createOnce(input = {}) {
+  async #createOnce(input = {}, options = {}) {
     if (this.closing) throw Object.assign(new Error("control plane is shutting down"), { code: "CONTROL_PLANE_CLOSING" });
     const prompt = String(input.prompt || "").trim();
     if (!prompt) throw Object.assign(new Error("prompt is required"), { code: "INVALID_PROMPT" });
@@ -2634,16 +2662,24 @@ export class Orchestrator {
       : [];
     const maxStepsPerInteraction = Math.max(minimumRounds, Math.min(explicitSteps || effectiveDefault, effectiveCap));
     // "unlimited" 原样落 run（JSON 可持久化、UI 可回显）；结算与 social 契约用解析值——
-    // 解析出 Infinity 时 social 契约会拒绝（social 协作必须有限预算），普通模式自然永不触发美元止损。
+    // 显式 "unlimited" 的 social 请求由 social 契约拒绝（多 agent 往复成本不可控，必须有限）。
+    // 隐式无限（未传预算 + 席位默认 unlimited）则回退到有限兜底，避免 514 Bot 工作区群聊
+    // （会话准入不带预算字段）无处设置预算而永久卡死；pipeline 仍保留真无限语义。
     const budgetUnlimited = isUnlimitedBudgetValue(input.maxBudgetUsdPerTurn);
-    const maxBudgetUsdPerTurn = budgetUnlimited
+    let maxBudgetUsdPerTurn = budgetUnlimited
       ? UNLIMITED_BUDGET
       : resolveBudgetUsdPerTurn(input.maxBudgetUsdPerTurn, this.policy);
+    let socialBudget = budgetUnlimited ? Number.POSITIVE_INFINITY : maxBudgetUsdPerTurn;
+    if (orchestrationMode === "social" && !Number.isFinite(socialBudget) && !budgetUnlimited) {
+      const fallback = Math.max(0.05, Math.min(SOCIAL_IMPLICIT_BUDGET_FALLBACK, BUDGET_NUMERIC_CEILING));
+      maxBudgetUsdPerTurn = fallback;
+      socialBudget = fallback;
+    }
     const socialContract = projectSocialContract({
       orchestrationMode,
       maxRounds: maxStepsPerInteraction,
       delegationDepthLimit,
-      maxBudgetUsdPerTurn: budgetUnlimited ? Number.POSITIVE_INFINITY : maxBudgetUsdPerTurn,
+      maxBudgetUsdPerTurn: socialBudget,
     });
     const contextPlan = this.conversationContextPlan({
       conversation,
@@ -2709,6 +2745,7 @@ export class Orchestrator {
       teamRoster, // 逻辑成员 → runtime profile 与人格/默认档快照；既有 run 不受后续成员编辑漂移
       teamRosterVersion: team ? 1 : null,
       teamSkills: team ? [...(team.skills ?? [])] : null, // 团队 skill 声明快照（成员轮按 agent 负名单过滤注入）
+      projectPlugins: this.projectPlugins?.snapshot(projectId) || [],
       teamMcp: team ? [...(team.mcp ?? [])] : null, // 团队 MCP 声明快照（隔离区过滤后注入，不假装服务器还在）
       coordinatorId,
       projectId,
@@ -2717,12 +2754,14 @@ export class Orchestrator {
       orchestrationMode,
       socialContract,
       startAgentId,
+      explicitStartAgentId: Boolean(explicitStartAgentId),
       executionOwnerId,
       requestedAgentIds,
       modelOverride,
       effortOverride,
       permissionOverride,
       idempotencyKey,
+      traceId: String(input.traceId || input.requestId || options?.correlationId || randomUUID()),
       cwd: sessionCwd, // null=控制面默认（repoRoot）；有值=会话项目地址，CLI 原生会话落该项目
       remote: sessionRemote, // v41：{hostId, path}=远端运行位置；null=本机。与 cwd 互斥（create 校验）
       sources: runSources, // 结构化来源台账；prompt 仍保留 CLI 可读路径说明
@@ -3311,8 +3350,8 @@ export class Orchestrator {
       idleTimeoutMs: this.policy.limits.turnIdleTimeoutMs,
       model: this.effectiveModelFor(run, agentId),
       effort: this.effectiveEffortFor(run, agentId),
-      // 原生审批透传：仅执行拥有者拿到，写面不扩散；只接 native: 前缀，其余值不下发（普通三档维持原路径）。
-      nativeApprovalMode: agentId === executionOwnerId && String(run.permissionOverride || "").startsWith("native:")
+      // 原生审批透传：执行拥有者或经授权的写盘执行者拿到；只接 native: 前缀，其余值不下发（普通三档维持原路径）。
+      nativeApprovalMode: (agentId === executionOwnerId || (allowWorkspaceWrite && requestsWorkspaceWrite)) && String(run.permissionOverride || "").startsWith("native:")
         ? run.permissionOverride
         : null,
       cwd: cwd ?? run.cwd ?? null,
@@ -4131,7 +4170,11 @@ export class Orchestrator {
       const coordinatorId = run.coordinatorId || "claude-fable";
       // 当路由把主脑同时选为执行者（planning 任务常见），且团队有其他成员——
       // 选首个非主脑成员做实际执行者，避免 pipeline 退化为「主脑自说自话」。
-      if (specialistId === coordinatorId && Array.isArray(run.teamMembers) && run.teamMembers.length > 1) {
+      // 但若用户显式指定了执行成员（explicitStartAgentId）或指定了写入/原生权限，尊重用户选择不降级
+      const userDesignatedCoordinator = Boolean(run.explicitStartAgentId)
+        || run.permissionMode === "build"
+        || Boolean(String(run.permissionOverride || "").startsWith("native:"));
+      if (!userDesignatedCoordinator && specialistId === coordinatorId && Array.isArray(run.teamMembers) && run.teamMembers.length > 1) {
         const alt = run.teamMembers.find((id) => id !== coordinatorId);
         if (alt) specialistId = alt;
       }
@@ -4172,13 +4215,13 @@ export class Orchestrator {
         });
         return busMessageId;
       };
-      const coordinatorOwnsBuild = run.permissionMode === "build" && specialistId === coordinatorId;
+      const coordinatorOwnsBuild = (run.permissionMode === "build" || Boolean(CODEX_PRESET_NATIVE_MODES[run.permissionMode])) && specialistId === coordinatorId;
       const scopeGuard = "【范围纪律】严格围绕用户目标回应。不要自行扩展到项目状态审查、git 操作、基础设施排查或代码调查——除非用户明确要求。如果用户只是打招呼或闲聊，直接简短回应即可，不要启动任何工作流程。";
       const plan = await turn(
         coordinatorId,
         coordinatorOwnsBuild
           ? `${teamContext}你是 514cc 团队主脑，也是用户明确选择并获批的执行所有者。请在获批工作区内完成目标并给出可验证证据，不输出隐藏思维链。\n${scopeGuard}\n\n用户目标：\n${run.prompt}\n\n路由器建议：${run.route.selected.id}\n路由理由：${run.route.reason}`
-          : `${teamContext}你是 514cc 团队主脑与总协调者。本轮是规划阶段（plan 权限模式，只读不落盘）；禁止声称已写入、已部署或未验证的完成。请输出可公开审计的计划、派工理由、验收标准和给执行者的任务包，不输出隐藏思维链。\n${scopeGuard}\n\n用户目标：\n${run.prompt}\n\n执行所有者：${specialistId}\n路由器建议：${run.route.selected.id}\n路由理由：${run.route.reason}`,
+          : `${teamContext}你是 514cc 团队主脑与总协调者。${run.permissionMode === "plan" ? "本轮是规划阶段（plan 权限模式，只读不落盘）" : "本轮是规划阶段（只读不落盘，后续由执行所有者落盘）"}；禁止声称已写入、已部署或未验证的完成。请输出可公开审计的计划、派工理由、验收标准和给执行者的任务包，不输出隐藏思维链。\n${scopeGuard}\n\n用户目标：\n${run.prompt}\n\n执行所有者：${specialistId}\n路由器建议：${run.route.selected.id}\n路由理由：${run.route.reason}`,
         { allowWorkspaceWrite: coordinatorOwnsBuild },
       );
       const planAttemptId = lastPipelineAttemptId;
@@ -4190,7 +4233,9 @@ export class Orchestrator {
           const reviewMessageId = recordPipelineDelegation(coordinatorId, independentId, "pipeline-review", planAttemptId);
           const independent = await turn(
             independentId,
-            `你是独立验证者，不受主脑结论约束。请核查以下计划的正确性、遗漏、风险和可执行性，给出证据化 verdict。不要输出隐藏思维链。\n\n原始目标：\n${run.prompt}\n\n主脑计划：\n${plan}`,
+            coordinatorOwnsBuild
+              ? `你是独立验证者，不受主脑结论约束。请核查执行者 ${coordinatorId} 的执行成果、结论、遗漏、风险和可执行性，给出证据化 verdict。不要输出隐藏思维链。\n\n原始目标：\n${run.prompt}\n\n主脑执行成果：\n${plan}`
+              : `你是独立验证者，不受主脑结论约束。请核查以下计划的正确性、遗漏、风险和可执行性，给出证据化 verdict。不要输出隐藏思维链。\n\n原始目标：\n${run.prompt}\n\n主脑计划：\n${plan}`,
             { sourceBusMessageId: reviewMessageId },
           );
           const independentAttemptId = lastPipelineAttemptId;
@@ -4209,7 +4254,7 @@ export class Orchestrator {
         const specialistMessageId = recordPipelineDelegation(coordinatorId, specialistId, "pipeline-dispatch", planAttemptId);
         const specialist = await turn(
           specialistId,
-          `主脑（${coordinatorId}）派发以下任务。请作为独立技术/研究执行者完成，保留证据、指出阻塞并提出明确反问。\n\n原始目标：\n${run.prompt}\n\n主脑计划：\n${plan}`,
+          `主脑（${coordinatorId}）派发以下任务。请作为独立技术/研究执行者完成，保留证据、指出阻塞并提出明确反问。按计划中的责任范围和依赖执行；交卷包含实际产物、验证方式与结果、未完成项，不把运行成功当作目标验收通过。\n\n原始目标：\n${run.prompt}\n\n主脑计划：\n${plan}`,
           { allowWorkspaceWrite: true, sourceBusMessageId: specialistMessageId },
         );
         const specialistAttemptId = lastPipelineAttemptId;
@@ -4228,26 +4273,28 @@ export class Orchestrator {
           );
           const verifierAttemptId = lastPipelineAttemptId;
           let verified = specialist;
+          let reworked = false;
           let synthesisSourceId = verifierId;
           let synthesisAttemptId = verifierAttemptId;
           if (run.collaborationMode === "deep" && !this.pipelineStageBlocked(run, 1)) {
             const reworkMessageId = recordPipelineDelegation(verifierId, specialistId, "pipeline-rework", verifierAttemptId);
             verified = await turn(
               specialistId,
-              `独立验证者（${verifierId}）对上一轮结果的复核如下。请在同一个原生会话中完成补强并给出最终证据。\n\n${critique}`,
+              `独立验证者（${verifierId}）对上一轮结果的复核如下。请在同一个原生会话中完成补强并给出最终证据，逐项说明已处理和未处理的意见。补强完成不等于再次独立复核通过。\n\n原始目标：\n${run.prompt}\n\n独立复核：\n${critique}`,
               { allowWorkspaceWrite: true, sourceBusMessageId: reworkMessageId },
             );
+            reworked = true;
             synthesisSourceId = specialistId;
             synthesisAttemptId = lastPipelineAttemptId;
           }
           const final = !this.pipelineStageBlocked(run)
             ? await turn(
                 coordinatorId,
-                `作为主脑，请综合原始目标、执行结果和复核结果，输出最终结论、已验证证据、未完成风险与下一步。不要隐藏工具失败。\n\n原始目标：${run.prompt}\n\n初次执行：${specialist}\n\n复核/补强：${verified}`,
+                `作为主脑，请综合原始目标、执行结果和复核结果，输出最终结论、已验证证据、未完成风险与下一步。不要隐藏工具失败或未处理的复核意见。补强结果是执行者交卷，不等于再次独立复核或用户验收通过。\n\n原始目标：${run.prompt}\n\n初次执行：${specialist}\n\n独立复核（${verifierId}）：${critique}\n\n补强结果：${reworked ? verified : "本轮未执行补强"}`,
                 { sourceBusMessageId: recordPipelineDelegation(synthesisSourceId, coordinatorId, "pipeline-synthesis", synthesisAttemptId) },
               )
             : critique;
-          run.result = { plan, specialist, critique, verified, final };
+          run.result = { plan, specialist, critique, verified, reworked, final };
         }
       }
       }
@@ -4498,7 +4545,7 @@ export class Orchestrator {
     const final = await this.turn(
       run,
       coordinatorId,
-      `${teamContext}你是团队 leader「${coordinatorId}」。团队对话已收敛，请基于以下线程输出最终答复：结论、已验证证据、未完成风险与下一步。不要隐藏工具失败。\n\n线程快照：\n${snapshot}`,
+      `${teamContext}你是团队 leader「${coordinatorId}」。团队对话已收敛，请基于以下线程输出最终答复：结论、各成员交付、已验证证据、复核意见及处理情况、未完成风险与下一步。没有复核或证据时明确说明，不能把成员自述或运行结束当作验收通过。此轮只收束，不再派工，不输出新的路由指令。不要隐藏工具失败。\n\n原始目标：\n${run.prompt}\n\n线程快照：\n${snapshot}`,
       { sourceWorkItemId: item.itemId },
     );
     await this.withProjectionEffect(run, controller, async () => {
@@ -4614,7 +4661,7 @@ export class Orchestrator {
         });
       }
       const snapshot = this.bus.snapshot(await this.bus.read(run.id), { forAgent: next.to });
-      const prompt = `${teamContext}你是 514cc 团队成员「${next.to}」，正在参与一次团队对话（社会模拟编排）。
+      const prompt = `${teamContext}你是 514cc 团队成员「${next.to}」，正在参与一次按需协作。
 团队名录（可对任意成员发起对话）：
 ${rosterLine}
 对话规则：
@@ -4622,6 +4669,12 @@ ${rosterLine}
 - 有值得所有后续成员共享的事实/结论/坑，写 [[memo]] 内容（全员黑板，后续轮自动可见）。
 - 指令以外的正文视为发给 team；没被点名可以不发言，只输出有价值的部分。
 - 你只按既有权限行动，禁止声称已写入、已部署或未验证的完成；证据优先。
+- 派工须写明目标、责任范围、输入与依赖、交付物和验收依据；只点名有明确工作的成员，简单问答直接答复。
+- 收到交接后先完成指定责任，交卷说明实际产物、验证结果和未完成项；前一位成员的自述不是已验证证据。
+- 复核对照原始目标和证据，允许指出或推翻执行结论；补强需逐项回应复核意见。未被安排复核时不要声称通过独立验证。
+- 当前队列按顺序执行；不要承诺同时修改同一文件。已有交卷可直接汇总，避免无实质问题的互相转交。
+原始目标：
+${run.prompt}
 对话快照（bus 有界尾部）：
       ${snapshot}`;
       const writeGrant = this.continuationWriteGrant(run, next.to);
@@ -5454,7 +5507,7 @@ ${rosterLine}
       throw Object.assign(new Error("run is waiting for its action-bound build approval"), { code: "APPROVAL_REQUIRED" });
     }
     if (run.status === "recovery_required" && acknowledgeRecovery !== true) {
-      throw Object.assign(new Error("the previous native turn has an ambiguous submission state"), { code: "RECOVERY_REQUIRED" });
+      throw Object.assign(new Error("上一轮原生会话提交状态不明；请先确认恢复（将放弃提交状态不明的声明工作）后再继续"), { code: "RECOVERY_REQUIRED" });
     }
     // 预算止损闸：上一次交互因额度耗尽失败后，续聊必须显式确认（acknowledgeRecovery）。
     // 否则每条新消息重置 interactionCostUsd=0，budgetExhausted() 永远 false，
@@ -5949,7 +6002,7 @@ ${rosterLine}
     }
     const recovery = run.status === "recovery_required";
     if (recovery && acknowledgeRecovery !== true) {
-      throw Object.assign(new Error("the previous native turn has an ambiguous submission state; acknowledge recovery before changing controls"), { code: "RECOVERY_REQUIRED" });
+      throw Object.assign(new Error("上一轮原生会话提交状态不明；请先确认恢复后再改控制项"), { code: "RECOVERY_REQUIRED" });
     }
     const executionOwnerId = executionOwnerIdOf(run);
     const executionRuntimeProfileId = this.runtimeProfileIdFor(run, executionOwnerId);
@@ -5986,7 +6039,11 @@ ${rosterLine}
           throw Object.assign(new Error("budget cannot change while a provider turn is active"), { code: "RUN_ACTIVE" });
         }
         // "unlimited" 合法热改：落哨兵原样存储；数字路径维持既有钳制（≥0.05，硬上限内）
+        // social 运行例外：多 agent 往复成本不可控，无限预算必须拒绝（与创建时 social 契约同口径）。
         const unlimitedRequested = isUnlimitedBudgetValue(patch.maxBudgetUsdPerTurn);
+        if (unlimitedRequested && run.orchestrationMode === "social") {
+          throw Object.assign(new Error("social 协作需要有限的单轮预算上限：当前请求为无限，请设置有限金额（如 $5.00）"), { code: "SOCIAL_UNLIMITED_BUDGET_REJECTED" });
+        }
         const requested = Number(patch.maxBudgetUsdPerTurn);
         if (!unlimitedRequested && (!Number.isFinite(requested) || requested < 0.05)) {
           throw Object.assign(new Error("maxBudgetUsdPerTurn must be at least 0.05 or \"unlimited\""), { code: "VALIDATION_FAILED" });

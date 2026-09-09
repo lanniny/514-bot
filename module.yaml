@@ -271,7 +271,14 @@ control_center:
   role: "本地全配置前端 + 观测面 + 会话深路（127.0.0.1 + ephemeral token + SSE）"
   configs: "config/control-center/{models,routing,permissions,sources}.json + claude-coordinator.md"
   adapter_manifest: apps/control-center/src/adapters/manifest.mjs
-  adapters: [claude-cli, codex-app-server, codex-cli, gemini-cli, grok-build, grok-mcp, kimi-cli, opencode-cli, pi-rpc]
+  project_plugins:
+    service: apps/control-center/src/project-plugins.mjs
+    routes: apps/control-center/src/plugins/routes.mjs
+    manifest: "514cc.plugin/v1 (declarative tools, workflows, panels)"
+    store: "dataRoot/project-plugins.json (project bindings, revision CAS)"
+    docs: apps/control-center/docs/project-plugins.md
+    qa: apps/control-center/scripts/qa-project-plugins.mjs
+  adapters: [claude-cli, codex-app-server, codex-cli, gemini-cli, grok-build, kimi-cli, opencode-cli, pi-rpc]
   pipeline: "config validate/plan/apply/rollback（乐观锁 + 备份 + 原子替换 + parse readback + 审计事件）"
   tests: "npm test + npm run validate（结果以当轮命令输出为准，注册表不固化易漂移计数）"
   start: "cd apps/control-center; npm start"
@@ -286,6 +293,22 @@ control_center:
   note: "v3.5 接电：models.json gemini-research disabled（对齐 D-2026-07-16-005）+ module.yaml 注册 + 治理补账"
   phase2: "2026-07-17 落地（D-2026-07-17-004）：①体系观测页（observability.mjs——route-gate 命中/DELTA 账本双扫/handoff 浏览/sync-runtime 漂移检查）②会话聚合页（sessions.mjs——Claude/Codex/对话桥/Grok 四源只读元数据+摘要）③current-research 回落链修正（gemini 禁用→主驾 claude-fable 可见回落，capabilities 补 web MCP 事实）④sources.json 补宪法运行时源；剩余 P1=路由信号外置合一 + summoned 审计闭环（proposals/v35-deep-collab-design.md §五）"
 
+# === Bot 协作体系（apps/control-center/src/bots，2026-09-09 · Grok Bot 对标语义层） ===
+
+bot_collaboration:
+  status: "implemented"
+  decision: "D-2026-09-09-001"
+  surface: apps/control-center/src/bots/ # profiles / relay / routines / routes 四面
+  protocol_doc: apps/control-center/docs/bot-collaboration-protocol.md
+  reference: "https://docs.x.ai/grok-bot（x.ai/bot 产品文档，2026-09-09 抓取）"
+  layers:
+    profiles: "Bot 定义模型（job/standingRules/approvalBoundary/skills/@handle/50 routine 配额）——team-members 叠加层，不造第二 roster"
+    relay: "Bot↔Bot 交接协议（kickoff 解析/handoff+ack/单 owner 守卫）——基于 BusStore，交接在会话可见"
+    routines: "Grok 式例行任务（六要素必填/Test run plan-only/AutomationStore 桥接幂等）"
+    approvals: "approval-broker 既有 + profiles.approvalBoundary 持久边界随派工装配"
+  tests: "tests/bots-{profiles,relay,routines,routes}.test.mjs（34 用例，2026-09-09 全绿）"
+  note: "与 2026-09-07 bot-collaboration-methods 波互补：那波是 orchestrator 内协作方法与过程渲染，本层是 Grok Bot 式 durable teammate 语义 + API 面"
+
 # === 桌面壳（apps/desktop，v3.5 · LO 拍板自研不 fork） ===
 
 desktop_shell:
@@ -297,6 +320,20 @@ desktop_shell:
   runtime_note: "仓库根默认 I:/514claude/514cc，可用 CC_ROOT 环境变量覆盖；与网页版共用 instance-lock（同 data dir 互斥，属预期单实例设计）"
   shortcut: "桌面快捷方式 '514cc Console.lnk'（2026-07-17 建）"
   roadmap: "Phase 2+ 见 apps/desktop/README.md（会话聚合面板/派工台/Settings 分域/原生通知/托盘）"
+
+# === 桌宠悬浮窗（apps/control-center pet 面 × apps/desktop pet-overlay 窗，2026-09-06） ===
+
+pet_companion:
+  status: "formal-runtime-verified" # 本机正式身份已替换启动并验收；非签名发布
+  decision: "D-2026-09-08-002"
+  source_handoff: ".ai-shared/handoff/codex-to-claude__pet-formal-activation__20260908.md"
+  kernel_surface: "apps/control-center/src/pet/routes.mjs（/api/pet/input + /api/pet/stream，瞬态脉冲不进事件账本）"
+  pet_page: "apps/control-center/public/pet/（Live2D 渲染 + 状态机，body[data-pet-state] 为唯一状态真源）"
+  main_bridge: "apps/control-center/public/modules/pet-bridge.js（设置持久化 + 凭据桥 + 打字脉冲转发）"
+  desktop_window: "apps/desktop/src-tauri src/native.rs set_pet_overlay（透明/置顶/穿透第二窗口 + 托盘 + 位置记忆）"
+  model_assets: "public/vendor/pet-models/bongo-standard/（vladelaina/BongoCat MIT 资产，NOTICE.md 留出处）"
+  credential_bridge: "Web Dock 限定同源父窗 postMessage；原生窗口保留同源 BroadcastChannel 配对；内核鉴权不变"
+  qa: "apps/control-center scripts/qa-pet-page.mjs + scripts/qa-pet-native.mjs（Chromium / 独立 Windows WebView2）"
 
 # === harness 硬扳机（.claude/hooks/ — 把核心纪律从 Markdown 软线下沉为 harness 强制） ===
 

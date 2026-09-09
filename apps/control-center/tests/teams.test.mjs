@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { BUILTIN_TEAM, COORDINATOR_ELIGIBLE, TeamStore } from "../src/teams.mjs";
 import { createTeamCatalog } from "../src/adapters/manifest.mjs";
 
-const KNOWN = ["claude-fable", "codex-technical", "grok-search", "grok-build", "kimi-frontend", "pi-resident"];
+const KNOWN = ["claude-fable", "codex-technical", "grok-build", "kimi-frontend", "pi-resident"];
 
 async function fixture({ teamCatalog = null, knownProviders = KNOWN, knownCoordinators = COORDINATOR_ELIGIBLE } = {}) {
   const root = await mkdtemp(join(tmpdir(), "cc-teams-"));
@@ -37,7 +37,7 @@ test("create/update/remove round-trips through disk persistence", async () => {
     const team = await store.create({
       name: "研究小队",
       systemPrompt: "情报优先",
-      members: ["claude-fable", "grok-search"],
+      members: ["claude-fable", "grok-build"],
       skills: ["co-research"],
       mcp: ["exa"],
     });
@@ -63,13 +63,13 @@ test("ephemeral teams reuse validation and brief rendering without entering the 
     const team = store.materializeEphemeral({
       name: "一次性群聊",
       coordinator: "codex-technical",
-      members: ["codex-technical", "grok-search"],
+      members: ["codex-technical", "grok-build"],
       skills: [],
       mcp: [],
     });
     assert.match(team.id, /^team-ephemeral-[0-9a-f-]{36}$/);
     assert.equal(team.ephemeral, true);
-    assert.deepEqual(team.members, ["codex-technical", "grok-search"]);
+    assert.deepEqual(team.members, ["codex-technical", "grok-build"]);
     assert.match(store.briefFor(team), /当前团队：一次性群聊/);
     assert.throws(() => store.get(team.id), { code: "SOURCE_NOT_FOUND" });
     await assert.rejects(readFile(path, "utf8"), { code: "ENOENT" });
@@ -328,8 +328,8 @@ test("coordinator defaults to the first CLI-capable member and may be any regist
   try {
     const codexOnly = await store.create({ name: "Codex 单席队", members: ["codex-technical"] });
     assert.equal(codexOnly.coordinator, "codex-technical");
-    const grokLed = await store.create({ name: "Grok 主脑队", members: ["grok-search", "grok-build"] });
-    assert.equal(grokLed.coordinator, "grok-build", "non-CLI members are skipped when deriving a coordinator");
+    const grokLed = await store.create({ name: "Grok 主脑队", members: ["grok-build", "codex-technical"] });
+    assert.equal(grokLed.coordinator, "grok-build");
     const codexLed = await store.create({ name: "Codex 主脑队", coordinator: "codex-technical", members: ["claude-fable", "codex-technical"] });
     assert.equal(codexLed.coordinator, "codex-technical");
     // 主脑必须是成员
@@ -337,7 +337,7 @@ test("coordinator defaults to the first CLI-capable member and may be any regist
       () => store.create({ name: "主脑不在队", coordinator: "grok-build", members: ["codex-technical"] }),
       { code: "VALIDATION_FAILED" },
     );
-    // grok-search 无独立 CLI 会话，不可任主脑
+    // Retired MCP seats cannot join a team or act as coordinator.
     await assert.rejects(
       () => store.create({ name: "MCP 当主脑", coordinator: "grok-search", members: ["grok-search", "codex-technical"] }),
       { code: "VALIDATION_FAILED" },
@@ -360,12 +360,12 @@ test("team catalog comes from adapter bindings instead of arbitrary profile comm
       enabled: true,
     },
     {
-      id: "grok-search",
-      label: "Grok Search",
-      role: "current-intelligence",
-      provider: "xai-compatible",
-      adapter: "grok-mcp-via-codex-app-server",
-      command: null,
+      id: "grok-build",
+      label: "Grok Build",
+      role: "fast-executor",
+      provider: "xai",
+      adapter: "grok-build-headless",
+      command: "grok",
       enabled: true,
     },
     {
@@ -379,8 +379,9 @@ test("team catalog comes from adapter bindings instead of arbitrary profile comm
     },
   ]);
   assert.equal(catalog.find((item) => item.id === "codex-technical").coordinatorEligible, true);
-  assert.equal(catalog.find((item) => item.id === "grok-search").teamMemberEligible, true);
-  assert.equal(catalog.find((item) => item.id === "grok-search").coordinatorEligible, false);
+  assert.equal(catalog.some((item) => item.id === "grok-search"), false);
+  assert.equal(catalog.find((item) => item.id === "grok-build").teamMemberEligible, true);
+  assert.equal(catalog.find((item) => item.id === "grok-build").coordinatorEligible, true);
   assert.equal(catalog.find((item) => item.id === "gemini-research").teamMemberEligible, false);
   assert.equal(catalog.find((item) => item.id === "gemini-research").eligibilityReason, "profile-disabled");
   assert.throws(
@@ -467,7 +468,7 @@ test("appearance background preset round-trips and rejects unknown presets", asy
   try {
     const team = await store.create({
       name: "氛围小队",
-      members: ["claude-fable", "grok-search"],
+      members: ["claude-fable", "grok-build"],
       appearance: { background: { preset: "aurora", image: "" } },
     });
     assert.equal(team.appearance.background.preset, "aurora");
@@ -515,7 +516,7 @@ test("team worldview persists and reaches the planner brief as narrative context
     const team = await store.create({
       name: "魔法议会",
       worldview: "成员都是浮空城魔法学院的巫师，任务是讨伐委托，产出即卷轴与符文。",
-      members: ["claude-fable", "grok-search"],
+      members: ["claude-fable", "grok-build"],
     });
     assert.match(store.briefFor(team), /团队世界观（叙事语境）：.*魔法学院/);
     const updated = await store.update(team.id, { worldview: "赛博都市中的夜班侦探社。" });

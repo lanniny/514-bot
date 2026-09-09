@@ -83,6 +83,11 @@ export function parseAutomationRoute(hashValue = "") {
   return { mode: "list", id: null };
 }
 
+export function automationRouteHash(hashValue = "") {
+  const value = String(hashValue).replace(/^#\/?(?:bot\/)?/, "#");
+  return /^#automations(?:[/?]|$)/.test(value) ? value : "#automations";
+}
+
 const DOW_LABELS = { 1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "日" };
 
 export function scheduleLabel(schedule) {
@@ -146,8 +151,9 @@ export function mountAutomationsPage({
 } = {}) {
   if (!root) return null;
   let draft = EMPTY_DRAFT();
-  let composing = false;
   const inFlight = new Set();
+  const editorDrafts = new Map();
+  let renderedEditorKey = null;
 
   function snapshot() {
     return getSnapshot() || {};
@@ -305,7 +311,6 @@ export function mountAutomationsPage({
       <div class="auto-heading">
         <div>
           <h1 id="automations-title">自动化</h1>
-          <p>创建定时与闲时任务。闲时任务在控制面空闲时自动排队执行。</p>
         </div>
         <div class="auto-heading-actions">
           <button class="button primary" type="button" data-auto-action="create" ${writable() ? "" : "disabled"}>${icon("plus")} 创建定时任务</button>
@@ -322,19 +327,16 @@ export function mountAutomationsPage({
       </section>` : `<div class="auto-empty">
         <span class="auto-empty-icon">${icon("timer")}</span>
         <strong>还没有定时任务</strong>
-        <p>从下方模板一键开始，或点右上角「创建定时任务」。</p>
       </div>`}
       <section class="auto-section">
         <div class="auto-section-head">
           <h2 class="auto-section-label">闲时任务模板</h2>
-          <span class="auto-section-hint">控制面空闲时自动执行，也可随时手动跑</span>
         </div>
         <div class="auto-templates">${AUTOMATION_TEMPLATES.filter((item) => item.kind === "idle").map(templateCard).join("")}</div>
       </section>
       <section class="auto-section">
         <div class="auto-section-head">
           <h2 class="auto-section-label">定时任务模板</h2>
-          <span class="auto-section-hint">点击模板即可创建，调度已预填</span>
         </div>
         <div class="auto-templates">${AUTOMATION_TEMPLATES.filter((item) => item.kind === "scheduled").map(templateCard).join("")}</div>
       </section>
@@ -343,7 +345,7 @@ export function mountAutomationsPage({
 
   function editorMarkup(item, tab) {
     const isCreate = !item;
-    const data = item ? {
+    const data = editorDrafts.get(item?.id || "new") || (item ? {
       name: item.name,
       prompt: item.prompt,
       schedule: item.schedule || "manual",
@@ -351,7 +353,7 @@ export function mountAutomationsPage({
       model: item.model || "",
       effort: item.effort || "",
       cwd: item.cwd || "",
-    } : draft;
+    } : draft);
     const history = Array.isArray(item?.runHistory) ? item.runHistory : [];
     const scheduled = data.schedule && data.schedule !== "manual";
     return `<div class="auto-page is-editor">
@@ -363,6 +365,7 @@ export function mountAutomationsPage({
         </div>
         <button class="button primary" type="button" data-auto-action="save" ${writable() ? "" : "disabled"}>${isCreate ? "创建" : "保存"}</button>
       </div>
+      <p class="auto-editor-status" data-auto-editor-status role="status" hidden></p>
       ${tab === "history" ? `
         <div class="auto-history-box">${history.length ? history.map((row) => `
           <button class="auto-history-row${row.status === "failed" ? " is-failed" : ""}" type="button" data-auto-run-id="${escapeHtml(row.runId || "")}">
@@ -393,8 +396,8 @@ export function mountAutomationsPage({
               <button class="chip" type="button" data-auto-schedule="at:21:00@7">每周日 21 点</button>
             </div>
           </div>
-          <label class="auto-field auto-prompt-field"><span>指令</span>
-            <textarea name="prompt" rows="10" maxlength="65536" required placeholder="例如：Review 最近 24 小时的提交，总结可能引入的 bug 和修复建议">${escapeHtml(data.prompt)}</textarea>
+          <div class="auto-field auto-prompt-field"><label for="auto-prompt">指令</label>
+            <textarea id="auto-prompt" name="prompt" rows="10" maxlength="65536" required placeholder="例如：Review 最近 24 小时的提交，总结可能引入的 bug 和修复建议">${escapeHtml(data.prompt)}</textarea>
             <div class="auto-prompt-bar">
               <label class="auto-mini">
                 ${icon("folder")}
@@ -420,14 +423,14 @@ export function mountAutomationsPage({
                 </select>
               </label>
             </div>
-          </label>
+          </div>
           <div class="auto-form-actions">
             ${isCreate ? `<button class="button primary" type="submit" ${writable() ? "" : "disabled"}>创建</button>` : `
               <button class="button primary" type="submit" ${writable() ? "" : "disabled"}>保存</button>
               <button class="button secondary" type="button" data-auto-run="${escapeHtml(item.id)}" ${writable() ? "" : "disabled"}>立即执行</button>
               <button class="button secondary" type="button" data-auto-toggle="${escapeHtml(item.id)}" ${writable() ? "" : "disabled"}>${item.enabled ? "停用" : "启用"}</button>
             `}
-            <button class="button secondary" type="button" data-auto-action="list">取消</button>
+            <button class="button secondary" type="button" data-auto-action="discard">取消</button>
           </div>
         </form>
       `}
@@ -435,9 +438,19 @@ export function mountAutomationsPage({
   }
 
   function paint() {
+    if (!/^#\/?(?:bot\/)?automations(?:[/?]|$)/.test(location.hash)) return;
     const current = route();
-    if (current.mode === "create" || composing) {
+    const key = current.mode === "create" ? "new" : current.mode === "edit" ? current.id : null;
+    // Data refresh must not replace an in-progress form or steal its focus.
+    if (key && key === renderedEditorKey && editorDrafts.has(key) && root.querySelector("[data-auto-form]")) {
+      refreshModels();
+      syncEditorWritable();
+      return;
+    }
+    renderedEditorKey = key;
+    if (current.mode === "create") {
       root.innerHTML = editorMarkup(null, "edit");
+      syncEditorWritable();
       return;
     }
     if (current.mode === "edit" || current.mode === "history") {
@@ -447,10 +460,27 @@ export function mountAutomationsPage({
         return;
       }
       root.innerHTML = editorMarkup(item, current.mode === "history" ? "history" : "edit");
+      syncEditorWritable();
       return;
     }
-    composing = false;
     root.innerHTML = listMarkup();
+  }
+
+  function syncEditorWritable() {
+    const disabled = !writable();
+    root.querySelectorAll("[data-auto-form] input, [data-auto-form] textarea, [data-auto-form] select, [data-auto-schedule], [data-auto-action='save'], [data-auto-form] button[type='submit'], [data-auto-run], [data-auto-toggle]").forEach((control) => { control.disabled = disabled; });
+    const notice = root.querySelector("[data-auto-editor-status]");
+    if (notice) {
+      notice.hidden = !disabled;
+      notice.textContent = disabled ? statusCopy(snapshot().status).join("。") : "";
+    }
+  }
+
+  function captureEditorDraft() {
+    const form = root.querySelector("[data-auto-form]");
+    if (!form || !renderedEditorKey) return;
+    const data = new FormData(form);
+    editorDrafts.set(renderedEditorKey, { ...(renderedEditorKey === "new" ? draft : {}), ...readForm(form), name: String(data.get("name") || ""), prompt: String(data.get("prompt") || "") });
   }
 
   function readForm(form) {
@@ -471,6 +501,8 @@ export function mountAutomationsPage({
     const template = AUTOMATION_TEMPLATES.find((item) => item.id === id);
     if (!template) return;
     if (!writable()) return message("自动化存储不可写", "error");
+    editorDrafts.delete("new");
+    renderedEditorKey = null;
     draft = {
       ...EMPTY_DRAFT(),
       name: template.name,
@@ -478,7 +510,6 @@ export function mountAutomationsPage({
       schedule: template.schedule,
       permissionMode: template.permissionMode,
     };
-    composing = true;
     setHash("#automations/new");
     paint();
   }
@@ -494,21 +525,25 @@ export function mountAutomationsPage({
       try {
         if (payload.id) {
           await request(`/api/automations/${encodeURIComponent(payload.id)}`, { method: "PATCH", body: payload });
+          editorDrafts.delete(payload.id);
+          renderedEditorKey = null;
           message("自动化已更新");
           setHash(`#automations/${payload.id}`);
         } else {
+          const creationDraft = editorDrafts.get("new") || draft;
           const created = await request("/api/automations", {
             method: "POST",
             body: {
               ...payload,
-              teamId: draft.teamId || undefined,
-              startAgentId: draft.startAgentId || undefined,
-              requestedAgentIds: draft.requestedAgentIds?.length ? draft.requestedAgentIds : undefined,
-              sources: draft.sources?.length ? draft.sources : undefined,
+              teamId: creationDraft.teamId || undefined,
+              startAgentId: creationDraft.startAgentId || undefined,
+              requestedAgentIds: creationDraft.requestedAgentIds?.length ? creationDraft.requestedAgentIds : undefined,
+              sources: creationDraft.sources?.length ? creationDraft.sources : undefined,
             },
           });
+          editorDrafts.delete("new");
+          renderedEditorKey = null;
           message(`自动化「${payload.name}」已保存`);
-          composing = false;
           draft = EMPTY_DRAFT();
           setHash(created?.id ? `#automations/${created.id}` : "#automations");
         }
@@ -549,22 +584,29 @@ export function mountAutomationsPage({
   }
 
   function openEditor(id) {
-    composing = false;
     setHash(`#automations/${id}`);
     paint();
   }
 
   function openList() {
-    composing = false;
-    draft = EMPTY_DRAFT();
+    renderedEditorKey = null;
     setHash("#automations");
     paint();
+  }
+
+  async function discardEditor() {
+    if (renderedEditorKey && editorDrafts.has(renderedEditorKey)
+      && !await ask({ title: "放弃未保存的修改？", confirmText: "放弃修改", cancelText: "继续编辑" })) return;
+    if (renderedEditorKey) editorDrafts.delete(renderedEditorKey);
+    draft = EMPTY_DRAFT();
+    openList();
   }
 
   function applySchedule(preset) {
     const form = root.querySelector("[data-auto-form]");
     const hidden = form?.elements.schedule;
     if (hidden) hidden.value = preset;
+    captureEditorDraft();
     draft.schedule = preset;
     const host = root.querySelector(".auto-schedule");
     if (!host) return;
@@ -581,8 +623,9 @@ export function mountAutomationsPage({
   }
 
   function compose(seed = {}) {
-    draft = { ...EMPTY_DRAFT(), ...seed };
-    composing = true;
+    if (Object.keys(seed).length) editorDrafts.delete("new");
+    renderedEditorKey = null;
+    draft = Object.keys(seed).length ? { ...EMPTY_DRAFT(), ...seed } : editorDrafts.get("new") || draft;
     setHash("#automations/new");
     paint();
   }
@@ -592,6 +635,7 @@ export function mountAutomationsPage({
     if (action === "create") { compose(); return; }
     if (action === "create-idle") { compose({ schedule: "idle", permissionMode: "plan" }); return; }
     if (action === "list") { openList(); return; }
+    if (action === "discard") { void discardEditor(); return; }
     if (action === "save") {
       const form = root.querySelector("[data-auto-form]");
       if (form) void submitForm(form);
@@ -623,6 +667,8 @@ export function mountAutomationsPage({
     event.preventDefault();
     void submitForm(form);
   });
+  root.addEventListener("input", captureEditorDraft);
+  root.addEventListener("change", captureEditorDraft);
 
   paint();
   // CLI 动态模型目录到达后原位刷新编辑器里的模型下拉（不整页重绘，保住未保存的输入）

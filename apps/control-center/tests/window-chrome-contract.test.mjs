@@ -55,11 +55,17 @@ test("new window-control ids are registered in the cacheElements list", async ()
 
 test("initializeWindowChrome guards on the Tauri bridge and wires desktop drag surfaces + window commands", async () => {
   const app = await source("public/app.js");
+  const fn = await source("public/modules/desktop-window-chrome.js");
   const fnStart = app.indexOf("function initializeWindowChrome()");
   assert.ok(fnStart > -1, "缺少 initializeWindowChrome 定义");
-  const fn = app.slice(fnStart, fnStart + 2800);
-  assertIncludes(fn, 'const invoke = window.__TAURI_INTERNALS__?.invoke;');
-  assertIncludes(fn, 'if (typeof invoke !== "function" || (!controls && !botControls)) return;', "浏览器模式必须早退（钮保持 hidden）");
+  const wiring = app.slice(fnStart, app.indexOf("function replayAppearanceFromStorage", fnStart));
+  assertIncludes(wiring, "mountDesktopWindowChrome");
+  assertIncludes(wiring, "invoke: window.__TAURI_INTERNALS__?.invoke");
+  assertIncludes(wiring, "enabled: desktopWindowChrome.active", "不将单字审批意外扩展至普通浏览器");
+  assertIncludes(wiring, "getActiveRun: () => botConversationActiveRun(botActiveConversation())");
+  assertIncludes(wiring, "resolveApproval: resolveInlineApproval");
+  assertIncludes(fn, 'const enabled = typeof invoke === "function";');
+  assertIncludes(fn, "if (!active) return controller;");
   assertIncludes(fn, 'document.documentElement.classList.add("is-desktop-shell");');
   assertIncludes(fn, "controls.hidden = false;");
   for (const cmd of ["plugin:window|minimize", "plugin:window|toggle_maximize", "plugin:window|close", "plugin:window|start_dragging"]) {
@@ -69,9 +75,10 @@ test("initializeWindowChrome guards on the Tauri bridge and wires desktop drag s
     assertIncludes(fn, `"${id}"`, `Bot 窗口控件未接入初始化：${id}`);
   }
   assertIncludes(fn, 'event.detail === 2 ? "plugin:window|toggle_maximize" : "plugin:window|start_dragging"', "双击应 toggle_maximize，单击 start_dragging");
-  assertIncludes(fn, 'const interactiveSelector = "button, a, input, select, textarea, .topbar-nav, .topbar-actions, [contenteditable=\\"true\\"]";', "拖拽命中必须放行交互元素");
-  assertIncludes(fn, 'document.querySelectorAll(dragSurfaceSelector)', "拖拽面必须绑定到当前可见视图标题栏");
-  assertIncludes(fn, 'surface.addEventListener("pointerdown"', "拖拽面必须支持 Pointer Events");
+  assertIncludes(fn, "button, a, input, select, textarea, .topbar-nav, .topbar-actions", "拖拽命中必须放行交互元素");
+  assertIncludes(fn, "document.querySelectorAll(dragSurfaces)", "拖拽面必须绑定到当前可见视图标题栏");
+  assertIncludes(fn, 'listen(surface, "pointerdown"', "触屏/触笔拖拽保留 Pointer Events");
+  assertIncludes(fn, 'listen(surface, "mousedown"', "鼠标双击必须读取真实 MouseEvent 点击次数");
   for (const selector of [".bot-roster-header", ".bot-conversation-header", ".bot-panel-header"]) {
     assertIncludes(fn, selector, `Bot 拖拽面缺失：${selector}`);
   }
@@ -84,9 +91,9 @@ test("initializeWindowChrome guards on the Tauri bridge and wires desktop drag s
   const html = await source("public/index.html");
   assert.ok(!html.includes("data-tauri-drag-region"), "标记层不得使用 data-tauri-drag-region 属性");
   // 壳内无地址栏/刷新键：Ctrl+R 整页重载（登录态在 sessionStorage，reload 安全；探针实证）
-  assertIncludes(fn, 'window.addEventListener("keydown", (event) => {', "缺壳内 Ctrl+R 热重载监听");
-  assertIncludes(fn, 'event.key.toLowerCase() !== "r"', "Ctrl+R 键位判定缺失");
-  assertIncludes(fn, "location.reload();", "Ctrl+R 必须落到 location.reload()");
+  assertIncludes(fn, 'listen(window, "keydown", (event) => {', "缺壳内 Ctrl+R 热重载监听");
+  assertIncludes(fn, 'String(event.key).toLowerCase() !== "r"', "Ctrl+R 键位判定缺失");
+  assertIncludes(wiring, "reload: () => location.reload()", "Ctrl+R 必须落到 location.reload()");
 });
 
 test("desktop shell styles: slim topbar + visible controls only under is-desktop-shell", async () => {

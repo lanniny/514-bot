@@ -57,7 +57,7 @@ export function createConversationWindow({
 
     const stream = elements["conversation-stream"];
     if (
-      stream.dataset.renderContext !== `run:${run.id}:${agentId ?? "all"}`
+      stream.dataset.renderContext !== `run:${run.id}:${agentId ?? "team"}`
       || stream.getAttribute("aria-busy") === "true"
       || stream.scrollHeight - stream.scrollTop - stream.clientHeight < 48
     ) return;

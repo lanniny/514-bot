@@ -132,6 +132,26 @@ test("run history supports incremental NDJSON without changing the JSON contract
   assert.deepEqual(streamedEvents, jsonEvents);
   assert.deepEqual(streamedEvents.map((event) => event.sequence), events.map((event) => event.sequence));
 
+  // CW-15: Cursor pagination with limit and after
+  const paged1 = await fetch(`${origin}/api/runs/${runId}/events?limit=5`, {
+    headers: { authorization, accept: "application/json" },
+  });
+  assert.equal(paged1.status, 200);
+  const pagedBody1 = await paged1.json();
+  assert.equal(pagedBody1.events.length, 5);
+  assert.equal(pagedBody1.hasMore, true);
+  assert.equal(pagedBody1.nextCursor, 5);
+
+  const paged2 = await fetch(`${origin}/api/runs/${runId}/events?after=${pagedBody1.nextCursor}&limit=5`, {
+    headers: { authorization, accept: "application/json" },
+  });
+  assert.equal(paged2.status, 200);
+  const pagedBody2 = await paged2.json();
+  assert.equal(pagedBody2.events.length, 5);
+  assert.equal(pagedBody2.hasMore, true);
+  assert.equal(pagedBody2.events[0].sequence, 6);
+  assert.equal(pagedBody2.nextCursor, 10);
+
   for (const accept of [
     "Application/X-NDJSON",
     "application/x-ndjson;q=0, application/json",
@@ -623,7 +643,7 @@ test("loopback API enforces bearer auth and supports the operator workflow", { t
   const bootstrap = await bootstrapResponse.json();
   assert.ok(bootstrap.providers.some((profile) => profile.id === "claude-fable"));
   assert.ok(bootstrap.teamCatalog.some((profile) => profile.id === "codex-technical" && profile.coordinatorEligible === true));
-  assert.ok(bootstrap.teamCatalog.some((profile) => profile.id === "grok-search" && profile.teamMemberEligible === true && profile.coordinatorEligible === false));
+  assert.equal(bootstrap.teamCatalog.some((profile) => profile.id === "grok-search"), false);
   assert.ok(bootstrap.teamCatalog.some((profile) => profile.id === "gemini-research" && profile.teamMemberEligible === false && profile.eligibilityReason === "profile-disabled"));
   assert.ok(bootstrap.sources.some((source) => source.id === "control.routing"));
   assert.ok(bootstrap.security.secrets.some((item) => item.id === "grok-search-env" && typeof item.configured === "boolean"));
@@ -685,7 +705,7 @@ test("loopback API enforces bearer auth and supports the operator workflow", { t
   assert.equal(schemaValidation.status, 200);
   const schemaResult = await schemaValidation.json();
   assert.equal(schemaResult.valid, false);
-  assert.equal(schemaResult.parser, "python-jsonschema");
+  assert.equal(schemaResult.parser, "node-jsonschema");
 
   const route = await fetch(`${origin}/api/router/preview`, {
     method: "POST",

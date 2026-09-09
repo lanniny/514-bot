@@ -21,6 +21,7 @@ export function createConversationTabs({
   syncModelPick,
   renderRuns,
   setView,
+  renderSelectedRun,
   fetchRunEvents,
   renderMemberStrip,
   releaseRunHistoryIfUnreferenced,
@@ -163,6 +164,7 @@ export function createConversationTabs({
     void syncModelPick();
     renderRuns(); // 左栏选中态跟随 tab
     if (state.view !== "workbench") setView("workbench");
+    renderSelectedRun?.({ preserveStreamState: true });
     void fetchRunEvents(tab.runId);
     restoreComposerDraftForCurrentContext();
     if (focusTab) focusRenderedTab(key);

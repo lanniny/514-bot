@@ -6,16 +6,17 @@
 
 use std::collections::VecDeque;
 use std::io::Write;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use auto_launch::{AutoLaunch, AutoLaunchBuilder};
 use serde::Serialize;
 use tauri::menu::{CheckMenuItem, MenuBuilder, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, Theme, WebviewWindow};
+use tauri::{AppHandle, Manager, Theme, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 pub const DEEP_LINK_SCHEME: &str = "ccswitch";
 pub const DEEP_LINK_EVENT: &str = "forge:ccswitch-deeplink";
@@ -24,7 +25,12 @@ const MAX_PENDING_DEEP_LINKS: usize = 32;
 const MAX_DEEP_LINK_BYTES: usize = 256 * 1024;
 const TRAY_ID: &str = "514cc-console";
 const AUTO_LAUNCH_APP_NAME: &str = "514cc Console";
+pub const PET_OVERLAY_LABEL: &str = "pet-overlay";
+const PET_OVERLAY_SIZE: (f64, f64) = (300.0, 280.0);
 static LIGHTWEIGHT_MODE: AtomicBool = AtomicBool::new(false);
+/// 内核 base origin（握手成功后由 supervisor 写入一次），猫窗 URL 由此构造。
+static PET_OVERLAY_ORIGIN: OnceLock<String> = OnceLock::new();
+static PET_WINDOW_OPERATION: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -123,7 +129,7 @@ pub fn native_capabilities_value() -> NativeCapabilities {
         restart: true,
         clipboard: true,
         theme: true,
-        portable_mode: false,
+        portable_mode: crate::desktop_layout::is_bundled(),
     }
 }
 
@@ -223,7 +229,7 @@ pub fn restart_app(app: AppHandle) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn is_portable_mode() -> bool {
-    false
+    crate::desktop_layout::is_bundled()
 }
 
 fn write_clipboard_with(program: &str, args: &[&str], text: &str) -> Result<(), String> {
@@ -336,6 +342,183 @@ pub fn is_lightweight_mode() -> bool {
     LIGHTWEIGHT_MODE.load(Ordering::Acquire)
 }
 
+// ---------------------------------------------------------------- 桌宠悬浮窗（pet-overlay）
+
+/// supervisor 在内核握手成功后记录 base origin（无 fragment）；猫窗 URL 由它构造。
+pub fn set_pet_overlay_origin(origin: String) {
+    let _ = PET_OVERLAY_ORIGIN.set(origin);
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PetOverlayGeometry {
+    x: i32,
+    y: i32,
+    #[serde(default = "default_pet_scale")]
+    scale: f64,
+}
+
+fn default_pet_scale() -> f64 { 1.0 }
+
+fn pet_geometry_path(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join("pet-overlay.json"))
+        .map_err(|error| format!("failed to resolve app data dir: {error}"))
+}
+
+fn load_pet_geometry(app: &AppHandle) -> Option<PetOverlayGeometry> {
+    let raw = std::fs::read_to_string(pet_geometry_path(app).ok()?).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// 保存猫窗位置；失败静默（装饰性功能，绝不影响主流程）。
+fn save_pet_overlay_geometry(app: &AppHandle, x: i32, y: i32, scale: f64) {
+    let Some(path) = pet_geometry_path(app).ok() else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let payload = serde_json::to_string(&PetOverlayGeometry { x, y, scale }).unwrap_or_default();
+    let _ = std::fs::write(path, payload);
+}
+
+/// 窗口事件路径的保存入口（CloseRequested 时调用）。
+pub fn save_pet_overlay_geometry_for_window(window: &WebviewWindow) {
+    if let Ok(position) = window.outer_position() {
+        let scale = window.inner_size().ok().zip(window.scale_factor().ok())
+            .map(|(size, dpi)| (f64::from(size.width) / dpi / PET_OVERLAY_SIZE.0).clamp(0.6, 1.8))
+            .unwrap_or(1.0);
+        save_pet_overlay_geometry(window.app_handle(), position.x, position.y, scale);
+    }
+}
+
+fn clamp_pet_position(app: &AppHandle, x: i32, y: i32, scale: f64) -> (i32, i32) {
+    let monitor = app.available_monitors().ok().and_then(|monitors| {
+        monitors.into_iter().find(|monitor| {
+            let p = monitor.position();
+            let s = monitor.size();
+            i64::from(x) >= i64::from(p.x) && i64::from(y) >= i64::from(p.y)
+                && i64::from(x) < i64::from(p.x) + i64::from(s.width)
+                && i64::from(y) < i64::from(p.y) + i64::from(s.height)
+        })
+    }).or_else(|| app.primary_monitor().ok().flatten());
+    let Some(monitor) = monitor else {
+        return (x, y);
+    };
+    let position = &monitor.work_area().position;
+    let size = &monitor.work_area().size;
+    let (monitor_x, monitor_y) = (position.x, position.y);
+    let (monitor_w, monitor_h) = (size.width as i32, size.height as i32);
+    let dpi = monitor.scale_factor();
+    let margin = (16.0 * dpi) as i32;
+    let max_x = monitor_x + monitor_w - (PET_OVERLAY_SIZE.0 * scale * dpi).ceil() as i32 - margin;
+    let max_y = monitor_y + monitor_h - (PET_OVERLAY_SIZE.1 * scale * dpi).ceil() as i32 - margin;
+    (
+        x.clamp(monitor_x + margin, max_x.max(monitor_x + margin)),
+        y.clamp(monitor_y + margin, max_y.max(monitor_y + margin)),
+    )
+}
+
+fn default_pet_position(app: &AppHandle, scale: f64) -> (i32, i32) {
+    let Some(monitor) = app.primary_monitor().ok().flatten() else {
+        return (120, 120);
+    };
+    let position = monitor.position();
+    let size = monitor.size();
+    let dpi = monitor.scale_factor();
+    clamp_pet_position(app,
+        position.x + size.width as i32 - ((PET_OVERLAY_SIZE.0 * scale + 48.0) * dpi).ceil() as i32,
+        position.y + size.height as i32 - ((PET_OVERLAY_SIZE.1 * scale + 96.0) * dpi).ceil() as i32,
+        scale)
+}
+
+pub fn set_pet_overlay_value(app: &AppHandle, visible: bool) -> Result<bool, String> {
+    set_pet_overlay_scaled(app, visible, None)
+}
+
+pub fn publish_pet_visibility(app: &AppHandle, visible: bool) {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.eval(format!("window.dispatchEvent(new CustomEvent('514cc:pet-visibility',{{detail:{{visible:{visible}}}}}))"));
+    }
+}
+
+fn set_pet_overlay_scaled(app: &AppHandle, visible: bool, scale: Option<f64>) -> Result<bool, String> {
+    let _operation = PET_WINDOW_OPERATION.lock().map_err(|_| "pet window operation lock poisoned")?;
+    let scale = scale.filter(|value| value.is_finite()).map(|value| value.clamp(0.6, 1.8));
+    if !visible {
+        if let Some(window) = app.get_webview_window(PET_OVERLAY_LABEL) {
+            save_pet_overlay_geometry_for_window(&window);
+            window.destroy().map_err(|error| error.to_string())?;
+        }
+        publish_pet_visibility(app, false);
+        return Ok(false);
+    }
+    if let Some(window) = app.get_webview_window(PET_OVERLAY_LABEL) {
+        if let Some(scale) = scale {
+            window.set_size(tauri::LogicalSize::new(PET_OVERLAY_SIZE.0 * scale, PET_OVERLAY_SIZE.1 * scale)).map_err(|error| error.to_string())?;
+            if let Ok(position) = window.outer_position() {
+                let (x, y) = clamp_pet_position(app, position.x, position.y, scale);
+                window.set_position(tauri::PhysicalPosition::new(x, y)).map_err(|error| error.to_string())?;
+            }
+        }
+        window.show().map_err(|error| error.to_string())?;
+        publish_pet_visibility(app, true);
+        return Ok(true);
+    }
+    let origin = PET_OVERLAY_ORIGIN
+        .get()
+        .ok_or_else(|| "kernel origin is unavailable before handshake".to_string())?;
+    let url: tauri::Url = format!("{origin}/pet")
+        .parse()
+        .map_err(|error| format!("invalid pet overlay url: {error}"))?;
+    let saved = load_pet_geometry(app);
+    let scale = scale.or_else(|| saved.as_ref().map(|geometry| geometry.scale))
+        .filter(|value| value.is_finite()).unwrap_or(1.0).clamp(0.6, 1.8);
+    let (x, y) = match saved {
+        Some(geometry) => clamp_pet_position(app, geometry.x, geometry.y, scale),
+        None => default_pet_position(app, scale),
+    };
+    let window = WebviewWindowBuilder::new(app, PET_OVERLAY_LABEL, WebviewUrl::External(url))
+        .title("514 Pet")
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .focused(false)
+        .resizable(false)
+        .shadow(false)
+        .inner_size(PET_OVERLAY_SIZE.0 * scale, PET_OVERLAY_SIZE.1 * scale)
+        .visible(false)
+        .build()
+        .map_err(|error| format!("failed to build pet overlay window: {error}"))?;
+    let prepare = || -> tauri::Result<()> {
+        window.set_position(tauri::PhysicalPosition::new(x, y))?;
+        // 默认点击穿透；互动模式由猫页切换。
+        window.set_ignore_cursor_events(true)?;
+        window.show()
+    };
+    if let Err(error) = prepare() {
+        let _ = window.destroy();
+        return Err(error.to_string());
+    }
+    publish_pet_visibility(app, true);
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn set_pet_overlay(app: AppHandle, visible: bool, scale: Option<f64>) -> Result<bool, String> {
+    // WebView2 construction must not block a synchronous IPC/event callback.
+    tauri::async_runtime::spawn_blocking(move || set_pet_overlay_scaled(&app, visible, scale))
+        .await.map_err(|error| error.to_string())?
+}
+
+pub fn pet_overlay_visible(app: &AppHandle) -> bool {
+    app.get_webview_window(PET_OVERLAY_LABEL)
+        .map(|window| window.is_visible().unwrap_or(false))
+        .unwrap_or(false)
+}
+
 pub fn hide_forge_window(app: &AppHandle) -> Result<(), String> {
     let Some(window) = app.get_webview_window("main") else {
         return Ok(());
@@ -391,6 +574,14 @@ pub fn install_tray(app: &AppHandle) -> Result<(), String> {
         None::<&str>,
     )
     .map_err(|error| error.to_string())?;
+    let pet_item = MenuItem::with_id(
+        app,
+        "pet_overlay_toggle",
+        "宠物猫 显示/隐藏",
+        true,
+        None::<&str>,
+    )
+    .map_err(|error| error.to_string())?;
     let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)
         .map_err(|error| error.to_string())?;
 
@@ -400,6 +591,8 @@ pub fn install_tray(app: &AppHandle) -> Result<(), String> {
         .separator()
         .item(&auto_launch_item)
         .item(&lightweight_item)
+        .separator()
+        .item(&pet_item)
         .separator()
         .item(&quit_item)
         .build()
@@ -459,6 +652,14 @@ pub fn install_tray(app: &AppHandle) -> Result<(), String> {
                         eprintln!("failed to change lightweight mode: {error}");
                     }
                 }
+            }
+            "pet_overlay_toggle" => {
+                let app = app.clone();
+                tauri::async_runtime::spawn_blocking(move || {
+                    if let Err(error) = set_pet_overlay_value(&app, !pet_overlay_visible(&app)) {
+                        eprintln!("failed to toggle pet overlay from tray: {error}");
+                    }
+                });
             }
             "quit" => app.exit(0),
             _ => {}
@@ -725,10 +926,7 @@ mod tests {
         assert_eq!(capability["identifier"], "ccswitch-native-bridge");
         assert_eq!(capability["local"], false);
         assert_eq!(capability["windows"], serde_json::json!(["main"]));
-        assert_eq!(
-            capability["remote"]["urls"],
-            serde_json::json!(["http://127.0.0.1:51400/*"])
-        );
+        assert_eq!(capability["remote"]["urls"], serde_json::json!([]));
         assert_eq!(
             capability["permissions"],
             serde_json::json!(expected_permissions)

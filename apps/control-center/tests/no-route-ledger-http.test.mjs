@@ -8,9 +8,7 @@ import { spawnTestServer, stopTestServer, waitForUrl } from "./server-fixture.mj
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 const sourceRepo = resolve(appRoot, "../..");
 
-// 复刻 2026-08-19 current-research 60 连发的故障形态：current-grok 硬约束下
-// grok-search 不健康 → NO_ROUTE。这里用「清空凭据引用」把它钉死在 unconfigured 档，
-// 验证三件事：错误文案带原因、HTTP 响应带 candidates、账本 server.error 落盘排除明细。
+// An unavailable research harness must expose the reason in HTTP and the ledger.
 async function createIsolatedRepo(root) {
   const repoRoot = resolve(root, "repo");
   const configRoot = resolve(repoRoot, "config/control-center");
@@ -35,6 +33,7 @@ async function createIsolatedRepo(root) {
   for (const profile of models.profiles) {
     // 健康探针只执行 `<command> --version`；统一用当前 Node，避免测试依赖宿主机安装任一付费 CLI。
     if (profile.command) profile.command = process.execPath;
+    if (profile.id === "codex-technical") profile.command = resolve(root, "unavailable-codex.exe");
   }
   await Promise.all([
     writeFile(modelsPath, `${JSON.stringify(models, null, 2)}\n`, "utf8"),
@@ -59,10 +58,6 @@ test("NO_ROUTE carries per-seat blockers in message, response and events ledger"
     CONTROL_CENTER_DATA_DIR: dataRoot,
     CONTROL_CENTER_TEST_REPO_ROOT: repoRoot,
     CONTROL_CENTER_PORT: "0",
-    // 置空而非删除：GrokMcpAdapter.health() 对空串按缺失处理，钉死 unconfigured 档且不拉起 codex
-    GROK_SEARCH_RS_COMPAT_API_URL: "",
-    GROK_SEARCH_RS_COMPAT_API_KEY: "",
-    GROK_SEARCH_RS_COMPAT_MODEL: "",
   } });
   t.after(async () => {
     if (child.exitCode == null && child.signalCode == null) await stopTestServer(child, { token });
@@ -79,14 +74,14 @@ test("NO_ROUTE carries per-seat blockers in message, response and events ledger"
   assert.equal(response.status, 422);
   assert.equal(payload.error.code, "NO_ROUTE");
   assert.match(payload.error.message, /^no healthy provider can satisfy current-research/);
-  assert.match(payload.error.message, /grok-search: missing credential references: GROK_SEARCH_RS_COMPAT_/);
+  assert.match(payload.error.message, /codex-technical:/);
 
-  const responseCandidate = payload.error.candidates?.find((candidate) => candidate.id === "grok-search");
+  const responseCandidate = payload.error.candidates?.find((candidate) => candidate.id === "codex-technical");
   assert.ok(responseCandidate, "HTTP 响应必须带 candidates 明细");
   assert.equal(responseCandidate.excluded, true);
   assert.ok(
-    responseCandidate.excludedReasons.some((reason) => reason.includes("missing credential references")),
-    "grok-search 的排除原因必须如实给出缺哪个凭据引用",
+    responseCandidate.excludedReasons.some((reason) => /unavailable-codex|not found|ENOENT|installed/i.test(reason)),
+    "missing research harness must be visible in the exclusion reason",
   );
 
   const ledger = await readFile(resolve(dataRoot, "events.jsonl"), "utf8");
@@ -94,10 +89,10 @@ test("NO_ROUTE carries per-seat blockers in message, response and events ledger"
     .map((line) => JSON.parse(line))
     .filter((event) => event.type === "server.error");
   assert.ok(errors.length >= 1, "server.error 必须进账本");
-  const ledgerCandidate = errors[errors.length - 1].data.candidates?.find((candidate) => candidate.id === "grok-search");
+  const ledgerCandidate = errors[errors.length - 1].data.candidates?.find((candidate) => candidate.id === "codex-technical");
   assert.ok(ledgerCandidate, "账本 server.error 必须落盘 candidates 排除明细");
   assert.equal(ledgerCandidate.excluded, true);
   assert.ok(
-    ledgerCandidate.reasons.some((reason) => reason.includes("missing credential references")),
+    ledgerCandidate.reasons.some((reason) => /unavailable-codex|not found|ENOENT|installed/i.test(reason)),
   );
 });

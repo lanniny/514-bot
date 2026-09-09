@@ -31,6 +31,44 @@ function actionHash(message) {
 }
 
 /**
+ * 回程摘要（v50 · 2026-09-04）——把**实际回灌给子进程的那个对象**摘进账本。
+ *
+ * ── 缺口 ──
+ * `actionSha256` 只摘入站 `{method, params}`。终态事件记的 `decision: "approve"|"deny"`
+ * 是操作者**意图的抽象**，而子进程真正收到的是 `responseFor()` 造出的线上对象
+ * （v2 家族 `{decision:"accept",approvalId}` / legacy `{decision:"approved"}` /
+ * 宽权限拒绝 `{permissions:{},scope:"turn"}`）。二者从 `decision` 各自独立派生，
+ * **从不交叉核对** —— 账本记意图、线上走实体，中间没有任何一步把它们对上。
+ *
+ * 这不是假想缺陷。本文件上游 `approval-methods.mjs` 头部记录的烛实测就是这条缝的
+ * 一次具体命中：浅冻结下运行时 `spec.approvable = true`，即可让宽权限授予回灌
+ * `{write:true,network:true}` 而账本仍记 `decision:"deny"`。deepFreeze 补掉了那**一个**
+ * 入口，但"账本与线上可以不一致且无人发现"这个**形状**仍在（任何篡改 responseFor
+ * 取值链的路径都能重现）。
+ *
+ * ── 治法 ──
+ * 事后加校验没有意义（校验代码与被校验代码同源，一起被改就一起失效）。
+ * 改成结构上只算一次：resolve() 先 `responseFor()` 拿到唯一的回灌对象，摘它得
+ * `responseSha256` 入账，然后**放行同一个对象引用**。账本里的摘要与线上收到的字节
+ * 因此同源 —— 不是"校验过一致"，是"没有第二个可以不一致的东西"。
+ *
+ * 键序稳定化：JSON.stringify 依赖属性插入序，构造器写法不同会让同一语义摘出不同值。
+ * 排序后再摘，使摘要只反映内容。
+ */
+function responseHash(response) {
+  if (response === undefined) return null;
+  return createHash("sha256").update(stableStringify(response)).digest("hex");
+}
+
+/** 键序无关的 JSON 序列化（仅用于摘要，不用于线上传输）。 */
+function stableStringify(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+}
+
+/**
  * 线格式派发：委托 `approval-methods.mjs` 的单一真相表。
  *
  * 2026-09-04 起本函数不再自己维护方法→线格式的映射（原为三处手写之一，与
@@ -129,6 +167,13 @@ export class ApprovalBroker {
 
   scheduleExpiry(id, item) {
     const remainingMs = Math.max(0, Date.parse(item.expiresAt) - Date.now());
+    // 这个定时器**刻意不 unref**（与 #audit 的超时器不同，那个可以）。
+    // 2026-09-04 试过 unref 以避免"没走 denyAll 就退出时被挂满 TTL"，实测证明
+    // 那是危险的：unref 后若进程只剩一个"在等审批结果"的 promise，事件循环
+    // 就认为无事可做，TTL **永不触发** —— fail-closed 的时限保证从
+    // "最多 ttlMs" 退化成 "可能永远悬着"。
+    // 生产路径靠 denyAll 清理（app-close.test.mjs 锁死关停顺序）；
+    // 测试里请显式 denyAll，不要靠改这里来加快退出。
     item.timer = setTimeout(() => void this.expire(id, item), remainingMs);
   }
 
@@ -136,11 +181,21 @@ export class ApprovalBroker {
     if (this.pending.get(id) !== item || item.status !== "pending") return;
     item.status = "resolving";
     clearTimeout(item.timer);
+    // 与 resolve() 同构：先构造唯一的回灌对象，摘它入账，再原样放行。
+    const wireResponse = responseFor(item.method, false);
     try {
       await this.eventStore.emit(
         "approval.expired",
         // actor 三件套与 resolve/deny* 对齐：过期不是"没人决策"，而是系统按策略拒绝。
-        { id, actionSha256: item.actionSha256, decision: "deny", actor: "ttl-expiry", actorSource: "internal", clientActor: null },
+        {
+          id,
+          actionSha256: item.actionSha256,
+          responseSha256: responseHash(wireResponse),
+          decision: "deny",
+          actor: "ttl-expiry",
+          actorSource: "internal",
+          clientActor: null,
+        },
         { runId: item.runId, sessionId: item.sessionId, agentId: "codex-technical" },
       );
     } catch {
@@ -149,7 +204,7 @@ export class ApprovalBroker {
     if (this.pending.get(id) !== item) return;
     this.pending.delete(id);
     this.revision += 1;
-    item.resolve(responseFor(item.method, false));
+    item.resolve(wireResponse);
   }
 
   async request(message, context = {}) {
@@ -222,10 +277,13 @@ export class ApprovalBroker {
     const auditActor = auditText(actor, "operator", 64);
     const auditSource = auditText(actorSource, "self-asserted", 64);
     const auditClientActor = auditText(clientActor, null, 128);
-    // responseFor 在这里是**校验闸门**而不是取值：某些审批类型（宽权限授予）根本不允许被批准。
-    // 它的返回值下面用不到，但它的抛错是关键路径 —— 不要当死代码删掉。
+    // responseFor 在这里既是**校验闸门**又是**唯一取值点**（v50）：
+    //   · 校验：某些审批类型（宽权限授予）根本不允许被批准，抛错走下方策略性拒绝分支
+    //   · 取值：拿到的 wireResponse 就是最终回灌给子进程的那个对象引用，
+    //           摘要入账后**原样放行**，不再第二次构造 —— 见 responseHash() 的说明。
+    let wireResponse;
     try {
-      responseFor(item.method, approved);
+      wireResponse = responseFor(item.method, approved, id);
     } catch (error) {
       // 不可批准的请求不能被"批准"，但也不能让 agent 干等到 TTL 才拿到答复。
       // 走与超时/撤销同一条策略性拒绝路径立即结算，同时把原因抛回给操作者。
@@ -233,12 +291,16 @@ export class ApprovalBroker {
       item.status = "resolving";
       this.pending.delete(id);
       this.revision += 1;
-      item.resolve(responseFor(item.method, false, id));
+      // 这条分支恰好是宽权限授予实际走的路径 —— 最需要账本的一条，
+      // 所以同样只构造一次：摘要与放行同源。
+      const declineResponse = responseFor(item.method, false, id);
+      item.resolve(declineResponse);
       this.eventStore.emit(
         "approval.resolved",
         {
           id,
           actionSha256: item.actionSha256,
+          responseSha256: responseHash(declineResponse),
           decision: "deny",
           actor: "control-plane",
           actorSource: "policy",
@@ -254,7 +316,16 @@ export class ApprovalBroker {
     try {
       await this.#audit(
         "approval.resolved",
-        { id, actionSha256: item.actionSha256, decision, actor: auditActor, actorSource: auditSource, clientActor: auditClientActor },
+        {
+          id,
+          actionSha256: item.actionSha256,
+          // 回程摘要与下方 item.resolve() 放行的是同一个对象引用，中间无第二次构造。
+          responseSha256: responseHash(wireResponse),
+          decision,
+          actor: auditActor,
+          actorSource: auditSource,
+          clientActor: auditClientActor,
+        },
         { runId: item.runId, sessionId: item.sessionId, agentId: "codex-technical", sensitivity: "sensitive" },
       );
     } catch (error) {
@@ -270,11 +341,14 @@ export class ApprovalBroker {
     }
     this.pending.delete(id);
     this.revision += 1;
-    item.resolve(responseFor(item.method, approved, id));
+    // 放行**已被摘要的那个对象**。这里若改回 responseFor(...) 重新构造，
+    // 账本与线上就又成了两个可以各自演化的东西 —— v50 修的正是这一点。
+    item.resolve(wireResponse);
     return {
       id,
       decision,
       actionSha256: item.actionSha256,
+      responseSha256: responseHash(wireResponse),
       runId: item.runId,
       method: item.method,
     };
@@ -284,18 +358,33 @@ export class ApprovalBroker {
     for (const [id, item] of this.pending) {
       clearTimeout(item.timer);
       item.status = "resolving";
+      // 构造在 emit 之前：拒绝形态构造失败时 responseSha256 记 null，
+      // 账本如实反映"这一条没有成功回灌任何东西"，而不是记一个从未上线的摘要。
+      let wireResponse;
+      let constructError = null;
+      try {
+        wireResponse = responseFor(item.method, false);
+      } catch (error) {
+        constructError = error;
+      }
       // actionSha256 补齐后，三类终态事件（resolved / denied / expired）形状一致，
       // 下游按字段解析不会再拿到 undefined。
       await this.eventStore.emit(
         "approval.resolved",
-        { id, actionSha256: item.actionSha256, decision: "deny", reason, actor: "control-plane", actorSource: "internal", clientActor: null },
+        {
+          id,
+          actionSha256: item.actionSha256,
+          responseSha256: constructError ? null : responseHash(wireResponse),
+          decision: "deny",
+          reason,
+          actor: "control-plane",
+          actorSource: "internal",
+          clientActor: null,
+        },
         { runId: item.runId, sessionId: item.sessionId, agentId: "codex-technical" },
       ).catch(() => {});
-      try {
-        item.resolve(responseFor(item.method, false));
-      } catch (error) {
-        item.reject(error);
-      }
+      if (constructError) item.reject(constructError);
+      else item.resolve(wireResponse);
       this.pending.delete(id);
       this.revision += 1;
     }
@@ -306,16 +395,29 @@ export class ApprovalBroker {
       if (item.runId !== runId) continue;
       clearTimeout(item.timer);
       item.status = "resolving";
+      let wireResponse;
+      let constructError = null;
+      try {
+        wireResponse = responseFor(item.method, false);
+      } catch (error) {
+        constructError = error;
+      }
       await this.eventStore.emit(
         "approval.resolved",
-        { id, actionSha256: item.actionSha256, decision: "deny", reason, actor: "control-plane", actorSource: "internal", clientActor: null },
+        {
+          id,
+          actionSha256: item.actionSha256,
+          responseSha256: constructError ? null : responseHash(wireResponse),
+          decision: "deny",
+          reason,
+          actor: "control-plane",
+          actorSource: "internal",
+          clientActor: null,
+        },
         { runId, sessionId: item.sessionId, agentId: "control-plane" },
       ).catch(() => {});
-      try {
-        item.resolve(responseFor(item.method, false));
-      } catch (error) {
-        item.reject(error);
-      }
+      if (constructError) item.reject(constructError);
+      else item.resolve(wireResponse);
       this.pending.delete(id);
       this.revision += 1;
     }

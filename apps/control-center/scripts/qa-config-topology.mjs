@@ -1,16 +1,30 @@
 #!/usr/bin/env node
 
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { chromium } from "playwright";
 
 const appRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(appRoot, "..", "..");
+// 产物（png + report.json）留在仓库内 —— 它们是给人看的证据，路径必须稳定。
 const outputRoot = resolve(appRoot, ".qa-output", "config-topology");
-const dataRoot = resolve(outputRoot, "runtime");
-const runtimeHome = resolve(outputRoot, "runtime-home");
+// 运行时 fixture 走系统临时目录，与 qa-ui-fixture.mjs / qa-config-walkthrough.mjs 一致。
+//
+// 为什么不能沿用 .qa-output 下的固定路径（2026-09-05 实测）：烛(Codex CLI) 在沙箱里跑过
+// 这套 QA 后，`.qa-output/config-topology/runtime-home/.claude.json` 的属主变成
+// `LANNINY\CodexSandboxOnl...`，当前用户连 `Get-Acl` / `icacls` 都被拒（文件属性是正常的
+// Archive，**不是** ReadOnly —— 此前记录的「只读 fixture 残留」这个说法不成立）。
+// 于是每次启动的 `writeJson(claudeConfigPath, ...)` 都 EPERM，整套 QA 在第 48 行就崩，
+// 配置页从此拿不到独立交叉验证。
+//
+// 「启动时先 rm 清残留」这条修法已被实测判死：当前用户（非管理员，takeown 亦被拒）
+// 连删都删不掉，那只会把 EPERM 从 open 移到 unlink。唯一根治是不再依赖被占用的路径。
+const fixtureRoot = await mkdtemp(join(tmpdir(), "514cc-qa-config-topology-"));
+const dataRoot = resolve(fixtureRoot, "runtime");
+const runtimeHome = resolve(fixtureRoot, "runtime-home");
 const capabilityConfigPath = resolve(dataRoot, "agent-capabilities.json");
 const quarantinePath = resolve(dataRoot, "mcp-quarantine.json");
 const claudeConfigPath = resolve(runtimeHome, ".claude.json");
@@ -234,8 +248,8 @@ async function assertSurface(page, surface) {
         .map((tab) => tab.dataset.configSurface),
       bodyOverflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - innerWidth,
       mainContentOverflow: mainContent ? mainContent.scrollWidth - mainContent.clientWidth : null,
-      providerTitleWidth: document.querySelector("#provider-deck-title")?.getBoundingClientRect().width ?? null,
-      providerControlsOffscreen: expected === "sources"
+      providerOwner: document.querySelector("#runtime-connection-deck")?.closest("[data-config-surface-panel]")?.id,
+      providerControlsOffscreen: expected === "providers"
         ? [...document.querySelectorAll(".provider-deck-heading button, .provider-deck-heading select")]
             .filter((control) => control instanceof HTMLElement && control.offsetParent !== null)
             .filter((control) => {
@@ -257,8 +271,8 @@ async function assertSurface(page, surface) {
   if (snapshot.mainContentOverflow == null || snapshot.mainContentOverflow > 2) {
     throw new Error(`main content horizontal overflow: ${JSON.stringify(snapshot)}`);
   }
-  if (surface === "sources" && snapshot.providerTitleWidth < Math.min(180, page.viewportSize().width * 0.6)) {
-    throw new Error(`provider heading was squeezed: ${JSON.stringify(snapshot)}`);
+  if (snapshot.providerOwner !== "config-surface-providers") {
+    throw new Error(`provider owner mismatch: ${JSON.stringify(snapshot)}`);
   }
   if (snapshot.providerControlsOffscreen.length) throw new Error(`provider controls are offscreen: ${JSON.stringify(snapshot)}`);
   return snapshot;
@@ -268,7 +282,7 @@ async function inspect(name, viewport, theme) {
   const { page, errors } = await openPage({ viewport, theme, route: "config/sources" });
   await waitForTopology(page);
   const screenshots = [];
-  for (const surface of ["sources", "capabilities", "hooks", "local-runtime"]) {
+  for (const surface of ["sources", "providers", "capabilities", "hooks", "local-runtime"]) {
     await page.locator(`[data-config-surface="${surface}"]`).click();
     await assertSurface(page, surface);
     if (surface === "local-runtime") await page.waitForSelector("#ccswitch-workbench .ccs-tabs");
@@ -352,7 +366,11 @@ async function inspectFaultDomainIsolation() {
     requireQa(Boolean(skillToken), "no writable Skill checkbox was available for an end-to-end mutation");
     requireQa(await skillToggle.isChecked(), "fresh capability fixture should start with the selected Skill enabled", { skillToken });
     const skillMutationPromise = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/capabilities/agent-skill" && response.request().method() === "PUT");
-    await skillToggle.click();
+    // 点 label 而非 input：矩阵里的 checkbox 是 opacity:0 + pointer-events:none 的
+    // 视觉隐藏元素（实测 rect 0×0），可见控件是 label 内的 .cap-toggle-indicator。
+    // 直接点 input 既 "outside of the viewport"，force 点也不触发 change ——
+    // 表现为 waitForResponse 干等 30s 超时，看不出是选择器的问题。
+    await page.locator(`label.cap-cell-toggle:has([data-skill-toggle="${skillToken}"])`).click();
     const skillMutation = await skillMutationPromise;
     requireQa(skillMutation.ok(), `Skill mutation failed with HTTP ${skillMutation.status()}`);
     await page.waitForFunction((token) => {
@@ -430,6 +448,132 @@ async function inspectFaultDomainIsolation() {
   findings.push({ name: "capability-fault-domain-isolation", cases, errors });
 }
 
+// ── 首屏 chrome 预算（棘轮门禁）────────────────────────────────────────────
+// 为什么不维护 chrome 类名清单：清单对 **JS 运行时渲染** 的 chrome 完全失明。
+// 2026-09-05 实测教训——hooks 面有四层 chrome（hooks-heading 96 + hooks-stores 68
+// + search-field 33 + hooks-toolbar 57 = 254px，由 modules/hooks-panel.js:374-400
+// 注入），而清单里没有任何 hooks-* 类名，于是 `#hooks-workbench` 这个容器本身
+// 被当成"第一个非 chrome 块"，产出 21.4% —— 与更早一版把整个 panel 当正文块的
+// 假探针**同值**。同一个 bug 发作两次，都没被数字异常暴露。
+//
+// 反转标记方向后定义上完备：ratio = 活跃 panel 内第一个可见 [data-surface-body]
+// 的 top ÷ innerHeight，chrome ≡ 锚点之上的一切。新增 chrome 只有两种落点——
+// 锚点之上 → 实测值上升 → 棘轮抓住；锚点之下 → 按定义它就是正文。
+// 不需要任何人记得往清单里补一行，这才是机械承载。
+//
+// 基线外置在 scripts/chrome-budget-baseline.json：期望值来自人审过的 commit diff，
+// 不来自被测代码自己（避开"拿表验表"）。判定三条：
+//   ① 不许退化：ratio > high + regressionTolerance
+//   ② 超目标须挂账：high > goal 且无 debt 字段
+//   ③ 余量过大须收紧：high - ratio > slackBeforeTighten（防基线留陈旧空头额度）
+const CHROME_BUDGET_BASELINE_PATH = resolve(appRoot, "scripts", "chrome-budget-baseline.json");
+const CHROME_BUDGET_SURFACES = ["sources", "capabilities", "hooks", "local-runtime"];
+const CHROME_BUDGET_VIEWPORTS = [{ width: 1600, height: 1000 }, { width: 1440, height: 900 }, { width: 1280, height: 800 }];
+const CAPABILITY_BUS_OPEN_KEY = "514cc-capability-bus-open-v1";
+
+async function measureChromeRatio(page) {
+  await page.evaluate(() => window.scrollTo(0, 0));
+  return page.evaluate(() => {
+    // config-toolbar 是 sticky——未回到顶部时几何量会偏，先自证 scrollY。
+    if (window.scrollY !== 0) return { error: `scrollY=${window.scrollY}，未回到顶部` };
+    const panels = [...document.querySelectorAll("[data-config-surface-panel]")].filter((node) => !node.hidden);
+    if (panels.length !== 1) return { error: `活跃 panel 数=${panels.length}，应恰好 1 个` };
+    const bodies = [...panels[0].querySelectorAll("[data-surface-body]")]
+      .filter((node) => node.getBoundingClientRect().height > 0);
+    // fail-closed：锚点被删/重构丢失时必须报错，不许静默退化成恒真。
+    if (!bodies.length) return { error: "找不到可见的 [data-surface-body] 正文锚点" };
+    const rect = bodies[0].getBoundingClientRect();
+    const chrome = [];
+    let node = bodies[0];
+    while (node && node !== panels[0]) {
+      let sibling = node.previousElementSibling;
+      while (sibling) {
+        const box = sibling.getBoundingClientRect();
+        if (box.height > 0) chrome.unshift(`${(sibling.className && sibling.className.toString().split(" ")[0]) || sibling.tagName}:${box.height.toFixed(0)}`);
+        sibling = sibling.previousElementSibling;
+      }
+      node = node.parentElement;
+    }
+    return { ratio: Number((rect.top / window.innerHeight).toFixed(4)), top: Number(rect.top.toFixed(1)), chrome };
+  });
+}
+
+async function inspectChromeBudget() {
+  const errors = [];
+  const cases = [];
+  let baseline;
+  try {
+    baseline = JSON.parse(await readFile(CHROME_BUDGET_BASELINE_PATH, "utf8"));
+  } catch (error) {
+    findings.push({ name: "chrome-budget", errors: [`基线不可读：${error.message}（先跑 node scripts/qa-config-topology.mjs --update-chrome-baseline）`] });
+    return;
+  }
+  const goal = baseline.goal ?? 0.4;
+  const tolerance = baseline.regressionTolerance ?? 0.005;
+  const slack = baseline.slackBeforeTighten ?? 0.05;
+  const refresh = process.argv.includes("--update-chrome-baseline");
+  const measured = {};
+
+  for (const busOpen of [true, false]) {
+    const { page } = await openPage({ viewport: CHROME_BUDGET_VIEWPORTS[0], theme: "light", route: "config/sources" });
+    try {
+      // 钉死 capability-bus 状态：不钉死则 capabilities 基线在两个值间摆动，棘轮失效。
+      await page.evaluate(({ key, open }) => {
+        try { localStorage.setItem(key, open ? "1" : "0"); } catch { /* 隐私模式下忽略 */ }
+      }, { key: CAPABILITY_BUS_OPEN_KEY, open: busOpen });
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.waitForSelector("#api-connection-badge.is-ok", { timeout: 30_000 });
+      await waitForTopology(page);
+
+      for (const viewport of CHROME_BUDGET_VIEWPORTS) {
+        await page.setViewportSize(viewport);
+        for (const surface of CHROME_BUDGET_SURFACES) {
+          await page.locator(`[data-config-surface="${surface}"]`).click();
+          if (surface === "local-runtime") await page.waitForSelector("#ccswitch-workbench .ccs-tabs");
+          if (surface === "hooks") await page.waitForSelector("#hooks-workbench .hooks-heading");
+          if (surface === "capabilities") await page.waitForSelector("#cap-skills-body tr");
+          const key = `${surface}@${viewport.width}x${viewport.height}@bus-${busOpen ? "open" : "closed"}`;
+          const result = await measureChromeRatio(page);
+          if (result.error) { errors.push(`${key}: ${result.error}`); continue; }
+          measured[key] = result;
+          if (refresh) continue;
+          const entry = baseline.faces?.[key];
+          if (!entry) { errors.push(`${key}: 基线缺此组合 —— 新增面/视口必须显式登记`); continue; }
+          if (result.ratio > entry.high + tolerance) {
+            errors.push(`${key}: chrome 占比退化 ${(entry.high * 100).toFixed(1)}% → ${(result.ratio * 100).toFixed(1)}%（新增 ${((result.ratio - entry.high) * 100).toFixed(1)} 个百分点）｜当前 chrome: ${result.chrome.join(" + ")}`);
+          }
+          if (entry.high > goal && !entry.debt) {
+            errors.push(`${key}: 基线 ${(entry.high * 100).toFixed(1)}% 超目标 ${(goal * 100).toFixed(0)}% 却未挂 debt 说明`);
+          }
+          if (entry.high - result.ratio > slack) {
+            errors.push(`${key}: 预算已有 ${((entry.high - result.ratio) * 100).toFixed(1)} 个百分点余量，请跑 --update-chrome-baseline 收紧（陈旧空头额度会让门禁名存实亡）`);
+          }
+          cases.push({ key, ratio: result.ratio, baseline: entry.high, goal, top: result.top, chrome: result.chrome, debt: entry.debt ?? null });
+        }
+      }
+    } finally {
+      await page.close();
+    }
+  }
+
+  if (refresh) {
+    const faces = {};
+    for (const [key, value] of Object.entries(measured)) {
+      const previous = baseline.faces?.[key] ?? {};
+      const next = { high: value.ratio, chrome: value.chrome };
+      if (value.ratio > goal) next.debt = previous.debt ?? "待压缩（刷新基线时未给说明）";
+      faces[key] = next;
+    }
+    await writeFile(CHROME_BUDGET_BASELINE_PATH, `${JSON.stringify({ ...baseline, updatedAt: new Date().toISOString(), faces }, null, 2)}\n`, "utf8");
+    process.stdout.write(`chrome 预算基线已刷新：${Object.keys(faces).length} 个组合\n`);
+    findings.push({ name: "chrome-budget", cases: Object.entries(measured).map(([key, v]) => ({ key, ratio: v.ratio })), errors: [] });
+    return;
+  }
+
+  findings.push({ name: "chrome-budget", cases, errors });
+}
+
+
 try {
   bootstrapUrl = await waitForBootstrapUrl();
   origin = new URL(bootstrapUrl).origin;
@@ -440,6 +584,7 @@ try {
   await inspect("mobile", { width: 390, height: 844 }, "dark");
   await inspectLegacyAlias();
   await inspectFaultDomainIsolation();
+  await inspectChromeBudget();
 
   const report = {
     ok: findings.every((entry) => entry.errors.length === 0),
@@ -456,7 +601,9 @@ try {
     try {
       await stopQaServer();
     } finally {
-      await resetFaultDomainFixtures();
+      // fixtureRoot 是本次运行独占的临时目录，直接整体删掉即可 —— 不再需要
+      // resetFaultDomainFixtures() 把内容写回"干净态"给下一次运行复用。
+      await rm(fixtureRoot, { recursive: true, force: true });
     }
   }
 }

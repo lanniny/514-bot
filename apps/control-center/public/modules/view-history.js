@@ -2,10 +2,15 @@
  * 顶栏 ‹ › 双栈：纯函数，不碰 DOM。
  * setView 全程 replaceState，浏览器历史不涨，这里自养后退/前进。
  */
+import { botWorkspaceRoute, readBotWorkspaceRoute } from "./bot-workspace-route.js";
+import { automationRouteHash } from "./automations-page.js";
 export const VIEW_HISTORY_LIMIT = 50;
 
 export function routeKey(route) {
   if (!route?.view) return "";
+  if (route.view === "automations") return `automations|${automationRouteHash(route.automationHash)}`;
+  const workspaceHash = route.botWorkspaceHash || route.experienceHash;
+  if (route.view === "experience" || (route.view === "bot" && workspaceHash)) return `bot|${botWorkspaceRoute(readBotWorkspaceRoute(workspaceHash) || {})}`;
   const surface = route.view === "config" ? String(route.configSurface || "") : "";
   const workspace = route.view === "config" && route.configSurface === "capabilities"
     ? (route.capabilityWorkspace === "mcp" ? "mcp" : "skills")
@@ -51,12 +56,13 @@ export function stepHistory(direction, { back, forward, current }) {
   return { back: pushUnique(back, current), forward: rest, target };
 }
 
-export function historyShortcutBlocked(event) {
+export function historyShortcutBlocked(event, document = globalThis.document) {
   if (!event || event.defaultPrevented) return true;
-  if (typeof document !== "undefined" && document.querySelector("dialog[open], .cmd-palette-overlay.is-open")) {
+  if (document?.querySelector("dialog[open], .cmd-palette-overlay.is-open")) {
     return true;
   }
   const target = event.target;
+  if (target?.isContentEditable) return true;
   if (!target?.closest) return false;
-  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+  return Boolean(target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])"));
 }

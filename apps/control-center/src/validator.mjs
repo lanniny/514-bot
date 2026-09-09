@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, relative, resolve, sep } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { findSecretCandidates } from "./redaction.mjs";
 import { childProcessEnv, spawnCommand } from "./process-runner.mjs";
+import { resolveControlSchemaPath } from "./paths.mjs";
 
 const MAX_CONFIG_BYTES = 5 * 1024 * 1024;
 const MODULE_SOURCE_ID = "core.module";
@@ -36,12 +37,16 @@ const REQUIRED_CODEX_HOOKS = new Map([
 ]);
 
 function runPythonProgram(program, input, { parser, timeoutMs = 10_000 } = {}) {
+  return runValidationProgram("python", ["-X", "utf8", "-c", program], input, { parser, timeoutMs });
+}
+
+function runValidationProgram(command, args, input, { parser, timeoutMs = 10_000 } = {}) {
   return new Promise((resolveResult) => {
     let child;
     try {
       // Keep validators in the child registry so an interrupted control plane
-      // cannot leave Python helpers behind.
-      child = spawnCommand("python", ["-X", "utf8", "-c", program], {
+      // cannot leave validation helpers behind.
+      child = spawnCommand(command, args, {
         env: childProcessEnv(),
         stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
@@ -192,28 +197,18 @@ function schemaResult(result) {
 async function validateControlSchema(source, instance, timeoutMs = 10_000) {
   const definition = CONTROL_SCHEMA_DEFINITIONS.get(source.id);
   if (!definition) return { ok: true, parser: "JSON.parse" };
-  const schemaPath = resolve(dirname(source.path), "..", "..", "schemas", "control-center", "contracts.schema.json");
   let schema;
   try {
+    const schemaPath = await resolveControlSchemaPath(source.path);
     schema = JSON.parse(await readFile(schemaPath, "utf8"));
   } catch (error) {
-    return { ok: false, parser: "python-jsonschema", error: `cannot load control schema: ${error.message}` };
+    return { ok: false, parser: "node-jsonschema", error: `cannot load control schema: ${error.message}` };
   }
-  const program = [
-    "import json,sys,jsonschema",
-    "p=json.load(sys.stdin)",
-    "root=p['schema']",
-    "name=p['definition']",
-    "target={'$schema':root.get('$schema'),'$defs':root.get('$defs',{}),**root['$defs'][name]}",
-    "jsonschema.Draft202012Validator.check_schema(target)",
-    "errors=sorted(jsonschema.Draft202012Validator(target).iter_errors(p['instance']),key=lambda e:list(e.path))",
-    "print(json.dumps([{'path':'/'.join(map(str,e.path)) or '$','message':e.message} for e in errors],ensure_ascii=False))",
-    "sys.exit(1 if errors else 0)",
-  ].join(";");
-  const result = await runPythonProgram(
-    program,
+  const result = await runValidationProgram(
+    process.execPath,
+    [fileURLToPath(new URL("./json-schema-worker.mjs", import.meta.url))],
     JSON.stringify({ schema, definition, instance }),
-    { parser: "python-jsonschema", timeoutMs },
+    { parser: "node-jsonschema", timeoutMs },
   );
   return schemaResult(result);
 }

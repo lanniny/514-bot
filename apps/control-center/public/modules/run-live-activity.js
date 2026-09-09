@@ -160,13 +160,19 @@ export function createRunLiveActivity({
     </div>`;
   }
 
-  function liveDeltaMarkup(run) {
+  function liveDeltaMarkup(run, { agentId = null } = {}) {
     if (!ACTIVE_RUN_STATES.has(run.status)) return "";
     if (run.status === "waiting_approval" || run.status === "recovery_required" || run.pendingAsk) return "";
     const events = historyEventsForRun(run.id);
-    const delta = [...events].reverse().find((event) => isDeltaEventType(event.type));
+    const delta = events.findLast((event) => isDeltaEventType(event.type)
+      && (!agentId || event.agentId === agentId || event.data?.agentId === agentId));
     const text = String(delta?.content || delta?.data?.delta || delta?.data?.text || "").trim();
-    if (!text) return "";
+    // 气泡节点常驻（无文本时 hidden 占位）：delta 流式到达只改气泡内部文本，
+    // 不增删会话流直系节点——连续 delta 与会话流 DOM 隔离（qa:ui continuous-delta 契约）。
+    // 原位更新路径见 app.js renderSelectedRun 的 live-delta 短路。
+    // 过短碎片（刚起流的 1–3 字，如“值。”）不单独成泡：呼吸行已表达存活，
+    // 碎片泡常驻会被当成渲染 bug；原位短路会同步 hidden 翻转，隔离契约不受影响。
+    if (Array.from(text).length < 4) return `<div class="live-delta-bubble" data-stream-key="tail:live-delta" hidden><div class="md-body"></div></div>`;
     return `<div class="live-delta-bubble" data-stream-key="tail:live-delta"><div class="md-body">${escapeHtml(redact(text.slice(-4000)))}</div></div>`;
   }
 

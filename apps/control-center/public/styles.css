@@ -13581,6 +13581,24 @@ h2 {
   margin-bottom: 14px;
 }
 
+.ccs-recovery { margin-block-end: 16px; padding-block: 12px; border-block: 1px solid var(--border-subtle); }
+.ccs-recovery header, .ccs-recovery header > div, .ccs-recovery-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.ccs-recovery header { justify-content: space-between; }
+.ccs-recovery header > div { flex: 1; min-width: 0; }
+.ccs-recovery header .icon { color: var(--warning); flex: 0 0 auto; }
+.ccs-recovery strong { font-size: 0.85rem; }
+.ccs-recovery header span, .ccs-recovery p, .ccs-recovery details { color: var(--text-secondary); font-size: 0.78rem; }
+.ccs-recovery-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; padding-block: 12px; border-block-end: 1px solid var(--border-subtle); }
+.ccs-recovery-row > div:first-child { flex: 1 1 220px; min-width: 0; }
+.ccs-recovery code { font-size: 0.75rem; overflow-wrap: anywhere; }
+.ccs-recovery p { margin: 4px 0 0; }
+.ccs-recovery-actions .button { min-height: 34px; white-space: normal; }
+.ccs-recovery details { margin-block-start: 10px; }
+.ccs-recovery summary { cursor: pointer; width: fit-content; }
+.ccs-recovery dl { display: grid; gap: 4px 12px; grid-template-columns: auto minmax(0, 1fr); margin-block: 8px 0; }
+.ccs-recovery dd { margin: 0; overflow-wrap: anywhere; }
+.ccs-recovery dt { color: var(--text-muted); }
+
 .ccs-account-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 
 .ccs-tool {

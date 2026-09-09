@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { readdirSync, rmSync } from "node:fs";
+import { lstatSync, readdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { defaultKillTree } from "../src/child-registry.mjs";
@@ -45,35 +45,51 @@ const appRoot = fileURLToPath(new URL("..", import.meta.url));
 const sqliteFlag = "--experimental-sqlite";
 
 /**
- * W0.5 测试残留自清：tests/*.mjs 大量使用 `mkdtemp(resolve(appRoot, ".test-<name>-"))`
- * 且无收尾，残留曾积累 4370 个目录。此处提供统一清扫（仅在测试进程树确认关闭后调用，
- * 保证不删到仍在使用的目录），并暴露 CLI 入口：`node scripts/run-tests.mjs --clean-only`。
+ * Legacy residue discovery is non-destructive. Only explicitly selected direct
+ * child directories may be removed by --clean-only --clean-path=<exact-name>.
+ * A prefix or a before/after directory difference cannot prove test ownership.
  */
-export function sweepTestResidue(root = appRoot) {
+export function sweepTestResidue(root = appRoot, { selectedPaths = [] } = {}) {
   let removed = 0;
   let skipped = 0;
   let entries;
   try {
     entries = readdirSync(root);
   } catch {
-    return { removed, skipped };
+    return { removed, skipped, rejected: selectedPaths.length };
+  }
+  const selected = new Set(selectedPaths);
+  for (const name of selected) {
+    if (!/^\.test-[A-Za-z0-9._-]+$/.test(name) || path.basename(name) !== name) {
+      throw new Error("cleanup requires an exact .test-* directory name, not a path or pattern");
+    }
   }
   for (const name of entries) {
     if (!name.startsWith(".test-")) continue;
+    if (!selected.has(name)) { skipped += 1; continue; }
     try {
-      rmSync(path.join(root, name), { recursive: true, force: true });
+      const target = path.resolve(root, name);
+      const entry = lstatSync(target);
+      if (path.dirname(target) !== path.resolve(root) || !entry.isDirectory() || entry.isSymbolicLink()) {
+        skipped += 1;
+        continue;
+      }
+      rmSync(target, { recursive: true, force: true });
       removed += 1;
+      selected.delete(name);
     } catch {
       skipped += 1; // Windows EBUSY/EPERM（句柄未释放等）：跳过不阻断
     }
   }
-  return { removed, skipped };
+  return { removed, skipped, rejected: selected.size };
 }
 
 if (process.argv.includes("--clean-only")) {
-  const { removed, skipped } = sweepTestResidue();
-  process.stdout.write(`clean-exit:swept=${removed} skipped=${skipped}\n`);
-  process.exit(0);
+  const selectedPaths = process.argv.filter((arg) => arg.startsWith("--clean-path=")).map((arg) => arg.slice(13));
+  const { removed, skipped, rejected } = sweepTestResidue(appRoot, { selectedPaths });
+  process.stdout.write(`clean-exit:swept=${removed} skipped=${skipped} rejected=${rejected}\n`);
+  if (!selectedPaths.length && skipped) process.stderr.write("cleanup requires explicit --clean-path selections; existing data was preserved\n");
+  process.exit(rejected || (!selectedPaths.length && skipped) ? 2 : 0);
 }
 
 /**
@@ -90,6 +106,7 @@ if (process.argv.includes("--clean-only")) {
  */
 
 const forwarded = process.argv.slice(2);
+if (forwarded.some((arg) => arg.startsWith("--clean-path="))) throw new Error("--clean-path requires --clean-only");
 
 function parseTimeoutMs(forwarded) {
   const prefix = "--timeout=";
@@ -147,6 +164,7 @@ child.once("error", (error) => {
 });
 
 child.once("spawn", () => {
+  process.stdout.write("clean-exit:scope=direct-child\nclean-exit:process-tree=unverified\n");
   report("launch", true);
 });
 

@@ -1,16 +1,13 @@
 /* ==========================================================================
-   514 Forge — v4.0 motion tokens, keyframes, entrance/feedback utilities.
+   514 Forge — v4.0 motion keyframes, entrance/feedback utilities.
    Everything here is disabled under prefers-reduced-motion (see bottom).
-   ========================================================================== */
 
-:root {
-  --dur-fast: 100ms;
-  --dur-med: 150ms;
-  --dur-slow: 240ms;
-  --dur-slower: 300ms;
-  --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
-  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
-}
+   动效**令牌**（--dur-* / --ease-*）已于 v49 U0 归并回 forge/tokens.css，
+   本文件不再声明 :root 变量 —— 原先这里的 :root 块与 tokens.css 同名冲突，
+   且因加载在后而静默取胜，使 tokens.css 那三行成为死代码（README 层叠契约
+   要防的正是这个）。归并搬的是**实际生效的值**，行为零变化。
+   本文件现在只负责 keyframes 与工具类，消费 tokens.css 的令牌。
+   ========================================================================== */
 
 /* Registered angle so conic gradients can animate where @property exists. */
 @property --forge-angle {
@@ -107,6 +104,42 @@
   transform: translateY(1px);
 }
 
+/* Button scale micro-interaction: subtle 0.97 scale on press */
+.forge-press-scale {
+  transition: transform var(--dur-instant) var(--ease-spring);
+}
+
+.forge-press-scale:active {
+  transform: scale(0.97);
+}
+
+/* Card hover lift micro-interaction */
+.forge-lift {
+  transition: transform var(--dur-fast) var(--ease-spring),
+    box-shadow var(--dur-fast) var(--ease-spring);
+}
+
+.forge-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* All-in-one fluid spring micro-interaction for cards & chips */
+.forge-spring-interactive {
+  transition: transform var(--dur-fast) var(--ease-spring),
+    box-shadow var(--dur-fast) var(--ease-spring),
+    border-color var(--dur-fast) var(--ease-spring);
+}
+
+.forge-spring-interactive:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.forge-spring-interactive:active {
+  transform: translateY(0) scale(0.98);
+}
+
 /* Status dot pulse (pair with a round element, e.g. .status-dot). */
 .forge-pulse-dot {
   animation: forge-pulse-dot 1.6s var(--ease-out) infinite;
@@ -127,18 +160,77 @@
   animation: forge-spin 0.9s linear infinite;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   View Transitions API & 16 Panel Choreography (UI-ELEVATION W2)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* 16 面板切换时的根视口平滑交叉渐变 */
+::view-transition-old(root) {
+  animation: forge-view-out var(--dur-fast) var(--ease-out) both;
+}
+
+::view-transition-new(root) {
+  animation: forge-view-in var(--dur-med) var(--ease-out) both;
+}
+
+@keyframes forge-view-out {
+  from { opacity: 1; transform: translateY(0); }
+  to   { opacity: 0; transform: translateY(-3px); }
+}
+
+@keyframes forge-view-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 语义化编排原语（Choreography Primitives）── */
+
+/* 列表/卡片阶梯渐进微入场 */
+.forge-stagger-item {
+  animation: forge-fade-rise var(--dur-med) var(--ease-out) both;
+  animation-delay: calc(var(--stagger-i, 0) * 24ms);
+}
+
+/* 滚动驱动渐进揭示（Progressive Scroll Reveal）：挂载在 .main-content 滚动流内 */
+@supports (animation-timeline: scroll()) {
+  .forge-reveal-scroll {
+    animation: forge-fade-rise var(--dur-med) linear both;
+    animation-timeline: view();
+    animation-range: entry 10% cover 25%;
+  }
+}
+
+/* ── 磁吸微手感（UI-ELEVATION W4 先锋交互装置）── */
+.forge-magnetic {
+  transition: transform var(--dur-fast) var(--ease-spring);
+  will-change: transform;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
+  }
+
   .forge-enter,
   .forge-shimmer,
   .forge-press,
+  .forge-press-scale,
+  .forge-lift,
+  .forge-spring-interactive,
   .forge-pulse-dot,
   .forge-conic-spin,
-  .forge-spin {
+  .forge-spin,
+  .forge-stagger-item,
+  .forge-reveal-scroll,
+  .forge-magnetic {
     animation: none !important;
     transition: none !important;
   }
 
-  .forge-enter {
+  .forge-enter,
+  .forge-magnetic {
     opacity: 1;
     transform: none;
   }
@@ -153,3 +245,25 @@
     -webkit-text-fill-color: currentColor;
   }
 }
+
+:root[data-motion="reduce"] ::view-transition-group(*),
+:root[data-motion="reduce"] ::view-transition-old(*),
+:root[data-motion="reduce"] ::view-transition-new(*),
+:root[data-motion="reduce"] .forge-enter,
+:root[data-motion="reduce"] .forge-shimmer,
+:root[data-motion="reduce"] .forge-press,
+:root[data-motion="reduce"] .forge-press-scale,
+:root[data-motion="reduce"] .forge-lift,
+:root[data-motion="reduce"] .forge-spring-interactive,
+:root[data-motion="reduce"] .forge-pulse-dot,
+:root[data-motion="reduce"] .forge-conic-spin,
+:root[data-motion="reduce"] .forge-spin,
+:root[data-motion="reduce"] .forge-stagger-item,
+:root[data-motion="reduce"] .forge-reveal-scroll,
+:root[data-motion="reduce"] .forge-magnetic {
+  animation: none !important;
+  transition: none !important;
+  transform: none !important;
+}
+
+

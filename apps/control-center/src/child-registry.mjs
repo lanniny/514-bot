@@ -257,13 +257,15 @@ export async function queryProcessIdentity(pid) {
   return (await queryProcessIdentities([pid])).get(pid);
 }
 
-export async function defaultKillTree(pid, { platform = process.platform, spawnImpl = spawn } = {}) {
+export async function defaultKillTree(pid, { platform = process.platform, spawnImpl = spawn, timeoutMs = 5_000 } = {}) {
   if (platform === "win32") {
     return new Promise((resolve) => {
       let settled = false;
+      let timer = null;
       const finish = (ok) => {
         if (settled) return;
         settled = true;
+        clearTimeout(timer);
         resolve(ok);
       };
       let killer;
@@ -279,6 +281,10 @@ export async function defaultKillTree(pid, { platform = process.platform, spawnI
       }
       killer.once("close", (code) => finish(code === 0));
       killer.once("error", () => finish(false));
+      timer = setTimeout(() => {
+        finish(false);
+        try { killer.kill(); } catch { /* The termination helper itself is owned. */ }
+      }, Math.max(1, Math.min(30_000, Number(timeoutMs) || 5_000)));
     });
   }
   try {

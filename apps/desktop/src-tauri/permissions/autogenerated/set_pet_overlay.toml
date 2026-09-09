@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-pet-overlay"
+description = "Enables the set_pet_overlay command without any pre-configured scope."
+commands.allow = ["set_pet_overlay"]
+
+[[permission]]
+identifier = "deny-set-pet-overlay"
+description = "Denies the set_pet_overlay command without any pre-configured scope."
+commands.deny = ["set_pet_overlay"]

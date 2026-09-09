@@ -86,7 +86,9 @@ test("public UI copy contains no emoji glyphs", async () => {
 test("static icon references use Lucide or explicitly preserved CLI brand marks", async () => {
   const html = await source("public/index.html");
   const references = [...html.matchAll(/<use\s+href="#([^"]+)"/g)].map((match) => match[1]);
-  const invalid = references.filter((id) => !id.startsWith("lucide-") && !id.startsWith("icon-cli-"));
+  // icon-514-bot = 514 产品自有品牌标（2026-09-09 品牌更新，从 lucide-flame 换成产品 logo），
+  // 与 icon-cli-*（CLI 厂商品牌标）同属「显式保留的品牌资产」，不进 Lucide 体系。
+  const invalid = references.filter((id) => !id.startsWith("lucide-") && !id.startsWith("icon-cli-") && id !== "icon-514-bot");
   assert.deepEqual(invalid, [], `发现非 Lucide 的界面图标引用：${invalid.join(", ")}`);
   assert.match(html, /id="chrome-rail-toggle"[\s\S]*?<use href="#lucide-panel-left"><\/use>/, "左栏开关必须使用 Lucide 图标");
   assert.doesNotMatch(html, /class="chrome-rail-glyph-(?:frame|bar|hint)"/, "左栏开关不得保留自绘图标路径");

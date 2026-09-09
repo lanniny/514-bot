@@ -25,6 +25,43 @@ const TONES = {
   error: { icon: "triangle-alert", role: "status" },
 };
 
+export const ILLUSTRATIONS = Object.freeze({
+  astrolabe: `<svg class="empty-state-illustration" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 3" opacity="0.35"/>
+    <circle cx="32" cy="32" r="20" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>
+    <circle cx="32" cy="32" r="10" stroke="var(--primary)" stroke-width="2" opacity="0.8"/>
+    <circle cx="32" cy="32" r="3" fill="var(--primary)"/>
+    <path d="M32 4V12M32 52V60M4 32H12M52 32H60" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.4"/>
+    <path d="M12 12L18 18M46 46L52 52M52 12L46 18M12 52L18 46" stroke="var(--primary)" stroke-width="1" stroke-linecap="round" opacity="0.6"/>
+  </svg>`,
+  prism: `<svg class="empty-state-illustration" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <polygon points="32 10 54 50 10 50" stroke="currentColor" stroke-width="1.5" opacity="0.5"/>
+    <polygon points="32 18 48 46 16 46" stroke="var(--primary)" stroke-width="1.5" opacity="0.7"/>
+    <line x1="8" y1="32" x2="26" y2="32" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.6"/>
+    <line x1="38" y1="30" x2="56" y2="24" stroke="var(--primary)" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+    <line x1="38" y1="34" x2="56" y2="34" stroke="var(--success, #067562)" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+    <line x1="38" y1="38" x2="56" y2="44" stroke="var(--info, #365fcf)" stroke-width="1.5" stroke-linecap="round" opacity="0.8"/>
+  </svg>`,
+  lock: `<svg class="empty-state-illustration" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <rect x="16" y="26" width="32" height="26" rx="6" stroke="currentColor" stroke-width="2" opacity="0.6"/>
+    <path d="M22 26V18C22 12.477 26.477 8 32 8C37.523 8 42 12.477 42 18V26" stroke="var(--primary)" stroke-width="2.5" stroke-linecap="round"/>
+    <circle cx="32" cy="37" r="3.5" fill="var(--primary)"/>
+    <path d="M32 40.5V45" stroke="var(--primary)" stroke-width="2" stroke-linecap="round"/>
+  </svg>`,
+  seal: `<svg class="empty-state-illustration" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <circle cx="32" cy="32" r="26" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 2" opacity="0.4"/>
+    <circle cx="32" cy="32" r="20" stroke="var(--primary)" stroke-width="2" opacity="0.75"/>
+    <path d="M24 32L29 37L40 25" stroke="var(--primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`,
+  orbit: `<svg class="empty-state-illustration" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <ellipse cx="32" cy="32" rx="26" ry="12" stroke="currentColor" stroke-width="1.5" stroke-dasharray="6 4" transform="rotate(-25 32 32)" opacity="0.4"/>
+    <ellipse cx="32" cy="32" rx="12" ry="26" stroke="var(--primary)" stroke-width="1.5" stroke-dasharray="8 4" transform="rotate(30 32 32)" opacity="0.6"/>
+    <circle cx="32" cy="32" r="6" fill="var(--danger)" opacity="0.8"/>
+    <circle cx="48" cy="18" r="2.5" fill="currentColor" opacity="0.5"/>
+    <circle cx="16" cy="46" r="2" fill="currentColor" opacity="0.5"/>
+  </svg>`,
+});
+
 const DEFAULT_TONE = "no-result";
 
 function toneMeta(tone) {
@@ -63,13 +100,16 @@ function actionMarkup(action) {
  * @param {boolean} [options.compact] 面板内小块空态（最小高度 120px，不铺满）
  * @param {string} [options.id]
  */
-export function emptyState({ tone = DEFAULT_TONE, title, desc = "", icon, action = null, compact = false, id = "" } = {}) {
+export function emptyState({ tone = DEFAULT_TONE, title, desc = "", icon, illustration, action = null, compact = false, id = "" } = {}) {
   const meta = toneMeta(tone);
   const idAttr = id ? ` id="${escapeAttr(id)}"` : "";
   const classes = ["empty-state", `empty-state--${tone}`];
   if (compact) classes.push("empty-state--compact");
+  const visual = (illustration && ILLUSTRATIONS[illustration])
+    ? ILLUSTRATIONS[illustration]
+    : iconMarkup(icon ?? meta.icon);
   return `<div class="${classes.join(" ")}"${idAttr} role="${meta.role}">`
-    + iconMarkup(icon ?? meta.icon)
+    + visual
     + `<p class="empty-state-title">${escapeHtml(title ?? "")}</p>`
     + (desc ? `<p class="empty-state-desc">${escapeHtml(desc)}</p>` : "")
     + actionMarkup(action)

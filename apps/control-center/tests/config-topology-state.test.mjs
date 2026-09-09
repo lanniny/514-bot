@@ -247,8 +247,9 @@ test("config hash routes preserve member targets with deterministic provider def
   assert.deepEqual(parseForgeRoute("#config/sources"), { view: "config", configSurface: "sources", ...emptyTarget });
   assert.deepEqual(parseForgeRoute("#capabilities"), { view: "config", configSurface: "capabilities", ...emptyTarget });
   assert.deepEqual(parseForgeRoute("#workbench"), { view: "workbench", configSurface: null, ...emptyTarget });
-  assert.deepEqual(parseForgeRoute(""), { view: "workbench", configSurface: null, ...emptyTarget });
-  assert.deepEqual(parseForgeRoute("#"), { view: "workbench", configSurface: null, ...emptyTarget });
+  assert.deepEqual(parseForgeRoute(""), { view: "bot", configSurface: null, ...emptyTarget });
+  assert.deepEqual(parseForgeRoute("#"), { view: "bot", configSurface: null, ...emptyTarget });
+  assert.deepEqual(parseForgeRoute("#experience?conversation=c&run=r"), { view: "bot", configSurface: null, ...emptyTarget });
   const hash = configRouteHash("capabilities", {
     memberId: "member-custom-1",
     runtimeProfileId: "codex-technical",
@@ -761,7 +762,9 @@ test("historical config previews are latest-wins when version responses arrive o
     configVersionPreview: null,
   };
   const { previewConfigVersion } = evaluateSection(
-    sourceSection("let configVersionPreviewGeneration", "function renderConfigVersionPreview"),
+    // 切片起点上移到行尾工具块：previewConfigVersion 的 diff 要走 normalizeNewlines /
+    // editorValue（CRLF 假 dirty 的修法），二者必须落在同一个 sandbox 里。
+    sourceSection("function normalizeNewlines", "function renderConfigVersionPreview"),
     ["previewConfigVersion"],
     {
       state,

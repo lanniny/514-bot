@@ -160,20 +160,6 @@ export const ADAPTER_TEMPLATES = Object.freeze([
     ],
   }),
   template({
-    id: "grok-mcp-via-codex-app-server", label: "Grok Search MCP", factoryKey: "grok-mcp",
-    description: "通过隔离的 Codex app-server 主机调用 grok-search-rs MCP。",
-    transport: "mcp", providerApp: null, providerBindingMode: "environment-managed",
-    requiresCommand: false, teamMemberEligible: true, coordinatorCapable: false, selectable: false,
-    defaultCommand: null, defaultProvider: "xai-compatible",
-    commandMode: "none", promptMode: "rpc", modelMode: "none", effortMode: "none",
-    permissionModes: ["read-only"], defaultPermissionMode: "read-only",
-    approvalChannel: "broker-action",
-    effortLevels: [], cwdMode: "process-fixed",
-    commandHelp: "由隔离的 Codex MCP 主机管理，不接受席位级执行命令。",
-    controlNotes: ["MCP 工具通道而非 CLI 执行后端——仅供内置 grok-search 席位固定绑定，新建席位不可选。"],
-    nativeCommands: [],
-  }),
-  template({
     id: "grok-build-headless", label: "Grok Build", factoryKey: "grok-build",
     description: "Grok Build headless streaming-json 执行通道。",
     transport: "local-cli", providerApp: "grokbuild", providerBindingMode: "serialized-live-projection",
@@ -289,7 +275,6 @@ export const ADAPTER_BINDINGS = Object.freeze([
   { profileId: "codex-technical", adapterId: "codex-app-server", factoryKey: "codex-app-server", requiresCommand: true, teamMemberEligible: true, coordinatorEligible: true },
   { profileId: "codex-technical-fallback", adapterId: "codex-exec-json", factoryKey: "codex-cli", fallbackFor: "codex-technical", requiresCommand: false, teamMemberEligible: false, coordinatorEligible: false },
   { profileId: "gemini-research", adapterId: "gemini-stream-json", factoryKey: "gemini-cli", requiresCommand: true, teamMemberEligible: true, coordinatorEligible: true },
-  { profileId: "grok-search", adapterId: "grok-mcp-via-codex-app-server", factoryKey: "grok-mcp", requiresCommand: false, teamMemberEligible: true, coordinatorEligible: false },
   { profileId: "grok-build", adapterId: "grok-build-headless", factoryKey: "grok-build", requiresCommand: true, teamMemberEligible: true, coordinatorEligible: true },
   { profileId: "kimi-frontend", adapterId: "kimi-headless-resume", factoryKey: "kimi-cli", requiresCommand: true, teamMemberEligible: true, coordinatorEligible: true },
   { profileId: "pi-resident", adapterId: "pi-rpc", factoryKey: "pi-rpc", requiresCommand: true, teamMemberEligible: true, coordinatorEligible: true },
@@ -329,6 +314,9 @@ export function adapterTemplateCatalog() {
 export function resolveAdapterTemplate(profile = {}) {
   const profileId = String(profile.id ?? "").trim();
   const adapterId = String(profile.adapter ?? "").trim();
+  if (profileId === "grok-search") {
+    throw manifestError("grok-search is retired; configure MCP search tools on a CLI or harness seat");
+  }
   const fixedBinding = BINDING_BY_PROFILE.get(profileId) || null;
   if (fixedBinding && adapterId !== fixedBinding.adapterId) {
     throw manifestError(`${profileId} config declares ${adapterId || "no adapter"}, expected ${fixedBinding.adapterId}`);

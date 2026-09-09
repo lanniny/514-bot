@@ -72,12 +72,16 @@
 .message-row.is-user .message-body {
   width: fit-content;
   max-width: 88%;
-  padding: 9px 14px;
-  border: 1px solid var(--border);
+  padding: 10px 16px;
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-2xl, 18px);
-  border-bottom-right-radius: var(--radius-md, 8px);
-  background: var(--muted, var(--surface-muted));
-  font-size: var(--text-base, 12.5px);
+  border-bottom-right-radius: var(--radius-sm, 6px);
+  background: var(--surface-level-1);
+  box-shadow: var(--glass-specular), var(--glass-inset-glow), var(--shadow-sm);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  font-size: var(--text-base, 14px);
+  line-height: var(--leading-normal);
 }
 
 /* 助手消息：全宽、无边框——阅读主权交给排版而不是卡片框 */
@@ -120,23 +124,28 @@
 
 .tool-call.tool-card {
   --tool-accent: var(--primary, var(--rose));
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
   align-items: center;
   gap: 8px;
   margin-top: 8px;
-  padding: 7px 10px;
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--tool-accent);
+  padding: 8px 12px;
+  border: 1px solid var(--glass-border);
+  border-left: 3px solid var(--tool-accent);
   border-radius: var(--radius-lg, 10px);
-  background: var(--card, var(--surface));
-  box-shadow: var(--shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
-  font-size: var(--text-sm, 12px);
-  transition: border-color var(--dur-med, var(--dur-fast)) var(--ease-out, ease),
-    box-shadow var(--dur-med, var(--dur-fast)) var(--ease-out, ease);
+  background: var(--surface-level-2);
+  box-shadow: var(--glass-specular), var(--glass-inset-glow), var(--shadow-sm);
+  font-size: var(--text-sm, 13px);
+  transition: border-color var(--dur-fast) var(--ease-spring),
+    transform var(--dur-fast) var(--ease-spring),
+    box-shadow var(--dur-fast) var(--ease-spring);
 }
 
 .tool-call.tool-card:hover {
-  border-color: var(--tool-accent);
-  box-shadow: var(--shadow-md, 0 2px 8px rgba(0, 0, 0, 0.08));
+  border-color: color-mix(in oklch, var(--tool-accent) 60%, var(--glass-border));
+  transform: translateY(-2px);
+  box-shadow: var(--glass-specular), var(--shadow-md);
 }
 
 /* 工具族色条：读写=信息蓝 / 检索=紫 / 子代理=绿 / 待办=成功绿 */
@@ -169,6 +178,7 @@
 
 .tool-call.tool-card strong {
   flex: 0 0 auto;
+  white-space: nowrap;
   font-size: var(--text-sm, 12px);
   font-weight: 600;
   letter-spacing: -0.01em;
@@ -177,6 +187,9 @@
 .tool-call.tool-card .tool-args {
   flex: 1 1 auto;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--mono, ui-monospace, monospace);
   font-size: var(--text-xs, 11px);
   font-variant-numeric: tabular-nums;
@@ -246,13 +259,15 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-xl, 14px);
   background: var(--card, var(--surface));
+  box-shadow: var(--glass-specular), var(--shadow-sm);
   transition: border-color var(--dur-med, var(--dur-fast)) var(--ease-out, ease),
     box-shadow var(--dur-med, var(--dur-fast)) var(--ease-out, ease);
 }
 
 .task-composer .composer-shell:focus-within {
   border-color: var(--ring, var(--rose));
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring, var(--rose)) 16%, transparent),
+  box-shadow: var(--glass-specular),
+    0 0 0 3px color-mix(in oklch, var(--ring, var(--rose)) 16%, transparent),
     var(--shadow-md, 0 8px 28px rgba(31, 27, 22, 0.1));
 }
 
@@ -623,11 +638,12 @@
   color: var(--foreground, var(--text-strong));
 }
 
+/* 默认关闭：手柄只在 .workbench-shell 直接子级形态下由下方规则打开（v49 W-03）。 */
 .mc-expand-strip {
   display: none;
 }
 
-/* 折叠态：栏内正常内容全隐，只留 34px 细条 + 纵向展开钮 */
+/* 折叠态：栏内正常内容全隐 */
 .workbench-shell.mc-collapsed .context-rail > *:not(.mc-expand-strip) {
   display: none;
 }
@@ -639,7 +655,60 @@
   padding-top: 8px;
 }
 
-.workbench-shell.mc-collapsed .mc-expand-strip {
+/* ── 折叠态手柄条（v49 W-03）────────────────────────────────────────────
+   实测缺陷：手柄原先注入在 .context-rail 内部，而 codex-desktop.css 把右栏改成
+   浮层抽屉后，折叠态整条 rail 被 translateX(100%+18px) + visibility:hidden 滑出
+   视口（且 setCollapsed 还会 rail.inert = true），栏内手柄随之消失 ——
+   下方那段「只留细条」的旧规则从此是死代码，收起态实测 strip 隐藏，
+   右栏 326px 的环境信息面对首访用户完全不可发现（唯一入口是顶栏一个 30px 图标钮）。
+
+   现在手柄挂在 .workbench-shell 上（见 workbench-chrome.js），不受 rail 的
+   transform / visibility / inert 影响。竖排贴右缘，展开态由 JS 置 hidden。 */
+.workbench-shell > .mc-expand-strip {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  z-index: var(--z-raised, 2);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px;
+  border: 1px solid var(--border);
+  border-right: 0;
+  border-radius: var(--radius-md, 8px) 0 0 var(--radius-md, 8px);
+  background: var(--card, var(--surface));
+  color: var(--muted-foreground, var(--text-muted));
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: color var(--dur-fast) var(--ease-standard), background-color var(--dur-fast) var(--ease-standard);
+}
+
+.workbench-shell > .mc-expand-strip:hover {
+  background: color-mix(in oklab, var(--muted-foreground, var(--text-muted)) 9%, var(--card, var(--surface)));
+  color: var(--foreground, var(--text-strong));
+}
+
+.workbench-shell > .mc-expand-strip:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* 竖排标签：让"这里有个环境信息面"这件事不必靠 hover title 才知道。 */
+.workbench-shell > .mc-expand-strip .mc-expand-strip-label {
+  font-size: var(--text-xs);
+  letter-spacing: var(--letter-spacing-wide);
+  writing-mode: vertical-rl;
+}
+
+.workbench-shell > .mc-expand-strip .icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* 旧规则（手柄在 rail 内部时的形态）保留兼容，但实际已不匹配 ——
+   手柄现在是 shell 的直接子级。 */
+.workbench-shell.mc-collapsed .context-rail > .mc-expand-strip {
   display: inline-flex;
   width: 24px;
   height: 24px;
@@ -652,12 +721,12 @@
   cursor: pointer;
 }
 
-.workbench-shell.mc-collapsed .mc-expand-strip:hover {
+.workbench-shell.mc-collapsed .context-rail > .mc-expand-strip:hover {
   background: color-mix(in oklab, var(--muted-foreground, var(--text-muted)) 9%, transparent);
   color: var(--foreground, var(--text-strong));
 }
 
-.workbench-shell.mc-collapsed .mc-expand-strip .icon {
+.workbench-shell.mc-collapsed .context-rail > .mc-expand-strip .icon {
   width: 15px;
   height: 15px;
 }
@@ -2017,12 +2086,62 @@
 .statusbar-team-pulse .team-pulse-name {
   font-size: var(--text-xs);
 }
+/* ==========================================================================
+   Forge Awwwards SOTD — Settlement, Approval & Attention Bar Visual Elevation
+   ========================================================================== */
 
-/* 状态栏 chips 与计数 pill 间距收窄，长团队名册优先保完整名字 */
-.statusbar-team-pulse {
-  gap: 3px;
+/* 交付结算卡片：温润晶体 + 交付徽章质感 */
+.settlement-card {
+  margin: var(--space-3) var(--space-4) var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--glass-border);
+  border-left: 3px solid var(--success);
+  border-radius: var(--radius-xl, 14px);
+  background: var(--surface-level-2);
+  box-shadow: var(--glass-specular), var(--glass-inset-glow), var(--shadow-sm);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: border-color var(--dur-fast) var(--ease-spring),
+    transform var(--dur-fast) var(--ease-spring),
+    box-shadow var(--dur-fast) var(--ease-spring);
 }
 
-.statusbar-team-pulse .team-pulse-count {
-  flex: 0 0 auto;
+.settlement-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--glass-specular), var(--shadow-md);
+}
+
+.settlement-card.is-loading {
+  border-left-color: var(--warning);
+}
+
+.settlement-card.is-error,
+.settlement-card.is-blocked,
+.settlement-card.is-partial {
+  border-left-color: var(--danger);
+}
+
+/* 行内审批卡片：琥珀暖金微光 + 浮雕微边 */
+.approval-inline-card {
+  margin: var(--space-2) 0 var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in oklch, var(--warning) 40%, var(--glass-border));
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius-xl, 14px);
+  background: color-mix(in oklch, var(--warning) 6%, var(--surface-level-2));
+  box-shadow: var(--glass-specular), var(--glass-inset-glow), var(--shadow-floating);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+
+/* 注意力顶部条：悬浮微光胶囊 */
+.run-attention-bar {
+  margin: var(--space-2) auto;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid color-mix(in oklch, var(--warning) 45%, transparent);
+  border-radius: var(--radius-4xl);
+  background: color-mix(in oklch, var(--warning) 10%, var(--surface-level-3));
+  box-shadow: var(--glow-accent-subtle), var(--shadow-md);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }

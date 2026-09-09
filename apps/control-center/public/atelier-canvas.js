@@ -47,10 +47,24 @@
 
   function themeInk() {
     const dark = document.documentElement.dataset.theme === "dark";
-    // 514 Forge 活体编排场：铜橙代表运行中的意图流，深墨承载静态结构。
+    // 514 Forge Awwwards 级活体编排场：赤陶铜橙与深墨折射
     return dark
-      ? { particle: "rgba(237, 155, 120, 0.28)", line: "rgba(237, 155, 120, 0.075)", glow: "rgba(217, 119, 87, 0.075)" }
-      : { particle: "rgba(184, 92, 62, 0.24)", line: "rgba(87, 70, 58, 0.055)", glow: "rgba(217, 119, 87, 0.065)" };
+      ? {
+          particle: "rgba(237, 155, 120, 0.38)",
+          particleGlow: "rgba(217, 119, 87, 0.65)",
+          lineNear: "rgba(237, 155, 120, 0.16)",
+          lineFar: "rgba(237, 155, 120, 0.02)",
+          spotCore: "rgba(217, 119, 87, 0.08)",
+          spotRing: "rgba(90, 140, 220, 0.04)"
+        }
+      : {
+          particle: "rgba(184, 92, 62, 0.32)",
+          particleGlow: "rgba(217, 119, 87, 0.55)",
+          lineNear: "rgba(184, 92, 62, 0.12)",
+          lineFar: "rgba(87, 70, 58, 0.015)",
+          spotCore: "rgba(217, 119, 87, 0.065)",
+          spotRing: "rgba(6, 117, 98, 0.025)"
+        };
   }
 
   function botSurfaceActive() {
@@ -64,50 +78,57 @@
       return;
     }
     raf = requestAnimationFrame(frame);
-    pointer.x += (pointer.tx - pointer.x) * 0.06;
-    pointer.y += (pointer.ty - pointer.y) * 0.06;
+    // 弹性平滑缓动追随光标
+    pointer.x += (pointer.tx - pointer.x) * 0.045;
+    pointer.y += (pointer.ty - pointer.y) * 0.045;
 
     ctx.clearRect(0, 0, w, h);
     const ink = themeInk();
     const px = pointer.x * w;
     const py = pointer.y * h;
 
-    // soft spotlight following pointer
-    const g = ctx.createRadialGradient(px, py, 0, px, py, Math.max(w, h) * 0.42);
-    g.addColorStop(0, ink.glow);
-    g.addColorStop(0.45, "rgba(0,0,0,0)");
+    // 双环多层微光晕（Dual-tier atmospheric ambient spotlight）
+    const spotRadius = Math.max(w, h) * 0.38;
+    const g = ctx.createRadialGradient(px, py, 0, px, py, spotRadius);
+    g.addColorStop(0, ink.spotCore);
+    g.addColorStop(0.35, ink.spotRing);
+    g.addColorStop(0.8, "rgba(0,0,0,0)");
     g.addColorStop(1, "rgba(0,0,0,0)");
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
 
     const pts = [];
     for (const p of particles) {
-      p.x += p.vx + Math.sin(t * 0.0004 + p.phase) * 0.00005;
-      p.y += p.vy + Math.cos(t * 0.00035 + p.phase) * 0.00005;
+      p.x += p.vx + Math.sin(t * 0.00035 + p.phase) * 0.000045;
+      p.y += p.vy + Math.cos(t * 0.0003 + p.phase) * 0.000045;
       if (p.x < -0.05) p.x = 1.05;
       if (p.x > 1.05) p.x = -0.05;
       if (p.y < -0.05) p.y = 1.05;
       if (p.y > 1.05) p.y = -0.05;
-      // mild attraction to pointer
+
+      // 柔和天体引力透镜偏转（Celestial gravity lens toward pointer）
       const dx = pointer.x - p.x;
       const dy = pointer.y - p.y;
       const dist = Math.hypot(dx, dy) || 1;
-      if (dist < 0.35) {
-        p.x += dx * 0.0008;
-        p.y += dy * 0.0008;
+      if (dist < 0.32) {
+        const pull = (1 - dist / 0.32) * 0.0009;
+        p.x += dx * pull;
+        p.y += dy * pull;
       }
-      pts.push({ x: p.x * w, y: p.y * h, r: p.r });
+      pts.push({ x: p.x * w, y: p.y * h, r: p.r, isNear: dist < 0.18 });
     }
 
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = ink.line;
+    // 星轨拓扑微连线
+    ctx.lineWidth = 0.85;
     for (let i = 0; i < pts.length; i += 1) {
       for (let j = i + 1; j < pts.length; j += 1) {
         const a = pts[i];
         const b = pts[j];
         const d = Math.hypot(a.x - b.x, a.y - b.y);
-        if (d < 140) {
-          ctx.globalAlpha = (1 - d / 140) * 0.55;
+        if (d < 135) {
+          const alphaRatio = 1 - d / 135;
+          ctx.strokeStyle = a.isNear || b.isNear ? ink.lineNear : ink.lineFar;
+          ctx.globalAlpha = alphaRatio * 0.65;
           ctx.beginPath();
           ctx.moveTo(a.x, a.y);
           ctx.lineTo(b.x, b.y);
@@ -115,9 +136,17 @@
         }
       }
     }
+
+    // 粒子节点绘制（近光晕节点附带微呼吸光环）
     ctx.globalAlpha = 1;
-    ctx.fillStyle = ink.particle;
     for (const p of pts) {
+      if (p.isNear) {
+        ctx.fillStyle = ink.particleGlow;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r * 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.fillStyle = ink.particle;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
       ctx.fill();

@@ -15,7 +15,10 @@ test("Skill and MCP configuration separates runtime projection, team menu and me
     readFile(resolve(root, "public/forge/runtime-workbench.css"), "utf8"),
   ]);
 
-  assert.match(html, /<h2>能力中心<\/h2>/);
+  // 2026-09-09 设置工作区重排：独立 h2「能力中心」撤下，面板由 config-topology 的
+  // 「能力」tab 命名（aria-labelledby），首屏让位给能力概览与生效链。
+  assert.match(html, /id="config-surface-capabilities"[^>]*aria-labelledby="config-topology-capabilities"/);
+  assert.match(html, /id="config-topology-capabilities"[\s\S]*?<span>能力<\/span>/);
   assert.match(html, /class="capability-bus"/);
   assert.match(html, /本机安装与投影[\s\S]+团队能力包[\s\S]+成员范围/);
   assert.match(html, /data-runtime-capability-jump="current"/);

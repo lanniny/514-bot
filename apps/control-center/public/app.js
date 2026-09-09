@@ -17,6 +17,9 @@ import { createCloseoutCard } from "./modules/closeout-card.js";
 import { createArtifactCard } from "./modules/artifact-card.js";
 import { createRunReplayScrubber } from "./modules/run-replay-scrubber.js";
 import { createNativeNotifications } from "./modules/native-notifications.js";
+import { mountDesktopWindowChrome } from "./modules/desktop-window-chrome.js";
+import { mountBotApprovalShortcuts } from "./modules/bot-approval-shortcuts.js";
+import { createChromeViewHistory } from "./modules/chrome-view-history.js";
 import { createRailPanels } from "./modules/rail-panels.js";
 import { renderNavigation, NAV_GROUPS, NAV_ITEMS } from "./modules/nav-config.js";
 import { normalizePathKey } from "./path-key.js";
@@ -37,7 +40,7 @@ import { failurePresentation, providerFailurePresentation } from "./modules/fail
 import { AGENT_ROLE_BLURB as MODULE_AGENT_ROLE_BLURB, roleBlurbFor } from "./modules/agent-roles.js";
 import { mountCcSwitchPanel } from "./modules/ccswitch-panel.js";
 import { mountHooksPanel } from "./modules/hooks-panel.js";
-import { mountAutomationsPage } from "./modules/automations-page.js";
+import { mountAutomationsPage, automationRouteHash } from "./modules/automations-page.js";
 import { attachJsonEditor } from "./modules/json-editor.js";
 import { createStatusline } from "./modules/statusline.js";
 import { createPromptDialog } from "./modules/prompt-dialog.js";
@@ -87,12 +90,12 @@ import {
 import { initDeltaTimeline, refreshDeltaTimeline } from "./delta-timeline.js";
 import { initProjectBootstrapper } from "./project-bootstrapper.js";
 import {
-  escapeHtml, redact, formatDate, formatTime, formatRelative, formatDuration,
+  escapeHtml, redact, formatDate, formatTime, formatRelative, formatDuration, formatConversationStamp,
   compactHash, normalizeStatus, statusText, runStatusText, unwrapList, objectList,
 } from "./utils.js";
 import {
   API, TOKEN_KEY, ApiError, request as apiRequest, requestBlob, getAccessToken, setAccessToken,
-  initializeAccessToken as initToken, apiReady,
+  initializeAccessToken as initToken, apiReady, controlConnection,
 } from "./api.js";
 import {
   brandForMember,
@@ -108,6 +111,14 @@ import { emptyState, inlineEmpty, renderPlaceholder, skeleton } from "./modules/
 // UI-AUDIT Wave B 抽取：右键菜单展示层（显隐/钳位/键盘/焦点），内容构建仍在 app.js
 import { createContextMenu } from "./modules/context-menu.js";
 import { createConversationRunProjection, settlementRunSignature, settlementViewNeedsRefresh } from "./modules/conversation-run-projection.js";
+import { readBotWorkspaceRoute, botWorkspaceRoute, ownsBotWorkspaceHash } from "./modules/bot-workspace-route.js";
+import { createConversationWorkspace, pageWorkspaceIndex } from "./modules/conversation-workspace.js";
+import { collaborationProcessModel, collaborationProcessMarkup, collaborationReviewMarkup } from "./modules/collaboration-process.js";
+import { createConversationCommands } from "./modules/conversation-commands.js";
+import { createProjectPluginsPanel } from "./modules/project-plugins-panel.js";
+import { createConversationMembersEditor } from "./modules/conversation-members-editor.js";
+import { createMessageWindow, reconcileMessageMarkup } from "./modules/bounded-message-view.js";
+import { connectionPresentation } from "./modules/control-connection-state.js";
 // UI-AUDIT P1-6：异步按钮忙态统一处理（防连点 + 失败必恢复 + aria-busy）
 import { runAsyncAction } from "./modules/async-action.js";
 import { createRailMetaSections } from "./modules/rail-meta-sections.js";
@@ -137,17 +148,16 @@ import { createRouterPreviewPanel } from "./modules/router-preview-panel.js";
 import { createTelemetryClient } from "./modules/telemetry-client.js";
 import { createProductHealthPanel } from "./modules/product-health-panel.js";
 import { createShadowComparePanel } from "./modules/shadow-compare-panel.js";
+import { renderBotRoutines, bindRoutineDialog, openRoutineDialog } from "./modules/bot-routines-panel.js";
+import { loadBotProfileSection, saveBotProfileSection, markBotProfileDirty } from "./modules/bot-profile-editor.js";
+import { renderRelayBoard } from "./modules/bot-relay-board.js";
+import { postRelayKickoff } from "./modules/bot-collab-api.js";
 import {
   state, ACTIVE_RUN_STATES, TERMINAL_RUN_STATES, VIEW_TITLES,
   DEFAULT_COMPONENTS, DEFAULT_MODELS, DEFAULT_POLICIES, DEFAULT_SECRETS,
   MAX_REQUESTED_AGENTS, addRequestedAgentId, pruneRequestedAgentIds, removeRequestedAgentMention,
   composerDraftMatches, emptyComposerDraft,
 } from "./state.js";
-import {
-  historyShortcutBlocked,
-  recordRouteChange,
-  stepHistory,
-} from "./modules/view-history.js";
 
 // 兼容层：旧代码中的 request() 和 accessToken 引用
 const request = apiRequest;
@@ -168,6 +178,15 @@ const runProjection = createConversationRunProjection({
   getRuns: () => state.runs,
   surfaces: { workbench: { capacity: 1 }, bot: {} },
 });
+let botWorkspace = null;
+let projectPluginsPanel = null;
+let botWorkspaceLocationReady = false;
+let conversationCommands = null;
+// Grok 对标协作模块的 toast 适配（模块 tone: ok/error/warning/neutral → 全局 toast type）
+const botCollabToast = (text, tone) => toast(text, tone === "ok" ? "success" : tone === "neutral" ? "info" : tone);
+let conversationMembersEditor = null;
+const botMessageWindows = new Map();
+const botMessageWindowSources = new Map();
 
 // W2.4 原生通知（审批/任务完成/收口失败；幂等 diff，默认关闭）
 const nativeNotifications = createNativeNotifications({ toast });
@@ -273,7 +292,10 @@ function parseForgeRoute(hashValue = location.hash) {
     return { view: "observability", configSurface: null, memberId: null, runtimeProfileId: null, settingsFocus: "memory" };
   }
   const [routeView, candidateSurface] = path.split("/", 2);
-  const view = routeView || "workbench";
+  if (routeView === "bot" && candidateSurface === "automations") {
+    return { view: "automations", configSurface: null, memberId: null, runtimeProfileId: null, settingsFocus: null };
+  }
+  const view = routeView === "experience" ? "bot" : routeView || "bot";
   if (view === "config") {
     return {
       view,
@@ -293,6 +315,7 @@ function parseForgeRoute(hashValue = location.hash) {
 }
 
 function conversationDeepLinkFromHash(hashValue = location.hash) {
+  if (/^#\/?(?:bot|experience)(?:[/?]|$)/.test(String(hashValue))) return null;
   const fragment = new URLSearchParams(String(hashValue).replace(/^#/, ""));
   const conversationId = fragment.get("conversation")?.trim() || null;
   const runId = fragment.get("run")?.trim() || null;
@@ -312,13 +335,19 @@ function conversationDeepLinkFromHash(hashValue = location.hash) {
 async function consumeConversationDeepLink(deepLink) {
   if (!deepLink) return false;
   if (deepLink.conversationId) {
-    if (state.view !== "bot") setView("bot", { focus: false });
+    if (state.view !== "bot") setView("bot", { focus: false, botWorkspaceHash: botWorkspaceRoute(deepLink) });
+    const selectionToken = botBeginSelectionIntent();
     if (!botConversationById(deepLink.conversationId)) await botLoadConversations({ focusId: deepLink.conversationId });
+    if (!botSelectionIntentCurrent(selectionToken) || state.view !== "bot") return true;
     const conversation = botConversationById(deepLink.conversationId);
     if (!conversation) toast("链接指向的会话不存在", "warning");
     else if (conversation.deletedAt) toast("链接指向已删除的会话墓碑，无法进入", "warning");
-    else if (conversation.hiddenAt) await botRestoreConversation(conversation);
-    else botOpenConversation(conversation.id);
+    else {
+      const restored = conversation.hiddenAt ? await botRestoreConversation(conversation, { open: false }) : conversation;
+      if (restored && botSelectionIntentCurrent(selectionToken) && state.view === "bot") {
+        await botWorkspace.activate(botWorkspaceRoute({ conversationId: restored.id, runId: deepLink.runId }));
+      }
+    }
     return true;
   }
   if (deepLink.runId) {
@@ -391,9 +420,6 @@ function cacheElements() {
     "current-view-group",
     "api-connection-badge",
     "theme-toggle",
-    "account-dock",
-    "account-dock-label",
-    "account-heading-chip",
     "settings-rail",
     "settings-avatar-preview",
     "settings-operator-label",
@@ -900,6 +926,9 @@ function cacheElements() {
     "cap-mcp-search",
     "cap-stat-skills",
     "cap-stat-skills-sub",
+    "capability-bus",
+    "capability-bus-toggle",
+    "capability-bus-body",
     "cap-stat-declared",
     "cap-stat-declared-sub",
     "cap-stat-mcp",
@@ -977,7 +1006,7 @@ async function initializeAccessToken() {
   const fragmentToken = fragment.get("token")?.trim() ?? "";
   const conversationDeepLink = conversationDeepLinkFromHash(url.hash);
   if (conversationDeepLink?.conversationId) state.deepLinkConversationId = conversationDeepLink.conversationId;
-  if (conversationDeepLink?.runId) state.deepLinkRunId = conversationDeepLink.runId;
+  if (conversationDeepLink?.runId && !conversationDeepLink.conversationId) state.deepLinkRunId = conversationDeepLink.runId;
   if (conversationDeepLink?.session) state.deepLinkSession = conversationDeepLink.session;
   if (conversationDeepLink?.projectId) state.deepLinkProjectId = conversationDeepLink.projectId;
   const bootstrapNonce = fragment.get("bootstrap")?.trim() ?? "";
@@ -1534,12 +1563,17 @@ function syncGlassEnvironmentTokens(active, { alpha = readGlassAlpha(), blur = r
     root.removeProperty("--forge-card-alpha-lo");
     root.removeProperty("--forge-glass-alpha-hi");
     root.removeProperty("--forge-glass-alpha-mid");
+    root.removeProperty("--forge-reading-alpha");
   } else {
     const glassOut = Number.parseFloat(root.getPropertyValue("--forge-glass-alpha")) || alpha;
     root.setProperty("--forge-card-alpha-hi", `${Math.min(cardOut + 12, 97)}%`);
     root.setProperty("--forge-card-alpha-lo", `${Math.max(cardOut - 30, 8)}%`);
     root.setProperty("--forge-glass-alpha-hi", `${Math.min(glassOut + 14, 96)}%`);
     root.setProperty("--forge-glass-alpha-mid", `${Math.min(glassOut + 6, 96)}%`);
+    // 阅读面档（2026-09-09 壁纸阅读纱幕）：聊天气泡/过程卡等长文阅读面需要不透明度
+    // 下限——用户把全局滑杆拉到 20–40% 时 hi 档也只有 34–54%，文字会坐在锐利壁纸上。
+    // 地板 86%（玻璃族基线）+ 随滑杆上浮，美感让渡给面板、阅读面保可读。
+    root.setProperty("--forge-reading-alpha", `${Math.min(Math.max(glassOut + 14, 86), 96)}%`);
   }
 }
 
@@ -1977,9 +2011,15 @@ async function hydratePreferencesFromServer() {
 // 视图历史：setView 全程 history.replaceState（浏览器栈不涨），这里自养双栈供 ‹ ›。
 // 栈里是完整路由快照（视图 + 设置焦点 + config 面 + Skill/MCP 工位），不是裸 view id——
 // 否则「模型设置 → 钩子」同属 config，后退会丢面。
-let viewHistoryBack = [];
-let viewHistoryForward = [];
-let viewHistoryMute = false;
+let chromeViewHistory;
+
+function getChromeViewHistory() {
+  return chromeViewHistory ||= createChromeViewHistory({
+    document, window, captureRoute: captureViewRoute, applyRoute: applyViewRoute, titleForRoute,
+    isKnownRoute: (route) => Boolean(FORGE_VIEW_TITLES[route.view]), pulse: pulseChromeButton,
+    onError: (error) => toast(`导航未完成：${redact(String(error?.message || error)).slice(0, 240)}`, "error"),
+  });
+}
 
 function captureViewRoute() {
   return {
@@ -1987,6 +2027,8 @@ function captureViewRoute() {
     settingsFocus: state.settingsFocus ?? null,
     configSurface: state.configSurface ?? null,
     capabilityWorkspace: state.capabilityWorkspace === "mcp" ? "mcp" : "skills",
+    ...(state.view === "bot" ? { botWorkspaceHash: botWorkspace?.getRoute() || "#bot" } : {}),
+    ...(state.view === "automations" ? { automationHash: automationRouteHash(location.hash) } : {}),
   };
 }
 
@@ -2005,45 +2047,34 @@ function titleForRoute(route) {
 }
 
 function syncChromeNavButtons() {
-  const back = byId("chrome-nav-back");
-  const forward = byId("chrome-nav-forward");
-  const backTo = viewHistoryBack.at(-1);
-  const forwardTo = viewHistoryForward.at(-1);
-  if (back) {
-    back.disabled = !backTo;
-    const label = backTo ? `后退到「${titleForRoute(backTo)}」` : "后退";
-    back.title = label;
-    back.setAttribute("aria-label", label);
-  }
-  if (forward) {
-    forward.disabled = !forwardTo;
-    const label = forwardTo ? `前进到「${titleForRoute(forwardTo)}」` : "前进";
-    forward.title = label;
-    forward.setAttribute("aria-label", label);
-  }
+  getChromeViewHistory().sync();
 }
 
-function rememberRouteChange(previous) {
-  if (!previous?.view || !FORGE_VIEW_TITLES[previous.view]) {
-    syncChromeNavButtons();
-    return;
-  }
-  const next = recordRouteChange(previous, captureViewRoute(), {
-    back: viewHistoryBack,
-    mute: viewHistoryMute,
-  });
-  viewHistoryBack = next.back;
-  if (next.recorded) viewHistoryForward = [];
-  syncChromeNavButtons();
+function rememberRouteChange(previous, navigationToken) {
+  getChromeViewHistory().record(previous, navigationToken);
 }
 
-function applyViewRoute(route) {
-  if (!route?.view) return;
-  setView(route.view, {
+async function applyViewRoute(route, navigationToken) {
+  if (!route?.view) return Promise.resolve(false);
+  const target = route.view === "bot" ? readBotWorkspaceRoute(route.botWorkspaceHash) : null;
+  if (target?.conversationId) {
+    if (!botState.conversationIndexReady) await botLoadConversations();
+    if (!state.memberCatalog?.length) await loadBootstrap();
+    if (!navigationToken.isCurrent()) return false;
+    const conversation = botConversationById(target.conversationId);
+    if (!botState.conversationIndexReady || !state.memberCatalog?.length || !conversation || conversation.deletedAt || conversation.hiddenAt) {
+      toast("目标工作对话暂不可用", "warning");
+      return false;
+    }
+  }
+  return new Promise((onNavigationResult) => setView(route.view, {
     settingsFocus: route.settingsFocus,
     configSurface: route.configSurface,
     capabilityWorkspace: route.capabilityWorkspace,
-  });
+    botWorkspaceHash: route.botWorkspaceHash,
+    automationHash: route.automationHash,
+    navigationToken, onNavigationResult,
+  }));
 }
 
 function pulseChromeButton(id) {
@@ -2056,23 +2087,7 @@ function pulseChromeButton(id) {
 }
 
 function chromeNavigate(direction) {
-  const stepped = stepHistory(direction, {
-    back: viewHistoryBack,
-    forward: viewHistoryForward,
-    current: captureViewRoute(),
-  });
-  if (!stepped.target) {
-    viewHistoryBack = stepped.back;
-    viewHistoryForward = stepped.forward;
-    syncChromeNavButtons();
-    return;
-  }
-  viewHistoryBack = stepped.back;
-  viewHistoryForward = stepped.forward;
-  pulseChromeButton(direction === "back" ? "chrome-nav-back" : "chrome-nav-forward");
-  viewHistoryMute = true;
-  try { applyViewRoute(stepped.target); } finally { viewHistoryMute = false; }
-  syncChromeNavButtons();
+  return getChromeViewHistory().navigate(direction);
 }
 
 const RAIL_COLLAPSED_KEY = "514cc:workbench-rail-collapsed";
@@ -2113,21 +2128,7 @@ function initializeChromeMenus() {
     applyRailCollapsed(!railCollapsed());
     pulseChromeButton("chrome-rail-toggle");
   });
-  byId("chrome-nav-back")?.addEventListener("click", () => chromeNavigate("back"));
-  byId("chrome-nav-forward")?.addEventListener("click", () => chromeNavigate("forward"));
-  document.addEventListener("keydown", (event) => {
-    if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-    if (historyShortcutBlocked(event)) return;
-    event.preventDefault();
-    chromeNavigate(event.key === "ArrowLeft" ? "back" : "forward");
-  });
-  window.addEventListener("mouseup", (event) => {
-    if (event.button !== 3 && event.button !== 4) return;
-    if (document.querySelector("dialog[open], .cmd-palette-overlay.is-open")) return;
-    event.preventDefault();
-    chromeNavigate(event.button === 3 ? "back" : "forward");
-  });
+  getChromeViewHistory().initialize();
   syncChromeNavButtons();
   const bindMenu = (id, buildItems) => {
     byId(id)?.addEventListener("click", (event) => {
@@ -2138,7 +2139,7 @@ function initializeChromeMenus() {
     { icon: "plus", label: "新建任务（Ctrl+N）", action: () => byId("new-task-row")?.click() },
     { icon: "refresh", label: "重新加载界面（Ctrl+R）", action: () => location.reload() },
     "---",
-    { icon: "remove", label: "关闭窗口（最小化到托盘）", disabled: typeof invoke !== "function", action: () => invoke("plugin:window|close").catch(() => {}) },
+    { icon: "remove", label: "关闭窗口（最小化到托盘）", disabled: typeof invoke !== "function", action: () => desktopWindowChrome.run("plugin:window|close") },
   ]);
   bindMenu("chrome-menu-edit", () => [
     { icon: "undo", label: "撤销（Ctrl+Z）", action: () => editMenuAction("undo") },
@@ -2187,67 +2188,23 @@ function initializeChromeMenus() {
   syncChromeNavButtons();
 }
 
+let desktopWindowChrome;
 function initializeWindowChrome() {
-  const invoke = window.__TAURI_INTERNALS__?.invoke;
-  const controls = byId("window-controls");
-  const botControls = byId("bot-window-controls");
-  if (typeof invoke !== "function" || (!controls && !botControls)) return;
-  document.documentElement.classList.add("is-desktop-shell");
-  if (controls) controls.hidden = false;
-  if (botControls) botControls.hidden = false;
-  const windowCommand = (command) => () => invoke(command).catch(() => {});
-  byId("window-minimize")?.addEventListener("click", windowCommand("plugin:window|minimize"));
-  byId("window-maximize")?.addEventListener("click", windowCommand("plugin:window|toggle_maximize"));
-  byId("window-close")?.addEventListener("click", windowCommand("plugin:window|close"));
-  byId("bot-window-minimize")?.addEventListener("click", windowCommand("plugin:window|minimize"));
-  byId("bot-window-maximize")?.addEventListener("click", windowCommand("plugin:window|toggle_maximize"));
-  byId("bot-window-close")?.addEventListener("click", windowCommand("plugin:window|close"));
-  // 手动拖拽区：旧控制台使用 topbar，Bot 默认表面隐藏了 topbar，改用各视图标题栏。
-  // 不用 data-tauri-drag-region：壳内注入脚本对子元素的命中判定随版本漂移，手动语义可测。
-  const interactiveSelector = "button, a, input, select, textarea, .topbar-nav, .topbar-actions, [contenteditable=\"true\"]";
-  const dragSurfaceSelector = [
-    ".topbar",
-    ".bot-roster-header",
-    ".bot-conversation-header",
-    ".bot-panel-header",
-    ".bot-computer-view-header",
-    ".bot-settings-header",
-  ].join(", ");
-  document.querySelectorAll(dragSurfaceSelector).forEach((surface) => {
-    surface.addEventListener("pointerdown", (event) => {
-      if (event.button !== 0) return;
-      if (event.target.closest(interactiveSelector)) return;
-      event.preventDefault();
-      invoke(event.detail === 2 ? "plugin:window|toggle_maximize" : "plugin:window|start_dragging").catch(() => {});
-    });
+  desktopWindowChrome = mountDesktopWindowChrome({
+    document, window, invoke: window.__TAURI_INTERNALS__?.invoke, reload: () => location.reload(),
+    onError: (error, command) => {
+      toast("窗口操作未完成", "error");
+      appendDiagnostic(`原生窗口 ${command}: ${redact(String(error?.message || error)).slice(0, 300)}`, "error");
+    },
   });
-  // 壳内没有地址栏与原生刷新键：补 Ctrl+R 整页重载。登录态在 sessionStorage（兑换后的
-  // 令牌），reload 安全；一次性 bootstrap nonce 已在首次兑换完毕，不参与重载。
-  window.addEventListener("keydown", (event) => {
-    if (!event.ctrlKey || event.key.toLowerCase() !== "r") return;
-    event.preventDefault();
-    location.reload();
-  });
-  // W1.2 审批快捷裁决：bot 视图下 Y=批准 / N=拒绝最新一条 pending 审批。
-  // 守卫：焦点在可编辑元素/打开的对话框/命令面板时不触发；广域授权禁批（与卡片 disabled 同口径）。
-  document.addEventListener("keydown", (event) => {
-    if (event.ctrlKey || event.metaKey || event.altKey) return;
-    const key = String(event.key || "").toLowerCase();
-    if (key !== "y" && key !== "n") return;
-    if (state.view !== "bot") return;
-    const active = document.activeElement;
-    if (active && (active.isContentEditable
-      || ["input", "textarea", "select"].includes(String(active.tagName || "").toLowerCase()))) return;
-    if (document.querySelector("dialog[open], .cmd-palette-overlay.is-open")) return;
-    const run = botConversationActiveRun(botActiveConversation());
-    if (!run?.id) return;
-    const pending = state.approvals.filter((item) => String(item.runId || "") === String(run.id) && (item.status ?? "pending") === "pending");
-    if (!pending.length) return;
-    const latest = pending[pending.length - 1];
-    if (botState.approvalInFlight.has(String(latest.id))) return;
-    const decision = key === "y" ? "approve" : "deny";
-    event.preventDefault();
-    void resolveInlineApproval(latest.id, decision);
+  mountBotApprovalShortcuts({
+    document, enabled: desktopWindowChrome.active,
+    getView: () => state.view,
+    getActiveRun: () => botConversationActiveRun(botActiveConversation()),
+    getApprovals: () => state.approvals,
+    isInFlight: (id) => botState.approvalInFlight.has(id),
+    resolveApproval: resolveInlineApproval,
+    onError: (error) => { toast("审批操作未完成", "error"); appendDiagnostic(redact(String(error?.message || error)).slice(0, 300), "error"); },
   });
 }
 
@@ -2466,16 +2423,27 @@ function initializeTheme() {
   });
 }
 
-function setApiState(next, detail = "") {
-  state.apiState = next;
+function setApiState() {
+  const snapshot = controlConnection.snapshot();
+  const presentation = connectionPresentation(snapshot);
+  state.apiState = snapshot.apiState;
   const badge = elements["api-connection-badge"];
+  if (!badge) return;
   const dot = badge.querySelector(".status-dot");
   const label = badge.querySelector("span:last-child");
-  const normalized = normalizeStatus(next);
+  const normalized = normalizeStatus(snapshot.apiState);
   badge.className = `connection-badge is-${normalized}`;
   dot.className = `status-dot is-${normalized}`;
-  label.textContent = normalized === "ok" ? "API 已连接" : normalized === "error" ? "API 未连接" : "API 连接中";
-  badge.title = detail || label.textContent;
+  label.textContent = snapshot.auth === "error" ? "会话未授权"
+    : snapshot.service === "error" ? "服务不可达"
+      : snapshot.data === "error" ? "工作数据加载失败"
+        : snapshot.interrupted ? "工作数据待刷新"
+          : normalized === "ok" ? "API 已连接" : "连接验证中";
+  badge.title = Object.values(presentation).map((item) => item.label).join(" / ");
+  for (const [kind, item] of Object.entries(presentation)) {
+    const detail = byId(`control-${kind}-state`);
+    if (detail) { detail.textContent = item.label; detail.className = `is-${item.tone}`; }
+  }
   if (elements["global-status-version"]) elements["global-status-version"].textContent = getProductVersionLabel();
 }
 
@@ -2487,6 +2455,7 @@ function setEventState(next) {
   elements["metric-events-detail"].textContent = connected ? `${state.events.length} 条会话事件` : "SSE /api/events";
   elements["event-live-state"].textContent = connected ? "实时" : normalized === "error" ? "重连中" : "连接中";
   elements["event-live-state"].className = `event-live-state is-${normalized}`;
+  botWorkspace?.render();
 }
 
 function compactToastRegion() {
@@ -2883,6 +2852,7 @@ async function loadBootstrap() {
   renderSecurity();
   reconcileTeamFormCatalog(previousTeamCatalog);
   refreshTeamData();
+  botWorkspace?.render();
   return payload;
 }
 
@@ -3127,6 +3097,7 @@ async function loadRuns() {
   missionControlDock?.selectRun(run?.id ?? null, run ? `${run.updatedAt ?? run.createdAt ?? ""}:${run.status}:${run.round ?? 0}` : null, runLocalEnvironmentId(run));
   syncRailToActiveRun();
   refreshTeamData();
+  botWorkspace?.render();
   return payload;
 }
 
@@ -3175,17 +3146,8 @@ async function loadApprovals() {
 }
 
 async function loadInitial() {
-  setApiState("pending");
+  setApiState();
   appendDiagnostic("开始加载控制面 bootstrap、health、配置索引与任务列表");
-  let earlySuccess = false;
-  const track = (job) =>
-    job.then((value) => {
-      if (!earlySuccess && !loadResultFailed(value)) {
-        earlySuccess = true;
-        setApiState("ok");
-      }
-      return value;
-    });
   const sourcesJob = loadSources().then(async (payload) => {
     if (state.selectedSourceId && !state.config) {
       const detailResult = await loadSelectedConfig();
@@ -3193,14 +3155,13 @@ async function loadInitial() {
     }
     return payload;
   });
-  const jobs = [track(loadBootstrap()), track(loadHealth()), track(sourcesJob), track(loadRuns()), track(loadApprovals()), track(loadAutomations()), track(loadTeams())];
+  const jobs = [loadBootstrap(), loadHealth(), sourcesJob, loadRuns(), loadApprovals(), loadAutomations(), loadTeams()];
   const settled = await Promise.allSettled(jobs);
-  const successes = settled.filter((item) => item.status === "fulfilled" && !loadResultFailed(item.value)).length;
+  const successes = settled.filter((item) => item.status === "fulfilled" && item.value != null && !loadResultFailed(item.value)).length;
+  setApiState();
   if (successes > 0) {
-    setApiState("ok");
     appendDiagnostic(`控制面初始化完成：${successes}/${settled.length} 个端点成功`);
   } else {
-    setApiState("error", "所有初始化端点均不可用");
     appendDiagnostic("控制面初始化失败：所有端点均不可用", "error");
   }
 
@@ -3216,7 +3177,6 @@ function setConfigSurface(surface, { updateHash = true, focus = false, preserveM
   const remoteTarget = Boolean(state.configHostId || state.configProjectId);
   let next = CONFIG_SURFACE_SET.has(surface) ? surface : (remoteTarget ? "providers" : "sources");
   const requested = next;
-  if (!remoteTarget && next === "providers") next = "sources";
   if (remoteTarget && next === "hooks") {
     toast("远端钩子尚未接入，请切回本机后再编辑", "warning", 4000);
     next = "providers";
@@ -3244,6 +3204,7 @@ function setConfigSurface(surface, { updateHash = true, focus = false, preserveM
   // 远程配置目标生效期间，程序化 surface 切换不得把本机三面图谱重新放出来
   if (state.configHostId) syncConfigHostView();
   if ((next === "providers" || next === "sources") && !state.providersData) void loadTeams().then(() => loadProviders());
+  if (next === "providers") renderProviders();
   reconcileProviderLivePoll(); // 席位连接区进出即开停 live 轮询
   if (next === "local-runtime") {
     const panel = window.__forgeCcSwitchPanel;
@@ -3256,7 +3217,7 @@ function setConfigSurface(surface, { updateHash = true, focus = false, preserveM
   syncSettingsRailActive(state.view, next);
   if (next === "sources") runtimeSeatManager?.setMode(state.runtimeWorkspaceMode, { focus: false });
   if (focus) {
-    const heading = byId(`config-surface-${next}`)?.querySelector("h2");
+    const heading = byId("config-title");
     if (heading) {
       heading.setAttribute("tabindex", "-1");
       requestAnimationFrame(() => heading.focus({ preventScroll: true }));
@@ -3335,7 +3296,7 @@ function syncBotSurfaceChrome(view) {
   // 避免聊天工作面为纯装饰持续占用合成与动画预算。
   const canvas = document.getElementById("atelier-canvas");
   if (canvas) canvas.hidden = bot;
-  for (const selector of [".sidebar", ".mobile-nav"]) {
+  for (const selector of [".mobile-nav"]) {
     document.querySelectorAll(selector).forEach((node) => {
       if (bot) {
         node.setAttribute("data-bot-hidden-chrome", "1");
@@ -3357,6 +3318,9 @@ function syncBotSurfaceChrome(view) {
       node.removeAttribute("inert");
     });
   }
+  const sidebar = byId("sidebar");
+  if (sidebar) { sidebar.hidden = false; sidebar.removeAttribute("data-bot-hidden-chrome"); }
+  syncNavAccessibility();
 }
 
 let pendingBotWorkspaceRoute = null;
@@ -3367,29 +3331,32 @@ function guardDirtyBotWorkspaceRoute(view, options) {
   if (state.view !== "bot"
     || view === "bot"
     || panel?.hidden !== false
-    || botState.workspaceTab !== "seats"
     || !runtimeSeatManager?.isDirty()) return false;
   const requestedHash = options.updateHash === false && String(location.hash || "") !== "#bot"
     ? String(location.hash)
     : null;
+  pendingBotWorkspaceRoute?.options.onNavigationResult?.(false);
   pendingBotWorkspaceRoute = {
     view,
     requestedHash,
     options: { ...options, updateHash: requestedHash ? false : true },
   };
-  history.replaceState(null, "", "#bot");
+  history.replaceState(null, "", botWorkspace?.getRoute() || "#bot");
   if (botWorkspaceRouteGuardActive) return true;
   botWorkspaceRouteGuardActive = true;
+  let resolvingTarget = null;
   void botRequestCloseWorkspace({ restoreFocus: false })
     .then((closed) => {
       const target = pendingBotWorkspaceRoute;
+      resolvingTarget = target;
       pendingBotWorkspaceRoute = null;
-      if (closed && target) {
+      if (closed && target && (!target.options.navigationToken || target.options.navigationToken.isCurrent())) {
         if (target.requestedHash) history.replaceState(null, "", target.requestedHash);
         setView(target.view, target.options);
-      }
+      } else target?.options.onNavigationResult?.(false);
     })
     .catch((error) => {
+      (pendingBotWorkspaceRoute || resolvingTarget)?.options.onNavigationResult?.(false);
       pendingBotWorkspaceRoute = null;
       toast(`运行席位草稿检查失败：${error.message}`, "error", 6000);
     })
@@ -3404,8 +3371,18 @@ function setView(view, {
   preserveMemberTarget = false,
   settingsFocus = undefined,
   capabilityWorkspace = undefined,
+  botWorkspaceHash = undefined,
+  automationHash = undefined,
+  navigationToken = null,
+  onNavigationResult = null,
 } = {}) {
-  if (view === "bot" && botWorkspaceRouteGuardActive) pendingBotWorkspaceRoute = null;
+  if (navigationToken && !navigationToken.isCurrent()) { onNavigationResult?.(false); return; }
+  const workspaceRoute = botWorkspaceHash || (["bot", "experience"].includes(view) ? (readBotWorkspaceRoute(location.hash) ? location.hash : botWorkspace?.getRoute() || null) : null);
+  if (view === "experience") view = "bot";
+  if (view === "bot" && botWorkspaceRouteGuardActive) {
+    pendingBotWorkspaceRoute?.options.onNavigationResult?.(false);
+    pendingBotWorkspaceRoute = null;
+  }
   if (view === "memory") {
     view = "observability";
     settingsFocus = settingsFocus ?? "memory";
@@ -3416,19 +3393,20 @@ function setView(view, {
   }
   if (view === "terminal") {
     openBottomTerminal();
+    onNavigationResult?.(false);
     return;
   }
   if (view === "hero") {
-    setView("team", { updateHash: true, focus: false });
+    setView("team", { updateHash: true, focus: false, navigationToken, onNavigationResult });
     revealTeamStarmap();
     return;
   }
   if (view === "router") {
-    setView("team", { updateHash: true, focus: false });
+    setView("team", { updateHash: true, focus: false, navigationToken, onNavigationResult });
     revealTeamRouting();
     return;
   }
-  if (!FORGE_VIEW_TITLES[view]) return;
+  if (!FORGE_VIEW_TITLES[view]) { onNavigationResult?.(false); return; }
   if (guardDirtyBotWorkspaceRoute(view, {
     updateHash,
     focus,
@@ -3436,6 +3414,10 @@ function setView(view, {
     preserveMemberTarget,
     settingsFocus,
     capabilityWorkspace,
+    botWorkspaceHash,
+    automationHash,
+    navigationToken,
+    onNavigationResult,
   })) return;
   // P-21：埋点落在别名规范化（memory→observability / hero→team）与 guard 拦截之后，
   // 记录的才是"真正切换到的视图"。放在 guard 之前会把被拦下的导航也算成一次访问。
@@ -3445,7 +3427,8 @@ function setView(view, {
   if (view !== "bot") {
     if (state.view === "bot") {
       if (!closeBotGlobalDialogs()) {
-        history.replaceState(null, "", "#bot");
+        history.replaceState(null, "", botWorkspace?.getRoute() || "#bot");
+        onNavigationResult?.(false);
         return;
       }
       cancelSettlementRequests("bot");
@@ -3459,18 +3442,25 @@ function setView(view, {
   }
   if (state.view === "workbench" && view !== "workbench") cancelSettlementRequests("workbench");
   const previousRoute = captureViewRoute();
+  if (state.view === "bot" && view !== "bot") botWorkspace?.deactivate();
   if (view !== "config") clearMemberConfigTarget();
   if (settingsFocus !== undefined) state.settingsFocus = settingsFocus;
   else if (view !== "observability") state.settingsFocus = null;
   state.view = view;
+  if (view !== "bot" && view !== "plugins") projectPluginsPanel?.deactivate();
+  if (view === "bot" && updateHash && !ownsBotWorkspaceHash(location.hash) && !/^#\/?bot\//.test(location.hash)) {
+    history.replaceState(history.state, "", workspaceRoute || botWorkspace?.getRoute() || "#bot");
+  }
+  const workspaceActivation = view === "bot" && workspaceRoute ? botWorkspace?.activate(workspaceRoute, { navigationToken }) : null;
+  if (view !== "bot") conversationMembersEditor?.close({ force: true, restoreFocus: false });
   syncBotSurfaceChrome(view);
-  const panelView = view === "automations" ? "workbench" : view;
   const updateActivePanel = () => {
     document.querySelectorAll("[data-view-panel]").forEach((panel) => {
-      const active = panel.dataset.viewPanel === panelView;
+      const active = panel.dataset.viewPanel === view;
       panel.hidden = !active;
       panel.classList.toggle("is-active", active);
     });
+    if (view === "bot") botWorkspace?.render();
   };
   const shouldAnimate = typeof document.startViewTransition === "function"
     && !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
@@ -3480,7 +3470,9 @@ function setView(view, {
   } else {
     updateActivePanel();
   }
-  revealWorkbenchAutomations(view === "automations");
+  if (view === "automations" && /^#\/?bot\/automations(?:[/?]|$)/.test(location.hash)) {
+    history.replaceState(history.state, "", location.hash.replace(/^#\/?bot\//, "#"));
+  }
   document.querySelectorAll("[data-view]").forEach((button) => {
     const active = button.dataset.view === view;
     button.classList.toggle("is-active", active);
@@ -3504,6 +3496,8 @@ function setView(view, {
     void import("./market-panel.js").then((m) => m.refreshMarketPanel?.());
   } else if (view === "office") {
     void import("./office-panel.js").then((m) => m.refreshOfficePanel?.());
+  } else if (view === "plugins") {
+    void projectPluginsPanel?.load({ projectId: projectPluginsPanel.projectId || botActiveConversation()?.projectId || "" });
   }
   if (view === "config") {
     setConfigSurface(configSurface ?? state.configSurface, {
@@ -3516,14 +3510,14 @@ function setView(view, {
       setCapabilityWorkspace(capabilityWorkspace, { focus: false, recordHistory: false });
     }
   }
-  if (updateHash) {
+  if (updateHash && view !== "bot") {
     history.replaceState(null, "", view === "config"
       ? configRouteHash(state.configSurface, {
           memberId: state.configMemberFocusId,
           runtimeProfileId: state.configRuntimeFocusId,
         })
-      : view === "automations" && String(location.hash || "").startsWith("#automations")
-        ? location.hash
+      : view === "automations"
+        ? automationRouteHash(automationHash || location.hash)
         : view === "observability" && state.settingsFocus === "memory"
           ? "#memory"
           : `#${view}`);
@@ -3531,12 +3525,13 @@ function setView(view, {
   if (view === "observability" && state.settingsFocus === "memory") {
     requestAnimationFrame(() => byId("memory-browser-root")?.scrollIntoView({ block: "start", behavior: "smooth" }));
   }
+  if (view === "bot" && !workspaceRoute) botWorkspace?.sync();
   if (view === "appearance") {
     mountAppearancePreviews();
     syncAppearanceControls();
   }
   if (focus) {
-    const heading = (view === "automations" ? byId("automations-workbench") : byId(`view-${view}`))?.querySelector("h1");
+    const heading = byId(`view-${view}`)?.querySelector("h1");
     if (heading) {
       heading.setAttribute("tabindex", "-1"); // h1 默认不可聚焦——切页焦点迁移需显式 tabindex（烛建议）
       heading.focus?.({ preventScroll: true });
@@ -3598,7 +3593,15 @@ function setView(view, {
     renderRuns();
     if (state.projectsData) renderProjects();
   }
-  rememberRouteChange(previousRoute);
+  rememberRouteChange(previousRoute, navigationToken);
+  if (workspaceActivation) {
+    void Promise.resolve(workspaceActivation).then((accepted) => {
+      onNavigationResult?.(accepted !== false && state.view === view && (!navigationToken || navigationToken.isCurrent()));
+    }, (error) => {
+      onNavigationResult?.(false);
+      toast(`工作对话导航未完成：${redact(String(error?.message || error)).slice(0, 240)}`, "error");
+    });
+  } else onNavigationResult?.(true);
 }
 
 const settingsRailChrome = createSettingsRailChrome({
@@ -3610,10 +3613,11 @@ const {
   isSettingsChrome,
   syncSettingsRailActive,
   syncWorkbenchRailShortcuts,
-  revealWorkbenchAutomations,
   filterSettingsRail,
+  handleSettingsRailKey,
+  handleSettingsQueryKey,
+  toggleSettingsSearch,
   syncSettingsChrome,
-  openSettings,
 } = settingsRailChrome;
 
 function renderConfigTopology() {
@@ -3692,7 +3696,6 @@ function renderConfigTopology() {
   }
 
   const providerNode = byId("config-topology-providers");
-  if (providerNode) providerNode.hidden = !remoteTarget;
   const capabilityNode = byId("config-topology-capabilities");
   const sourceNode = byId("config-topology-sources");
   providerNode?.classList.toggle("is-error", remoteTarget ? remoteEntry?.status === "error" : Boolean(providerError));
@@ -3702,6 +3705,19 @@ function renderConfigTopology() {
   sourceNode?.classList.toggle("is-error", remoteTarget ? remoteEntry?.status === "error" : Boolean(runtimeError));
 
   const workspaceStatus = elements["config-workspace-status"];
+  if (state.view === "config") {
+    if (elements["current-view-title"]) elements["current-view-title"].textContent = forgeViewTitle();
+    if (elements["current-view-group"]) elements["current-view-group"].textContent = forgeViewGroup();
+    document.title = `${forgeViewTitle()} · 514 Bot`;
+  }
+  const configTitle = byId("config-title");
+  if (configTitle) configTitle.textContent = {
+    sources: state.runtimeWorkspaceMode === "sources" ? "配置文件" : "运行席位",
+    providers: "连接档案",
+    capabilities: "能力",
+    hooks: "钩子",
+    "local-runtime": remoteTarget ? "远端运行时" : "本机运行时",
+  }[state.configSurface] || "配置";
   if (!workspaceStatus) return;
   let tone = "neutral";
   let label = "正在汇总";
@@ -6361,7 +6377,7 @@ function focusMemberCapabilityColumn(memberId) {
 }
 
 function focusConfigSurfaceHeading(surface) {
-  const heading = byId(`config-surface-${surface}`)?.querySelector("h2");
+  const heading = byId("config-title");
   if (!heading) return;
   heading.setAttribute("tabindex", "-1");
   requestAnimationFrame(() => {
@@ -6743,9 +6759,9 @@ const QUICK_TASK_TEMPLATES = [
   {
     icon: "telescope",
     title: "调研问路",
-    detail: "织拉情报 · 结论必附来源",
+    detail: "调用检索工具 · 结论必附来源",
     category: "research",
-    startAgent: "grok-search",
+    startAgent: "codex-technical",
     prompt: "帮我调研以下主题的最新实践与可行方案，事实先于观点、结论必须附来源：\n\n<在这里填写主题>",
   },
   {
@@ -6774,7 +6790,7 @@ function currentTeamMembers() {
   const team = teamById(state.selectedTeamId || defaultTeamId()) ?? state.teams.find((item) => item.builtin);
   const members = team?.members?.length
     ? team.members
-    : ["claude-fable", "codex-technical", "grok-search", "grok-build", "kimi-frontend", "pi-resident"];
+    : ["claude-fable", "codex-technical", "grok-build", "kimi-frontend", "pi-resident"];
   return {
     team,
     members,
@@ -7564,6 +7580,7 @@ function automationsWritable() {
 }
 
 function renderAutomations() {
+  window.__forgeAutomationsPage?.refresh();
   const status = state.automationStatus ?? {};
   const writable = automationsWritable();
   const saveButton = elements["save-automation-button"];
@@ -8385,6 +8402,11 @@ const FINISHED_RUN_STATES = new Set(["succeeded", "failed", "cancelled"]); // �
 // ===== 团队：会话级能力配比预设（内置 514cc 冻结，自定义可增改删） =====
 const TEAM_KEY = "514cc-selected-team";
 const COMPOSER_CLI_OPEN_KEY = "514cc-composer-cli-open-v2";
+// 能力生效链折叠态（v49 C-01）：**首访默认展开**，收起后记住。
+// 与 COMPOSER_CLI_OPEN_KEY 同款体例，但默认值相反 —— 它是教学内容，对首访有真价值，
+// 对回访是纯噪音（实测常驻 97px，占配置页 646px 首屏 chrome 的第二大块）。
+// 所以未写入过该键时读作"展开"，只有用户显式收起才落 "0"。
+const CAPABILITY_BUS_OPEN_KEY = "514cc-capability-bus-open-v1";
 const BUILTIN_TEAM_ID = "team-514cc";
 
 function currentTeam() {
@@ -9031,6 +9053,26 @@ function composerBudgetSubmissionValue(raw) {
   return Number.isFinite(num) ? num : undefined;
 }
 
+// social 协作必须有限预算：显式无限或"空值+全局默认无限"都回退到有限兜底
+// （与后端 SOCIAL_IMPLICIT_BUDGET_FALLBACK 同值 5；Bot 页脚下拉默认 $5.00，可直接改大）。
+const SOCIAL_BUDGET_FALLBACK = 5;
+function composerSocialBudgetSubmissionValue(raw) {
+  const wire = composerBudgetSubmissionValue(raw);
+  if (wire === "unlimited") return SOCIAL_BUDGET_FALLBACK;
+  if (wire !== undefined) return wire;
+  const defaultUnlimited = isUnlimitedBudgetValue(state.bootstrap?.permissions?.limits?.defaultBudgetUsdPerTurn);
+  return defaultUnlimited ? SOCIAL_BUDGET_FALLBACK : undefined;
+}
+
+// Bot 页脚预算下拉（#workspace-next-budget）：工作区群聊 social 的主入口，
+// 优先级高于隐藏的 #task-budget；返回有限数字，无效/缺失时返回 undefined 交给上层兜底。
+function workspaceBudgetSubmissionValue() {
+  const raw = String(byId("workspace-next-budget")?.value ?? "").trim();
+  if (!raw) return undefined;
+  const num = Number(raw);
+  return Number.isFinite(num) && num >= 0.05 && num <= 50 ? num : undefined;
+}
+
 // 预算菜单：∞ 行 + 全局默认行 + 快捷档 + 自定义金额编辑器；行点击经 bindComposerPickMenu
 // 写回 #task-budget（hidden）并派发 change——与模型/Effort 菜单同一条状态链。
 function syncBudgetPickMenu() {
@@ -9335,6 +9377,29 @@ function setComposerCliOpen(open) {
   if (panel) panel.hidden = !state.composerCliOpen;
   if (toggle) toggle.setAttribute("aria-expanded", String(state.composerCliOpen));
   try { localStorage.setItem(COMPOSER_CLI_OPEN_KEY, state.composerCliOpen ? "1" : "0"); } catch { /* storage may be blocked */ }
+}
+
+// 能力生效链折叠（v49 C-01）：首访展开、收起后记住。与 setComposerCliOpen 同款体例。
+// 摘要行（capability-bus-digest）在折叠态仍显示"本机安装 → 团队菜单 → 成员范围"，
+// 所以收起来不等于信息消失 —— 三层关系仍在一行里，只是不再占 97px。
+function setCapabilityBusOpen(open, { persist = true } = {}) {
+  const on = Boolean(open);
+  const root = elements["capability-bus"];
+  const body = elements["capability-bus-body"];
+  const toggle = elements["capability-bus-toggle"];
+  if (body) body.hidden = !on;
+  if (toggle) toggle.setAttribute("aria-expanded", String(on));
+  root?.classList.toggle("is-collapsed", !on);
+  if (persist) {
+    try { localStorage.setItem(CAPABILITY_BUS_OPEN_KEY, on ? "1" : "0"); } catch { /* storage may be blocked */ }
+  }
+}
+
+// 未写入过该键 → 展开（首访教学）；显式收起过 → 保持收起。
+function restoreCapabilityBusOpen() {
+  let open = true;
+  try { open = localStorage.getItem(CAPABILITY_BUS_OPEN_KEY) !== "0"; } catch { /* storage may be blocked */ }
+  setCapabilityBusOpen(open, { persist: false });
 }
 
 function renderComposerCliConsole() {
@@ -12322,8 +12387,7 @@ let providerLiveInFlight = false;
 
 function providerLiveViewVisible() {
   return state.view === "config"
-    && state.configSurface === "sources"
-    && state.runtimeWorkspaceMode === "seats"
+    && (state.configSurface === "providers" || state.configSurface === "sources" && state.runtimeWorkspaceMode === "seats")
     && !state.configHostId // 远程配置目标生效时，本机 live 不是当前关注面
     && document.visibilityState !== "hidden";
 }
@@ -12549,15 +12613,18 @@ function providerAppTabsMarkup({ active, dataAttr, extraTitle = () => "", focusa
 function renderProviderAppBar() {
   const appBar = elements["provider-app-bar"];
   if (!appBar) return;
+  const restoreFocus = appBar.contains(document.activeElement);
   const current = state.providersData?.current ?? {};
   appBar.innerHTML = providerAppTabsMarkup({
     active: providerActiveApp(),
     dataAttr: "data-provider-app-tab",
+    focusable: true,
     extraTitle: (meta) => {
       const currentName = providerById(current[meta.app])?.name ?? "";
       return currentName ? `当前：${currentName}` : "";
     },
   });
+  if (restoreFocus) appBar.querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
 }
 
 /** 官方登录态虚拟行（live 检出 CLI 托管官方登录，如 kimi managed:kimi-code，且档案库无同端点档案）：
@@ -12748,24 +12815,7 @@ async function dropProviderRow(dragId, targetId, insertAfter) {
 function renderProviders() {
   const columns = elements["provider-columns"];
   if (!columns) return;
-  const lockedApp = runtimeSeatManager?.connectionApp?.() || "";
-  if (elements["provider-app-bar"]) elements["provider-app-bar"].hidden = true;
-  if (!lockedApp) {
-    if (elements["provider-add-button"]) elements["provider-add-button"].hidden = true;
-    // UI-AUDIT P0-6：首次进入无数据 → 引导型空态（说明价值 + 给出下一步），而非一行灰字
-    renderPlaceholder(columns, emptyState({
-      tone: "first-run",
-      id: "provider-unlocked-empty",
-      icon: "unplug",
-      title: "先选一个走连接档案的席位",
-      desc: "选定后这里只列出该 Adapter 真正能用的共享连接。当前席位不走 ProviderStore，或尚未选择席位。",
-    }));
-    const spine = elements["provider-spine"];
-    if (spine) spine.hidden = true;
-    if (!state.providersData) void loadProviders();
-    return;
-  }
-  state.providerActiveApp = lockedApp;
+  if (elements["provider-app-bar"]) elements["provider-app-bar"].hidden = false;
   renderProviderAppBar();
   const data = state.providersData;
   if (!data) {
@@ -12802,8 +12852,8 @@ function renderProviders() {
   if (globallyEmpty) {
     deckMarkup = `<section class="provider-global-empty" aria-labelledby="provider-global-empty-title">
       <svg class="icon lucide" aria-hidden="true"><use href="#lucide-plug-zap"></use></svg>
-      <div><strong id="provider-global-empty-title">尚未创建供应商连接</strong><span>Provider 保存端点与私密凭据；运行席位只绑定 Provider ID。</span></div>
-      ${storeBlocked ? "" : '<button class="button primary" type="button" data-provider-add-app=""><svg aria-hidden="true" class="icon lucide"><use href="#lucide-plus"></use></svg>新增供应商</button>'}
+      <div><strong id="provider-global-empty-title">还没有连接档案</strong></div>
+      ${storeBlocked ? "" : '<button class="button primary" type="button" data-provider-add-app=""><svg aria-hidden="true" class="icon lucide"><use href="#lucide-plus"></use></svg>新建连接</button>'}
     </section>`;
   } else {
     const app = providerActiveApp();
@@ -12853,7 +12903,7 @@ function renderProviders() {
       </div>
       ${providerBackupTimelineMarkup(app, { storeBlocked })}
     </div>`;
-    if (emptyOtherApps.length && !lockedApp) {
+    if (emptyOtherApps.length) {
       deckMarkup += `<details class="provider-empty-apps">
         <summary>还有 ${emptyOtherApps.length} 个应用未关联供应商</summary>
         <div class="provider-empty-app-list">
@@ -13526,7 +13576,7 @@ function fillProviderDialog(provider, { app: preferredApp = null, prefill = null
   state.providerDialogTargetApp = selection.targetApp;
   state.providerDialogApps = selection.apps;
   const targetLabel = PROVIDER_APP_META.find((entry) => entry.app === selection.targetApp)?.label ?? selection.targetApp;
-  elements["provider-dialog-title"].textContent = provider ? `编辑供应商 · ${provider.name}` : `新增供应商 · ${targetLabel}`;
+  elements["provider-dialog-title"].textContent = provider ? `编辑连接 · ${provider.name}` : `新建连接 · ${targetLabel}`;
   elements["provider-name-input"].value = provider?.name ?? prefill?.name ?? "";
   elements["provider-baseurl-input"].value = provider?.baseUrl ?? prefill?.baseUrl ?? "";
   elements["provider-key-input"].value = "";
@@ -16391,7 +16441,7 @@ function teamPulseMembers() {
   const team = currentTeam() || teamById(state.selectedTeamId) || state.teams.find((item) => item.builtin);
   const members = team?.members?.length
     ? team.members
-    : ["claude-fable", "codex-technical", "grok-search", "kimi-frontend", "pi-resident"];
+    : ["claude-fable", "codex-technical", "grok-build", "kimi-frontend", "pi-resident"];
   const healthList = Array.isArray(state.health?.components)
     ? state.health.components
     : Array.isArray(state.components) ? state.components : [];
@@ -16432,30 +16482,18 @@ function renderOperatorAvatar() {
     fallback: lucideIcon("user-round", "icon lucide"),
   });
   const name = state.operatorProfile?.label || "AEMEATH";
-  for (const id of ["operator-avatar-preview", "operator-avatar-heading", "settings-avatar-preview"]) {
-    const node = byId(id);
-    if (node) node.innerHTML = markup;
-  }
-  for (const id of ["bot-account-avatar", "bot-profile-avatar-preview"]) {
-    const node = byId(id);
-    if (node) node.innerHTML = operatorAvatarMarkup({
-      profile: state.operatorProfile,
-      className: "bot-avatar-media",
-      fallback: `<span class="bot-avatar-initials">${escapeHtml(name.slice(0, 2) || "LO")}</span>`,
-    });
-  }
-  const dockLabel = byId("account-dock-label");
+  const node = byId("settings-avatar-preview");
+  if (node) node.innerHTML = markup;
+  const profileAvatar = byId("bot-profile-avatar-preview");
+  if (profileAvatar) profileAvatar.innerHTML = operatorAvatarMarkup({
+    profile: state.operatorProfile,
+    className: "bot-avatar-media",
+    fallback: `<span class="bot-avatar-initials">${escapeHtml(name.slice(0, 2) || "LO")}</span>`,
+  });
   const settingsLabel = byId("settings-operator-label");
-  const botAccountLabel = byId("bot-account-label");
   const botProfileName = byId("bot-profile-preview-name");
-  if (dockLabel) dockLabel.textContent = name;
   if (settingsLabel) settingsLabel.textContent = name;
-  if (botAccountLabel) botAccountLabel.textContent = name;
   if (botProfileName) botProfileName.textContent = name;
-  for (const id of ["account-dock", "account-heading-chip"]) {
-    const button = byId(id);
-    if (button) button.setAttribute("aria-label", `打开设置 · ${name}`);
-  }
 }
 
 // ===== 514 Bot Shell：只负责表面交互，发送仍桥接唯一 task-form / createRun =====
@@ -16493,8 +16531,8 @@ const botState = {
   imagePreviewOpenerUrl: "",
   settingsOpener: null,
   workspaceOpener: null,
-  workspaceTab: "automations",
-  workspaceMounts: Object.create(null),
+  workspaceTab: null,
+  seatComponentMount: null,
   workspaceReturnMemberId: null,
   seatTargetMemberId: null,
   surfaceTab: "chats",
@@ -16502,6 +16540,7 @@ const botState = {
   projectsRevision: 0,
   conversations: [],
   conversationsRevision: 0,
+  conversationIndexReady: false,
   conversationsLoading: null,
   selectionEpoch: 0,
   conversationWrites: new Map(),
@@ -16512,6 +16551,10 @@ const botState = {
   collapsedProjectIds: new Set(),
   mobileRosterVisible: false,
   conversationSearchQuery: "",
+  conversationPage: 0,
+  conversationPageQuery: "",
+  projectFilterId: "",
+  showInactiveConversations: true,
   groupDialogOpener: null,
   groupDialogReturnPanel: false,
   editingMemberId: null,
@@ -17016,14 +17059,33 @@ function botConversationActivity(conversation) {
   return stamp ? formatRelative(stamp) : "时间未知";
 }
 
+// Grok 式列表副标题：最近消息预览。单聊里自己发的加「你：」前缀；
+// 群房里成员消息加成员名前缀（成员已删则回退原始 from 串）。无预览返回空串，调用方回退旧描述行。
+function botConversationPreviewText(conversation, { group = false } = {}) {
+  const preview = conversation?.preview;
+  const text = String(preview?.text || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  const from = String(preview?.from || "");
+  if (!from) return text;
+  if (from === "LO") return `你：${text}`;
+  if (!group) return text;
+  return `${botMeta(from).label}：${text}`;
+}
+
+function botConversationDateBadge(conversation) {
+  const stamp = formatConversationStamp(conversation?.preview?.at || conversation?.updatedAt || conversation?.createdAt);
+  return stamp ? `<span class="bot-conversation-date">${escapeHtml(stamp)}</span>` : "";
+}
+
 function botConversationLink(conversation) {
   const url = new URL(window.location.href);
-  url.hash = `conversation=${encodeURIComponent(String(conversation?.id || ""))}`;
+  url.hash = botWorkspaceRoute({ conversationId: String(conversation?.id || "") });
   return url.toString();
 }
 
 function botWriteConversationLocation(conversation) {
   if (!conversation?.id) return;
+  if (botWorkspace) { botWorkspace.sync(); return; }
   history.replaceState(history.state, "", botConversationLink(conversation));
 }
 
@@ -17109,10 +17171,15 @@ async function botLoadConversations({ focusId = null, selectionToken = null } = 
     request(`${API.conversations}?includeHidden=1&includeDeleted=1`),
   ])
     .then(([projectPayload, conversationPayload]) => {
+      if (!Array.isArray(projectPayload?.projects) || !Array.isArray(conversationPayload?.conversations)) {
+        throw new Error("项目或工作对话索引格式无效");
+      }
       botState.projects = Array.isArray(projectPayload?.projects) ? projectPayload.projects : [];
+      if (botState.projectFilterId && !botState.projects.some((project) => project.projectId === botState.projectFilterId)) botState.projectFilterId = "";
       botState.projectsRevision = Number(projectPayload?.revision || 0);
       botState.conversations = Array.isArray(conversationPayload?.conversations) ? conversationPayload.conversations : [];
       botState.conversationsRevision = Number(conversationPayload?.revision || 0);
+      botState.conversationIndexReady = true;
       botHydrateConversationRunIndex();
       const requested = focusId ? botConversationById(focusId) : null;
       const focusStillOwned = requested && (selectionToken == null
@@ -17123,6 +17190,7 @@ async function botLoadConversations({ focusId = null, selectionToken = null } = 
         botState.activeConversationId = botConversationForMember(botState.agentId, { includeHidden: false })?.id || null;
       }
       botRenderRoster();
+      botWorkspace?.render();
       return { projects: botState.projects, conversations: botState.conversations };
     })
     .catch((error) => {
@@ -17550,7 +17618,7 @@ function botConversationStatus(conversation, { hidden = false, archived = false,
   const status = String(run?.status || "").toLowerCase();
   if (["queued", "planning", "running"].includes(status)) return { label: "进行中", tone: "running" };
   if (["waiting_agent", "waiting_user"].includes(status)) return { label: "等待中", tone: "waiting" };
-  if (status === "succeeded") return { label: "已完成", tone: "complete" };
+  if (status === "succeeded") return { label: "本轮结束", tone: "complete" };
   if (status === "cancelled") return { label: "已取消", tone: "muted" };
   return { label: "空闲", tone: "muted" };
 }
@@ -17578,19 +17646,27 @@ function botConversationRowMarkup(conversation, { label = null, hidden = false, 
     const meta = member ? botMemberPresentation(member, id) : botMeta(id);
     const healthClass = meta.health.status === "online" ? "is-online" : "is-away";
     const conversationTitle = label || conversation.title || meta.label;
+    const directPreview = botConversationPreviewText(conversation);
+    const directDetail = directPreview
+      ? `<span class="bot-conversation-preview">${escapeHtml(directPreview)}</span>`
+      : `<span>${escapeHtml(meta.label)} · <code>${escapeHtml(ref)}</code> · ${escapeHtml(activity)}</span>`;
     return `<button class="bot-agent-row bot-tree-conversation${active ? " is-active" : ""}${deleted ? " is-deleted" : ""}" type="button" role="treeitem" aria-level="${level}" aria-selected="${active}" data-bot-tree-row data-bot-conversation="${escapeHtml(String(conversation.id))}" data-bot-conversation-ref="${escapeHtml(ref)}" data-bot-agent="${escapeHtml(id)}" data-agent-id="${escapeHtml(id)}" tabindex="${deleted ? "-1" : active ? "0" : "-1"}" title="${escapeHtml(`${conversationTitle} · ${conversation.id}`)}"${disabled}>
       <span class="bot-agent-avatar ${botAvatarClass(meta.tone)}"><span class="bot-status-dot ${healthClass}" aria-hidden="true"></span>${botMemberAvatarContent(member, meta)}</span>
-      <span class="bot-agent-copy"><strong>${escapeHtml(conversationTitle)}</strong><span>${escapeHtml(meta.label)} · <code>${escapeHtml(ref)}</code> · ${escapeHtml(activity)}</span></span>
-      <span class="bot-conversation-status is-${escapeHtml(status.tone)}" data-bot-conversation-status>${escapeHtml(status.label)}</span>
+      <span class="bot-agent-copy"><strong>${escapeHtml(conversationTitle)}</strong>${directDetail}</span>
+      <span class="bot-conversation-side">${botConversationDateBadge(conversation)}<span class="bot-conversation-status is-${escapeHtml(status.tone)}" data-bot-conversation-status>${escapeHtml(status.label)}</span></span>
     </button>`;
   }
   const participants = botGroupParticipants(run || conversation);
   const roomLabel = label || (conversation.roomRole === "default" ? "项目协作室" : conversation.title || "项目任务");
   const projectLabel = project?.title || "未归类";
+  const groupPreview = botConversationPreviewText(conversation, { group: true });
+  const groupDetail = groupPreview
+    ? `<span class="bot-conversation-preview">${escapeHtml(groupPreview)}</span>`
+    : `<span>${escapeHtml(projectLabel)} · ${participants.length} 位 · <code>${escapeHtml(ref)}</code> · ${escapeHtml(activity)}</span>`;
   return `<button class="bot-agent-row bot-group-row bot-tree-conversation${active ? " is-active" : ""}${deleted ? " is-deleted" : ""}" type="button" role="treeitem" aria-level="${level}" aria-selected="${active}" data-bot-tree-row data-bot-conversation="${escapeHtml(String(conversation.id))}" data-bot-conversation-ref="${escapeHtml(ref)}" data-bot-group-run="${escapeHtml(String(conversation.activeRunId || ""))}" tabindex="${deleted ? "-1" : active ? "0" : "-1"}" title="${escapeHtml(`${projectLabel} · ${roomLabel} · ${conversation.id}`)}"${disabled}>
     <span class="bot-agent-avatar is-group">${botGroupAvatarMarkup(run || conversation)}</span>
-    <span class="bot-agent-copy"><strong>${escapeHtml(roomLabel)}</strong><span>${escapeHtml(projectLabel)} · ${participants.length} 位 · <code>${escapeHtml(ref)}</code> · ${escapeHtml(activity)}</span></span>
-    <span class="bot-conversation-status is-${escapeHtml(status.tone)}" data-bot-conversation-status>${escapeHtml(status.label)}</span>
+    <span class="bot-agent-copy"><strong>${escapeHtml(roomLabel)}</strong>${groupDetail}</span>
+    <span class="bot-conversation-side">${botConversationDateBadge(conversation)}<span class="bot-conversation-status is-${escapeHtml(status.tone)}" data-bot-conversation-status>${escapeHtml(status.label)}</span></span>
   </button>`;
 }
 
@@ -17607,7 +17683,17 @@ function botRenderRoster() {
   if (!list || !tree || !contacts) return;
   const catalog = botVisibleMemberCatalog();
   const query = String(botState.conversationSearchQuery || "").trim().toLowerCase();
-  const activeConversations = botState.conversations
+  if (botState.conversationPageQuery !== query) { botState.conversationPage = 0; botState.conversationPageQuery = query; }
+  const indexPage = pageWorkspaceIndex(botState.conversations, botState.projects, {
+    page: botState.conversationPage,
+    matches: (conversation) => (!botState.projectFilterId || conversation.projectId === botState.projectFilterId)
+      && (botState.showInactiveConversations || (!conversation.hiddenAt && !conversation.deletedAt && !botProjectForConversation(conversation)?.archivedAt))
+      && botConversationMatches(conversation, query, botProjectForConversation(conversation)),
+    projectMatches: (project) => (!botState.projectFilterId || project.projectId === botState.projectFilterId)
+      && (!query || `${project.title} ${project.canonicalCwd}`.toLowerCase().includes(query)),
+  });
+  botState.conversationPage = indexPage.page;
+  const activeConversations = indexPage.conversations
     .filter((item) => !item?.hiddenAt && !item?.deletedAt)
     .sort((left, right) => Number(right.pinned) - Number(left.pinned)
       || Number(botConversationAttention(right)?.priority || 0) - Number(botConversationAttention(left)?.priority || 0)
@@ -17620,7 +17706,7 @@ function botRenderRoster() {
   const directRows = directConversations
     .map((conversation) => botConversationRowMarkup(conversation))
     .join("");
-  const projectNodes = botState.projects
+  const projectNodes = indexPage.projects
     .filter((project) => !project.archivedAt)
     .map((project) => {
       const conversations = activeConversations.filter((item) => item.projectId === project.projectId);
@@ -17647,17 +17733,17 @@ function botRenderRoster() {
     .filter((item) => !item.projectId && item.kind !== "direct" && botConversationMatches(item, query))
     .map((conversation) => botConversationRowMarkup(conversation))
     .join("");
-  const hiddenRows = botState.conversations
+  const hiddenRows = indexPage.conversations
     .filter((item) => !item.deletedAt && item.hiddenAt && !botProjectForConversation(item)?.archivedAt)
     .filter((item) => botConversationMatches(item, query, botProjectForConversation(item)))
     .map((conversation) => botConversationRowMarkup(conversation, { hidden: true }))
     .join("");
-  const archivedRows = botState.conversations
+  const archivedRows = indexPage.conversations
     .filter((item) => !item.deletedAt && botProjectForConversation(item)?.archivedAt)
     .filter((item) => botConversationMatches(item, query, botProjectForConversation(item)))
     .map((conversation) => botConversationRowMarkup(conversation, { archived: true }))
     .join("");
-  const deletedRows = botState.conversations
+  const deletedRows = indexPage.conversations
     .filter((item) => item.deletedAt && botConversationMatches(item, query, botProjectForConversation(item)))
     .map((conversation) => botConversationRowMarkup(conversation, { deleted: true }))
     .join("");
@@ -17667,7 +17753,7 @@ function botRenderRoster() {
     (item.deletedAt || item.hiddenAt || botProjectForConversation(item)?.archivedAt)
     && botConversationMatches(item, query, botProjectForConversation(item))
   )).length;
-  tree.innerHTML = [
+  reconcileMessageMarkup(tree, [
     botTreeSectionMarkup("direct", "直接对话", directRows, { count: directConversations.length }),
     botTreeSectionMarkup("projects", "项目", projectNodes),
     botTreeSectionMarkup("unclassified", "未归类", unclassifiedRows),
@@ -17676,7 +17762,8 @@ function botRenderRoster() {
       archived: true,
       action: deletedCount ? `<button class="bot-tree-clear-button" type="button" data-bot-action="clear-deleted" title="清空 ${deletedCount} 条已删除会话" aria-label="清空全部已删除会话"${botState.deletedPurgeInFlight ? " disabled" : ""}><svg class="icon lucide" aria-hidden="true"><use href="#lucide-trash-2"></use></svg></button>` : "",
     }),
-  ].join("");
+    indexPage.pages > 1 ? `<nav class="workspace-message-paging" aria-label="对话索引分页"><button type="button" data-workspace-conversations-page="-1"${indexPage.page === 0 ? " disabled" : ""}>上一页</button><span>${indexPage.page + 1}/${indexPage.pages} · ${indexPage.total} 项</span><button type="button" data-workspace-conversations-page="1"${indexPage.page + 1 >= indexPage.pages ? " disabled" : ""}>下一页</button></nav>` : "",
+  ].join(""));
   const rosterLabel = byId("bot-roster-label");
   if (rosterLabel) rosterLabel.textContent = attentionConversations.length
     ? `会话导航 · ${attentionConversations.length} 项待处理`
@@ -17765,9 +17852,9 @@ function botRenderSettingsMembers() {
 function botCollaborationTaskMarkup(task) {
   const status = String(task?.status || "unknown");
   const assignee = task?.assigneeId ? botMeta(task.assigneeId).label : "未分配";
-  return `<article class="bot-collab-row" data-bot-task-id="${escapeHtml(String(task?.id || ""))}">
-    <span class="bot-collab-row-icon"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-${status === "completed" ? "circle-check" : status === "failed" ? "circle-alert" : "list-checks"}"></use></svg></span>
-    <span><strong>${escapeHtml(String(task?.title || "未命名任务"))}</strong><small>${escapeHtml(assignee)} · ${escapeHtml(status)}</small></span>
+  return `<article class="bot-collab-row" data-status="${escapeHtml(status)}" data-bot-task-id="${escapeHtml(String(task?.id || ""))}">
+    <span class="bot-collab-row-icon"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-${["completed", "succeeded"].includes(status) ? "circle-check" : status === "failed" ? "circle-alert" : "list"}"></use></svg></span>
+    <span><strong>${escapeHtml(String(task?.title || "未命名任务"))}</strong><small>${escapeHtml(assignee)} · ${escapeHtml(runStatusText(status))}</small></span>
   </article>`;
 }
 
@@ -17825,7 +17912,15 @@ function botRenderCollaborationWorkspace() {
     panel.innerHTML = `<header class="bot-collab-panel-head"><div><span>RUN TASK GRAPH</span><h3>任务</h3></div><strong>${tasks.length}</strong></header>
       <div class="bot-collab-list">${tasks.length ? tasks.map(botCollaborationTaskMarkup).join("") : '<p class="bot-collab-empty">当前运行还没有任务记录</p>'}</div>
       ${delegations.length ? `<header class="bot-collab-subhead"><strong>协作路径</strong><span>${delegations.length} 条真实委派</span></header><div class="bot-collab-list">${delegations.map(botCollaborationDelegationMarkup).join("")}</div>` : ""}
-      <div class="bot-collab-summary"><span>委派 ${delegations.length}</span><span>运行 ${run ? escapeHtml(String(run.id)) : "未启动"}</span></div>`;
+      <div class="bot-collab-summary"><span>委派 ${delegations.length}</span><span>运行 ${run ? escapeHtml(String(run.id)) : "未启动"}</span></div>
+      <header class="bot-collab-subhead"><strong>成员间交接</strong><span>Grok 式 handoff · 确认后归档</span></header><div data-relay-mount></div>`;
+    // Grok 对标：交接板（/api/bots/relay/<runId>）——handoff 在会话里可见，接收方可确认接手
+    void renderRelayBoard({
+      container: panel.querySelector("[data-relay-mount]"),
+      runId: run?.id ?? null,
+      currentMemberId: botState.agentId,
+      toast: botCollabToast,
+    });
     return;
   }
   if (tab === "members") {
@@ -17861,7 +17956,31 @@ function botActivateCollaborationTab(tab, { focus = false } = {}) {
   if (focus) byId(`bot-collab-tab-${tab}`)?.focus({ preventScroll: true });
 }
 
+// Grok 对标：右栏 Channels 区真源渲染（/api/channels）。频道是全局接入面，
+// 空态是引导式（成熟产品空状态原则：告诉用户这里能干什么、从哪开始），
+// 渠道门闸未开放是 fail-closed 常态——如实提示放行入口而非红色报错。
+async function botLoadPanelChannels() {
+  const listEl = byId("bot-channels-list");
+  if (!listEl) return;
+  try {
+    const payload = await request("/api/channels");
+    const channels = Array.isArray(payload?.channels) ? payload.channels : [];
+    if (!channels.length) {
+      listEl.innerHTML = `<p class="bot-panel-empty">还没有连接频道——「连接」把会话接入 Telegram 等 inbound 通道</p>`;
+      return;
+    }
+    listEl.innerHTML = channels.map((channel) => `<div class="bot-channel-mini" title="${escapeHtml(`${channel.name || channel.id} · ${channel.type}`)}"><span class="bot-channel-dot${channel.enabled ? " is-on" : ""}" aria-hidden="true"></span><strong>${escapeHtml(channel.name || String(channel.id))}</strong><small>${escapeHtml(String(channel.type))} · ${channel.enabled ? "已启用" : "已停用"}</small></div>`).join("");
+  } catch (error) {
+    if (error?.code === "REMOTE_GATE_BLOCKED" || error?.status === 501 || /REMOTE_GATE/.test(error.message || "")) {
+      listEl.innerHTML = `<p class="bot-panel-empty">渠道门闸未开放——到「安全诊断 → 远程门闸」授权 chat-channels 后可用</p>`;
+      return;
+    }
+    listEl.innerHTML = `<p class="bot-panel-empty">频道读取失败：${escapeHtml(error.message)}</p>`;
+  }
+}
+
 function botRenderAgent(agentId = botState.agentId) {
+  if (!state.memberCatalog?.length && !botWorkspaceLocationReady) return;
   const availableIds = (state.memberCatalog || []).map((member) => String(member?.id)).filter(Boolean);
   const fallbackId = availableIds[0] || "claude-fable";
   const next = availableIds.includes(String(agentId)) || BOT_AGENT_META[agentId] ? String(agentId) : fallbackId;
@@ -17880,6 +17999,9 @@ function botRenderAgent(agentId = botState.agentId) {
     botState.activeGroupRunId = null;
   }
   const visibleConversation = botActiveConversation();
+  // Persisted Conversations own their topology. Legacy task creation still
+  // exposes the picker; advanced orchestration remains in Workbench.
+  if (byId("bot-orchestration-pick")) byId("bot-orchestration-pick").hidden = Boolean(visibleConversation);
   byId("view-bot")?.querySelector(".bot-shell-grid")?.classList.toggle("is-mobile-conversation", Boolean(visibleConversation) && !botState.mobileRosterVisible);
   const groupRun = visibleConversation?.kind === "workspace_group" ? activeGroup : botState.activeGroupRunId ? activeGroup : null;
   const groupView = visibleConversation?.kind === "workspace_group" ? visibleConversation : groupRun;
@@ -17890,6 +18012,9 @@ function botRenderAgent(agentId = botState.agentId) {
     || (visibleConversation ? null : botRunIdsForAgent(next)[0] || botState.runIds[next] || null);
   const meta = botMeta(next);
   const project = visibleConversation?.scope === "project" ? botProjectForConversation(visibleConversation) : null;
+  const activeProjectId = String(visibleConversation?.projectId || "");
+  document.documentElement.dataset.activeProjectId = activeProjectId;
+  window.dispatchEvent(new CustomEvent("514cc:active-project-changed", { detail: { projectId: activeProjectId } }));
   botSyncRosterRow(next, meta);
   byId("bot-agent-list")?.querySelectorAll("[data-bot-agent]").forEach((row) => {
     const active = String(row.dataset.botConversation || "") === String(botState.activeConversationId || "");
@@ -17960,9 +18085,10 @@ function botRenderAgent(agentId = botState.agentId) {
   if (metaNode) metaNode.innerHTML = groupView
     ? `<span class="bot-status-dot is-online"></span>${escapeHtml(roomLabel)} · ${escapeHtml(botShortCwd(project?.canonicalCwd || groupView.cwd))} · ${botGroupParticipants(groupRun || groupView).length} 位成员`
     : `<span class="bot-status-dot ${meta.health.status === "online" ? "is-online" : "is-away"}"></span>${escapeHtml(meta.label)} · ${escapeHtml(conversationRef)} · ${escapeHtml(meta.descriptor)}`;
-  if (target) target.textContent = composerLabel;
+  if (target) { target.textContent = composerLabel; target.title = composerLabel; }
   if (input) {
-    input.disabled = Boolean(readOnlyReason);
+    input.disabled = Boolean(readOnlyReason) || !botWorkspaceLocationReady;
+    input.setAttribute("aria-busy", String(!botWorkspaceLocationReady));
     input.setAttribute("aria-disabled", String(Boolean(readOnlyReason)));
     input.placeholder = readOnlyReason
       ? readOnlyReason
@@ -17978,6 +18104,12 @@ function botRenderAgent(agentId = botState.agentId) {
   const computerChrome = document.querySelector(".bot-computer-screen-large .bot-computer-bar strong");
   if (computerChrome) computerChrome.textContent = `${meta.label} computer`;
   botRenderMemberPanel();
+  // Grok 对标：右栏 Routines 区接 /api/bots/routines 真数据（仅单聊视图；项目群无 owning Bot 概念）
+  if (!groupView) {
+    void renderBotRoutines({ listEl: byId("bot-routine-list"), memberId: next, toast: botCollabToast });
+  }
+  // Grok 对标：右栏 Channels 区接 /api/channels 真源（群聊单聊都显示——频道是全局接入面）
+  void botLoadPanelChannels();
   botRenderCollaborationWorkspace();
   botRenderMessageStore(next);
   botRenderMentionRecipients();
@@ -17988,6 +18120,7 @@ function botRenderAgent(agentId = botState.agentId) {
 }
 
 function botSelectMember(agentId, { activateChats = true } = {}) {
+  botWorkspace?.beforeSelection();
   botBeginSelectionIntent();
   const conversation = botConversationForMember(agentId, { includeHidden: false });
   botState.activeConversationId = conversation?.id || null;
@@ -18002,6 +18135,7 @@ function botOpenConversation(conversationId, { activateChats = true, selectionTo
   if (!botSelectionIntentCurrent(ownedSelectionToken)) return false;
   const conversation = botConversationById(conversationId);
   if (!conversation || conversation.deletedAt || conversation.hiddenAt) return false;
+  botWorkspace?.beforeSelection();
   botHideMentionMenu();
   botState.activeConversationId = conversation.id;
   botState.mobileRosterVisible = false;
@@ -18020,6 +18154,8 @@ function botOpenConversation(conversationId, { activateChats = true, selectionTo
     botRenderAgent(primary);
   }
   if (activateChats) botActivateSurfaceTab("chats", { focus: false });
+  botWorkspace?.afterSelection();
+  botWorkspace?.sync();
   return true;
 }
 
@@ -18313,6 +18449,8 @@ function botPopulateMemberSettings(member) {
   const editSeat = byId("bot-member-seat-edit-button");
   if (editSeat) editSeat.hidden = botState.memberSettingsMode === "create";
   botRenderMemberRuntimeDetails(member);
+  // Grok 式协作职责区：编辑模式读真 profile，创建模式给空白草稿（保存时一并写入）
+  void loadBotProfileSection(botState.memberSettingsMode === "create" ? null : String(member.id));
   botMemberSettingsSetStatus(botState.memberSettingsMode === "create" ? "填写成员资料后保存" : "已读取成员资料", botState.memberSettingsMode === "create" ? "neutral" : "ok");
 }
 
@@ -18449,6 +18587,13 @@ async function botSaveAgentSettings(event) {
       notifications: Boolean(byId("bot-agent-settings-notifications")?.checked),
     };
     botPersistAgentOverrides();
+    // Grok 式协作职责随成员保存一并写入（失败不阻断成员保存——成员是主真源，profile 是叠加层）
+    try {
+      await saveBotProfileSection(savedId);
+    } catch (profileError) {
+      botMemberSettingsSetStatus(`成员已保存，协作职责保存失败：${profileError.message}`, "warning");
+      toast(`协作职责保存失败：${profileError.message}`, "warning", 5200);
+    }
     botState.agentId = savedId;
     botState.activeGroupRunId = null;
     await botRefreshMemberCatalog(savedId);
@@ -18588,6 +18733,8 @@ function botRenderMessageStore(agentId = botState.agentId) {
   if (!stream) return;
   const key = botConversationStoreKey(agentId);
   const stored = botState.messageStores[key];
+  const expectedRunId = botRunForAgent(agentId)?.id || null;
+  if (stream.dataset.storeContext === key && stream.dataset.historyRunId === String(expectedRunId || "")) return;
   const conversation = botActiveConversation();
   const groupRun = conversation?.kind === "workspace_group"
     ? botConversationRun(conversation)
@@ -18596,11 +18743,13 @@ function botRenderMessageStore(agentId = botState.agentId) {
       : null;
   const groupView = conversation?.kind === "workspace_group" ? conversation : groupRun;
   const label = groupView ? String(groupView.title || botGroupTitle(groupRun || groupView)) : botMeta(agentId).label;
-  if (stored?.html) {
-    stream.innerHTML = stored.html;
+  if (stored?.html && (stored.historyRunId || null) === expectedRunId) {
+    reconcileMessageMarkup(stream, stored.html);
   } else {
-    stream.innerHTML = `<div class="bot-message-empty"><strong>还没有消息</strong><span>给 ${escapeHtml(label)} 发一条消息，开始持续对话。</span></div>`;
+    reconcileMessageMarkup(stream, `<div class="bot-message-empty"><strong>${expectedRunId ? "正在读取运行记录" : "还没有消息"}</strong><span>${escapeHtml(label)}</span></div>`);
   }
+  stream.dataset.storeContext = key;
+  stream.dataset.historyRunId = String(expectedRunId || "");
   stream.setAttribute("aria-label", groupView ? `群聊 ${label}` : `与 ${label} 的对话`);
   stream.scrollTop = stored?.scrollTop ?? stream.scrollHeight;
 }
@@ -18675,6 +18824,7 @@ function botPendingAskFromMessages(run, messages) {
 }
 
 function botSyncPendingAskCard(run, agentId = botState.agentId) {
+  if (byId("workspace-attention")) { renderWorkspaceAttention(); return; }
   const stream = byId("bot-message-stream");
   if (!stream || agentId !== botState.agentId) return;
   const existing = stream.querySelector("[data-bot-card='question'][data-bot-card-source='run']");
@@ -18852,11 +19002,26 @@ function botRenderConversationMessages(agentId, run, messages) {
     const rightTime = messageTime(right.created_at || right.createdAt);
     return leftTime - rightTime || Number(left.seq || 0) - Number(right.seq || 0);
   });
-  const messageHtml = botConversationMessagesMarkup(merged);
+  const windowKey = `${activeConversation?.id || agentId}:${run?.id || "draft"}`;
+  let messageWindow = botMessageWindows.get(windowKey);
+  if (!messageWindow) {
+    messageWindow = createMessageWindow();
+    botMessageWindows.set(windowKey, messageWindow);
+    if (botMessageWindows.size > 30) {
+      const expired = botMessageWindows.keys().next().value;
+      botMessageWindows.delete(expired);
+      botMessageWindowSources.delete(expired);
+    }
+  }
+  const prior = botMessageWindowSources.get(windowKey);
+  if (prior && stream.scrollHeight - stream.scrollTop - stream.clientHeight > 80) messageWindow.freeze(prior.messages);
+  botMessageWindowSources.set(windowKey, { messages: merged, run, agentId });
+  stream.dataset.messageWindow = windowKey;
+  const page = messageWindow.page(merged);
+  const paging = page.before || page.after ? `<nav class="workspace-message-paging" aria-label="消息分页">${page.before ? '<button type="button" data-workspace-message-page="earlier">更早消息</button>' : ""}<span>${page.start + 1}-${page.start + page.visible.length} / ${page.total}</span>${page.after ? '<button type="button" data-workspace-message-page="newer">较新消息</button><button type="button" data-workspace-message-page="latest">回到最新</button>' : ""}</nav>` : "";
+  const messageHtml = paging + botConversationMessagesMarkup(page.visible);
   const askHtml = botPendingAskCardMarkup(run, botPendingAskFromMessages(run, messages));
   const approvalOutcomeHtml = botApprovalOutcomesMarkup(run);
-  const approvalHtml = botApprovalCardsMarkup(run);
-  const settlementHtml = botSettlementMarkup(run);
   if (!askHtml && botState.answerTarget?.runId === String(run?.id || "")) botState.answerTarget = null;
   // 代理收到消息还没开口时显示打字指示：这是 Grok Bot 黑盒感最强的时刻。
   // 只认 queued/running；waiting 类状态有审批卡/提问卡表达，不冒充「正在输入」。
@@ -18864,25 +19029,47 @@ function botRenderConversationMessages(agentId, run, messages) {
   const typingHtml = !askHtml && lastKind === "user" && botRunPresentation(run)?.className === "is-running"
     ? `<div class="bot-message bot-message-agent" data-bot-typing="1">${botMessageAvatar(agentId)}<div><div class="bot-bubble bot-typing" role="status" aria-label="${escapeHtml(botMeta(agentId).label)} 正在输入"><i></i><i></i><i></i></div></div></div>`
     : "";
-  const pinnedApprovalHtml = botPinnedApprovalMarkup(run);
-  const artifactMountHtml = '<div class="bot-artifact-mount" data-artifact-mount></div>';
-  const html = `${pinnedApprovalHtml}${messageHtml}${typingHtml}${askHtml}${approvalOutcomeHtml}${approvalHtml}${settlementHtml}${artifactMountHtml}`;
+  const liveMarkup = run && !page.after
+    ? liveProcessRowsMarkup(run) + liveTurnMarkup(run) + liveDeltaMarkup(run, { agentId: activeConversation?.kind === "direct" ? agentId : null })
+    : "";
+  const html = `${messageHtml}${liveMarkup || typingHtml}${approvalOutcomeHtml}`;
+  renderWorkspaceAttention();
   const conversationLabel = botState.activeGroupRunId && String(run?.id) === String(botState.activeGroupRunId)
     ? botGroupTitle(run)
     : botMeta(agentId).label;
-  const renderedHtml = html || `<div class="bot-message-empty"><strong>还没有消息</strong><span>给 ${escapeHtml(conversationLabel)} 发一条消息，开始持续对话。</span></div>`;
+  // 空态个性化（成熟产品实践：空状态带身份与引导，而非死文本）：
+  // 单聊显示成员真实角色（botMeta.role 来自目录真源），群聊显示成员数。
+  const activeConversationForEmpty = botActiveConversation();
+  const emptyHint = activeConversationForEmpty?.kind === "workspace_group"
+    ? `${botGroupParticipants(activeConversationForEmpty).length} 位成员在此协作——点名 @成员 或直接下达任务`
+    : `${escapeHtml(conversationLabel)} · ${escapeHtml(botMeta(agentId).role)}——直接说需求，或粘贴上下文让它接着做`;
+  const renderedHtml = html || `<div class="bot-message-empty"><strong>还没有消息</strong><span>${emptyHint}</span></div>`;
   const previousScroll = stream.scrollTop;
   const atBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 80;
-  stream.innerHTML = renderedHtml;
-  artifactCard.mount(stream.querySelector("[data-artifact-mount]"));
+  reconcileMessageMarkup(stream, renderedHtml);
   stream.setAttribute("aria-label", botState.activeGroupRunId ? `群聊 ${escapeHtml(conversationLabel)}` : `与 ${escapeHtml(conversationLabel)} 的对话`);
   stream.scrollTop = atBottom ? stream.scrollHeight : previousScroll;
   const storeKey = botConversationStoreKey(agentId);
   const store = botState.messageStores[storeKey] || (botState.messageStores[storeKey] = {});
   store.historyRunId = run?.id || null;
+  stream.dataset.storeContext = storeKey;
+  stream.dataset.historyRunId = String(run?.id || "");
   store.historyHtml = renderedHtml;
   store.html = renderedHtml;
   store.scrollTop = stream.scrollTop;
+}
+
+// Grok 式「无法加载对话」错误卡：无任何已渲染内容时整卡占位 + 重试；
+// 已有缓存消息流则保留内容、toast 提示（不清屏—— transient 失败不该抹掉可读历史）。
+function botRenderConversationLoadError(agentId, error) {
+  const stream = byId("bot-message-stream");
+  if (!stream || agentId !== botState.agentId) return;
+  const store = botState.messageStores[botConversationStoreKey(agentId)];
+  if (store?.historyHtml) {
+    toast(`对话加载失败：${error?.message || "网络异常"}`, "warning", 4200);
+    return;
+  }
+  stream.innerHTML = `<div class="bot-message-error" role="alert"><strong>无法加载对话</strong><span>无法加载此对话。请检查网络连接后重试。</span><button type="button" class="bot-card-confirm" data-bot-action="retry-conversation-sync">重试</button></div>`;
 }
 
 async function botSyncConversation(agentId = botState.agentId, expected = {}) {
@@ -18899,8 +19086,13 @@ async function botSyncConversation(agentId = botState.agentId, expected = {}) {
   if (expected.runId && String(expected.runId) !== runId) return;
   let events;
   try {
-    events = await fetchRunEvents(run.id);
-  } catch {
+    events = await fetchRunEvents(run.id, { swallowErrors: false });
+  } catch (error) {
+    // Grok 式加载失败态：不再静默 return。守卫与成功路径同源（代次/会话漂移则丢弃）。
+    if (botConversationStoreKey(id) !== historyKey) return;
+    if (String(botState.activeConversationId || "") !== conversationId) return;
+    if (botState.historyGeneration[historyKey] !== generation) return;
+    botRenderConversationLoadError(id, error);
     return;
   }
   if (botConversationStoreKey(id) !== historyKey) return;
@@ -18913,6 +19105,33 @@ async function botSyncConversation(agentId = botState.agentId, expected = {}) {
   botRenderConversationMessages(id, currentRun, messages);
 }
 
+// SSE 实时预览（Grok 式列表副标题）：user.message/assistant.message 到达即本地回填
+// conversation.preview + updatedAt，450ms 防抖重渲列表；服务端 noteMessagePreview 仍是
+// 权威源，下次工作区索引刷新以其为准。纯本地增量，绝不在事件主链上发请求。
+let botPreviewRenderTimer = 0;
+function botNoteConversationPreview(event) {
+  const text = String(event?.data?.text || "").replace(/\s+/g, " ").trim();
+  if (!text || !event?.runId) return;
+  const runId = String(event.runId);
+  const conversation = botState.conversations.find((item) => (
+    String(item?.activeRunId || "") === runId
+    || (Array.isArray(item?.runIds) && item.runIds.map(String).includes(runId))
+  ));
+  if (!conversation) return;
+  const at = typeof event.timestamp === "string" ? event.timestamp : new Date().toISOString();
+  conversation.preview = {
+    text: text.slice(0, 240),
+    from: event.type === "user.message" ? "LO" : event.agentId || null,
+    at,
+  };
+  if (Date.parse(at) > (Date.parse(conversation.updatedAt || "") || 0)) conversation.updatedAt = at;
+  if (botPreviewRenderTimer) return;
+  botPreviewRenderTimer = window.setTimeout(() => {
+    botPreviewRenderTimer = 0;
+    if (state.view === "bot") botRenderRoster();
+  }, 450);
+}
+
 function scheduleBotConversationSync(runId) {
   const activeRunCandidate = botRunForAgent(botState.agentId);
   const isCurrentRun = (activeRunCandidate && String(activeRunCandidate.id) === String(runId))
@@ -18922,7 +19141,7 @@ function scheduleBotConversationSync(runId) {
   const activeRun = botRunForAgent(agentId);
   if (!activeRun || String(activeRun.id) !== String(runId)) return;
   const historyKey = botConversationStoreKey(agentId);
-  window.clearTimeout(botState.historyTimers[historyKey]);
+  if (botState.historyTimers[historyKey]) return;
   botState.historyTimers[historyKey] = window.setTimeout(() => {
     delete botState.historyTimers[historyKey];
     void botSyncConversation(agentId, { historyKey, runId: String(runId) });
@@ -19035,33 +19254,55 @@ function renderBotRunQueue(agentId = botState.agentId) {
   }).join("")}`;
 }
 
+function syncBotRecoveryAck() {
+  const button = byId("bot-recovery-ack");
+  if (!button) return;
+  const conversation = botActiveConversation();
+  const run = conversation ? botConversationActiveRun(conversation) : null;
+  if (run && run.status !== "recovery_required" && state.recoveryAckRunId === String(run.id)) {
+    state.recoveryAckRunId = null; // 状态已翻页，确认标记失效（与工作台恢复条同语义）
+  }
+  const needsAck = Boolean(run && run.status === "recovery_required");
+  const acked = needsAck && state.recoveryAckRunId === String(run.id);
+  button.hidden = !needsAck;
+  button.disabled = !needsAck || acked;
+  const label = acked ? "恢复已确认·发送即继续" : "确认恢复并继续";
+  if (button.textContent !== label) button.textContent = label;
+  button.title = acked ? "下一次发送将携带恢复确认续接当前会话" : "确认放弃提交状态不明的工作并继续当前会话";
+}
+
 function syncBotComposerMode() {
   const button = byId("bot-composer-form")?.querySelector("button[type='submit']");
   if (!button) return;
-  const run = botRunForAgent();
+  const run = botActiveConversation() ? botConversationActiveRun(botActiveConversation()) : botRunForAgent();
   const runId = String(run?.id || "");
   const input = String(byId("bot-composer-input")?.value || "").trim();
   const hasAttachments = botAttachmentSnapshot().sources.length > 0 || botAttachmentUploadInFlight();
   const interrupting = Boolean(runId && botState.interruptingRunIds.has(runId));
+  const submitting = Boolean(conversationCommands?.isPending(botState.activeConversationId));
   const stopMode = !input && !hasAttachments && runHasInterruptibleTurn(run);
   const mode = stopMode ? "stop" : "send";
   button.dataset.mode = mode;
   button.classList.toggle("is-stop", stopMode);
-  button.classList.toggle("is-pending", interrupting);
-  button.innerHTML = stopMode
-    ? '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" /></svg>'
-    : '<svg aria-hidden="true" class="icon lucide"><use href="#lucide-arrow-up"></use></svg>';
+  button.classList.toggle("is-pending", interrupting || submitting);
+  button.setAttribute("aria-busy", String(interrupting || submitting));
+  const icon = submitting || interrupting ? "loader-circle" : stopMode ? "circle-stop" : "arrow-up";
+  const markup = lucideIcon(icon, submitting || interrupting ? "icon lucide forge-spin" : "icon lucide");
+  if (button.innerHTML !== markup) button.innerHTML = markup;
   const label = interrupting
     ? "正在停止当前回复"
-    : stopMode ? "停止当前回复并保留对话" : "发送消息";
+    : submitting ? "正在提交消息" : stopMode ? "停止当前回复并保留对话" : "发送消息";
   button.title = label;
   button.setAttribute("aria-label", label);
   button.toggleAttribute("formnovalidate", stopMode);
   const readOnly = Boolean(botConversationReadOnlyReason());
-  button.disabled = readOnly || interrupting || botAttachmentUploadInFlight() || (!stopMode && !input && !hasAttachments);
+  button.disabled = !botWorkspaceLocationReady || !state.memberCatalog?.length || readOnly || interrupting || submitting || botAttachmentUploadInFlight() || (!stopMode && !input && !hasAttachments);
 }
 
 function syncBotRunState() {
+  botWorkspace?.sync();
+  renderWorkspaceAttention();
+  syncBotRecoveryAck();
   const run = botRunForAgent();
   const runState = byId("bot-run-state");
   const composerState = byId("bot-composer-state");
@@ -19070,7 +19311,7 @@ function syncBotRunState() {
   syncBotComposerMode();
   const readOnlyReason = botConversationReadOnlyReason();
   if (readOnlyReason) {
-    if (runState) { runState.textContent = "read only"; runState.className = "bot-run-state is-idle"; }
+    if (runState) { runState.textContent = "只读"; runState.className = "bot-run-state is-idle"; }
     if (composerState) composerState.textContent = readOnlyReason;
     botSyncFirstResponse(run);
     return;
@@ -19079,7 +19320,7 @@ function syncBotRunState() {
     const pending = botState.pendingSubmissions.some((item) => item?.agentId === botState.agentId)
       || botState.pendingSubmission?.agentId === botState.agentId;
     if (runState) {
-      runState.textContent = pending ? "queued" : "ready";
+      runState.textContent = pending ? "等待准入" : "新对话";
       runState.className = `bot-run-state ${pending ? "is-running" : "is-idle"}`;
     }
     if (composerState) composerState.textContent = pending ? "已送入运行队列" : "新消息";
@@ -19087,7 +19328,7 @@ function syncBotRunState() {
     return;
   }
   if (runState) {
-    runState.textContent = presentation.text;
+    runState.textContent = run?.status === "succeeded" ? "本轮结束" : runStatusText(run.status, run);
     runState.className = `bot-run-state ${presentation.className}`;
   }
   if (composerState) composerState.textContent = presentation.label;
@@ -19217,7 +19458,7 @@ function botActivateSurfaceTab(tabId = "chats", { focus = false } = {}) {
   });
   const title = byId("bot-title");
   const search = byId("bot-agent-search");
-  if (title) title.textContent = next === "contacts" ? "通讯录" : "项目与对话";
+  if (title) title.textContent = next === "contacts" ? "协作成员" : "工作对话";
   if (search) {
     search.placeholder = next === "contacts" ? "搜索成员" : "搜索对话";
     search.value = "";
@@ -19691,6 +19932,7 @@ function botActivateSettingsTab(tabId = "general", { focus = false } = {}) {
   if (next === "general") void botRenderConnectorAccounts();
   if (next === "team") botRenderSettingsMembers();
   if (next === "plugins") botRenderPluginCapabilities();
+  if (next === "plugins") void botLoadPrivateSkills();
   if (focus) tab.focus({ preventScroll: true });
 }
 
@@ -19725,12 +19967,12 @@ function botFilterPlugins() {
   if (empty) empty.hidden = visible !== 0;
 }
 
-function botWorkspaceMoveNode(nodeId, mountId) {
-  const node = byId(nodeId);
-  const mount = byId(mountId);
+function botMountSeatComponent() {
+  const node = byId("runtime-seat-component");
+  const mount = byId("bot-seats-mount");
   if (!node || !mount) return;
-  if (!botState.workspaceMounts[nodeId]) {
-    botState.workspaceMounts[nodeId] = {
+  if (!botState.seatComponentMount) {
+    botState.seatComponentMount = {
       parent: node.parentNode,
       nextSibling: node.nextSibling,
       hidden: node.hidden,
@@ -19740,81 +19982,40 @@ function botWorkspaceMoveNode(nodeId, mountId) {
   node.hidden = false;
 }
 
-function botWorkspaceRestoreNode(nodeId) {
-  const node = byId(nodeId);
-  const mount = botState.workspaceMounts[nodeId];
+function botRestoreSeatComponent() {
+  const node = byId("runtime-seat-component");
+  const mount = botState.seatComponentMount;
   if (!node || !mount?.parent?.isConnected) return;
   if (node.parentNode !== mount.parent) {
     mount.parent.insertBefore(node, mount.nextSibling?.parentNode === mount.parent ? mount.nextSibling : null);
   }
   node.hidden = Boolean(mount.hidden);
-}
-
-function botActivateWorkspaceTab(tabId = "automations", { focus = false } = {}) {
-  const root = byId("bot-workspace-panel");
-  if (!root) return;
-  const tab = root.querySelector(`[data-bot-workspace-tab="${CSS.escape(tabId)}"]`)
-    || root.querySelector("[data-bot-workspace-tab]");
-  if (!tab) return;
-  const next = tab.dataset.botWorkspaceTab;
-  botState.workspaceTab = next;
-  root.querySelectorAll("[data-bot-workspace-tab]").forEach((button) => {
-    const active = button === tab;
-    button.classList.toggle("is-active", active);
-    button.setAttribute("aria-selected", String(active));
-    button.tabIndex = active ? 0 : -1;
-  });
-  root.querySelectorAll(".bot-workspace-page").forEach((page) => {
-    page.hidden = page.id !== `bot-workspace-${next}`;
-    page.classList.toggle("is-active", !page.hidden);
-  });
-  const title = byId("bot-workspace-title");
-  const subtitle = byId("bot-workspace-subtitle");
-  if (title) title.textContent = next === "channels" ? "连接频道" : next === "seats" ? "运行席位" : "自动化";
-  if (subtitle) subtitle.textContent = next === "channels"
-    ? "渠道 API 与事件流仍使用现有真源"
-    : next === "seats"
-      ? "可自定义 Adapter、模型、权限、提示词与路由权重"
-      : "自动化 API 与编辑器仍使用现有真源";
-  const bindButton = byId("bot-seat-bind-button");
-  if (bindButton) bindButton.hidden = next !== "seats";
-  if (focus) tab.focus({ preventScroll: true });
-}
-
-function botRefreshWorkspace(tabId = botState.workspaceTab) {
-  if (tabId === "channels") {
-    void import("./channels-panel.js").then((module) => module.refreshChannelsPanel?.(byId("channels-container")));
-    return;
-  }
-  if (tabId === "seats") {
-    botWorkspaceMoveNode("config-surface-sources", "bot-seats-mount");
-    return;
-  }
-  void Promise.all([
-    loadAutomations().catch(() => null),
-    state.projectsData ? Promise.resolve() : loadProjects().catch(() => null),
-  ]).then(() => window.__forgeAutomationsPage?.refresh());
+  botState.seatComponentMount = null;
 }
 
 function botOpenWorkspace(tab = "automations", opener = null) {
+  if (tab !== "seats") {
+    if (["local-runtime", "capabilities", "hooks"].includes(tab)) setView("config", { configSurface: tab });
+    else if (tab === "channels" || tab === "automations") setView(tab);
+    return;
+  }
   const panel = byId("bot-workspace-panel");
   if (!panel) return;
   botState.workspaceOpener = opener || document.activeElement;
   botCloseAgentSettings?.();
   botSetPanel(false);
   botCloseSettings?.();
-  botWorkspaceMoveNode("automations-workbench", "bot-automations-mount");
-  botWorkspaceMoveNode("channels-container", "bot-channels-mount");
+  botState.workspaceTab = "seats";
+  botMountSeatComponent();
   panel.hidden = false;
   panel.inert = false;
   panel.setAttribute("aria-hidden", "false");
   byId("view-bot")?.querySelector(".bot-shell-grid")?.setAttribute("inert", "");
-  botActivateWorkspaceTab(tab);
-  botRefreshWorkspace(botState.workspaceTab);
+  byId("bot-seat-bind-button").hidden = false;
   requestAnimationFrame(() => byId("bot-workspace-back")?.focus({ preventScroll: true }));
 }
 
-/** Bot 内打开完整运行席位编辑器；表单和保存链仍由 runtimeSeatManager 持有。 */
+/** The member dialog hosts only the seat selector/editor, never the config page. */
 async function botOpenSeatWorkspace({ memberId = botState.agentId, create = false, opener = null } = {}) {
   const normalizedMemberId = String(memberId || botState.agentId || "");
   const member = botCatalogMember(normalizedMemberId);
@@ -19824,15 +20025,7 @@ async function botOpenSeatWorkspace({ memberId = botState.agentId, create = fals
   }
   botState.seatTargetMemberId = normalizedMemberId;
   botState.workspaceReturnMemberId = normalizedMemberId;
-  // 复用配置工作面 DOM 时先把 sources 面设为可见；不更新 hash，也不离开 Bot 路由。
-  setConfigSurface("sources", {
-    updateHash: false,
-    focus: false,
-    preserveMemberTarget: true,
-    recordHistory: false,
-  });
   botOpenWorkspace("seats", opener || document.activeElement);
-  botWorkspaceMoveNode("config-surface-sources", "bot-seats-mount");
   const bindButton = byId("bot-seat-bind-button");
   if (bindButton) {
     bindButton.disabled = true;
@@ -19911,15 +20104,12 @@ function botCloseWorkspace({ restoreFocus = true } = {}) {
   const wasSeats = botState.workspaceTab === "seats";
   const returnMemberId = botState.workspaceReturnMemberId;
   const opener = botState.workspaceOpener;
-  botWorkspaceRestoreNode("automations-workbench");
-  botWorkspaceRestoreNode("channels-container");
-  botWorkspaceRestoreNode("config-surface-sources");
+  botRestoreSeatComponent();
   if (!panel) return;
   panel.hidden = true;
   panel.inert = true;
   panel.setAttribute("aria-hidden", "true");
   byId("view-bot")?.querySelector(".bot-shell-grid")?.removeAttribute("inert");
-  if (String(location.hash || "").startsWith("#bot/automations")) history.replaceState(null, "", "#bot");
   if (restoreFocus && wasSeats && returnMemberId && botCatalogMember(returnMemberId)) {
     botState.agentId = returnMemberId;
     botOpenAgentSettings();
@@ -19927,12 +20117,13 @@ function botCloseWorkspace({ restoreFocus = true } = {}) {
   botState.workspaceOpener = null;
   botState.seatTargetMemberId = null;
   botState.workspaceReturnMemberId = null;
+  botState.workspaceTab = null;
 }
 
 async function botRequestCloseWorkspace({ restoreFocus = true } = {}) {
   const panel = byId("bot-workspace-panel");
   if (!panel || panel.hidden) return true;
-  if (botState.workspaceTab === "seats" && runtimeSeatManager?.isDirty()) {
+  if (runtimeSeatManager?.isDirty()) {
     const discarded = await runtimeSeatManager.discard?.();
     if (!discarded) return false;
   }
@@ -19974,29 +20165,71 @@ function botTrapWorkspaceFocus(event) {
   return false;
 }
 
-function botEditPrivateSkill(open = true) {
+// ---- LO 私有技能（Grok: Private skills；真源 /api/bots/private-skills，增删改落盘）----
+let botPrivateSkillsCache = [];
+
+function botPrivateSkillRowMarkup(skill) {
+  return `<div class="bot-private-skill-row" role="listitem" data-private-skill-id="${escapeHtml(skill.id)}"><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small></span><span class="bot-private-skill-actions"><button class="bot-text-button" type="button" data-bot-action="private-skill-edit" data-private-skill-id="${escapeHtml(skill.id)}">Edit</button><button class="bot-icon-button" type="button" data-bot-action="private-skill-delete" data-private-skill-id="${escapeHtml(skill.id)}" title="删除 Private skill" aria-label="删除 ${escapeHtml(skill.name)}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-trash-2"></use></svg></button></span></div>`;
+}
+
+async function botLoadPrivateSkills() {
+  const listEl = byId("bot-private-skill-list");
+  if (!listEl) return;
+  try {
+    const payload = await request("/api/bots/private-skills");
+    botPrivateSkillsCache = Array.isArray(payload?.skills) ? payload.skills : [];
+  } catch (error) {
+    listEl.innerHTML = `<p class="bot-plugin-empty">私有技能读取失败：${escapeHtml(error.message)}</p>`;
+    return;
+  }
+  botRenderPrivateSkills();
+}
+
+function botRenderPrivateSkills() {
+  const listEl = byId("bot-private-skill-list");
+  if (!listEl) return;
+  if (!botPrivateSkillsCache.length) {
+    listEl.innerHTML = `<p class="bot-plugin-empty">还没有私有技能——「Add skill」写下第一条可复用流程：何时用、步骤、验收。</p>`;
+    return;
+  }
+  listEl.innerHTML = botPrivateSkillsCache.map(botPrivateSkillRowMarkup).join("");
+}
+
+function botEditPrivateSkill(open = true, skill = null) {
   const editor = byId("bot-private-skill-editor");
   if (!editor) return;
   editor.hidden = !open;
-  if (open) byId("bot-private-skill-name")?.focus({ preventScroll: true });
+  if (!open) return;
+  byId("bot-private-skill-id").value = skill?.id || "";
+  byId("bot-private-skill-name").value = skill?.name || "";
+  byId("bot-private-skill-description").value = skill?.description || "";
+  byId("bot-private-skill-instructions").value = skill?.instructions || "";
+  byId("bot-private-skill-name")?.focus({ preventScroll: true });
 }
 
-function botSavePrivateSkill(event) {
+async function botSavePrivateSkill(event) {
   event.preventDefault();
-  const name = String(byId("bot-private-skill-name")?.value || "").trim();
-  const description = String(byId("bot-private-skill-description")?.value || "").trim();
-  const instructions = String(byId("bot-private-skill-instructions")?.value || "").trim();
-  if (!name || !description || !instructions) {
+  const id = String(byId("bot-private-skill-id")?.value || "").trim();
+  const body = {
+    name: String(byId("bot-private-skill-name")?.value || "").trim(),
+    description: String(byId("bot-private-skill-description")?.value || "").trim(),
+    instructions: String(byId("bot-private-skill-instructions")?.value || "").trim(),
+  };
+  if (!body.name || !body.description || !body.instructions) {
     toast("Private skill 需要名字、描述和指令", "warning");
     return;
   }
-  const row = document.querySelector(".bot-private-skill-row");
-  const title = row?.querySelector("strong");
-  const summary = row?.querySelector("small");
-  if (title) title.textContent = name;
-  if (summary) summary.textContent = description;
-  botEditPrivateSkill(false);
-  toast("Private skill 草稿已更新；写入真源尚未接入", "info", 4200);
+  try {
+    await request(id ? `/api/bots/private-skills/${encodeURIComponent(id)}` : "/api/bots/private-skills", {
+      method: id ? "PUT" : "POST",
+      body,
+    });
+    botEditPrivateSkill(false);
+    toast(id ? "私有技能已更新" : "私有技能已创建", "success", 3200);
+    await botLoadPrivateSkills();
+  } catch (error) {
+    toast(`私有技能保存失败：${error.message}`, "error", 5000);
+  }
 }
 
 function botOpenSettings(tab = "general", opener = null) {
@@ -20084,6 +20317,9 @@ function botHandleAction(action, button) {
     case "routines":
       botOpenWorkspace("automations", button);
       return;
+    case "retry-conversation-sync":
+      void botSyncConversation(botState.agentId);
+      return;
     case "channels":
       botOpenWorkspace("channels", button);
       return;
@@ -20124,28 +20360,36 @@ function botHandleAction(action, button) {
       void botLoadReleaseTruth();
       return;
     case "private-skill-add":
-      botEditPrivateSkill(true);
+      botEditPrivateSkill(true, null);
       return;
     case "private-skill-edit":
-      botEditPrivateSkill(true);
+      botEditPrivateSkill(true, botPrivateSkillsCache.find((skill) => skill.id === String(button?.dataset.privateSkillId || "")) || null);
       return;
     case "private-skill-cancel":
       botEditPrivateSkill(false);
       return;
-    case "private-skill-delete":
+    case "private-skill-delete": {
+      const skillId = String(button?.dataset.privateSkillId || "");
+      const skill = botPrivateSkillsCache.find((item) => item.id === skillId);
+      if (!skill) return;
       void confirmAction({
         eyebrow: "Private skill",
-        title: "删除这个 Private skill？",
-        rows: [["影响", "只移除 Bot Shell 中的本地编辑草稿"]],
-        warning: "真实 Skill 真源尚未接入，当前不会删除仓库文件。",
+        title: `删除「${skill.name}」？`,
+        rows: [["影响", "从私有技能库移除该条；已发出的会话引用不受影响"]],
         confirmLabel: "删除",
         danger: true,
-      }).then((confirmed) => {
+      }).then(async (confirmed) => {
         if (!confirmed) return;
-        document.querySelector(".bot-private-skill-row")?.remove();
-        toast("Private skill 草稿已删除", "success", 3200);
+        try {
+          await request(`/api/bots/private-skills/${encodeURIComponent(skillId)}`, { method: "DELETE" });
+          toast("私有技能已删除", "success", 3200);
+          await botLoadPrivateSkills();
+        } catch (error) {
+          toast(`删除失败：${error.message}`, "error", 5000);
+        }
       });
       return;
+    }
     case "update-track": {
       const track = button?.dataset.botTrack;
       if (!track) return;
@@ -20158,9 +20402,6 @@ function botHandleAction(action, button) {
     }
     case "logout":
       toast("本地控制面账号不提供 Bot 内独立登出，请使用现有账号配置", "info", 4200);
-      return;
-    case "routine-toggle":
-      toast("例行任务开关尚未接入真实自动化写入，未改变运行配置", "info", 4200);
       return;
     case "computer-update":
       toast("成员电脑 Update 尚未接入真实迁移后端，未执行任何操作", "warning", 5000);
@@ -20531,6 +20772,52 @@ function botBridgeComposer(text, {
   return true;
 }
 
+// W2（Grok 对标）：多 @ 群聊消息 → relay/kickoff 派发。
+// Grok 的群聊语义：一条消息点名多个 Bot = 并行派工（"@A 做 X；@B 做 Y"）。
+// 识别文本里 ≥2 个不同成员的 @ 提及（@memberId 与 @显示名都认，含中文名），
+// 归一为 @memberId（relay 的 resolveHandle 支持 @memberId 直达）后 POST kickoff——
+// 每个被点名成员获得一条可见交接（bus task + 交接板）。单 @ / 无 @ 走既有路径不变；
+// 派发失败不影响已发出的消息（toast 警告即可，绝不回滚）。
+function botKickoffMentionTargets(conversation, text) {
+  if (conversation?.kind !== "workspace_group") return [];
+  const memberIds = [...new Set((conversation.memberIds || []).map(String).filter((id) => botCatalogMember(id)))];
+  if (memberIds.length < 2) return [];
+  const tokenMap = new Map(); // "@token" → memberId（memberId 与显示名双键）
+  for (const id of memberIds) {
+    tokenMap.set(`@${id}`, id);
+    tokenMap.set(`@${botMeta(id).label}`, id);
+  }
+  const matched = [];
+  const seen = new Set();
+  for (const match of String(text || "").matchAll(/@([^\s@]+)/g)) {
+    const raw = `@${match[1]}`;
+    const token = raw.replace(/[，。；、！？,.!?;:：]+$/u, "");
+    const id = tokenMap.get(token);
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      matched.push({ token: token.slice(1), memberId: id });
+    }
+  }
+  return matched;
+}
+
+async function botMaybeKickoffRelay(conversation, prompt, run) {
+  const targets = botKickoffMentionTargets(conversation, prompt);
+  if (targets.length < 2 || !run?.id) return;
+  const memberByToken = new Map(targets.map((item) => [item.token, item.memberId]));
+  const normalized = String(prompt).replace(/@([^\s@]+)/g, (full, token) => {
+    const bare = token.replace(/[，。；、！？,.!?;:：]+$/u, "");
+    return memberByToken.has(bare) ? `@${memberByToken.get(bare)}` : full;
+  });
+  try {
+    const result = await postRelayKickoff({ runId: run.id, from: "lo", text: normalized });
+    const count = Array.isArray(result?.dispatched) ? result.dispatched.length : 0;
+    if (count) toast(`已按点名派发 ${count} 项交接（右栏「任务」页可见）`, "success", 4200);
+  } catch (error) {
+    toast(`点名派发未成功：${error.message}（消息已正常发送）`, "warning", 5000);
+  }
+}
+
 function botClearVisibleComposer() {
   const input = byId("bot-composer-input");
   if (!input) return;
@@ -20538,10 +20825,11 @@ function botClearVisibleComposer() {
   input.classList.remove("is-multiline");
   botClearMentionRecipients();
   syncBotComposerMode();
+  botWorkspace?.saveDraft();
 }
 
 async function botInterruptCurrentRun() {
-  const run = botRunForAgent();
+  const run = botActiveConversation() ? botConversationActiveRun(botActiveConversation()) : botRunForAgent();
   const runId = String(run?.id || "");
   if (!runId || !runHasInterruptibleTurn(run) || botState.interruptingRunIds.has(runId)) return;
   botState.interruptingRunIds.add(runId);
@@ -20591,6 +20879,8 @@ async function botSubmitComposer(event) {
     const selectionToken = botBeginSelectionIntent();
     try {
       conversation = await botEnsureDirectConversation(botState.agentId);
+      if (!botSelectionIntentCurrent(selectionToken)) return;
+      botWorkspace?.adoptDraft(conversation.id);
       if (!botOpenConversation(conversation.id, { selectionToken })) return;
     } catch (error) {
       toast(`单独对话建立失败：${error.message}`, "error", 5000);
@@ -20618,6 +20908,32 @@ async function botSubmitComposer(event) {
     return;
   }
   botState.answerTarget = null;
+  if (conversation?.id && conversationCommands) {
+    const submittedText = input.value;
+    const ownerId = conversation.id;
+    try {
+      // 工作区群聊恒为 social：优先读 Bot 页脚预算下拉（用户可见可改，默认 $5.00），
+      // 其次回退到隐藏 #task-budget + 全局默认的 social 兜底；direct 私聊保持 undefined（走席位默认，可无限）。
+      const socialBudget = conversation.kind === "workspace_group"
+        ? (workspaceBudgetSubmissionValue() ?? composerSocialBudgetSubmissionValue(elements["task-budget"]?.value))
+        : undefined;
+      // 恢复确认与工作台恢复条同语义：仅当用户点了「确认恢复并继续」才携带一次性 acknowledgeRecovery。
+      const recoveryRun = botConversationActiveRun(conversation);
+      const recoveryAck = Boolean(recoveryRun && recoveryRun.status === "recovery_required" && state.recoveryAckRunId === String(recoveryRun.id));
+      const acceptedRun = await conversationCommands.submit({ conversation, prompt, recipientMemberIds: options.recipientMemberIds, sources: attachments.sources, permissionMode: byId("workspace-next-permission")?.value, ...(socialBudget === undefined ? {} : { maxBudgetUsdPerTurn: socialBudget }), ...(recoveryAck ? { acknowledgeRecovery: true } : {}) });
+      void botMaybeKickoffRelay(conversation, prompt, acceptedRun); // 多 @ 群聊消息 → Grok 式 kickoff 派发（失败不影响已发消息）
+      if (recoveryAck) state.recoveryAckRunId = null; // 确认标记随本次发送一次性消费（与工作台续聊同语义）
+      consumeSubmittedAttachmentContext(attachments.key, attachments.sources);
+      if (botState.activeConversationId === ownerId && input.value === submittedText) botClearVisibleComposer();
+      botWorkspace?.consumeDraft(ownerId, submittedText);
+      botWorkspace?.saveDraft();
+      botRenderAttachments();
+    } catch (error) {
+      toast(error.message, "error");
+      if (botState.activeConversationId === ownerId) byId("workspace-admission").textContent = `提交未确认：${error.message}`;
+    }
+    return;
+  }
   if (conversation.kind === "workspace_group") {
     const memberIds = [...(conversation.memberIds || [])];
     const ephemeralTeam = botEphemeralTeamForMembers(memberIds, conversation.title);
@@ -20878,7 +21194,17 @@ function initBotShell() {
     if (empty) empty.hidden = visible !== 0;
   });
   byId("bot-composer-form")?.addEventListener("submit", botSubmitComposer);
+  byId("bot-recovery-ack")?.addEventListener("click", () => {
+    const conversation = botActiveConversation();
+    const run = conversation ? botConversationActiveRun(conversation) : null;
+    if (!run || run.status !== "recovery_required") return;
+    state.recoveryAckRunId = String(run.id);
+    appendDiagnostic(`恢复确认 ${run.id}：Bot 下一次发送携带 acknowledgeRecovery`);
+    toast("恢复已确认，发送下一条消息即续接当前会话", "success", 3000);
+    syncBotRunState();
+  });
   byId("bot-composer-input")?.addEventListener("keydown", (event) => {
+    if (event.isComposing || event.keyCode === 229) return;
     if (botState.mentionActive) {
       if (["ArrowDown", "ArrowUp"].includes(event.key) && botState.mentionCandidates.length) {
         event.preventDefault();
@@ -21011,11 +21337,27 @@ function initBotShell() {
   });
   byId("bot-computer-view-close")?.addEventListener("click", () => botSetComputerView(false));
   byId("bot-computer-return")?.addEventListener("click", () => botSetComputerView(false));
-  byId("bot-account-button")?.addEventListener("click", (event) => botOpenSettings("general", event.currentTarget));
   byId("bot-settings-close")?.addEventListener("click", botCloseSettings);
   byId("bot-agent-settings-close")?.addEventListener("click", botCloseAgentSettings);
   byId("bot-agent-settings-cancel")?.addEventListener("click", botCloseAgentSettings);
   byId("bot-agent-settings-form")?.addEventListener("submit", botSaveAgentSettings);
+  // Grok 对标：新建例行 dialog（六要素表单 → /api/bots/routines）
+  const routineDialog = byId("bot-routine-dialog");
+  bindRoutineDialog({
+    dialog: routineDialog,
+    defaultOwningMemberId: () => botState.agentId,
+    memberOptions: () => (state.memberCatalog || [])
+      .map((member) => ({ id: String(member?.id ?? ""), label: member?.label || member?.id }))
+      .filter((member) => member.id),
+    onSaved: async () => {
+      await renderBotRoutines({ listEl: byId("bot-routine-list"), memberId: botState.agentId, toast: botCollabToast });
+    },
+    toast: botCollabToast,
+  });
+  byId("bot-routine-create-button")?.addEventListener("click", () => openRoutineDialog(routineDialog));
+  routineDialog?.querySelectorAll("[data-routine-dialog-close]").forEach((button) => {
+    button.addEventListener("click", () => routineDialog.close());
+  });
   byId("bot-member-delete-button")?.addEventListener("click", () => {
     if (botState.editingMemberId) botRemoveAgent(botState.editingMemberId);
   });
@@ -21067,6 +21409,7 @@ byId("bot-member-runtime-profile")?.addEventListener("change", () => {
         }
       }
     }
+    if (event.target.closest?.("#bot-profile-section")) markBotProfileDirty();
     botMemberSettingsSetStatus("有未保存修改", "warning");
   });
   byId("bot-settings-tabs")?.addEventListener("click", (event) => {
@@ -21120,21 +21463,6 @@ byId("bot-member-runtime-profile")?.addEventListener("change", () => {
   byId("bot-profile-avatar-reset")?.addEventListener("click", () => void resetOperatorAvatar().then(() => botPopulateProfileSettings()));
   byId("bot-workspace-back")?.addEventListener("click", () => void botRequestCloseWorkspace());
   byId("bot-workspace-close")?.addEventListener("click", () => void botRequestCloseWorkspace());
-  byId("bot-workspace-tabs")?.addEventListener("click", (event) => {
-    const tab = event.target.closest("[data-bot-workspace-tab]");
-    if (!tab) return;
-    botActivateWorkspaceTab(tab.dataset.botWorkspaceTab, { focus: false });
-    botRefreshWorkspace(botState.workspaceTab);
-  });
-  byId("bot-workspace-tabs")?.addEventListener("keydown", (event) => {
-    const tabs = [...byId("bot-workspace-tabs").querySelectorAll("[data-bot-workspace-tab]")];
-    const index = tabs.indexOf(document.activeElement);
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight" && event.key !== "Home" && event.key !== "End") return;
-    event.preventDefault();
-    const nextIndex = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-    botActivateWorkspaceTab(tabs[nextIndex]?.dataset.botWorkspaceTab, { focus: true });
-    botRefreshWorkspace(botState.workspaceTab);
-  });
   root.querySelectorAll("[data-bot-theme]").forEach((button) => button.addEventListener("click", () => {
     applyThemePreference(button.dataset.botTheme);
     botSyncThemeControls();
@@ -21146,7 +21474,7 @@ byId("bot-member-runtime-profile")?.addEventListener("change", () => {
   }));
   byId("bot-private-skill-editor")?.addEventListener("submit", botSavePrivateSkill);
   // 消息流会按代理切换 innerHTML；事件必须挂在稳定祖先，不能绑在会被替换的卡片节点上。
-  byId("bot-message-stream")?.addEventListener("click", (event) => {
+  root.addEventListener("click", (event) => {
     const settlementRetry = event.target.closest("[data-bot-settlement-retry]");
     if (settlementRetry) {
       retryBotSettlement(settlementRetry.dataset.botSettlementRetry);
@@ -21213,7 +21541,7 @@ byId("bot-member-runtime-profile")?.addEventListener("change", () => {
     }
     if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === "," && state.view === "bot") {
       event.preventDefault();
-      botOpenSettings("general", byId("bot-account-button"));
+      botOpenSettings("general", null);
     }
     if (event.key === "Escape" && byId("bot-group-dialog")?.hidden === false) {
       event.preventDefault();
@@ -22495,7 +22823,7 @@ function setComposerMode(run, { waitingApproval = false } = {}) {
     // 发送给下拉按团队成员过滤（服务端已强制隔离）+ 预选主脑；仅切 run 时重建
     const members = Array.isArray(run.teamMembers) && run.teamMembers.length
       ? run.teamMembers
-      : ["claude-fable", "codex-technical", "grok-search", "grok-build", "kimi-frontend", "gemini-research", "pi-resident"];
+      : ["claude-fable", "codex-technical", "grok-build", "kimi-frontend", "gemini-research", "pi-resident"];
     elements["followup-agent"].innerHTML = members
       .map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(agentLabel(id))}${id === run.coordinatorId ? "（主脑）" : ""}</option>`)
       .join("");
@@ -23032,7 +23360,7 @@ function renderSelectedRun({ preserveStreamState = true } = {}) {
   const stream = elements["conversation-stream"];
   const deltaState = liveDeltaRenderState.get(stream);
   let streamReplaced = false;
-  if (!shouldBatch && stream.dataset.renderContext === renderContext
+  if (stream.getAttribute("aria-busy") !== "true" && stream.dataset.renderContext === renderContext
     && deltaState?.renderContext === renderContext
     && deltaState.nonDeltaSignature === nonDeltaSignature
     && deltaState.deltaMarkup !== deltaMarkup) {
@@ -23052,7 +23380,7 @@ function renderSelectedRun({ preserveStreamState = true } = {}) {
   if (!streamReplaced) {
     liveDeltaRenderState.set(stream, { renderContext, nonDeltaSignature, deltaMarkup });
   }
-  if (shouldBatch) {
+  if (shouldBatch && !streamReplaced) {
     void replaceConversationStreamBatched({
       renderSignature,
       renderContext,
@@ -23648,6 +23976,47 @@ function renderVersions() {
   renderConfigVersionPreview();
 }
 
+// `<textarea>` 按 HTML 规范把值里的 CRLF 规范化成 LF（"API value" 恒为 LF），而
+// `baselineContent` 存的是服务端原文。二者直接相比时，**每个 CRLF 文件一打开就恒为 dirty**：
+// 仓库 1074 个真源候选里 179 个是 CRLF（core.autocrlf=true 的 checkout 所致），含
+// `.claude-plugin/plugin.json`、`.claude/hooks/mirror-gate.py`、`AGENTS.md`。
+// 实测判据（.agents/skills/514cc-collab/SKILL.md）：磁盘 2957 字节 → JS 字符串 2951
+// → textarea 规范化后 2901，浏览器实测 editorLen 正是 2901。
+//
+// 后果有三层，第三层是数据完整性问题：①常驻假的「已修改」②切换真源被 danger 确认框
+// 「放弃当前编辑？」拦住（这条让 qa:config-topology 的 capability-source 跳转永久超时，
+// 而该故障被更外层的 EPERM 掩盖了 39 天）③保存会把整份文件的行尾改写成 LF。
+//
+// 所以比较一律走规范化（editorValue / baselineValue），落盘一律走 restoreEditorNewlines
+// 还原成 baseline 的原行尾 —— 用户没动行尾，我们就不能替他动。
+function normalizeNewlines(text) {
+  return String(text ?? "").replace(/\r\n/g, "\n");
+}
+
+// baseline 的主导行尾。混合行尾的文件按多数派走，且只在用户未主动改动行尾时使用。
+function dominantNewline(text) {
+  const source = String(text ?? "");
+  const crlf = (source.match(/\r\n/g) ?? []).length;
+  if (!crlf) return "\n";
+  const lf = (source.match(/(?<!\r)\n/g) ?? []).length;
+  return crlf >= lf ? "\r\n" : "\n";
+}
+
+function editorValue() {
+  return normalizeNewlines(elements["config-editor"].value);
+}
+
+function baselineValue() {
+  return normalizeNewlines(state.config?.baselineContent);
+}
+
+// 把编辑器的 LF 值还原成 baseline 的原行尾后再落盘/送 diff。
+function restoreEditorNewlines(value = elements["config-editor"].value) {
+  const normalized = normalizeNewlines(value);
+  const newline = dominantNewline(state.config?.baselineContent);
+  return newline === "\r\n" ? normalized.replace(/\n/g, "\r\n") : normalized;
+}
+
 let configVersionPreviewGeneration = 0;
 async function previewConfigVersion(versionId) {
   if (!state.config || !versionId) return;
@@ -23663,7 +24032,7 @@ async function previewConfigVersion(versionId) {
     if (generation !== configVersionPreviewGeneration || state.config?.id !== sourceId || state.configVersionPreview?.versionId !== String(versionId)) return;
     const raw = payload?.version ?? payload;
     const content = String(raw?.content ?? raw?.raw ?? raw?.text ?? "");
-    const diff = createLocalDiff(content, elements["config-editor"].value);
+    const diff = createLocalDiff(normalizeNewlines(content), editorValue());
     state.configVersionPreview = { sourceId, versionId: String(versionId), version, status: "ok", data: { ...raw, content, diff } };
   } catch (error) {
     if (generation !== configVersionPreviewGeneration || state.config?.id !== sourceId || state.configVersionPreview?.versionId !== String(versionId)) return;
@@ -23722,7 +24091,7 @@ function renderConfigVersionPreview() {
 
 function configIsDirty() {
   if (!state.config) return false;
-  return elements["config-editor"].value !== state.config.baselineContent;
+  return editorValue() !== baselineValue();
 }
 
 function updateEditorFromInput() {
@@ -23740,7 +24109,7 @@ function updateEditorFromInput() {
       ...state.configVersionPreview,
       data: {
         ...state.configVersionPreview.data,
-        diff: createLocalDiff(state.configVersionPreview.data.content, elements["config-editor"].value),
+        diff: createLocalDiff(normalizeNewlines(state.configVersionPreview.data.content), editorValue()),
       },
     };
     renderConfigVersionPreview();
@@ -23779,7 +24148,8 @@ function updateConfigControls() {
 
 function configPayload() {
   return {
-    content: elements["config-editor"].value,
+    // 还原成 baseline 的原行尾：用户没动行尾，保存就不能替他把整份文件改写成 LF。
+    content: restoreEditorNewlines(),
     baseSha256: state.config?.sha256 ?? "",
     source: "control-center",
   };
@@ -23831,7 +24201,7 @@ async function planConfig() {
     const result = await configAction("plan");
     const planValid = result?.validation?.valid ?? result?.valid ?? true;
     state.pendingPlan = planValid ? (result ?? {}) : null;
-    const diff = extractDiff(result) || createLocalDiff(state.config.baselineContent, elements["config-editor"].value);
+    const diff = extractDiff(result) || createLocalDiff(baselineValue(), editorValue());
     renderDiff(diff);
     const count = result?.change_count ?? result?.changes?.length ?? countDiffChanges(diff);
     elements["diff-summary"].textContent = `${count} 处变更`;
@@ -23866,7 +24236,7 @@ async function applyConfig() {
     }
     if (!state.pendingPlan) return;
   }
-  const diff = extractDiff(state.pendingPlan) || createLocalDiff(state.config.baselineContent, elements["config-editor"].value);
+  const diff = extractDiff(state.pendingPlan) || createLocalDiff(baselineValue(), editorValue());
   const confirmed = await confirmAction({
     eyebrow: "配置事务",
     title: "确认保存配置？",
@@ -24240,9 +24610,23 @@ async function createRun(event) {
     // Bot 发送复用同一 createRun/POST 路径，但聊天表面必须保持在 Bot；
     // openTab() 对普通协作台提交仍切到 workbench，这里只记录本次提交的来源。
     botSubmission ||= botPendingSubmissionFor({ prompt: fullPrompt });
+    // social 必须有限预算：优先 Bot 页脚下拉，其次隐藏 #task-budget + 全局默认兜底（默认 $5.00）。
+    // 后端对隐式无限也有同值兜底，这里显式携带以便 UI 可预期、报错可中文前置。
+    const socialSafeBudget = socialMode
+      ? (workspaceBudgetSubmissionValue() ?? composerSocialBudgetSubmissionValue(elements["task-budget"]?.value ?? submission.maxBudgetUsdPerTurn))
+      : submission.maxBudgetUsdPerTurn;
+    if (socialMode && submission.maxBudgetUsdPerTurn === "unlimited") {
+      toast(`social 协作不支持无限预算，已自动使用 $${SOCIAL_BUDGET_FALLBACK.toFixed(2)} 有限上限`, "info", 3600);
+    }
     const conversationEndpoint = botSubmission?.conversationId
       ? `/api/conversations/${encodeURIComponent(botSubmission.conversationId)}/messages`
       : null;
+    // 恢复确认（与 Bot 直发分支同语义）：桥接提交同样需要显式确认位，否则 recovery_required 会话永久卡死。
+    const bridgeConversation = botSubmission?.conversationId
+      ? (botState.conversations || []).find((item) => String(item?.id || "") === String(botSubmission.conversationId))
+      : null;
+    const bridgeRecoveryRun = bridgeConversation ? botConversationActiveRun(bridgeConversation) : null;
+    const bridgeRecoveryAck = Boolean(bridgeRecoveryRun && bridgeRecoveryRun.status === "recovery_required" && state.recoveryAckRunId === String(bridgeRecoveryRun.id));
     const payload = await request(conversationEndpoint || API.runs, {
       method: "POST",
       body: conversationEndpoint ? {
@@ -24251,9 +24635,10 @@ async function createRun(event) {
         recipientMemberIds: botSubmission?.recipientMemberIds?.length ? [...botSubmission.recipientMemberIds] : undefined,
         sources: submissionSources.length ? submissionSources : undefined,
         ...composerPermissionSubmission(submission.permissionMode),
-        maxBudgetUsdPerTurn: submission.maxBudgetUsdPerTurn,
+        maxBudgetUsdPerTurn: socialMode ? socialSafeBudget : submission.maxBudgetUsdPerTurn,
         model: submission.model,
         effort: submission.effort,
+        ...(bridgeRecoveryAck ? { acknowledgeRecovery: true } : {}),
       } : {
         prompt: fullPrompt,
         taskType: undefined,
@@ -24269,7 +24654,7 @@ async function createRun(event) {
         ...composerPermissionSubmission(submission.permissionMode), // 普通档=原 permissionMode；native:* 拆为治理位 build + permission 透传字段（T6）
         teamId: botSubmission?.ephemeralTeam ? undefined : composerTarget.teamId || state.selectedTeamId, // 会话按所选团队隔离能力配比
         ephemeralTeam: botSubmission?.ephemeralTeam || undefined,
-        maxBudgetUsdPerTurn: submission.maxBudgetUsdPerTurn,
+        maxBudgetUsdPerTurn: socialMode ? socialSafeBudget : submission.maxBudgetUsdPerTurn,
         model: submission.model, // 当前直接目标的 CLI 模型（空=该 profile 默认）
         effort: submission.effort, // 当前直接目标的 CLI 推理力度
         cwd: botSubmission?.conversationId ? undefined : (botSubmission?.cwd || submission.cwd), // 持久化会话由服务端 Project/Global scope 决定 cwd
@@ -24279,6 +24664,7 @@ async function createRun(event) {
     });
     const raw = payload?.run ?? payload;
     const run = normalizeRun(raw ?? { prompt, risk, status: "planning" }, 0);
+    if (bridgeRecoveryAck) state.recoveryAckRunId = null; // 确认标记随本次发送一次性消费
     state.runs = [run, ...state.runs.filter((item) => item.id !== run.id)];
     const botBound = botSubmission
       ? botBindRun(run, {
@@ -24807,6 +25193,7 @@ function pushEvent(event) {
   rememberApprovalEventOutcome(event);
   if (!eventChanged) return; // SSE 重连可能回放边界事件；重复项不触发诊断或 DOM 提交
   if (event.runId) scheduleBotConversationSync(event.runId);
+  if (event.type === "user.message" || event.type === "assistant.message") botNoteConversationPreview(event);
   const activityChanged = trackCodexActivity(event) || trackContextCompaction(event);
   trackTurnFileStats(event); // 进行态文件变更累加；重渲由 conversationEvent/activityChanged 既有闸触发
   missionControlDock?.observeEvent(event);
@@ -25429,6 +25816,7 @@ function renderDiagnosticLog() {
 }
 
 function renderAll() {
+  botWorkspace?.render();
   if (state.view === "overview") renderOverview();
   renderRuns();
   renderSources();
@@ -25453,6 +25841,7 @@ async function refreshCurrentView() {
   const jobs = [];
   if (state.view === "overview") jobs.push(loadHealth(), loadRuns(), loadSources(), loadUsageOverview({ force: true }));
   if (state.view === "workbench") jobs.push(loadRuns(), loadProjects({ refresh: true }), loadTeams());
+  if (state.view === "bot") jobs.push(loadBootstrap(), loadRuns(), botLoadConversations());
   if (state.view === "config") {
     jobs.push(
       refreshSourcesAndSelectedConfig(),
@@ -26202,13 +26591,15 @@ async function requestRunEventHistory(runId, signal) {
   }
 }
 
-function fetchRunEvents(runId) {
+function fetchRunEvents(runId, { swallowErrors = true } = {}) {
   if (!runId) return Promise.resolve([]);
   if (Object.hasOwn(state.runEvents, runId)) {
     touchRunHistory(runId);
     return Promise.resolve(state.runEvents[runId]);
   }
   const existing = runHistoryInflight.get(runId);
+  // 共享在途请求时错误语义归首个调用者（其 catch 已绑定）；非吞错调用者拿到的
+  // 是其结果形态，失败呈现由首发调用方负责——同 run 并发拉取本就共享同一命运。
   if (existing) return existing.promise;
   trimRunHistoryInflight();
   const controller = new AbortController();
@@ -26239,6 +26630,9 @@ function fetchRunEvents(runId) {
       if (!controller.signal.aborted && runHistoryInflight.get(runId) === inflight) {
         appendDiagnostic(`任务历史回放失败 ${runId}: ${error.message}`, "warning");
       }
+      // 会话首开等场景需要失败可见（Grok 式重试卡）：swallowErrors:false 时如实上抛，
+      // 默认仍吞成空列表维持既有调用方（workbench 等）的「失败=空历史」语义。
+      if (!swallowErrors) throw error;
       return [];
     })
     .finally(() => {
@@ -26395,11 +26789,11 @@ const NAV_MOBILE_QUERY = window.matchMedia("(max-width: 820px)");
 function syncNavAccessibility() {
   const sidebar = byId("sidebar");
   if (!sidebar) return;
-  const isOpen = document.querySelector(".app-shell")?.classList.contains("nav-open");
-  const shouldHide = !isOpen;
+  const isOpen = NAV_MOBILE_QUERY.matches && document.querySelector(".app-shell")?.classList.contains("nav-open");
+  const shouldHide = NAV_MOBILE_QUERY.matches && !isOpen;
   sidebar.inert = shouldHide;
   sidebar.setAttribute("aria-hidden", String(shouldHide));
-  for (const target of [document.querySelector(".topbar"), byId("main-content"), document.querySelector(".global-statusbar"), document.querySelector(".mobile-nav"), byId("account-dock")]) {
+  for (const target of [document.querySelector(".topbar"), byId("main-content"), document.querySelector(".global-statusbar"), document.querySelector(".mobile-nav")]) {
     if (!target) continue;
     target.inert = Boolean(isOpen);
     target.setAttribute("aria-hidden", String(Boolean(isOpen)));
@@ -26407,7 +26801,7 @@ function syncNavAccessibility() {
 }
 
 function navDrawerOpen() {
-  return Boolean(document.querySelector(".app-shell")?.classList.contains("nav-open"));
+  return NAV_MOBILE_QUERY.matches && Boolean(document.querySelector(".app-shell")?.classList.contains("nav-open"));
 }
 
 function navDrawerFocusable() {
@@ -26437,6 +26831,7 @@ function trapNavDrawerTab(event) {
 function setNavDrawer(open, { restoreFocus = true } = {}) {
   const shell = document.querySelector(".app-shell");
   if (!shell) return;
+  open = Boolean(open && NAV_MOBILE_QUERY.matches);
   shell.classList.toggle("nav-open", open);
   const backdrop = byId("nav-backdrop");
   if (backdrop) backdrop.hidden = !open;
@@ -26450,6 +26845,12 @@ function setNavDrawer(open, { restoreFocus = true } = {}) {
 }
 
 function bindEvents() {
+  document.addEventListener("click", (event) => {
+    const entry = event.target.closest("[data-bot-config-open]");
+    if (!entry) return;
+    if (entry.dataset.botConfigOpen === "seats") void botOpenSeatWorkspace({ opener: entry });
+    else botOpenWorkspace(entry.dataset.botConfigOpen, entry);
+  });
   elements["overview-usage"]?.addEventListener("change", (event) => {
     const select = event.target.closest("[data-usage-model]");
     if (!select) return;
@@ -26475,7 +26876,10 @@ function bindEvents() {
     elements["submit-task-button"]?.click();
     sideInput.value = ""; // 草稿已交给主提交路径；留在框里只会诱导重发
   });
-  NAV_MOBILE_QUERY.addEventListener("change", syncNavAccessibility);
+  NAV_MOBILE_QUERY.addEventListener("change", () => {
+    if (!NAV_MOBILE_QUERY.matches) setNavDrawer(false, { restoreFocus: false });
+    else syncNavAccessibility();
+  });
   syncNavAccessibility();
   document.addEventListener("keydown", trapNavDrawerTab);
   document.addEventListener("keydown", (event) => {
@@ -26590,7 +26994,10 @@ function bindEvents() {
       setView(jump.dataset.viewJump);
     }
     const configSurface = event.target.closest("[data-config-surface]");
-    if (configSurface) setConfigSurface(configSurface.dataset.configSurface);
+    if (configSurface) {
+      if (state.view === "config") setConfigSurface(configSurface.dataset.configSurface, { focus: false });
+      else setView("config", { configSurface: configSurface.dataset.configSurface, focus: false });
+    }
     const configSurfaceJump = event.target.closest("[data-config-surface-jump]");
     if (configSurfaceJump && !configSurfaceJump.matches("[data-view]")) {
       const surface = configSurfaceJump.dataset.configSurfaceJump;
@@ -26601,6 +27008,11 @@ function bindEvents() {
         setView("config", { configSurface: surface });
       }
       if (configSurfaceJump.dataset.capWorkspace) setCapabilityWorkspace(configSurfaceJump.dataset.capWorkspace);
+    }
+    const capabilityBusToggle = event.target.closest("#capability-bus-toggle");
+    if (capabilityBusToggle) {
+      setCapabilityBusOpen(capabilityBusToggle.getAttribute("aria-expanded") !== "true");
+      return;
     }
     const capabilityBusJump = event.target.closest(".capability-bus [data-cap-jump]");
     if (capabilityBusJump) {
@@ -27281,6 +27693,7 @@ function bindEvents() {
       focus: false,
       configSurface: route.configSurface,
       settingsFocus: route.settingsFocus ?? null,
+      botWorkspaceHash: readBotWorkspaceRoute(location.hash) ? location.hash : undefined,
     });
   });
 
@@ -27784,20 +28197,7 @@ function bindEvents() {
     const versionId = elements["version-preview-rollback"].dataset.versionId;
     if (versionId) void rollbackConfig(versionId);
   });
-  elements["config-topology-tabs"]?.addEventListener("keydown", (event) => {
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-    const tabs = [...elements["config-topology-tabs"].querySelectorAll("[data-config-surface]")]
-      .filter((tab) => !tab.hidden && !tab.disabled);
-    const current = Math.max(0, tabs.indexOf(document.activeElement));
-    const next = event.key === "Home"
-      ? 0
-      : event.key === "End"
-        ? tabs.length - 1
-        : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
-    event.preventDefault();
-    setConfigSurface(tabs[next].dataset.configSurface);
-    tabs[next].focus();
-  });
+  byId("settings-destinations")?.addEventListener("keydown", handleSettingsRailKey);
   // 供应商方案：面板委托（启用/编辑/删除/检查/测速/排序/故障转移/用量卡片按钮）+ 对话框 + 应用团队方案
   elements["provider-columns"]?.addEventListener("click", (event) => {
     const rowSelect = event.target.closest("[data-provider-row]");
@@ -27813,7 +28213,7 @@ function bindEvents() {
     }
     const addButton = event.target.closest("[data-provider-add-app]");
     if (addButton) {
-      openProviderDialog(null, { app: addButton.dataset.providerAddApp || runtimeSeatManager?.connectionApp?.() || null });
+      openProviderDialog(null, { app: addButton.dataset.providerAddApp || providerActiveApp() });
       return;
     }
     // 官方登录虚拟行「存为档案」：开新增对话框并预填端点/官方分类，凭据仍留 CLI 托管
@@ -28560,23 +28960,210 @@ function initMagneticInteractions() {
   }, { passive: true });
 }
 
+function renderWorkspaceAttention() {
+  const root = byId("workspace-attention");
+  if (!root) return;
+  const conversation = botActiveConversation();
+  const run = conversation ? botConversationActiveRun(conversation) : botRunForAgent();
+  const markup = run ? botPendingAskCardMarkup(run) + botApprovalCardsMarkup(run) : "";
+  root.hidden = !markup;
+  reconcileMessageMarkup(root, markup);
+}
+
+function renderWorkspaceInsights(tab, { conversation, selectedRun: run }) {
+  const root = byId("workspace-insights");
+  if (!root || root.hidden) return;
+  const model = collaborationProcessModel({ conversation, run, memberLabel: agentLabel });
+  if (root.dataset.graphRun !== String(run?.id || "") || root.dataset.graphConversation !== String(conversation?.id || "")) {
+    root.dataset.graphRun = String(run?.id || "");
+    root.dataset.graphConversation = String(conversation?.id || "");
+    root.dataset.tasksPage = "0";
+    root.dataset.delegationsPage = "0";
+    root.dataset.taskFilter = "all";
+  }
+  const markup = tab === "process"
+    ? collaborationProcessMarkup(model, {
+      tasksPage: root.dataset.tasksPage, delegationsPage: root.dataset.delegationsPage, filter: root.dataset.taskFilter,
+      memberAvatar: (member) => botMemberAvatarContent(member.snapshot || botCatalogMember(member.id), botMeta(member.id)),
+    })
+    : `<header class="workspace-insights-heading"><h3>成果与验证</h3><span>${escapeHtml(model.status)}</span></header>${run ? botSettlementMarkup(run) : '<p class="workspace-empty">当前工作对话尚无运行成果</p>'}${collaborationReviewMarkup(model, renderMarkdown)}<details class="workspace-global-evidence"><summary>控制中心审计与发布记录</summary><div data-workspace-artifacts></div><div data-workspace-closeout></div></details>`;
+  reconcileMessageMarkup(root, markup);
+  if (tab === "results" && run) {
+    const artifacts = root.querySelector("[data-workspace-artifacts]");
+    const closeout = root.querySelector("[data-workspace-closeout]");
+    if (artifacts && !artifacts.dataset.workspaceMounted) { artifactCard.mount(artifacts); artifacts.dataset.workspaceMounted = "1"; }
+    if (closeout && !closeout.dataset.workspaceMounted) { closeoutCard.mount(closeout); closeout.dataset.workspaceMounted = "1"; }
+  }
+}
+
 async function start() {
+  // Preserve the user's route before authentication or background loaders can
+  // update shared state. Bot owns the URL only after initial routing is applied.
+  const startupHash = location.hash;
   cacheElements();
+  byId("workspace-insights").addEventListener("click", (event) => {
+    const filter = event.target.closest("[data-workspace-task-filter]");
+    if (filter && ["all", "attention"].includes(filter.dataset.workspaceTaskFilter)) {
+      byId("workspace-insights").dataset.taskFilter = filter.dataset.workspaceTaskFilter;
+      byId("workspace-insights").dataset.tasksPage = "0";
+      renderWorkspaceInsights("process", botWorkspace.getContext());
+      return;
+    }
+    const button = event.target.closest("[data-workspace-graph-page]");
+    if (!button || button.disabled || !["tasks", "delegations"].includes(button.dataset.workspaceGraphPage)) return;
+    const root = byId("workspace-insights");
+    const key = `${button.dataset.workspaceGraphPage}Page`;
+    root.dataset[key] = String((Number(button.dataset.page) || 0) + Number(button.dataset.direction));
+    renderWorkspaceInsights("process", botWorkspace.getContext());
+  });
+  elements["provider-app-bar"]?.addEventListener("keydown", (event) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const tabs = [...elements["provider-app-bar"].querySelectorAll("[data-provider-app-tab]")];
+    if (!tabs.length) return;
+    const current = Math.max(0, tabs.indexOf(document.activeElement));
+    const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+      : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    event.preventDefault();
+    setProviderActiveApp(tabs[next].dataset.providerAppTab);
+    elements["provider-app-bar"].querySelector('[aria-selected="true"]')?.focus({ preventScroll: true });
+  });
+  conversationMembersEditor = createConversationMembersEditor({
+    dialog: byId("workspace-members-dialog"),
+    getSnapshot: (conversationId) => {
+      const conversation = botConversationById(conversationId);
+      const run = botConversationActiveRun(conversation);
+      return {
+        conversation,
+        readOnly: Boolean(botConversationReadOnlyReason(conversation)),
+        running: Boolean(run && ACTIVE_RUN_STATES.has(run.status)),
+        members: botGroupCandidateMembers().map((member) => ({ id: member.id, label: botMeta(member.id).label, ...botGroupMemberEligibility(member) })),
+      };
+    },
+    saveMembers: (conversation, memberIds) => botPatchConversation(conversation, { memberIds }),
+    onChanged: (conversation) => {
+      if (botState.activeConversationId === conversation.id) {
+        delete botState.selectedRunIds[conversation.id];
+        botRenderAgent();
+      }
+      toast("协作成员已更新，历史运行保持不变", "success");
+    },
+  });
+  byId("workspace-members-edit").addEventListener("click", (event) => conversationMembersEditor.open(botState.activeConversationId, event.currentTarget));
+  byId("workspace-project-filter").addEventListener("change", (event) => {
+    botState.projectFilterId = event.target.value;
+    botState.conversationPage = 0;
+    botRenderRoster();
+  });
+  byId("workspace-show-inactive").addEventListener("change", (event) => {
+    botState.showInactiveConversations = event.target.checked;
+    botState.conversationPage = 0;
+    botRenderRoster();
+  });
+  byId("view-bot").addEventListener("click", (event) => {
+    const paging = event.target.closest("[data-workspace-conversations-page]");
+    if (!paging || paging.disabled) return;
+    botState.conversationPage += Number(paging.dataset.workspaceConversationsPage);
+    botRenderRoster();
+  });
+  const botWorkspaceSnapshot = () => ({
+    projects: botState.projects,
+    conversations: botState.conversations,
+    resolveRun: runProjection.resolveRun,
+    connection: controlConnection.snapshot(),
+    active: state.view === "bot" && botWorkspaceLocationReady,
+    selectionReady: Boolean(state.memberCatalog?.length),
+    indexReady: botState.conversationIndexReady,
+    ownsLocation: ownsBotWorkspaceHash(location.hash) && byId("bot-workspace-panel")?.hidden !== false,
+    activeConversationId: botState.activeConversationId,
+    selectedRunId: botState.selectedRunIds[botState.activeConversationId] || "",
+    agentId: botState.agentId,
+    memberLabel: agentLabel,
+  });
+  botWorkspace = createConversationWorkspace({
+    root: byId("view-bot"),
+    input: byId("bot-composer-input"),
+    getSnapshot: botWorkspaceSnapshot,
+    onNavigate: (view) => setView(view),
+    openConversation: (conversationId) => botOpenConversation(conversationId),
+    beforeRunSelection: botBeginSelectionIntent,
+    openRun: async (conversationId, runId) => {
+      const conversation = botConversationById(conversationId);
+      if (!conversation || conversation.deletedAt) return;
+      if (!runId) {
+        delete botState.selectedRunIds[conversationId];
+        botRenderAgent();
+      } else if (conversation.runIds?.includes(runId)) await botOpenConversationRun(conversation, runId);
+    },
+    onRefresh: async () => {
+      await Promise.all([loadBootstrap(), loadRuns(), botLoadConversations()]).catch((error) => toast(error.message, "warning"));
+      if (controlConnection.snapshot().apiState !== "ok") toast("工作数据未完整加载，请检查连接状态后重试", "warning");
+    },
+    onRouteChange: (previousHash, navigationToken) => rememberRouteChange({ ...captureViewRoute(), botWorkspaceHash: previousHash }, navigationToken),
+    onRouteError: (error) => toast(`工作对话导航未完成：${redact(String(error?.message || error)).slice(0, 240)}`, "error"),
+    renderInsights: renderWorkspaceInsights,
+  });
+  projectPluginsPanel = createProjectPluginsPanel({
+    navigate: (view) => setView(view),
+    getContext: () => { const conversation = botActiveConversation(); return { projectId: conversation?.projectId, conversationId: conversation?.id }; },
+    appendDraft: (context, text) => {
+      const conversation = botActiveConversation();
+      if (state.view !== "bot" || conversation?.id !== context.conversationId || conversation?.projectId !== context.projectId || botConversationReadOnlyReason(conversation)) throw new Error("工作对话已变化，请重新打开插件");
+      const input = byId("bot-composer-input");
+      input.value = [input.value, text].filter(Boolean).join("\n\n");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.focus();
+    },
+    confirm: (title, description) => confirmAction({ eyebrow: "项目插件", title, warning: description, confirmLabel: "确认" }),
+  });
+  conversationCommands = createConversationCommands({
+    request,
+    onPending: (command) => {
+      if (botState.activeConversationId === command.conversationId) byId("workspace-admission").textContent = "提交中";
+      syncBotComposerMode();
+    },
+    onAccepted: (raw, command) => {
+      const run = normalizeRun(raw, 0);
+      state.runs = [run, ...state.runs.filter((item) => item.id !== run.id)];
+      runProjection.rememberSnapshot(run, { optimistic: false });
+      if (botState.activeConversationId === command.conversationId) {
+        byId("workspace-admission").textContent = "已受理，正在同步";
+      }
+      void botLoadConversations().then(() => {
+        if (botState.activeConversationId !== command.conversationId) return;
+        byId("workspace-admission").textContent = "已受理";
+        botRenderAgent();
+      }).catch((error) => toast(`消息已受理，界面刷新失败：${error.message}`, "warning"));
+    },
+    onPresentationError: (error) => toast(`消息已受理，界面刷新失败：${error.message}`, "warning"),
+    onSettled: () => syncBotComposerMode(),
+  });
+  byId("bot-message-stream").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-workspace-message-page]");
+    if (!button) return;
+    const key = byId("bot-message-stream").dataset.messageWindow;
+    const source = botMessageWindowSources.get(key);
+    if (!source) return;
+    botMessageWindows.get(key)?.move(source.messages, button.dataset.workspaceMessagePage);
+    if (button.dataset.workspaceMessagePage === "latest") byId("bot-message-stream").scrollTop = byId("bot-message-stream").scrollHeight;
+    botRenderConversationMessages(source.agentId, source.run, source.messages);
+  });
+  let connectionRenderTimer = null;
+  controlConnection.subscribe(() => {
+    setApiState();
+    // Request observers run before the awaiting loaders commit their shared state.
+    if (connectionRenderTimer == null) connectionRenderTimer = window.setTimeout(() => {
+      connectionRenderTimer = null;
+      botWorkspace?.render();
+    }, 30);
+  });
   initMagneticInteractions();
   initBotShell();
   setWorkbenchCwdResolver(activeWorkbenchPtySpawn);
-  const openAccountSettings = (event) => {
-    if (event.shiftKey && state.operatorProfile?.avatar === "custom") {
-      void resetOperatorAvatar();
-      return;
-    }
-    openSettings("appearance");
-  };
-  byId("account-dock")?.addEventListener("click", openAccountSettings);
-  byId("account-heading-chip")?.addEventListener("click", openAccountSettings);
   const settingsQuery = byId("settings-rail-query");
   settingsQuery?.addEventListener("input", (event) => filterSettingsRail(event.target.value));
   settingsQuery?.addEventListener("search", (event) => filterSettingsRail(event.target.value));
+  settingsQuery?.addEventListener("keydown", handleSettingsQueryKey);
+  byId("settings-search-toggle")?.addEventListener("click", () => toggleSettingsSearch());
   // 会话头「…」溢出菜单（复制类安全动作 + 产物 diff 入口）
   elements["conversation-overflow"]?.addEventListener("click", (event) => {
     const run = state.sessionPreview ? null : selectedRun();
@@ -28678,7 +29265,7 @@ async function start() {
       const team = teamById(state.selectedTeamId) || state.teams.find((item) => item.builtin) || state.teams[0];
       const members = team?.members?.length
         ? team.members
-        : ["claude-fable", "codex-technical", "grok-search", "grok-build", "kimi-frontend", "pi-resident"];
+        : ["claude-fable", "codex-technical", "grok-build", "kimi-frontend", "pi-resident"];
       const healthList = Array.isArray(state.health?.components)
         ? state.health.components
         : Array.isArray(state.components) ? state.components : [];
@@ -28706,11 +29293,12 @@ async function start() {
   });
   await initializeAccessToken(); // 一次性 bootstrap 必须先兑换，后续 API 与 SSE 才能携带当前 tab 会话态
   await botLoadConversations(); // Bot 对话索引依赖认证态；不能在 initBotShell 的首帧抢跑请求
-  const initialConversationRoute = Boolean(state.deepLinkConversationId);
-  if (state.deepLinkConversationId) {
-    const conversationId = state.deepLinkConversationId;
-    state.deepLinkConversationId = null;
-    await consumeConversationDeepLink({ conversationId });
+  const initialConversationRoute = state.deepLinkConversationId ? conversationDeepLinkFromHash(startupHash) : null;
+  state.deepLinkConversationId = null;
+  if (initialConversationRoute) {
+    const conversation = botConversationById(initialConversationRoute.conversationId);
+    if (conversation?.hiddenAt && !conversation.deletedAt) await botRestoreConversation(conversation, { open: false });
+    else if (!conversation || conversation.deletedAt) toast("链接指向的工作对话不可用", "warning");
   }
   workbenchEnvironmentPanel?.selectRun?.(null);
   mountCcSwitchPanel({ root: byId("ccswitch-workbench"), notify: toast, confirmAction, cliIconMarkup });
@@ -28732,18 +29320,9 @@ async function start() {
     }),
     onChanged: () => loadAutomations(),
     onOpenRun: (runId) => {
-      if (byId("automations-workbench")?.closest("#view-bot")) {
-        const normalizedId = String(runId || "");
-        if (!normalizedId) return;
-        botState.runId = normalizedId;
-        botState.runIds[botState.agentId] = normalizedId;
-        botRenderAgent(botState.agentId);
-        return;
-      }
       setView("workbench");
       if (runId && state.runs.some((run) => run.id === runId)) selectRun(runId);
     },
-    routePrefix: () => byId("automations-workbench")?.closest("#view-bot") ? "bot" : "",
   });
   void ensureAutomationModelCatalogs(); // bootstrap 已就绪时立即补齐；未就绪由 loadBootstrap 末尾兜底
   restoreConfigRemoteRecoveries(); // 远端未解事务必须早于任何配置视图和写入口恢复，刷新不能绕过阻断
@@ -28753,6 +29332,7 @@ async function start() {
   initializeWindowChrome(); // 桌面壳窗口钮与拖拽区（浏览器模式自动跳过）
   initializeChromeMenus(); // 应用菜单列：浏览器与壳内共用
   try { state.composerCliOpen = localStorage.getItem(COMPOSER_CLI_OPEN_KEY) === "1"; } catch { state.composerCliOpen = false; }
+  restoreCapabilityBusOpen(); // 能力生效链折叠态（v49 C-01）：首访展开、收起后记住
   // 端口隔离克星：新壳启动时从服务端补齐缺失的外观键（本地已有值优先，网络失败静默）；
   // 补齐命中时会重放 initializeTheme，所以排在窗口控制初始化之后。
   // 壁纸 HEAD 对账串在水合结算之后跑：本地无壁纸键时它必须等待回填结果，
@@ -28873,11 +29453,7 @@ async function start() {
       setView("team");
       void memberLibrary?.open(memberId);
     },
-    onConnectionContextChanged: (app, providerId) => {
-      if (app && PROVIDER_APPS.includes(app)) state.providerActiveApp = app;
-      else state.selectedProviderId = null;
-      if (providerId) state.selectedProviderId = providerId;
-      renderProviders();
+    onConnectionContextChanged: () => {
       reconcileProviderLivePoll();
     },
     onSelectionChanged: (runtimeProfileId) => {
@@ -28975,11 +29551,23 @@ async function start() {
   }
   // W2.5 三套导航（侧栏/topbar/移动底栏）由 nav-config 单一真源生成，先于首屏 setView
   renderNavigation();
+  // 左下角设置坞（侧栏隐藏后的全局设置入口）：点击展开完整设置面板；
+  // 已处于设置表面时再点返回进入前的视图（默认回协作台）。
+  byId("settings-dock-button")?.addEventListener("click", () => {
+    if (isSettingsChrome(state.view)) {
+      const back = state.dockReturnView && FORGE_VIEW_TITLES[state.dockReturnView] ? state.dockReturnView : "bot";
+      state.dockReturnView = null;
+      setView(back);
+      return;
+    }
+    state.dockReturnView = isSettingsChrome(state.view) ? null : state.view;
+    setView("config");
+  });
   // W3.11 用户宏清单进 palette（CRUD 后由对应操作重新拉取）
   void request("/api/macros").then((payload) => {
     state.customMacros = Array.isArray(payload?.macros) ? payload.macros : [];
   }).catch(() => {});
-  const initialRoute = parseForgeRoute();
+  const initialRoute = parseForgeRoute(startupHash);
   const initialMemberTarget = initialRoute.view === "config" && (
     initialRoute.configSurface === "capabilities" && initialRoute.memberId
     || initialRoute.configSurface === "sources" && initialRoute.runtimeProfileId
@@ -28988,17 +29576,21 @@ async function start() {
     state.configMemberFocusId = initialRoute.memberId;
     state.configRuntimeFocusId = initialRoute.runtimeProfileId;
   }
-  // `#conversation=<id>` 不是 Forge 视图名。上面的 deep-link 消费已经精确打开
-  // Bot Conversation，不能再被这里的未知路由 fallback 压回 Workbench。
+  const legacyWorkbenchRoute = Boolean(state.deepLinkRunId || state.deepLinkProjectId || state.deepLinkSession);
   const initialView = initialConversationRoute
     ? "bot"
-    : (FORGE_VIEW_TITLES[initialRoute.view] ? initialRoute.view : "workbench");
+    : legacyWorkbenchRoute ? "workbench" : (FORGE_VIEW_TITLES[initialRoute.view] ? initialRoute.view : "bot");
+  botWorkspaceLocationReady = true;
   setView(initialView, {
-    updateHash: false,
+    updateHash: !legacyWorkbenchRoute && initialView !== "bot",
     focus: false,
     configSurface: initialRoute.configSurface,
     preserveMemberTarget: Boolean(initialMemberTarget),
     settingsFocus: initialRoute.settingsFocus ?? null,
+    botWorkspaceHash: initialConversationRoute
+      ? botWorkspaceRoute(initialConversationRoute)
+      : initialView === "bot" && !/^#\/?bot\//.test(startupHash)
+        ? (readBotWorkspaceRoute(startupHash) ? startupHash : "#bot") : undefined,
   });
   renderAll();
   connectEvents();

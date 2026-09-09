@@ -178,6 +178,15 @@ test("registry persistence serializes registration lifecycle", async () => {
   assert.ok(persisted.children[0].registeredAt);
 });
 
+test("defaultKillTree bounds a stuck termination helper and reports failure", async () => {
+  let killed = false;
+  const helper = new EventEmitter();
+  helper.kill = () => { killed = true; };
+  assert.equal(await defaultKillTree(34_001, { platform: "win32", timeoutMs: 10, spawnImpl: () => helper }), false);
+  assert.equal(killed, true);
+  helper.emit("close", 0);
+});
+
 test("registry snapshot exposes only bounded process identity metadata", async () => {
   const ledger = memoryLedger();
   const registry = configureChildRegistry({ dataRoot: "memory-snapshot", storage: ledger.storage });

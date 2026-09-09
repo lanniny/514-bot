@@ -52,10 +52,35 @@ body.atelier {
   mask-image: linear-gradient(to bottom, black, transparent 82%);
 }
 
+/* ── 氛围与材质层：唯一真源（UI-ELEVATION W3 活体材质系统）─────────────────
+ *
+ * 1. 底层：.atelier-stage（工程网格纸 + 铜橙天体光晕）
+ * 2. 噪点层：.atelier-grain（feTurbulence 极低不透明度模拟印刷暖纸与胶片触感）
+ * 3. 语义层：#atelier-canvas（天体引力微粒子场，指针交互感应拓扑）
+ *
+ * 禁用：.atelier-mesh（由 stage 的精准渐变取代）与 .atelier-orb（杂乱炫彩光球）。
+ * 约束：严格控制透明度（亮色 0.035 / 暗色 0.045），WCAG AA 对比度 100% 保持。
+ * -------------------------------------------------------------------------- */
+
 .atelier-mesh,
-.atelier-orb,
-.atelier-grain {
+.atelier-orb {
   display: none;
+}
+
+.atelier-grain {
+  display: block;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.035;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+
+[data-theme="dark"] .atelier-grain {
+  opacity: 0.045;
+  mix-blend-mode: screen;
 }
 
 #atelier-canvas {
@@ -67,6 +92,21 @@ body.atelier {
 [data-theme="dark"] #atelier-canvas {
   opacity: .62;
   mix-blend-mode: screen;
+}
+
+/* 减弱动效偏好：撤掉整个氛围场（静态网格纸、噪点与 canvas 粒子一起）。 */
+@media (prefers-reduced-motion: reduce) {
+  .atelier-stage,
+  .atelier-grain,
+  #atelier-canvas {
+    display: none;
+  }
+}
+
+:root[data-motion="reduce"] .atelier-stage,
+:root[data-motion="reduce"] .atelier-grain,
+:root[data-motion="reduce"] #atelier-canvas {
+  display: none;
 }
 
 .app-shell {
@@ -288,11 +328,14 @@ body.atelier .topbar {
   background: color-mix(in oklab, var(--card) 94%, var(--forge-copper) 6%);
 }
 
+/* 关键指标数字收敛到展示轨令牌（UI-ELEVATION W1 令牌收敛）。
+   --display-lg = clamp(36px, …, 60px)，与原先手写 38→62px 同量级，视觉无跳变。
+   本文件最后加载，由它 Own 指标数字这一处。 */
 .view .metric-value {
   font-family: var(--forge-display);
-  font-size: clamp(38px, 4vw, 62px);
+  font-size: var(--display-lg);
   font-weight: 520;
-  letter-spacing: -.05em;
+  letter-spacing: var(--tracking-display-tight);
 }
 
 .metric-label,
@@ -869,49 +912,83 @@ body.atelier .topbar {
 /* Configuration is an operational surface, not an editorial landing page.
    Keep the Forge typography, but compress the hero into a coordinate strip so
    live controls remain above the fold. This file loads last and intentionally
-   owns the exception to the global editorial heading. */
+   owns the exception to the global editorial heading.
+
+   ── v49 U1-a：122px → 单行坐标条 ──────────────────────────────────────
+   改前实测拆解（1600×1000，能力面）：
+     min-height 84px 但内容撑到 121.67px = h1 46px + eyebrow 20px
+     + 副标题 26.67px + padding 22px；正文第一块落在 y=652（首屏 65%）。
+
+   三段内容里有两段是重复的，实测逐字核对过：
+     · eyebrow「配置控制面」与 h1「配置图谱」同义；
+     · 副标题「席位、连接、能力、钩子与本机运行时」**逐字**就是正下方
+       config-topology 五个 tab 的枚举（席位/能力/钩子/本机运行时/连接）；
+     · topbar 另有面包屑「配置 / 配置图谱」，页面身份本就不止一处。
+   而本文件 @media (max-width: 720px) 早已把副标题 display:none —— 项目自己
+   在窄屏上已判定它可省，这里只是把同一判断扩到全宽度。
+
+   h1 的 clamp(30px, 3.2vw, 46px) 是**设置页专属放大**（全局是 clamp(22px,
+   1.8vw, 26px)）。配置页是操作面不是着陆页，46px 的编辑式大字在这里换不来
+   信息，只换走 46px 的首屏。收敛到全局档并让 eyebrow 与 h1 同行。
+
+   保留不动：h1 本体（setView 会 focus 它做切页焦点迁移，且
+   ui-design-system.test.mjs 断言 16 个视图的主标题都带 editorial-headline）、
+   ::after 铜色签名线、底部发丝线、status-label 实时态。 */
 .app-shell.is-settings #view-config.view .page-heading.compact-heading {
-  min-height: 84px;
+  min-height: 0;
   align-items: center;
-  margin-bottom: 14px;
-  padding: 8px 0 14px;
+  margin-bottom: 12px;
+  padding: 6px 0 10px;
+}
+
+/* eyebrow 与 h1 同行：两段文本本就同义，竖排占两行不值 20px。 */
+.app-shell.is-settings #view-config.view .page-heading.compact-heading > div:first-child {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
 }
 
 .app-shell.is-settings #view-config.view .page-heading.compact-heading::after {
   width: clamp(96px, 16vw, 220px);
 }
 
-.app-shell.is-settings #view-config.view .page-heading.compact-heading h1 {
-  max-width: none;
-  margin-top: 3px;
-  font-size: clamp(30px, 3.2vw, 46px);
-  line-height: 1;
+.app-shell.is-settings #view-config.view .page-heading.compact-heading .eyebrow {
+  flex: none;
+  margin: 0;
 }
 
+.app-shell.is-settings #view-config.view .page-heading.compact-heading h1 {
+  max-width: none;
+  margin-top: 0;
+  font-size: clamp(22px, 1.8vw, 26px);
+  line-height: 1.15;
+}
+
+/* 副标题在配置页全宽度收起：它是正下方 tab 的逐字枚举，留着是同一份信息付两次首屏。 */
 .app-shell.is-settings #view-config.view .page-heading.compact-heading > div:first-child > p:last-of-type {
-  max-width: 60ch;
-  margin-top: 8px;
-  font-size: var(--text-sm);
-  line-height: 1.5;
+  display: none;
 }
 
 .app-shell.is-settings #view-config.view .page-heading.compact-heading > .status-label {
   align-self: center;
 }
 
-@media (max-width: 720px) {
+/* 窄屏（标准档 820px；原为非标准的 720px，重写本块时按 ui-lint 的
+   odd-breakpoint 规则归位到标准档）。 */
+@media (max-width: 820px) {
   .app-shell.is-settings #view-config.view .page-heading.compact-heading {
-    min-height: 72px;
     margin-bottom: 10px;
-    padding-bottom: 12px;
+    padding-bottom: 8px;
+  }
+
+  /* 窄屏 eyebrow 也收起：这一档要给 tab 条让位，页面身份靠 topbar 面包屑。 */
+  .app-shell.is-settings #view-config.view .page-heading.compact-heading .eyebrow {
+    display: none;
   }
 
   .app-shell.is-settings #view-config.view .page-heading.compact-heading h1 {
-    font-size: var(--text-3xl);
-  }
-
-  .app-shell.is-settings #view-config.view .page-heading.compact-heading > div:first-child > p:last-of-type {
-    display: none;
+    font-size: var(--text-xl);
   }
 }
 
@@ -923,7 +1000,7 @@ body.atelier .topbar {
    一类词值走 metric-word 中号——否则三行「未知」在卡片里挤爆版面。本文件最后加载，
    由它 Own 这个例外（data.css 的同口径规则会被这里的 (0,2,0) 同权重源序压回）。 */
 .view .metric-value.metric-word {
-  font-size: clamp(20px, 2vw, 30px);
-  letter-spacing: -0.01em;
+  font-size: var(--display-xs);
+  letter-spacing: var(--tracking-display);
   line-height: 1.15;
 }

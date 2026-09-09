@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>514cc · 项目工作台 · 阶段 A</title>
+  <style>
+    :root { color-scheme: light; --canvas:#f6f7f8; --surface:#fff; --sidebar:#f0f2f3; --text:#20242a; --muted:#5f6978; --line:#dce1e5; --hover:#e8ecee; --accent:#176b5b; --accent-soft:#e8f3ef; --link:#315fa8; --link-soft:#edf3fc; --warn:#895713; --warn-soft:#fff5df; --bad:#b5343e; --bad-soft:#fff0f1; --code:#f7f9fa; --sidebar-width:256px; font-family:"Segoe UI","Microsoft YaHei",sans-serif; font-size:14px; letter-spacing:0; }
+    :root[data-theme="dark"] { color-scheme:dark; --canvas:#1b1d20; --surface:#222529; --sidebar:#1d2023; --text:#e7e9ed; --muted:#acb4c0; --line:#3a4047; --hover:#30363c; --accent:#8cd8c0; --accent-soft:#243f37; --link:#9fc1ff; --link-soft:#26374d; --warn:#edc884; --warn-soft:#403625; --bad:#ffabb0; --bad-soft:#442b30; --code:#1e2226; }
+    * { box-sizing:border-box; letter-spacing:0; }
+    [hidden] { display:none !important; }
+    body { margin:0; color:var(--text); background:var(--canvas); }
+    button,input,select,textarea { font:inherit; color:inherit; }
+    button { cursor:pointer; }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible { outline:2px solid var(--link); outline-offset:3px; }
+    button,input,select,textarea { border:1px solid var(--line); border-radius:6px; background:var(--surface); }
+    button { min-height:36px; padding:7px 12px; display:inline-flex; align-items:center; justify-content:center; gap:8px; font-weight:500; }
+    button:hover:not(:disabled) { background:var(--hover); }
+    .primary { background:var(--accent); border-color:var(--accent); color:white; }
+    :root[data-theme="dark"] .primary { color:#142f27; }
+    .primary:hover:not(:disabled) { filter:brightness(.95); background:var(--accent); }
+    .quiet { background:transparent; border-color:transparent; }
+    .icon { width:18px; height:18px; flex:0 0 18px; display:inline-block; }
+    .icon-button { width:36px; height:36px; padding:8px; flex:0 0 36px; }
+    .icon-button[data-tip] { position:relative; }
+    .icon-button[data-tip]:hover::after { content:attr(data-tip); position:absolute; top:calc(100% + 6px); right:0; width:max-content; max-width:180px; background:var(--text); color:var(--surface); border-radius:4px; font-size:12px; padding:5px 8px; z-index:30; pointer-events:none; }
+    .row { display:flex; align-items:center; gap:10px; min-width:0; }
+    .between { justify-content:space-between; }
+    .wrap { flex-wrap:wrap; }
+    .muted { color:var(--muted); }
+    .small { font-size:12px; }
+    .grow { flex:1; min-width:0; }
+    .accent { color:var(--accent); }
+    .blue { color:var(--link); }
+    .danger { color:var(--bad); }
+    h1,h2,h3,p { margin:0; }
+    h1 { font-size:20px; line-height:1.5; font-weight:600; overflow-wrap:anywhere; }
+    h2 { font-size:16px; font-weight:600; line-height:1.5; }
+    h3 { font-size:14px; font-weight:600; }
+    p { line-height:1.8; }
+    code,pre { font-family:Consolas,"Cascadia Code",monospace; font-size:13px; }
+    code { overflow-wrap:anywhere; }
+    .preview-bar { min-height:44px; padding:4px 18px; border-bottom:1px solid var(--line); background:var(--surface); display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .preview-label { font-size:12px; color:var(--muted); display:flex; align-items:center; gap:12px; }
+    .preview-label strong { color:var(--text); font-weight:600; }
+    #scenario { max-width:180px; min-height:32px; padding:4px 28px 4px 10px; font-size:12px; }
+    .app { height:calc(100dvh - 45px); min-height:480px; display:grid; grid-template-columns:var(--sidebar-width) 5px minmax(0,1fr); }
+    .sidebar { background:var(--sidebar); padding:20px 12px 12px; display:flex; flex-direction:column; gap:20px; min-height:0; overflow-y:auto; }
+    .brand { padding:0 10px; display:flex; gap:10px; align-items:center; font-size:21px; font-weight:650; }
+    .brand .icon { width:25px; height:25px; flex-basis:25px; color:var(--accent); }
+    .brand span:last-child { color:var(--muted); font-size:12px; font-weight:400; margin-left:auto; }
+    .main-nav { display:grid; gap:3px; }
+    .main-nav button { justify-content:flex-start; border:0; background:transparent; padding:9px 12px; }
+    .main-nav button[aria-current="page"] { color:var(--accent); background:var(--accent-soft); font-weight:600; }
+    .search { position:relative; display:flex; align-items:center; }
+    .search .icon { position:absolute; left:10px; color:var(--muted); }
+    .search input { width:100%; padding:9px 10px 9px 36px; background:var(--surface); min-width:0; }
+    .section-label { color:var(--muted); font-size:12px; padding:0 10px; margin-bottom:6px; }
+    .project-label { margin:10px 0 8px; padding:0 10px; display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; }
+    .conversation { width:100%; text-align:left; justify-content:flex-start; background:transparent; border:0; padding:10px; margin:2px 0; gap:9px; font-weight:400; }
+    .conversation span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+    .conversation .icon { width:15px; height:15px; flex-basis:15px; color:var(--muted); }
+    .conversation[aria-current="true"] { background:var(--surface); box-shadow:0 1px 3px #00000008; font-weight:600; }
+    .conversation[aria-current="true"] .icon { color:var(--accent); }
+    .sidebar-footer { margin-top:auto; padding-top:16px; border-top:1px solid var(--line); }
+    .sidebar-footer button { width:100%; justify-content:flex-start; }
+    .user-line { padding:12px 8px 0; display:flex; align-items:center; gap:10px; }
+    .user-monogram { width:28px; height:28px; display:grid; place-items:center; background:var(--surface); border:1px solid var(--line); border-radius:6px; font-size:12px; }
+    #splitter { border-right:1px solid var(--line); background:var(--sidebar); cursor:col-resize; touch-action:none; }
+    #splitter:hover,#splitter:focus-visible { background:var(--accent); }
+    .workspace { min-width:0; min-height:0; display:flex; flex-direction:column; background:var(--surface); }
+    .context-bar { min-height:58px; padding:10px 24px; border-bottom:1px solid var(--line); }
+    .breadcrumb { font-size:13px; color:var(--muted); overflow-wrap:anywhere; }
+    .breadcrumb strong { color:var(--text); font-weight:500; }
+    .context-actions { flex-shrink:0; }
+    #menu-button { display:none; }
+    .status { font-size:12px; display:inline-flex; align-items:center; gap:6px; color:var(--accent); }
+    .status.warn { color:var(--warn); }
+    .status.bad { color:var(--bad); }
+    .status.neutral { color:var(--muted); }
+    .status .icon { width:14px; height:14px; flex-basis:14px; }
+    .pane-layout { flex:1; min-height:0; display:flex; }
+    .work-pane { display:flex; flex-direction:column; flex:1; min-width:0; min-height:0; }
+    .work-heading { padding:24px 32px 0; }
+    .heading-meta { margin-top:9px; margin-bottom:20px; gap:18px; color:var(--muted); font-size:12px; }
+    .heading-meta .row { gap:6px; }
+    .tabs { gap:24px; border-bottom:1px solid var(--line); }
+    .tabs button { position:relative; border:0; border-radius:0; background:transparent; padding:10px 0 13px; color:var(--muted); min-width:36px; }
+    .tabs button[aria-selected="true"] { color:var(--text); font-weight:600; }
+    .tabs button[aria-selected="true"]::after { content:""; height:2px; position:absolute; left:0; right:0; bottom:0; background:var(--accent); }
+    #work-scroll { flex:1; overflow:auto; min-height:0; scroll-behavior:smooth; padding:0 32px; }
+    .body-content { max-width:900px; margin:0 auto; padding:25px 0 30px; }
+    .message { display:grid; grid-template-columns:30px minmax(0,1fr); gap:12px; padding:0 0 26px; }
+    .avatar { width:30px; height:30px; border-radius:6px; display:grid; place-items:center; font-size:12px; font-weight:600; border:1px solid var(--line); background:var(--sidebar); }
+    .avatar.claude { color:#bd5835; background:#fff0e8; border-color:#f3d9ca; }
+    .avatar.codex { color:#176b5b; background:#e7f3ed; border-color:#cde4d9; }
+    .byline { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin:3px 0 9px; font-size:13px; }
+    .byline time { margin-left:auto; color:var(--muted); font-size:12px; }
+    .message p { font-size:15px; line-height:1.9; }
+    .task-steps { margin:16px 0 0; list-style:none; padding:0; display:grid; gap:12px; }
+    .task-steps li { display:flex; align-items:center; gap:10px; font-size:13px; }
+    .task-steps .icon { color:var(--accent); width:16px; height:16px; flex-basis:16px; }
+    .task-steps .pending { color:var(--muted); }
+    .task-steps .pending .icon { color:var(--muted); }
+    .tool-block { border:1px solid var(--line); border-radius:6px; overflow:hidden; margin-top:14px; background:var(--code); }
+    .tool-header { padding:10px 12px; font-size:12px; border-bottom:1px solid var(--line); }
+    .tool-block pre { margin:0; padding:14px; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.8; color:var(--muted); }
+    .tool-block pre strong { color:var(--accent); font-weight:400; }
+    .activity-strip { border-top:1px solid var(--line); padding-top:15px; margin-top:0; }
+    .activity-strip button { font-size:12px; }
+    .alert { padding:14px 16px; margin-bottom:24px; background:var(--warn-soft); border-left:3px solid var(--warn); }
+    .alert.bad { background:var(--bad-soft); border-color:var(--bad); }
+    .alert.neutral { background:var(--sidebar); border-color:var(--muted); }
+    .alert p { font-size:13px; margin:6px 0 12px; }
+    .composer { margin:0 32px 18px; flex-shrink:0; }
+    .composer-box { border:1px solid var(--line); border-radius:8px; background:var(--surface); }
+    .composer-box:focus-within { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+    #prompt { display:block; border:0; width:100%; background:transparent; resize:none; min-height:62px; max-height:160px; padding:14px 14px 4px; font-size:14px; line-height:1.6; outline:none; }
+    .composer-toolbar { display:flex; align-items:center; flex-wrap:wrap; gap:6px; padding:6px 9px 9px; }
+    .composer-toolbar select { border:0; background:transparent; font-size:12px; padding:6px 0; max-width:145px; min-height:36px; }
+    .permission { font-size:12px; color:var(--muted); }
+    .permission .icon { width:14px; height:14px; flex-basis:14px; }
+    #send-button { margin-left:auto; }
+    .composer-caption { margin-top:8px; font-size:12px; color:var(--muted); display:flex; justify-content:space-between; gap:8px; }
+    #attachments { padding:0 12px; display:flex; flex-wrap:wrap; gap:6px; }
+    #attachments:empty { padding:0; }
+    .attachment { display:flex; align-items:center; gap:4px; font-size:12px; max-width:100%; overflow-wrap:anywhere; padding:4px 0; }
+    .attachment button { width:28px; height:28px; min-height:28px; padding:4px; }
+    .timeline { list-style:none; margin:0; padding:0; }
+    .timeline li { display:grid; grid-template-columns:58px 24px minmax(0,1fr); gap:10px; padding:0 0 28px; }
+    .timeline time { font-size:12px; color:var(--muted); padding-top:3px; }
+    .timeline .event-icon { position:relative; color:var(--accent); }
+    .timeline li:not(:last-child) .event-icon::after { content:""; width:1px; background:var(--line); position:absolute; top:26px; bottom:-20px; left:8px; }
+    .timeline p { font-size:13px; color:var(--muted); margin-top:6px; }
+    .timeline details { font-size:13px; margin-top:12px; }
+    summary { cursor:pointer; color:var(--link); padding:5px 0; }
+    .result-summary { padding-bottom:20px; border-bottom:1px solid var(--line); margin-bottom:20px; }
+    .result-summary p { margin:8px 0 12px; font-size:14px; }
+    .result-grid { display:grid; grid-template-columns:minmax(0,1.5fr) minmax(220px,1fr); gap:28px; }
+    .file-list { margin-top:12px; }
+    .file-row { width:100%; border:0; border-radius:0; padding:12px 0; border-bottom:1px solid var(--line); text-align:left; justify-content:flex-start; background:transparent; font-size:13px; }
+    .file-row span { flex:1; min-width:0; overflow-wrap:anywhere; }
+    .file-row code { font-size:12px; white-space:nowrap; }
+    .evidence-list { margin:12px 0 0; padding:0; list-style:none; }
+    .evidence-list li { display:flex; gap:8px; align-items:flex-start; margin-bottom:13px; font-size:13px; line-height:1.65; }
+    .evidence-list .icon { color:var(--accent); width:16px; flex-basis:16px; margin-top:2px; }
+    .evidence-link { color:var(--link); border:0; padding:0; text-align:left; min-height:28px; justify-content:flex-start; background:transparent; }
+    .review-footer { margin-top:24px; padding-top:20px; border-top:1px solid var(--line); }
+    .review-footer p { font-size:13px; color:var(--muted); margin:8px 0 16px; }
+    .diff { border:1px solid var(--line); border-radius:6px; overflow:hidden; margin-top:18px; font-size:12px; background:var(--code); }
+    .diff .row { padding:10px 12px; border-bottom:1px solid var(--line); font-size:12px; }
+    .diff pre { margin:0; white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.9; }
+    .diff pre span { display:block; padding:0 12px; }
+    .diff .add { background:var(--accent-soft); color:var(--accent); }
+    .diff .remove { background:var(--bad-soft); color:var(--bad); }
+    .inspector { width:350px; flex:0 0 350px; border-left:1px solid var(--line); background:var(--canvas); min-width:0; overflow:auto; }
+    .inspector-head { padding:15px 18px; border-bottom:1px solid var(--line); background:var(--surface); }
+    #detail-body { padding:22px 20px; }
+    #detail-body p { font-size:13px; margin:10px 0 18px; }
+    #detail-body h3 { margin-bottom:12px; }
+    .definition { margin:0; display:grid; grid-template-columns:80px minmax(0,1fr); gap:13px 8px; font-size:13px; }
+    .definition dt { color:var(--muted); }
+    .definition dd { margin:0; overflow-wrap:anywhere; }
+    #settings-pane,#aux-pane { overflow:auto; min-height:0; flex:1; padding:26px 32px; }
+    .settings-heading { margin-bottom:24px; }
+    .settings-heading p { margin-top:6px; font-size:13px; }
+    .settings-layout { display:grid; grid-template-columns:200px minmax(0,540px); gap:32px; }
+    .connections { display:flex; flex-direction:column; gap:4px; }
+    .connections button { justify-content:flex-start; padding:12px; text-align:left; border:0; background:transparent; }
+    .connections button[aria-pressed="true"] { background:var(--accent-soft); }
+    .connections small { display:block; color:var(--muted); font-size:12px; margin-top:4px; }
+    .field { display:grid; gap:8px; margin:0 0 20px; font-size:13px; }
+    .field input,.field select { min-height:38px; padding:8px 10px; width:100%; min-width:0; }
+    .field input[readonly] { color:var(--muted); background:var(--canvas); }
+    .field .hint { color:var(--muted); font-size:12px; line-height:1.6; }
+    .config-context { border-bottom:1px solid var(--line); padding-bottom:17px; margin-bottom:23px; }
+    .save-state { padding:12px 0; font-size:13px; color:var(--warn); min-height:46px; }
+    .config-actions { border-top:1px solid var(--line); padding-top:17px; margin-top:4px; display:flex; flex-wrap:wrap; gap:10px; }
+    .empty { padding:45px 0; max-width:650px; }
+    .empty>.icon { width:28px; height:28px; color:var(--muted); margin-bottom:16px; }
+    .empty p { color:var(--muted); margin:10px 0 20px; font-size:14px; }
+    .record-row { padding:18px 0; border-bottom:1px solid var(--line); }
+    .record-row p { color:var(--muted); font-size:13px; margin-top:6px; }
+    dialog { background:var(--surface); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:24px; width:min(460px,calc(100vw - 32px)); max-height:calc(100dvh - 40px); overflow:auto; box-shadow:0 16px 60px #0003; }
+    dialog::backdrop { background:#0006; }
+    dialog h2 { margin-bottom:20px; }
+    dialog p { font-size:13px; margin-bottom:20px; color:var(--muted); }
+    dialog .dialog-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:20px; }
+    #toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:var(--text); color:var(--surface); padding:10px 16px; border-radius:6px; max-width:calc(100vw - 32px); width:max-content; font-size:13px; z-index:60; pointer-events:none; }
+    @media (max-width:1150px) { .inspector { flex-basis:320px; width:320px; } .work-heading { padding:20px 24px 0; } #work-scroll { padding:0 24px; } .composer { margin:0 24px 16px; } .result-grid { grid-template-columns:1fr; gap:24px; } .settings-layout { grid-template-columns:160px minmax(0,1fr); gap:24px; } }
+    @media (max-width:1000px) { .app { grid-template-columns:220px 5px minmax(0,1fr); } .app.has-detail .work-pane { display:none; } .inspector { width:auto; flex:1; border-left:0; } .settings-layout { grid-template-columns:1fr; } .connections { flex-direction:row; flex-wrap:wrap; } .connections button { flex:1; min-width:140px; } .context-bar { padding:10px 16px; } .context-actions .context-status { display:none; } }
+    @media (max-width:700px) {
+      .preview-bar { padding:6px 12px; gap:6px; flex-wrap:wrap; min-height:72px; }
+      .preview-label { width:100%; justify-content:space-between; gap:6px; }
+      .preview-controls { width:100%; justify-content:space-between; }
+      #scenario { flex:1; max-width:none; min-height:34px; }
+      .preview-controls .icon-button { width:34px; height:34px; min-height:34px; flex-basis:34px; }
+      .app { height:calc(100dvh - 85px); min-height:450px; display:flex; }
+      .sidebar { display:none; width:100%; }
+      #splitter { display:none; }
+      .workspace { width:100%; }
+      .app.show-list .sidebar { display:flex; }
+      .app.show-list .workspace { display:none; }
+      #menu-button { display:inline-flex; }
+      .brand { padding-top:4px; }
+      .context-bar { padding:8px 12px; min-height:60px; gap:4px; }
+      .breadcrumb { font-size:12px; }
+      .breadcrumb .context-path { display:none; }
+      .context-actions { gap:0; }
+      .work-heading { padding:16px 18px 0; }
+      h1 { font-size:18px; }
+      .heading-meta { margin:8px 0 12px; gap:9px; }
+      .heading-meta .branch { display:none; }
+      #work-scroll { padding:0 18px; }
+      .body-content { padding-top:20px; }
+      .message { grid-template-columns:26px minmax(0,1fr); gap:10px; padding-bottom:22px; }
+      .avatar { width:26px; height:26px; }
+      .byline { gap:7px; }
+      .byline time { font-size:12px; }
+      .message p { font-size:15px; }
+      .composer { margin:0 12px 10px; }
+      .composer-toolbar { padding:2px 5px 5px; gap:2px; }
+      .composer-toolbar .permission { font-size:12px; gap:4px; }
+      .composer-toolbar select { max-width:104px; min-height:44px; }
+      .composer-caption .caption-meta { display:none; }
+      #prompt { min-height:54px; padding:10px 10px 0; }
+      button,.icon-button { min-height:44px; }
+      .icon-button { width:44px; height:44px; flex-basis:44px; }
+      .tabs { gap:26px; }
+      .tabs button { padding-top:6px; padding-bottom:11px; }
+      #settings-pane,#aux-pane { padding:20px 18px; }
+      .settings-heading { margin-bottom:18px; }
+      .settings-layout { gap:18px; }
+      .config-context { margin-bottom:18px; }
+      .connections button { padding:10px; }
+      .preview-controls .icon-button[data-tip]::after { display:none; }
+    }
+    @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; transition:none !important; animation:none !important; } }
+  </style>
+</head>
+<body>
+  <!-- Local Lucide 0.511.0 symbols, ISC; copied from the existing vendored sprite. -->
+  <svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" width="0" height="0" style="position:absolute;overflow:hidden">
++<symbol id="lucide-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2" /></symbol>
+<symbol id="lucide-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="m12 19-7-7 7-7" /><path d="M19 12H5" /></symbol>
+<symbol id="lucide-arrow-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="m5 12 7-7 7 7" /><path d="M12 19V5" /></symbol>
+<symbol id="lucide-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M10.268 21a2 2 0 0 0 3.464 0" /><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" /></symbol>
+<symbol id="lucide-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M20 6 9 17l-5-5" /></symbol>
+<symbol id="lucide-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="m6 9 6 6 6-6" /></symbol>
+<symbol id="lucide-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="m9 18 6-6-6-6" /></symbol>
+<symbol id="lucide-circle-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" /><path d="m9 12 2 2 4-4" /></symbol>
+<symbol id="lucide-circle-stop" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" /><rect x="9" y="9" width="6" height="6" rx="1" /></symbol>
+<symbol id="lucide-code" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="m16 18 6-6-6-6" /><path d="m8 6-6 6 6 6" /></symbol>
+<symbol id="lucide-file-text" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" /><path d="M14 2v4a2 2 0 0 0 2 2h4" /><path d="M10 9H8" /><path d="M16 13H8" /><path d="M16 17H8" /></symbol>
+<symbol id="lucide-folder" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" /></symbol>
+<symbol id="lucide-git-branch" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><line x1="6" x2="6" y1="3" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></symbol>
+<symbol id="lucide-history" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" /><path d="M3 3v5h5" /><path d="M12 7v5l4 2" /></symbol>
+<symbol id="lucide-list" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M3 12h.01" /><path d="M3 18h.01" /><path d="M3 6h.01" /><path d="M8 12h13" /><path d="M8 18h13" /><path d="M8 6h13" /></symbol>
+<symbol id="lucide-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect width="18" height="11" x="3" y="11" rx="2" ry="2" /><path d="M7 11V7a5 5 0 0 1 10 0v4" /></symbol>
+<symbol id="lucide-message-square" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></symbol>
+<symbol id="lucide-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" /></symbol>
+<symbol id="lucide-panel-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M9 3v18" /></symbol>
+<symbol id="lucide-panel-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M15 3v18" /></symbol>
+<symbol id="lucide-paperclip" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M13.234 20.252 21 12.3" /><path d="m16 6-8.414 8.586a2 2 0 0 0 0 2.828 2 2 0 0 0 2.828 0l8.414-8.586a4 4 0 0 0 0-5.656 4 4 0 0 0-5.656 0l-8.415 8.585a6 6 0 1 0 8.486 8.486" /></symbol>
+<symbol id="lucide-play" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><polygon points="6 3 20 12 6 21 6 3" /></symbol>
+<symbol id="lucide-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M5 12h14" /><path d="M12 5v14" /></symbol>
+<symbol id="lucide-refresh-cw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" /><path d="M8 16H3v5" /></symbol>
+<symbol id="lucide-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="m21 21-4.34-4.34" /><circle cx="11" cy="11" r="8" /></symbol>
+<symbol id="lucide-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></symbol>
+<symbol id="lucide-shield-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" /><path d="m9 12 2 2 4-4" /></symbol>
+<symbol id="lucide-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="4" /><path d="M12 2v2" /><path d="M12 20v2" /><path d="m4.93 4.93 1.41 1.41" /><path d="m17.66 17.66 1.41 1.41" /><path d="M2 12h2" /><path d="M20 12h2" /><path d="m6.34 17.66-1.41 1.41" /><path d="m19.07 4.93-1.41 1.41" /></symbol>
+<symbol id="lucide-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M12 19h8" /><path d="m4 17 6-6-6-6" /></symbol>
+<symbol id="lucide-timer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><line x1="10" x2="14" y1="2" y2="2" /><line x1="12" x2="15" y1="14" y2="11" /><circle cx="12" cy="14" r="8" /></symbol>
+<symbol id="lucide-triangle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" /><path d="M12 9v4" /><path d="M12 17h.01" /></symbol>
+<symbol id="lucide-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" xmlns="http://www.w3.org/2000/svg"><path d="M18 6 6 18" /><path d="m6 6 12 12" /></symbol>
+    <symbol id="icon-cli-claude" viewBox="0 0 24 24"><path d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z" /></symbol><symbol id="icon-cli-codex" viewBox="0 0 320 320"><path d="m297.06 130.97c7.26-21.79 4.76-45.66-6.85-65.48-17.46-30.4-52.56-46.04-86.84-38.68-15.25-17.18-37.16-26.95-60.13-26.81-35.04-.08-66.13 22.48-76.91 55.82-22.51 4.61-41.94 18.7-53.31 38.67-17.59 30.32-13.58 68.54 9.92 94.54-7.26 21.79-4.76 45.66 6.85 65.48 17.46 30.4 52.56 46.04 86.84 38.68 15.24 17.18 37.16 26.95 60.13 26.8 35.06.09 66.16-22.49 76.94-55.86 22.51-4.61 41.94-18.7 53.31-38.67 17.57-30.32 13.55-68.51-9.94-94.51zm-120.28 168.11c-14.03.02-27.62-4.89-38.39-13.88.49-.26 1.34-.73 1.89-1.07l63.72-36.8c3.26-1.85 5.26-5.32 5.24-9.07v-89.83l26.93 15.55c.29.14.48.42.52.74v74.39c-.04 33.08-26.83 59.9-59.91 59.97zm-128.84-55.03c-7.03-12.14-9.56-26.37-7.15-40.18.47.28 1.3.79 1.89 1.13l63.72 36.8c3.23 1.89 7.23 1.89 10.47 0l77.79-44.92v31.1c.02.32-.13.63-.38.83l-64.41 37.19c-28.69 16.52-65.33 6.7-81.92-21.95zm-16.77-139.09c7-12.16 18.05-21.46 31.21-26.29 0 .55-.03 1.52-.03 2.2v73.61c-.02 3.74 1.98 7.21 5.23 9.06l77.79 44.91-26.93 15.55c-.27.18-.61.21-.91.08l-64.42-37.22c-28.63-16.58-38.45-53.21-21.95-81.89zm221.26 51.49-77.79-44.92 26.93-15.54c.27-.18.61-.21.91-.08l64.42 37.19c28.68 16.57 38.51 53.26 21.94 81.94-7.01 12.14-18.05 21.44-31.2 26.28v-75.81c.03-3.74-1.96-7.2-5.2-9.06zm26.8-40.34c-.47-.29-1.3-.79-1.89-1.13l-63.72-36.8c-3.23-1.89-7.23-1.89-10.47 0l-77.79 44.92v-31.1c-.02.32-.13.63-.38.83l64.41-37.16c28.69-16.55 65.37-6.7 81.91 22 6.99 12.12 9.52 26.31 7.15 40.1zm-168.51 55.43-26.94-15.55c-.29-.14-.48-.42-.52-.74v-74.39c.02-33.12 26.89-59.96 60.01-59.94 14.01 0 27.57 4.92 38.34 13.88-.49.26-1.33.73-1.89 1.07l-63.72 36.8c3.26 1.85 5.26 5.31 5.24 9.06l-.04 89.79zm14.63-31.54 34.65-20.01 34.65 20v40.01l-34.65 20-34.65-20z" /></symbol>
+    <symbol id="lucide-circle-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></symbol>
+    <symbol id="lucide-wifi-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/></symbol>
+    <symbol id="lucide-sliders-horizontal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/><line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/><line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/></symbol>
+    <symbol id="lucide-inbox" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+    <symbol id="lucide-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></symbol>
+  </svg>
+  <div class="preview-bar">
+    <div class="preview-label"><strong>514cc / 阶段 A</strong><span>交互原型 · 示例数据 · 未连接执行服务</span></div>
+    <div class="row preview-controls"><select id="scenario" aria-label="原型场景"><option value="running">执行中</option><option value="review">待审阅</option><option value="settings">配置连接</option><option value="approval">等待审批</option><option value="failed">执行失败</option><option value="offline">连接中断</option><option value="unauthorized">未授权 · 401</option><option value="empty">新工作对话</option><option value="long">长内容</option></select><button id="theme-button" class="quiet icon-button" aria-label="切换深色主题" data-tip="切换深色主题"></button></div>
+  </div>
+  <div class="app" id="app">
+    <aside class="sidebar" aria-label="项目与工作对话">
+      <div class="brand"><span data-icon="inbox"></span>514cc<span>本地工作台</span></div>
+      <nav class="main-nav" aria-label="主导航"><button data-nav="work"><span data-icon="message-square"></span>工作</button><button data-nav="automations"><span data-icon="timer"></span>自动化</button><button data-nav="records"><span data-icon="history"></span>记录</button></nav>
+      <label class="search"><span data-icon="search"></span><input id="search" type="search" aria-label="搜索工作对话" placeholder="搜索工作对话" autocomplete="off"></label>
+      <div><div class="row between section-label"><span>项目</span><button id="new-conversation" class="quiet icon-button" aria-label="新建工作对话" data-tip="新建工作对话"><span data-icon="plus"></span></button></div><div class="project-label"><span data-icon="folder"></span>514cc</div><div id="conversation-list"></div></div>
+      <div class="sidebar-footer"><button class="quiet" data-nav="settings"><span data-icon="settings"></span>设置与连接</button><div class="user-line"><span class="user-monogram">LO</span><span class="small">个人工作空间</span><span class="muted small" style="margin-left:auto">本机</span></div></div>
+    </aside>
+    <div id="splitter" tabindex="0" role="separator" aria-label="项目栏宽度" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="340" aria-valuenow="256"></div>
+    <main class="workspace">
+      <header class="context-bar row between"><div class="row grow"><button id="menu-button" class="quiet icon-button" aria-label="返回项目列表" data-tip="项目列表"><span data-icon="panel-left"></span></button><div class="breadcrumb"><strong id="context-name">514cc</strong><span class="context-path"> / 项目工作台</span></div></div><div class="row context-actions"><span id="connection-status" class="status context-status"></span><button id="attention-button" class="quiet icon-button" aria-label="待处理事项" data-tip="待处理事项"><span data-icon="bell"></span></button><button id="detail-button" class="quiet icon-button" aria-label="工作详情" data-tip="工作详情" aria-expanded="false"><span data-icon="panel-right"></span></button></div></header>
+      <div class="pane-layout" id="work-layout">
+        <section class="work-pane" aria-label="当前工作对话">
+          <div class="work-heading">
+            <div class="row between"><h1 id="work-title" tabindex="-1"></h1><button id="stop-button" class="quiet icon-button danger" aria-label="停止示例执行" data-tip="停止示例执行"><span data-icon="circle-stop"></span></button></div>
+            <div class="heading-meta row wrap"><span id="work-status" class="status"></span><span class="row"><span data-icon="folder"></span>514cc</span><span class="row branch"><span data-icon="git-branch"></span>工作区 · 未发布</span></div>
+            <div class="tabs row" role="tablist" aria-label="工作视图"><button id="tab-conversation" role="tab" data-tab="conversation" aria-controls="work-scroll">对话</button><button id="tab-process" role="tab" data-tab="process" aria-controls="work-scroll">过程</button><button id="tab-results" role="tab" data-tab="results" aria-controls="work-scroll">成果</button></div>
+          </div>
+          <div id="work-scroll" role="tabpanel" tabindex="0"><div class="body-content" id="work-content"></div></div>
+          <form class="composer" id="composer"><div class="composer-box"><textarea id="prompt" aria-label="工作目标或补充要求" placeholder="补充要求，或提出下一步目标…" maxlength="6000" rows="2"></textarea><div id="attachments"></div><div class="composer-toolbar"><button id="attach-button" type="button" class="quiet icon-button" aria-label="添加附件" data-tip="添加附件"><span data-icon="paperclip"></span></button><select id="recipient" aria-label="接收对象"><option value="team">协作团队</option><option value="codex">Codex</option><option value="claude">Claude</option></select><span class="row permission"><span data-icon="lock"></span>仅工作区</span><button id="runtime-button" type="button" class="quiet icon-button" aria-label="运行设置" data-tip="运行设置"><span data-icon="sliders-horizontal"></span></button><button id="send-button" type="submit" class="primary icon-button" aria-label="发送示例输入" data-tip="发送示例输入"><span data-icon="arrow-up"></span></button></div></div><div class="composer-caption"><span id="draft-status">示例草稿</span><span class="caption-meta">2 位成员 · 不调用 CLI</span></div><input id="file-input" type="file" multiple hidden></form>
+        </section>
+        <aside id="inspector" class="inspector" aria-label="文件与证据详情" hidden><div class="inspector-head row between"><h2 id="detail-title">工作详情</h2><button id="close-detail" class="quiet icon-button" aria-label="关闭详情" data-tip="关闭详情"><span data-icon="x"></span></button></div><div id="detail-body"></div></aside>
+      </div>
+      <section id="settings-pane" aria-label="设置与连接" hidden></section>
+      <section id="aux-pane" aria-label="工作记录" hidden></section>
+    </main>
+  </div>
+  <dialog id="runtime-dialog" aria-labelledby="runtime-title"><h2 id="runtime-title">本次运行设置</h2><label class="field">模型<select id="model"><option>继承成员默认</option><option>性能优先</option><option>成本优先</option></select></label><label class="field">推理强度<select id="effort"><option>高</option><option>中</option><option>低</option></select></label><label class="field">本次预算（USD）<input id="budget" type="number" min="0.1" max="20" step="0.1" value="2"></label><p>权限：仅工作区。设置仅保存在此示例对话。</p><div class="dialog-actions"><button data-close="runtime-dialog">取消</button><button id="save-runtime" class="primary">应用到本次</button></div></dialog>
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title"><h2 id="confirm-title"></h2><p id="confirm-description"></p><div class="dialog-actions"><button id="confirm-cancel">返回</button><button id="confirm-accept" class="primary">确认</button></div></dialog>
+  <div id="toast" role="status" hidden></div>
+  <script>
+    // This prototype has no production imports, network access, credentials or execution bridge.
+    const $ = (id) => document.getElementById(id);
+    const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    const icon = (name) => `<svg class="icon" aria-hidden="true" focusable="false"><use href="#lucide-${name}"></use></svg>`;
+    const brandIcon = (name) => `<svg class="icon" fill="currentColor" aria-hidden="true"><use href="#icon-cli-${name}"></use></svg>`;
+    // Only local templates enter this boundary; user strings are escaped before parsing.
+    function renderMarkup(element, markup) {
+      const parsed = new DOMParser().parseFromString(markup, 'text/html');
+      const allowed = new Set(['article','section','div','p','h1','h2','h3','strong','span','time','ol','ul','li','details','summary','pre','code','button','svg','use','form','label','input','select','option','small','dl','dt','dd']);
+      if (parsed.head.childElementCount) throw new Error('Unexpected template head content');
+      for (const node of parsed.body.querySelectorAll('*')) {
+        if (!allowed.has(node.localName)) throw new Error(`Unexpected template element: ${node.localName}`);
+        for (const attribute of node.attributes) {
+          if (/^on/i.test(attribute.name) || ['src','srcdoc','action','formaction'].includes(attribute.name)) throw new Error('Active template attribute rejected');
+          if (['href','xlink:href'].includes(attribute.name) && (node.localName !== 'use' || !/^#(?:lucide-|icon-cli-)[a-z-]+$/.test(attribute.value))) throw new Error('External template reference rejected');
+        }
+      }
+      element.replaceChildren(...parsed.body.childNodes);
+    }
+    const storageKey = '514cc.experience-stage-a.v1';
+    let saved = {};
+    let storageAvailable = true;
+    try { saved = JSON.parse(sessionStorage.getItem(storageKey) || '{}'); if (!saved || typeof saved !== 'object') saved = {}; } catch { storageAvailable = false; }
+    const seed = [
+      { id:'running', title:'修复会话授权状态', status:'running', draft:'', messages:[], attachments:[] },
+      { id:'review', title:'统一项目与工作对话入口', status:'review', draft:'', messages:[], attachments:[] },
+      { id:'research', title:'梳理交付证据与验收边界', status:'review', kind:'document', draft:'', messages:[], attachments:[] },
+    ];
+    const conversations = seed.map((item) => ({...item, ...(saved.conversations?.find?.((row) => row.id === item.id) || {})}));
+    if (Array.isArray(saved.conversations)) conversations.push(...saved.conversations.filter((item) => /^draft-\d+$/.test(item.id)).slice(0,20));
+    const storedWorkRoute = typeof saved.lastWorkHash === 'string' && /^#work\/[^/]+\/(conversation|process|results)(\/(approval|failed|offline|unauthorized|long))?$/.test(saved.lastWorkHash) ? saved.lastWorkHash : '';
+    let lastWorkHash = conversations.some((item) => item.id === storedWorkRoute.split('/')[1]) ? storedWorkRoute : '#work/running/conversation';
+    let selected = lastWorkHash.split('/')[1];
+    let view = 'work';
+    let tab = lastWorkHash.split('/')[2];
+    let issue = '';
+    let detailReturn = null;
+    let toastTimer;
+    const offsets = new Map(Object.entries(saved.offsets || {}).filter(([key,value]) => key.length < 100 && Number.isFinite(value) && value >= 0).slice(0,70));
+    const config = saved.config && typeof saved.config === 'object' ? saved.config : {};
+    let connection = 'codex';
+    const current = () => conversations.find((row) => row.id === selected) || conversations[0];
+    const currentConfig = () => config[connection] ||= { name:connection === 'codex' ? 'Codex 本地连接' : 'Claude 本地连接', model:'继承 CLI 默认', enabled:true, saved:false, active:false, dirty:false };
+    function persist() {
+      try { sessionStorage.setItem(storageKey, JSON.stringify({ conversations, config, lastWorkHash, offsets:Object.fromEntries(offsets), theme:document.documentElement.dataset.theme, width:$('splitter').getAttribute('aria-valuenow') })); }
+      catch { storageAvailable = false; }
+      $('draft-status').textContent = storageAvailable ? (current().draft ? '示例草稿已保存' : '示例草稿') : '草稿仅保留在当前页面';
+    }
+    function notify(message) { clearTimeout(toastTimer); $('toast').textContent = message; $('toast').hidden = false; toastTimer = setTimeout(() => { $('toast').hidden = true; }, 2800); }
+    function hydrateIcons(root = document) { root.querySelectorAll('[data-icon]').forEach((el) => { el.outerHTML = icon(el.dataset.icon); }); }
+    function setTheme(theme) { document.documentElement.dataset.theme = theme; const label = theme === 'dark' ? '切换浅色主题' : '切换深色主题'; renderMarkup($('theme-button'),icon(theme === 'dark' ? 'sun' : 'moon')); $('theme-button').setAttribute('aria-label',label); $('theme-button').dataset.tip = label; }
+    function statusMarkup(status) {
+      const states = { running:['activity','执行中',''], review:['circle-check','待审阅','warn'], accepted:['check','审阅已确认 · 未发布',''], empty:['message-square','草稿 · 未执行','neutral'], paused:['circle-stop','已停止 · 示例','neutral'], failed:['triangle-alert','执行失败','bad'], approval:['lock','等待审批','warn'], offline:['wifi-off','连接中断','bad'], unauthorized:['lock','待授权 · 401','bad'] };
+      const [glyph,label,tone] = states[status] || states.empty;
+      return { html:icon(glyph)+escapeHtml(label), tone };
+    }
+    function renderSidebar() {
+      const restoreConversationFocus = document.activeElement?.closest('[data-conversation]');
+      const query = $('search').value.trim().toLowerCase();
+      const found = conversations.filter((item) => item.title.toLowerCase().includes(query));
+      renderMarkup($('conversation-list'),found.length ? found.map((item) => `<button class="conversation" data-conversation="${escapeHtml(item.id)}" aria-current="${view === 'work' && item.id === selected}" title="${escapeHtml(item.title)}">${icon(item.status === 'running' ? 'activity' : item.status === 'empty' ? 'message-square' : 'circle-check')}<span>${escapeHtml(item.title)}</span></button>`).join('') : '<p class="small muted" style="padding:10px">没有匹配的工作对话</p>');
+      document.querySelectorAll('[data-nav]').forEach((el) => { if (el.dataset.nav === view) el.setAttribute('aria-current','page'); else el.removeAttribute('aria-current'); });
+      if (restoreConversationFocus && view === 'work') {
+        const replacement = Array.from(document.querySelectorAll('[data-conversation]')).find((element) => element.dataset.conversation === selected);
+        if (replacement?.getClientRects().length) replacement.focus({preventScroll:true});
+        else $('work-title').focus({preventScroll:true});
+      }
+    }
+    function message(author,role,body,time='10:24') {
+      const brand = author === 'Codex' ? 'codex' : author === 'Claude' ? 'claude' : '';
+      const mark = brand ? brandIcon(brand) : 'LO';
+      return `<article class="message"><div class="avatar ${brand}" aria-label="${author}">${mark}</div><div><div class="byline"><strong>${author}</strong><span class="muted small">${role}</span><time>${time}</time></div>${body}</div></article>`;
+    }
+    function alertMarkup() {
+      const type = issue || current().status;
+      if (type === 'unauthorized') return `<div class="alert bad" role="alert"><h3>${icon('lock')} 当前会话未授权</h3><p>服务可达，但授权无效。执行操作已暂停，草稿保留。</p><button data-action="auth-settings">查看连接设置</button></div>`;
+      if (type === 'offline') return `<div class="alert bad" role="alert"><h3>${icon('wifi-off')} 连接已中断</h3><p>最后事件停留在 10:24:18。执行结果未知，不自动重复发送。</p><button data-action="reconnect">重新连接（示例）</button></div>`;
+      if (type === 'failed') return `<div class="alert bad"><h3>执行未完成</h3><p>Codex 连接超时。已保留原目标与本轮事件，没有生成可验收结果。</p><div class="row wrap"><button data-action="recovery">查看恢复条件</button><button class="quiet" data-action="failure-log">查看错误记录</button></div></div>`;
+      if (type === 'approval') return `<div class="alert"><h3>需要批准一次工作区写入</h3><p>Codex 请求修改 <code>public/api.js</code>。范围：当前项目；不含提交、发布或全局配置。</p><div class="row wrap"><button data-action="approve" class="primary">审阅并批准</button><button data-action="reject">拒绝本次</button></div></div>`;
+      return '';
+    }
+    function conversationMarkup() {
+      const item = current();
+      if (item.status === 'empty') return `<div class="empty">${icon('message-square')}<h2>新工作对话</h2><p>514cc / 仅工作区 / 尚未执行</p></div>` + item.messages.map((text) => message('LO','示例输入',`<p>${escapeHtml(text)}</p>`,'本次')).join('');
+      const review = ['review','accepted'].includes(item.status);
+      let html = message('LO','目标',`<p>${review ? '请统一项目和工作对话入口，保留旧深链与历史记录。提供变更、验证证据和未完成项，我来审阅。' : '修复未授权时仍显示“API 已连接”的问题。保留草稿，不改变现有授权策略，并补充错误状态的验证。'}</p>`,'10:22');
+      html += message('Claude','协调',`<p>${review ? '当前变更已整理，正在等待审阅。代码与证据在同一工作对话中，正式实例尚未切换。' : '已将工作拆成三步。Codex 检查授权状态与加载结果，我核对跨入口行为和验收边界。'}</p><ol class="task-steps"><li>${icon('check')}核对请求链与状态所有权</li><li>${icon(review ? 'check' : 'activity')}${review ? '整理变更与聚焦验证' : '修正授权状态与错误回执'}</li><li class="${review ? '' : 'pending'}">${icon(review ? 'check' : 'clock')}核对草稿保留与恢复行为</li></ol>`,'10:23');
+      html += message('Codex','实现与核验',`<p>${review ? '变更已生成。聚焦用例通过，但真实 CLI 续接尚未验证，因此成果仍为“待审阅”，不是“已发布”。' : '已定位：加载器捕获错误后返回空结果，汇总逻辑仍把它视为成功。授权失败需要独立状态，不能归入普通加载完成。'}</p><div class="tool-block"><div class="tool-header row between"><span class="row">${icon('terminal')}聚焦检查</span><span class="muted">示例事件 · 10:24:18</span></div><pre>node --test tests/session-status.test.mjs\n<strong>PASS</strong>  未授权不显示已连接\n<strong>PASS</strong>  断线后保留输入草稿\n${review ? '<strong>PASS</strong>  旧深链保持同一对话身份' : '待检查：重新授权后的恢复路径'}</pre></div>`);
+      if (issue === 'long') html += message('Claude','边界核对',`<p>${escapeHtml('验证目标包含目录级所有权、跨入口会话恢复、历史运行只读预览与长文件名的正确换行。'.repeat(12))}</p>`,'10:25');
+      html += item.messages.map((text) => message('LO','示例输入',`<p>${escapeHtml(text)}</p>`,'本次')).join('');
+      html += `<div class="activity-strip row between wrap"><span class="status neutral">${icon('clock')}最近事件 10:24:18 · 示例快照</span><button data-action="show-process" class="quiet blue">查看完整过程 ${icon('chevron-right')}</button></div>`;
+      return html;
+    }
+    function processMarkup() {
+      const item = current();
+      if (item.status === 'empty') return `<div class="empty">${icon('clock')}<h2>尚未开始执行</h2><p>当前仅有工作对话草稿，没有 Run 或工具事件。</p></div>`;
+      const ready = ['review','accepted'].includes(item.status);
+      const documentTask = item.kind === 'document';
+      const title = documentTask ? '文档结构已整理' : ready ? '入口与历史恢复检查' : '核对授权状态';
+      const output = documentTask ? '示例文档：交付证据与验收边界.md\n已列出代码、文档、调研三类标准\n外部来源：待核验' : ready ? 'node --test tests/conversation-navigation.test.mjs\n示例结果：12 passed / 0 failed' : 'node --test tests/session-status.test.mjs\n示例结果：2 passed / 1 pending';
+      const next = item.status === 'accepted' ? '审阅已确认，尚未发布' : item.status === 'paused' ? '执行已停止，消息与草稿保留' : ready ? '成果等待审阅' : '验收与恢复路径';
+      return `<div class="row between" style="margin-bottom:24px"><h2>本次执行</h2><span class="muted small">示例事件快照</span></div><ol class="timeline"><li><time>10:22</time><span class="event-icon">${icon('check')}</span><div><h3>目标已接收</h3><p>${escapeHtml(item.title)}</p></div></li><li><time>10:23</time><span class="event-icon">${icon('check')}</span><div><h3>成员分工已确认</h3><p>Claude：协调与边界核对；Codex：实现与聚焦验证。</p></div></li><li><time>10:24</time><span class="event-icon">${icon('terminal')}</span><div><h3>${title}</h3><p>${documentTask ? '按成果类型整理验收条件，不以 Git diff 替代文档标准。' : ready ? '核对项目身份、旧深链与草稿恢复。' : '读取加载回执，检查未授权、断线和恢复路径。'}</p><details><summary>工具调用与原始输出</summary><div class="tool-block"><pre>${escapeHtml(output)}\n真实 CLI：未调用</pre></div></details></div></li><li><time>当前状态</time><span class="event-icon">${icon('clock')}</span><div><h3>${next}</h3><p>只有证据可打开并完成核对后，才确认审阅结论。</p><button data-action="show-results" class="quiet blue">查看成果 ${icon('chevron-right')}</button></div></li></ol>`;
+    }
+    function fileDiffMarkup(file) {
+      const samples = {
+        'public/modules/conversation-tabs.js':['restoreRunTab(target.runId);','selectConversation(target.conversationId);\nrestoreReadingAnchor(target);'],
+        'public/workbench-chrome.js':['navigateToRun(runId);','navigateToConversation(conversationId);\nretainProjectSelection(projectId);'],
+        'tests/conversation-navigation.test.mjs':['// legacy run-only routing','assert.equal(restored.conversationId, expectedId);\nassert.equal(restored.draft, originalDraft);'],
+      };
+      const sample = samples[file];
+      if (!sample) return '<p>此文件没有示例变更。</p>';
+      return `<h3>${escapeHtml(file)}</h3><p>代表性 diff · 不对应本仓真实变更</p><div class="diff"><div class="row">${escapeHtml(file.split('/').pop())}</div><pre><span class="remove">− ${escapeHtml(sample[0])}</span>${sample[1].split('\n').map((line)=>`<span class="add">+ ${escapeHtml(line)}</span>`).join('')}</pre></div>`;
+    }
+    function resultsMarkup() {
+      const item = current();
+      if (!['review','accepted'].includes(item.status)) return `<div class="empty">${icon('file-text')}<h2>尚无可审阅成果</h2><p>${item.status === 'empty' ? '此工作对话尚未开始执行。' : '本轮仍未完成验证，过程输出暂不计为可交付成果。'}</p><button data-action="show-process">查看过程</button></div>`;
+      if (item.kind === 'document') return `<div class="result-summary"><div class="row between"><h2>交付证据与验收边界</h2><span class="status warn">${icon('file-text')}文档成果 · 待审阅</span></div><p>按代码、文档和调研分别整理完成标准，不以有无 Git diff 判断所有任务。</p></div><button class="file-row" data-action="document">${icon('file-text')}<span>交付证据与验收边界.md</span>${icon('chevron-right')}</button><ul class="evidence-list"><li>${icon('check')}3 类成果标准已列出</li><li>${icon('circle-help')}外部来源与真实渲染：待核验</li></ul><button data-action="revise">继续补充资料</button>`;
+      return `<div class="result-summary"><div class="row between wrap"><h2>项目与工作对话入口已整理</h2><span class="status ${item.status === 'accepted' ? '' : 'warn'}">${icon('circle-check')}${item.status === 'accepted' ? '审阅已确认 · 未发布' : '待审阅 · 示例'}</span></div><p>项目、工作对话和历史执行沿用原有身份。此次仅调整进入路径与展示层，不迁移或删除历史。</p><div class="row wrap small muted"><span>3 个变更文件</span><span class="accent">+86</span><span class="danger">−24</span><span>12 个聚焦用例</span></div></div><div class="result-grid"><section><h3>变更文件</h3><div class="file-list">${['public/modules/conversation-tabs.js','public/workbench-chrome.js','tests/conversation-navigation.test.mjs'].map((file,i) => `<button class="file-row" data-action="diff" data-file="${file}">${icon('file-text')}<span>${file}</span><code class="accent">+${[34,28,24][i]}</code>${icon('chevron-right')}</button>`).join('')}</div><div class="diff"><div class="row between"><span>conversation-tabs.js</span><span class="muted">示例变更预览</span></div><pre><span>  function openConversation(target) {</span><span class="remove">−   restoreRunTab(target.runId);</span><span class="add">+   selectConversation(target.conversationId);</span><span class="add">+   restoreReadingAnchor(target);</span><span>  }</span></pre></div></section><section><h3>验收与证据</h3><ul class="evidence-list"><li>${icon('check')}项目与工作对话入口一致</li><li>${icon('check')}旧深链与历史记录保留</li><li>${icon('check')}<button class="evidence-link" data-action="tests">聚焦测试 12 / 12 ${icon('chevron-right')}</button></li><li>${icon('check')}<button class="evidence-link" data-action="review-evidence">独立评审记录 ${icon('chevron-right')}</button></li><li>${icon('circle-help')}真实 CLI 续接尚未验证</li></ul></section></div><div class="review-footer"><h3>仍需留意</h3><p>未执行全量回归，未切换正式桌面。以上测试、评审和 diff 均为原型代表性数据，不是本仓当轮验证结果。</p><div class="row wrap"><button data-action="accept-review" class="primary" ${item.status === 'accepted' ? 'disabled' : ''}>${icon('check')}确认审阅</button><button data-action="revise">继续修正</button><button data-action="tests" class="quiet blue">打开验证记录</button></div></div>`;
+    }
+    function renderWork() {
+      const item = current();
+      $('work-title').textContent = issue === 'long' ? '核对跨项目工作对话恢复与超长文件名边界 / conversation-ownership-and-evidence-recovery' : item.title;
+      const displayState = ['offline','unauthorized','failed','approval'].includes(issue) ? issue : item.status;
+      const status = statusMarkup(displayState);
+      $('work-status').className = `status ${status.tone}`;
+      renderMarkup($('work-status'),status.html);
+      $('stop-button').hidden = item.status !== 'running';
+      $('stop-button').disabled = ['offline','unauthorized','failed'].includes(issue);
+      document.querySelectorAll('[data-tab]').forEach((el) => { const active = el.dataset.tab === tab; el.setAttribute('aria-selected',active); el.tabIndex = active ? 0 : -1; });
+      $('work-scroll').setAttribute('aria-labelledby',`tab-${tab}`);
+      renderMarkup($('work-content'),alertMarkup() + (tab === 'process' ? processMarkup() : tab === 'results' ? resultsMarkup() : conversationMarkup()));
+      $('prompt').value = item.draft || '';
+      $('recipient').value = item.recipient || 'team';
+      renderMarkup($('attachments'),(item.attachments || []).map((name,i) => `<span class="attachment">${icon('file-text')}${escapeHtml(name)}<button type="button" class="quiet" data-remove-attachment="${i}" aria-label="移除附件 ${escapeHtml(name)}">${icon('x')}</button></span>`).join(''));
+      updateSubmit();
+      $('work-scroll').scrollTop = offsets.get(`${selected}/${tab}`) || 0;
+    }
+    function updateSubmit() {
+      $('send-button').disabled = !current().draft?.trim() || ['offline','unauthorized','approval'].includes(issue);
+    }
+    function navigate(hash) { if (location.hash === hash) renderRoute(); else location.hash = hash; }
+    function closeDetail(restore=true) {
+      $('inspector').hidden = true; $('app').classList.remove('has-detail'); $('detail-button').setAttribute('aria-expanded','false');
+      if (restore) { if (detailReturn?.isConnected) detailReturn.focus(); else $('detail-button').focus(); }
+    }
+    function openDetail(title,body) { detailReturn = document.activeElement; $('detail-title').textContent = title; renderMarkup($('detail-body'),body); $('inspector').hidden = false; $('app').classList.add('has-detail'); $('detail-button').setAttribute('aria-expanded','true'); $('close-detail').focus(); }
+    function renderSettings() {
+      const entry = currentConfig();
+      renderMarkup($('settings-pane'),`<div class="settings-heading"><h1>模型与连接</h1><p class="muted">本机 / 项目级配置 / 示例环境</p></div><div class="settings-layout"><div class="connections" aria-label="连接对象">${['codex','claude'].map((id) => `<button data-connection="${id}" aria-pressed="${id === connection}"><span class="avatar ${id}">${brandIcon(id)}</span><span>${id === 'codex' ? 'Codex' : 'Claude'}<small>本地 CLI 连接</small></span></button>`).join('')}</div><form id="config-form"><div class="config-context row between wrap"><h2>${connection === 'codex' ? 'Codex' : 'Claude'} 本地连接</h2><span class="status neutral">${icon('lock')}示例 · 无凭据</span></div><label class="field">连接名称<input id="config-name" value="${escapeHtml(entry.name)}" required maxlength="80"></label><label class="field">默认模型<select id="config-model">${['继承 CLI 默认','性能优先','成本优先'].map((value) => `<option ${entry.model === value ? 'selected' : ''}>${value}</option>`).join('')}</select></label><label class="field">配置目标<input value="本机 / 514cc / 仅此项目" readonly></label><label class="row small"><input type="checkbox" id="config-enabled" ${entry.enabled ? 'checked' : ''}>用于新的项目执行</label><div id="config-status" class="save-state" role="status"></div><div class="config-actions"><button type="submit" class="primary">保存示例配置</button><button type="button" id="activate-config">应用到示例环境</button></div></form></div>`);
+      configStatus();
+    }
+    function configStatus() { const entry = currentConfig(); $('config-status').textContent = entry.dirty ? '有未保存更改' : entry.active ? '示例配置已生效 · 正式配置未修改' : entry.saved ? '已保存 · 尚未生效' : '未保存 · 未连接真实 CLI'; $('activate-config').disabled = !entry.saved || entry.dirty || entry.active; }
+    function renderAux() {
+      renderMarkup($('aux-pane'),view === 'records' ? `<h1>工作记录</h1><div class="record-row"><div class="row between wrap"><h2>统一项目与工作对话入口</h2><span class="status warn">待审阅 · 示例</span></div><p>514cc / 3 个文件 / 聚焦验证</p><button data-conversation="review" class="quiet blue">打开工作对话 ${icon('chevron-right')}</button></div><div class="record-row"><h2>梳理交付证据与验收边界</h2><p>514cc / 文档成果 / 外部来源待核验</p><button data-conversation="research" class="quiet blue">查看文档成果 ${icon('chevron-right')}</button></div>` : `<h1>自动化</h1><div class="record-row"><div class="row between wrap"><h2>每周项目回顾</h2><span class="status neutral">${icon('clock')}未启用 · 示例</span></div><p>每周一 09:00 / 514cc / 只读核对</p><button data-action="automation-details" class="quiet blue">查看执行范围 ${icon('chevron-right')}</button></div>`);
+    }
+    function renderRoute() {
+      if (view === 'work' && $('work-content').innerHTML) offsets.set(`${selected}/${tab}`,$('work-scroll').scrollTop);
+      const [route,id,section,state] = location.hash.slice(1).split('/');
+      view = ['settings','records','automations'].includes(route) ? route : 'work';
+      if (view === 'work') {
+        selected = conversations.some((row) => row.id === id) ? id : conversations[0].id;
+        tab = ['conversation','process','results'].includes(section) ? section : 'conversation';
+        issue = ['approval','failed','offline','unauthorized','long'].includes(state) ? state : '';
+        lastWorkHash = `#work/${selected}/${tab}${issue ? '/'+issue : ''}`;
+      }
+      closeDetail(false);
+      $('app').classList.remove('show-list');
+      $('work-layout').hidden = view !== 'work'; $('settings-pane').hidden = view !== 'settings'; $('aux-pane').hidden = !['records','automations'].includes(view);
+      $('context-name').textContent = view === 'settings' ? '设置' : view === 'records' ? '记录' : view === 'automations' ? '自动化' : '514cc';
+      $('detail-button').hidden = view !== 'work'; $('attention-button').hidden = view !== 'work';
+      const status = statusMarkup(view === 'work' && ['offline','unauthorized'].includes(issue) ? issue : 'empty');
+      $('connection-status').className = `status context-status ${status.tone}`;
+      renderMarkup($('connection-status'),view === 'work' && ['offline','unauthorized'].includes(issue) ? status.html : icon('lock')+'示例环境');
+      $('scenario').value = view === 'settings' ? 'settings' : issue || (selected.startsWith('draft-') ? 'empty' : current().status === 'review' || current().status === 'accepted' ? 'review' : 'running');
+      renderSidebar();
+      if (view === 'work') renderWork(); else if (view === 'settings') renderSettings(); else renderAux();
+      persist();
+    }
+    function ask(title,description,acceptLabel,action) {
+      const returnTo = document.activeElement;
+      $('confirm-title').textContent = title; $('confirm-description').textContent = description; $('confirm-accept').textContent = acceptLabel;
+      $('confirm-accept').onclick = () => { $('confirm-dialog').close(); action(); if (returnTo?.isConnected && !returnTo.disabled) returnTo.focus(); };
+      $('confirm-dialog').showModal(); $('confirm-cancel').focus();
+    }
+    function newConversation() { if (conversations.length >= 23) { notify('示例工作对话已达上限'); return; } const item = {id:`draft-${Date.now()}`,title:'新工作对话',status:'empty',draft:'',messages:[],attachments:[]}; conversations.push(item); persist(); navigate(`#work/${item.id}/conversation`); }
+    $('scenario').addEventListener('change', (event) => {
+      const scene = event.target.value;
+      if (scene === 'settings') navigate('#settings');
+      else if (scene === 'empty') newConversation();
+      else if (scene === 'review') { conversations[1].status = 'review'; navigate('#work/review/results'); }
+      else { conversations[0].status = 'running'; navigate(`#work/running/conversation${scene !== 'running' ? '/'+scene : ''}`); }
+    });
+    $('theme-button').onclick = () => { setTheme(document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'); persist(); };
+    $('search').oninput = renderSidebar;
+    $('new-conversation').onclick = newConversation;
+    $('menu-button').onclick = () => { $('app').classList.add('show-list'); $('search').focus(); };
+    $('prompt').oninput = () => { current().draft = $('prompt').value; persist(); updateSubmit(); };
+    $('recipient').onchange = () => { current().recipient = $('recipient').value; persist(); };
+    $('attach-button').onclick = () => $('file-input').click();
+    $('file-input').onchange = () => { current().attachments = [...(current().attachments || []), ...Array.from($('file-input').files).map((file) => file.name)].slice(0,5); $('file-input').value = ''; persist(); renderWork(); notify('示例附件已列入 · 未上传文件内容'); };
+    $('composer').onsubmit = (event) => { event.preventDefault(); if ($('send-button').disabled) return; const item = current(); item.messages.push(item.draft.trim()); if (item.status === 'empty' && item.title === '新工作对话') item.title = item.draft.trim().slice(0,42); item.draft=''; item.attachments=[]; persist(); renderWork(); renderSidebar(); $('work-scroll').scrollTop=$('work-scroll').scrollHeight; $('prompt').focus(); notify('示例输入已接收 · 未启动真实执行'); };
+    $('runtime-button').onclick = () => { const preferences=current().runtime || {}; $('model').value=preferences.model || '继承成员默认'; $('effort').value=preferences.effort || '高'; $('budget').value=preferences.budget || 2; $('runtime-dialog').showModal(); };
+    $('save-runtime').onclick = () => { if (!$('budget').reportValidity()) return; current().runtime={model:$('model').value,effort:$('effort').value,budget:$('budget').value}; persist(); $('runtime-dialog').close(); $('runtime-button').focus(); notify('示例运行设置已保存'); };
+    $('confirm-cancel').onclick = () => $('confirm-dialog').close();
+    $('stop-button').onclick = () => ask('停止当前示例执行？','已生成的示例消息和输入草稿会保留。此操作不终止任何真实进程。','停止示例执行',()=>{current().status='paused';issue='';persist();navigate(`#work/${selected}/${tab}`);});
+    $('detail-button').onclick = () => { if (!$('inspector').hidden) closeDetail(); else openDetail('工作详情',`<h3>当前目标</h3><p>${escapeHtml(current().title)}</p><dl class="definition"><dt>项目</dt><dd>514cc</dd><dt>工作对话</dt><dd>${escapeHtml(current().id)}</dd><dt>执行</dt><dd>示例快照，不对应真实 Run</dd><dt>权限</dt><dd>仅工作区</dd><dt>成果状态</dt><dd>未发布</dd></dl>`); };
+    $('close-detail').onclick = () => closeDetail();
+    $('attention-button').onclick = () => { const pending = ['approval','failed','offline','unauthorized'].includes(issue); openDetail('待处理事项',pending ? alertMarkup() : `<h3>${current().status === 'review' ? '1 项成果待审阅' : '暂无阻塞事项'}</h3><p>当前工作对话：${escapeHtml(current().title)}</p><button data-action="show-results">查看成果</button>`); };
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !document.querySelector('dialog[open]')) { if (!$('inspector').hidden) closeDetail(); else if ($('app').classList.contains('show-list')) { $('app').classList.remove('show-list'); $('menu-button').focus(); } }
+      const focused = event.target.closest('[data-tab]');
+      if (focused && ['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) { event.preventDefault(); const tabs=Array.from(document.querySelectorAll('[data-tab]')); const index=tabs.indexOf(focused); const next=event.key==='Home'?0:event.key==='End'?tabs.length-1:(index+(event.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length; const destination=tabs[next]; navigate(`#work/${selected}/${destination.dataset.tab}${issue?'/'+issue:''}`); destination.focus(); }
+    });
+    document.addEventListener('click', (event) => {
+      const target=event.target.closest('button'); if (!target) return;
+      if (target.dataset.nav) navigate(target.dataset.nav==='work'?lastWorkHash:`#${target.dataset.nav}`);
+      if (target.dataset.conversation) navigate(`#work/${target.dataset.conversation}/conversation`);
+      if (target.dataset.tab) navigate(`#work/${selected}/${target.dataset.tab}${issue?'/'+issue:''}`);
+      if (target.dataset.close) $(target.dataset.close).close();
+      if (target.dataset.removeAttachment !== undefined) { current().attachments.splice(Number(target.dataset.removeAttachment),1); persist(); renderWork(); $('attach-button').focus(); }
+      if (target.dataset.connection) { const next=target.dataset.connection; if (next===connection) return; const change=()=>{connection=next;renderSettings();document.querySelector(`[data-connection="${next}"]`).focus();}; if(currentConfig().dirty) ask('保留未保存更改？','当前连接的草稿会留在此原型中。切换连接不会写入正式配置。','保留并切换',change); else change(); }
+      const action=target.dataset.action;
+      if (action==='show-process'||action==='show-results') navigate(`#work/${selected}/${action==='show-process'?'process':'results'}${issue?'/'+issue:''}`);
+      if (action==='auth-settings') navigate('#settings');
+      if (action==='reconnect') { issue=''; navigate(`#work/${selected}/${tab}`); notify('示例连接已恢复 · 未发起真实请求'); }
+      if (action==='approve') ask('批准本次示例写入？','仅允许修改 514cc 项目的 public/api.js。此原型不调用审批 API，也不写文件。','批准本次（示例）',()=>{issue='';navigate(`#work/${selected}/conversation`);notify('示例审批已记录 · 未授权真实动作');});
+      if (action==='reject') { current().status='paused';issue='';navigate(`#work/${selected}/conversation`);notify('已拒绝本次示例动作'); }
+      if (action==='recovery') openDetail('恢复条件',`<h3>上一次执行失败</h3><p>需核对当前目录、有效授权、运行身份与费用上限。不自动重放原请求。</p><dl class="definition"><dt>错误</dt><dd>PROVIDER_TIMEOUT</dd><dt>草稿</dt><dd>已保留</dd><dt>恢复</dt><dd>尚未执行</dd></dl><button data-action="prepare-retry" style="margin-top:24px">准备重试草稿</button>`);
+      if (action==='prepare-retry') { closeDetail(false); current().draft='请先核对上次失败后的状态与恢复条件，不重复执行已完成的操作。'; persist();renderWork();$('prompt').focus(); }
+      if (action==='failure-log') openDetail('错误记录','<h3>PROVIDER_TIMEOUT</h3><div class="tool-block"><pre>10:24:18  示例连接超时\n原请求未自动重放\n实际 provider：未调用</pre></div>');
+      if (action==='diff') openDetail('变更预览',fileDiffMarkup(target.dataset.file));
+      if (action==='tests') openDetail('聚焦验证记录','<h3>12 / 12 通过 · 示例</h3><p>代表性测试回执，不是当前工作区验证结果。</p><div class="tool-block"><pre>PASS  project identity\nPASS  conversation routing\nPASS  draft retention\nPASS  history entry\n\n全量回归：未执行\n真实 CLI：未验证\n正式发布：未执行</pre></div>');
+      if (action==='review-evidence') openDetail('独立评审记录','<h3>1 项边界补强 · 示例</h3><p>原判断把“生成文件”视为完成。独立核对补充了真实 CLI 续接尚未验证的限制。</p><dl class="definition"><dt>结论</dt><dd>聚焦验证可保留</dd><dt>残余风险</dt><dd>跨入口恢复仍需真实运行证据</dd><dt>发布</dt><dd>未批准</dd></dl>');
+      if (action==='document') openDetail('文档预览','<h3>交付证据与验收边界</h3><p>代码：变更、测试与运行结果。</p><p>文档：可编辑产物、渲染与页面核对。</p><p>调研：来源、结论与适用边界。</p><p class="muted">示例摘要 / 外部来源待核验</p>');
+      if (action==='accept-review') ask('确认审阅结论？','仍有真实 CLI 续接与全量回归待验证。确认仅记录示例审阅，不提交、不合并、不发布。','确认审阅（示例）',()=>{current().status='accepted';persist();renderWork();$('tab-results').focus();});
+      if (action==='revise') { current().draft='请继续补齐真实 CLI 续接与全量回归的验证证据，并保留当前变更。';persist();navigate(`#work/${selected}/conversation`);setTimeout(()=>$('prompt').focus(),0); }
+      if (action==='automation-details') ask('每周项目回顾','范围：读取当前项目的工作记录与成果。没有启用调度器，也没有创建任何自动化。','关闭',()=>{});
+    });
+    $('settings-pane').addEventListener('input',(event)=>{ if(!event.target.closest('#config-form'))return;$('config-name').setCustomValidity('');const entry=currentConfig();entry.name=$('config-name').value;entry.model=$('config-model').value;entry.enabled=$('config-enabled').checked;entry.dirty=true;entry.active=false;persist();configStatus(); });
+    $('settings-pane').addEventListener('submit',(event)=>{event.preventDefault();const entry=currentConfig();if(!entry.name.trim()){$('config-name').setCustomValidity('连接名称不能为空');$('config-name').reportValidity();return;}$('config-name').setCustomValidity('');entry.saved=true;entry.dirty=false;entry.active=false;persist();configStatus();});
+    $('settings-pane').addEventListener('click',(event)=>{if(!event.target.closest('#activate-config'))return;const entry=currentConfig();if(!entry.saved||entry.dirty)return;entry.active=true;persist();configStatus();});
+    function resizeSidebar(value) { const width=Math.max(220,Math.min(340,Math.round(value)));document.documentElement.style.setProperty('--sidebar-width',`${width}px`);$('splitter').setAttribute('aria-valuenow',width); }
+    $('splitter').addEventListener('pointerdown',(event)=>{if(event.button!==0)return;event.preventDefault();$('splitter').setPointerCapture(event.pointerId);});
+    $('splitter').addEventListener('pointermove',(event)=>{if($('splitter').hasPointerCapture(event.pointerId))resizeSidebar(event.clientX);});
+    $('splitter').addEventListener('pointerup',(event)=>{if($('splitter').hasPointerCapture(event.pointerId))$('splitter').releasePointerCapture(event.pointerId);persist();});
+    $('splitter').addEventListener('keydown',(event)=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const width=Number($('splitter').getAttribute('aria-valuenow'));resizeSidebar(event.key==='Home'?220:event.key==='End'?340:width+(event.key==='ArrowRight'?10:-10));persist();});
+    window.addEventListener('hashchange',renderRoute);
+    window.addEventListener('pagehide',()=>{if(view==='work')offsets.set(`${selected}/${tab}`,$('work-scroll').scrollTop);persist();});
+    hydrateIcons();setTheme(saved.theme==='dark'?'dark':'light');resizeSidebar(Number(saved.width)||256);renderRoute();
+  </script>
+</body>
+</html>

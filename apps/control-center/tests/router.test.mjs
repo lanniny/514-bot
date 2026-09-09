@@ -66,33 +66,31 @@ test("high-risk routing fails closed when no independent provider is healthy", a
 });
 
 test("current-source requirement overrides generic task classification", async () => {
-  // v3.5-P2（烛 R-P2 致命2 修正）：改 mock 为 grok 可用——本测试验证的是 taskType 覆盖逻辑本身
   const router = new ModelRouter({
     profiles: models.profiles,
     policy,
-    healthService: health({ "grok-search": { status: "online", available: true, reason: "probe ok" } }),
+    healthService: health({ "codex-technical": { status: "online", available: true, reason: "probe ok" } }),
   });
   const route = await router.preview({ taskType: "planning", prompt: "模型方案", needsCurrentSource: true });
   assert.equal(route.taskType, "current-research");
-  assert.equal(route.selected.id, "grok-search");
-  assert.deepEqual(route.specialRoute?.allowedProviders, ["grok-search"]);
+  assert.equal(route.selected.id, "codex-technical");
+  assert.deepEqual(route.specialRoute?.allowedProviders, ["codex-technical"]);
+  assert.equal(route.candidates.some(candidate => candidate.id === "grok-search"), false);
   assert.match(route.specialRoute?.reason || "", /实时来源/);
 });
 
 test("fails closed when no search-capable provider is available", async () => {
-  // v3.5-P2（烛 R-P2 致命2）：gemini 已禁用、claude-cli adapter 无 MCP 不能搜索——
-  // current-research 在 grok-search 不可用时必须显式 NO_ROUTE（fail-closed），
-  // 而非把任务悄悄给一个不具备搜索能力的 provider（守"严禁 silent fallback"红线）
+  // The configured research harness must be healthy; MCP is not a fallback seat.
   const router = new ModelRouter({
     profiles: models.profiles,
     policy,
-    healthService: health({ "grok-search": { status: "external-unverified", available: false, reason: "grok_timeout" } }),
+    healthService: health({ "codex-technical": { status: "offline", available: false, reason: "harness_unavailable" } }),
   });
   await assert.rejects(
     () => router.preview({ taskType: "current-research", prompt: "查当前资料" }),
     (error) => error.code === "NO_ROUTE"
       && error.message.startsWith("no healthy provider can satisfy current-research")
-      && error.message.includes("grok-search: grok_timeout"),
+      && error.message.includes("codex-technical: harness_unavailable"),
   );
 });
 
@@ -120,9 +118,9 @@ test("explicit unavailable provider fails instead of silently falling back", asy
   const router = new ModelRouter({
     profiles: models.profiles,
     policy,
-    healthService: health({ "grok-search": { status: "offline", available: false, reason: "grok_timeout" } }),
+    healthService: health({ "codex-technical": { status: "offline", available: false, reason: "harness_unavailable" } }),
   });
-  await assert.rejects(() => router.preview({ taskType: "web-search", requestedProvider: "grok-search" }), { code: "PROVIDER_UNAVAILABLE" });
+  await assert.rejects(() => router.preview({ taskType: "web-search", requestedProvider: "codex-technical" }), { code: "PROVIDER_UNAVAILABLE" });
 });
 
 test("team member allowlist constrains selection and empty allowlist fails closed", async () => {

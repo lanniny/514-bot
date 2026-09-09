@@ -1,5 +1,5 @@
 // modules/settings-rail-chrome.js — Wave B slice 20
-// 设置轨导航：表面激活态/工作台快捷/自动化面板显隐/过滤/铬层显隐/入口跳转。
+// 设置轨导航：表面激活态/工作台快捷/过滤/铬层显隐/入口跳转。
 // 工厂 + DI：state/setView/byId 从 app.js 注入。
 
 export function createSettingsRailChrome({
@@ -8,7 +8,7 @@ export function createSettingsRailChrome({
   byId,
 }) {
   function isSettingsChrome(view = state.view) {
-    return view !== "workbench" && view !== "automations" && view !== "bot";
+    return ["config", "appearance", "browser", "security"].includes(view);
   }
 
   function syncSettingsRailActive(view = state.view, surface = state.configSurface) {
@@ -16,12 +16,12 @@ export function createSettingsRailChrome({
     if (!rail) return;
     const workspace = state.capabilityWorkspace;
     const focus = state.settingsFocus;
-    // is-active 允许多入口同亮（连接/运行席位都指向 sources 面）；aria-current="page" 必须唯一
+    // Each destination has one owner in the settings navigation.
     let currentPageMarked = false;
     rail.querySelectorAll(".settings-rail-item").forEach((button) => {
       if (button.classList.contains("settings-rail-back")) return;
       let on = false;
-      const jump = button.dataset.configSurfaceJump;
+      const jump = button.dataset.configSurface ?? button.dataset.configSurfaceJump;
       if (jump) {
         on = view === "config" && surface === jump;
         if (on && button.dataset.capWorkspace) on = workspace === button.dataset.capWorkspace;
@@ -32,6 +32,9 @@ export function createSettingsRailChrome({
         on = Boolean(button.dataset.view) && button.dataset.view === view && view !== "config";
       }
       button.classList.toggle("is-active", on);
+      if (button.getAttribute("role") === "tab") {
+        button.setAttribute("aria-selected", String(on));
+      }
       if (on && !currentPageMarked) {
         button.setAttribute("aria-current", "page");
         currentPageMarked = true;
@@ -39,6 +42,56 @@ export function createSettingsRailChrome({
         button.removeAttribute("aria-current");
       }
     });
+    syncSettingsTabStop(rail);
+  }
+
+  function syncSettingsTabStop(rail) {
+    const tabs = [...rail.querySelectorAll(".settings-rail-item")];
+    const visible = tabs.filter(button => !button.hidden && !button.disabled);
+    const current = visible.find(button => button.classList.contains("is-active")) || visible[0];
+    for (const tab of tabs) tab.tabIndex = tab === current ? 0 : -1;
+  }
+
+  function handleSettingsRailKey(event) {
+    if (event.altKey || event.ctrlKey || event.metaKey || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    const rail = byId("settings-rail");
+    const tabs = [...rail.querySelectorAll(".settings-rail-item")].filter(button => !button.hidden && !button.disabled);
+    const current = tabs.indexOf(event.target.closest(".settings-rail-item"));
+    if (current < 0) return;
+    event.preventDefault();
+    const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1
+      : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[next].click();
+    tabs[next].focus({ preventScroll: true });
+    tabs[next].scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  function toggleSettingsSearch(open = !byId("settings-rail")?.classList.contains("is-search-open")) {
+    byId("settings-rail")?.classList.toggle("is-search-open", open);
+    byId("settings-search-toggle")?.setAttribute("aria-expanded", String(open));
+    const query = byId("settings-rail-query");
+    if (open) query?.focus();
+    else {
+      if (query) query.value = "";
+      filterSettingsRail("");
+    }
+  }
+
+  function handleSettingsQueryKey(event) {
+    if (event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      toggleSettingsSearch(false);
+      const toggle = byId("settings-search-toggle");
+      if (toggle?.getClientRects().length) toggle.focus();
+    } else if (event.key === "ArrowDown" || event.key === "Enter") {
+      event.preventDefault();
+      const first = [...byId("settings-rail").querySelectorAll(".settings-rail-item")].find(button => !button.hidden && !button.disabled);
+      if (!first) return;
+      if (event.key === "Enter") first.click();
+      first.focus({ preventScroll: true });
+      first.scrollIntoView({ block: "nearest", inline: "nearest" });
+    }
   }
 
   function syncWorkbenchRailShortcuts(view = state.view, surface = state.configSurface) {
@@ -47,20 +100,6 @@ export function createSettingsRailChrome({
     skillsRow?.classList.toggle("is-active", on);
     if (on) skillsRow?.setAttribute("aria-current", "page");
     else skillsRow?.removeAttribute("aria-current");
-  }
-
-  function revealWorkbenchAutomations(on) {
-    const shell = document.querySelector(".workbench-shell");
-    const pane = byId("automations-workbench");
-    const paneInBotWorkspace = pane?.closest("#bot-workspace-panel");
-    byId("view-workbench")?.classList.toggle("is-automations-open", on);
-    shell?.classList.toggle("is-automations", on);
-    // Bot 工作区会临时挂载同一个自动化节点；此时旧 workbench 的 hidden/inert
-    // 状态不能再反向覆盖 Bot 当前可见面板。
-    if (pane && !paneInBotWorkspace) {
-      pane.hidden = !on;
-      pane.inert = !on;
-    }
   }
 
   function settingsRailHaystack(item) {
@@ -73,7 +112,7 @@ export function createSettingsRailChrome({
       }
       prev = prev.previousElementSibling;
     }
-    return `${item.textContent || ""} ${item.title || ""} ${label} ${item.dataset.view || ""} ${item.dataset.configSurfaceJump || ""}`.toLowerCase();
+    return `${item.textContent || ""} ${item.title || ""} ${label} ${item.dataset.view || ""} ${item.dataset.configSurface || item.dataset.configSurfaceJump || ""}`.toLowerCase();
   }
 
   function filterSettingsRail(query) {
@@ -92,6 +131,12 @@ export function createSettingsRailChrome({
       }
       label.hidden = Boolean(q) && !visible;
     });
+    syncSettingsTabStop(rail);
+    const empty = byId("settings-rail-empty");
+    const hasResults = [...rail.querySelectorAll(".settings-rail-item")].some(item => !item.hidden);
+    if (empty) empty.hidden = hasResults;
+    const nav = byId("settings-destinations");
+    if (nav) nav.hidden = !hasResults;
   }
 
   function syncSettingsChrome(view = state.view) {
@@ -99,13 +144,7 @@ export function createSettingsRailChrome({
     document.querySelector(".app-shell")?.classList.toggle("is-settings", settings);
     const rail = byId("settings-rail");
     if (rail) rail.hidden = !settings;
-    if (!settings) {
-      const query = byId("settings-rail-query");
-      if (query?.value) {
-        query.value = "";
-        filterSettingsRail("");
-      }
-    }
+    if (!settings) toggleSettingsSearch(false);
     byId("account-dock")?.setAttribute("aria-pressed", String(settings));
     byId("account-heading-chip")?.setAttribute("aria-pressed", String(settings));
   }
@@ -118,8 +157,10 @@ export function createSettingsRailChrome({
     isSettingsChrome,
     syncSettingsRailActive,
     syncWorkbenchRailShortcuts,
-    revealWorkbenchAutomations,
     filterSettingsRail,
+    handleSettingsRailKey,
+    handleSettingsQueryKey,
+    toggleSettingsSearch,
     syncSettingsChrome,
     openSettings,
   };

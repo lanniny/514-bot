@@ -19,7 +19,6 @@ function removeTree(path) {
 const profileScores = new Map([
   ["claude-fable", { quality: 0.96, speed: 0.68, costTier: 4 }],
   ["codex-technical", { quality: 0.97, speed: 0.74, costTier: 4 }],
-  ["grok-search", { quality: 0.84, speed: 0.93, costTier: 3 }],
   ["grok-build", { quality: 0.82, speed: 0.94, costTier: 3 }],
   ["kimi-frontend", { quality: 0.82, speed: 0.88, costTier: 2 }],
   ["pi-resident", { quality: 0.8, speed: 0.86, costTier: 2 }],

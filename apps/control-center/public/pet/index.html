@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>514 Pet</title>
+  <link rel="stylesheet" href="/forge/tokens.css" />
+  <link rel="stylesheet" href="/pet/pet.css" />
+</head>
+<body data-pet-state="loading">
+  <img id="pet-mode-background" alt="" aria-hidden="true" />
+  <canvas id="pet-canvas" aria-label="514 桌宠" role="img"></canvas>
+  <img id="pet-left-input" class="pet-input-overlay" alt="" aria-hidden="true" hidden />
+  <img id="pet-right-input" class="pet-input-overlay" alt="" aria-hidden="true" hidden />
+  <div id="pet-notice"><div id="pet-status" role="status" aria-live="polite">正在配对凭据…</div><button type="button" id="pet-retry" title="重新连接" aria-label="重试" hidden><svg aria-hidden="true"><use href="/lucide-sprite.svg#lucide-refresh-cw"></use></svg></button></div>
+  <div id="pet-toolbar" hidden>
+    <span id="pet-toolbar-label">514 猫</span>
+    <button type="button" id="pet-toggle-interactive" title="退出互动模式" aria-label="退出互动模式"><svg aria-hidden="true"><use href="/lucide-sprite.svg#lucide-log-out"></use></svg></button>
+    <button type="button" id="pet-close" title="收起桌宠" aria-label="收起桌宠"><svg aria-hidden="true"><use href="/lucide-sprite.svg#lucide-x"></use></svg></button>
+  </div>
+  <script src="/vendor/pet/live2dcubismcore.min.js"></script>
+  <script src="/vendor/pet/pixi.min.js"></script>
+  <!-- CSP 禁 unsafe-eval：@pixi/unsafe-eval 自安装补丁，替换 PIXI 内部的 new Function 路径 -->
+  <script src="/vendor/pet/unsafe-eval.min.js"></script>
+  <script src="/vendor/pet/pixi-live2d-cubism4.min.js"></script>
+  <script type="module" src="/pet/pet-engine.js"></script>
+</body>
+</html>

@@ -296,8 +296,8 @@ test("all seats offline yields an honest hint instead of a pick", () => {
 });
 
 test("disabled gemini seat is never suggested for long-context tasks", () => {
-  const markup = suggestMarkup("读一下这篇论文全文", new Set(["gemini-research", "grok-search"]), null);
-  assert.match(markup, /data-suggest-agent="grok-search"/);
+  const markup = suggestMarkup("读一下这篇论文全文", new Set(["gemini-research", "claude-fable"]), null);
+  assert.match(markup, /data-suggest-agent="claude-fable"/);
   assert.doesNotMatch(markup, /gemini-research/);
 });
 

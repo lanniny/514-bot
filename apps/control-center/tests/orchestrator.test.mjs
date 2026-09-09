@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isUnlimitedBudgetValue, normalizeConversationRecipientIds, normalizeRunSources, Orchestrator, renameWithRetry, resolveBudgetUsdPerTurn, UNLIMITED_BUDGET } from "../src/orchestrator.mjs";
+import { isUnlimitedBudgetValue, normalizeConversationRecipientIds, normalizeRunSources, Orchestrator, renameWithRetry, resolveBudgetUsdPerTurn, TASK_GRAPH_LIMITS, UNLIMITED_BUDGET } from "../src/orchestrator.mjs";
 import { ConversationContextStore } from "../src/conversation-contexts.mjs";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -218,6 +218,31 @@ test("high-risk execution performs planner, specialist and independent verifier 
   assert.ok(delegations.every((edge) => edge.state === "completed"));
 });
 
+for (const [mode, rounds, reworked] of [["standard", 4, false], ["deep", 5, true]]) {
+  test(`${mode} synthesis receives execution, original review and actual rework separately`, async (t) => {
+    const fx = await fixture();
+    t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+    const created = await fx.orchestrator.create({ prompt: "implement with evidence", execute: true, orchestrationMode: "pipeline", collaborationMode: mode, maxRounds: rounds, permissionMode: "plan" });
+    const done = await waitTerminal(fx.orchestrator, created.id);
+    assert.equal(done.status, "succeeded");
+    assert.equal(fx.calls.length, rounds);
+    const finalPrompt = fx.calls.at(-1).prompt;
+    assert.match(finalPrompt, /初次执行：codex-technical-round-2/);
+    assert.match(finalPrompt, /独立复核（claude-fable）：claude-fable-round-3/);
+    assert.equal(done.result.reworked, reworked);
+    if (reworked) {
+      assert.match(finalPrompt, /补强结果：codex-technical-round-4/);
+      assert.match(fx.calls[3].prompt, /原始目标：[\s\S]*implement with evidence/);
+    } else {
+      assert.match(finalPrompt, /补强结果：本轮未执行补强/);
+      assert.equal(done.taskGraph.delegations.some((edge) => edge.kind === "pipeline-rework"), false);
+    }
+    const persisted = JSON.parse(await readFile(resolve(fx.root, "runs", `${done.id}.json`), "utf8"));
+    assert.equal(persisted.result.reworked, reworked);
+    assert.equal(persisted.result.critique, "claude-fable-round-3");
+  });
+}
+
 test("simple 任务短路 pipeline：打招呼只跑主脑一轮，不派工不复核", async (t) => {
   const fx = await fixture({
     route: {
@@ -359,6 +384,37 @@ test("Conversation message admission keeps an active Run instead of creating a s
   const completed = await waitTerminal(fx.orchestrator, created.id);
   assert.equal(completed.status, "succeeded");
   assert.equal(sendCount, 2);
+});
+
+test("Conversation admission retains model preferences but never inherits prior authority or budget", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const previous = {
+    id: "prior-authority", status: "succeeded", startAgentId: "codex-technical",
+    permissionMode: "full-access", permissionOverride: "native:always-approve",
+    maxBudgetUsdPerTurn: "unlimited", modelOverride: "preferred-model", effortOverride: "high",
+    buildApproval: { status: "approved", lease: { status: "active" } },
+  };
+  fx.orchestrator.runs.set(previous.id, previous);
+  fx.orchestrator.conversations = { get: (id) => ({
+    id, kind: "direct", directMemberId: "codex-technical", memberIds: ["codex-technical"],
+    runIds: [previous.id], activeRunId: null,
+  }) };
+  fx.orchestrator.create = async (input) => input;
+  const fresh = (await fx.orchestrator.conversationMessage("authority", { prompt: "next" })).run;
+  assert.equal(fresh.permissionMode, "plan");
+  assert.equal(fresh.permission, undefined);
+  assert.equal(fresh.maxBudgetUsdPerTurn, undefined);
+  assert.equal(fresh.buildApproval, undefined);
+  assert.equal(fresh.model, "preferred-model");
+  assert.equal(fresh.effort, "high");
+  const explicit = (await fx.orchestrator.conversationMessage("authority", {
+    prompt: "explicit new grant", permissionMode: "build", permission: "native:auto", maxBudgetUsdPerTurn: 3,
+  })).run;
+  assert.equal(explicit.permissionMode, "build");
+  assert.equal(explicit.permission, "native:auto");
+  assert.equal(explicit.maxBudgetUsdPerTurn, 3);
+  assert.equal(previous.permissionMode, "full-access");
 });
 
 test("a completed direct Conversation epoch carries its native session into the next Run only", async (t) => {
@@ -1868,6 +1924,143 @@ test("taskGraph binds target attempts and converges attempt and root lifecycle s
   run.status = "failed";
   await fx.orchestrator.save(run);
   assert.equal(run.taskGraph.tasks.find((item) => item.kind === "root").status, "failed");
+});
+
+test("CW-06: TASK_GRAPH_LIMITS expands capacity to 1024 tasks and delegations without legacy truncation", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  assert.equal(TASK_GRAPH_LIMITS.maxTasks, 1024);
+  assert.equal(TASK_GRAPH_LIMITS.maxDelegations, 1024);
+
+  const run = await fx.orchestrator.create({ prompt: "capacity test", execute: false, permissionMode: "plan" });
+  for (let i = 0; i < 250; i++) {
+    fx.orchestrator.recordTaskGraphDelegation(run, {
+      fromAgentId: "claude-fable",
+      toAgentId: `agent-${i}`,
+      busMessageId: `msg-${i}`,
+      state: "queued",
+    });
+  }
+  await fx.orchestrator.save(run);
+  const reloaded = fx.orchestrator.get(run.id);
+  assert.equal(reloaded.taskGraph.delegations.length, 250, "must not truncate at legacy 200 limit");
+  assert.equal(reloaded.taskGraph.tasks.length, 251, "must not truncate at legacy 128 limit");
+});
+
+test("CW-07: taskGraph fine-grained terminal states preserve lost and superseded", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const run = await fx.orchestrator.create({ prompt: "fine-grained graph", execute: false, permissionMode: "plan" });
+  run.status = "waiting_agent";
+
+  fx.orchestrator.recordTaskGraphDelegation(run, {
+    fromAgentId: "claude-fable",
+    toAgentId: "codex-technical",
+    busMessageId: "msg-lost",
+  });
+  fx.orchestrator.recordTaskGraphDelegation(run, {
+    fromAgentId: "claude-fable",
+    toAgentId: "grok-researcher",
+    busMessageId: "msg-super",
+  });
+  run.turnAttempts.push({
+    attemptId: "att-lost",
+    agentId: "codex-technical",
+    phase: "lost",
+    sourceBusMessageId: "msg-lost",
+  });
+  run.turnAttempts.push({
+    attemptId: "att-super",
+    agentId: "grok-researcher",
+    phase: "superseded",
+    sourceBusMessageId: "msg-super",
+  });
+  await fx.orchestrator.save(run);
+
+  const taskLost = run.taskGraph.tasks.find((item) => item.busMessageId === "msg-lost");
+  const edgeLost = run.taskGraph.delegations.find((item) => item.busMessageId === "msg-lost");
+  const taskSuper = run.taskGraph.tasks.find((item) => item.busMessageId === "msg-super");
+  const edgeSuper = run.taskGraph.delegations.find((item) => item.busMessageId === "msg-super");
+
+  assert.equal(taskLost.status, "lost");
+  assert.equal(edgeLost.state, "lost");
+  assert.equal(taskSuper.status, "superseded");
+  assert.equal(edgeSuper.state, "superseded");
+
+  run.status = "succeeded";
+  await fx.orchestrator.save(run);
+
+  assert.equal(taskLost.status, "lost", "terminal status must not overwrite lost task");
+  assert.equal(edgeLost.state, "lost", "terminal status must not overwrite lost edge");
+  assert.equal(taskSuper.status, "superseded", "terminal status must not overwrite superseded task");
+  assert.equal(edgeSuper.state, "superseded", "terminal status must not overwrite superseded edge");
+});
+
+test("CW-08: delegation child timeout and cancellation strictly preserves parent/child ownership and states", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const run = await fx.orchestrator.create({
+    prompt: "CW-08 parent-child ownership test",
+    execute: false,
+    permissionMode: "plan",
+  });
+
+  const rootTaskId = `task-${run.id}`;
+
+  fx.orchestrator.recordTaskGraphDelegation(run, {
+    fromAgentId: "claude-fable",
+    toAgentId: "codex-technical",
+    busMessageId: "msg-timeout-01",
+    state: "queued",
+  });
+
+  fx.orchestrator.recordTaskGraphDelegation(run, {
+    fromAgentId: "claude-fable",
+    toAgentId: "grok-build",
+    busMessageId: "msg-cancel-02",
+    state: "queued",
+  });
+
+  const taskTimeout = run.taskGraph.tasks.find((item) => item.busMessageId === "msg-timeout-01");
+  const edgeTimeout = run.taskGraph.delegations.find((item) => item.busMessageId === "msg-timeout-01");
+  const taskCancel = run.taskGraph.tasks.find((item) => item.busMessageId === "msg-cancel-02");
+  const edgeCancel = run.taskGraph.delegations.find((item) => item.busMessageId === "msg-cancel-02");
+
+  assert.equal(edgeTimeout.parentTaskId, rootTaskId);
+  assert.equal(taskTimeout.parentTaskId, rootTaskId);
+  assert.equal(edgeCancel.parentTaskId, rootTaskId);
+  assert.equal(taskCancel.parentTaskId, rootTaskId);
+
+  // Child turns fail with timed_out and cancelled phases
+  run.turnAttempts.push({
+    attemptId: "att-child-timeout",
+    phase: "timed_out",
+    sourceBusMessageId: "msg-timeout-01",
+  });
+  run.turnAttempts.push({
+    attemptId: "att-child-cancel",
+    phase: "cancelled",
+    sourceBusMessageId: "msg-cancel-02",
+  });
+
+  await fx.orchestrator.save(run);
+
+  assert.equal(taskTimeout.status, "failed");
+  assert.equal(edgeTimeout.state, "timed_out");
+  assert.equal(taskTimeout.parentTaskId, rootTaskId, "parent ownership must not drift on timeout");
+  assert.equal(edgeTimeout.parentTaskId, rootTaskId, "edge parent ownership must not drift on timeout");
+
+  assert.equal(taskCancel.status, "cancelled");
+  assert.equal(edgeCancel.state, "cancelled");
+  assert.equal(taskCancel.parentTaskId, rootTaskId, "parent ownership must not drift on cancel");
+  assert.equal(edgeCancel.parentTaskId, rootTaskId, "edge parent ownership must not drift on cancel");
+
+  // Terminal run state
+  run.status = "succeeded";
+  await fx.orchestrator.save(run);
+
+  assert.equal(edgeTimeout.state, "timed_out", "terminal status must not overwrite timed_out edge");
+  assert.equal(edgeCancel.state, "cancelled", "terminal status must not overwrite cancelled edge");
 });
 
 test("social delegation enforces real multi-hop depth before provider dispatch", async (t) => {

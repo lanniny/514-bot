@@ -34,12 +34,12 @@ export function parseQaUiFixtureArgs(argv = []) {
   return { suite, outputDir };
 }
 
-async function writeConfig(repoRoot) {
+export async function writeConfig(repoRoot, { profiles = testModelProfiles().map((profile) => ({ ...profile, capabilities: ["*"] })) } = {}) {
   await mkdir(resolve(repoRoot, "config", "control-center"), { recursive: true });
   await writeFile(resolve(repoRoot, "config", "app.json"), '{"enabled":true}\n');
   await writeFile(resolve(repoRoot, "config", "control-center", "models.json"), `${JSON.stringify({
     version: 1,
-    profiles: testModelProfiles().map((profile) => ({ ...profile, capabilities: ["*"] })),
+    profiles,
   }, null, 2)}\n`);
   await writeFile(resolve(repoRoot, "config", "control-center", "routing.json"), `${JSON.stringify({
     version: 1,

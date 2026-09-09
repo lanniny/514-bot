@@ -23,6 +23,11 @@ const CONTEXT_COMPACTION_INTERRUPT_MS = 10_000;
 const DEFAULT_TURN_IDLE_TIMEOUT_MS = 5 * 60_000;
 const MAX_LATE_RESPONSES = 64;
 const DEFINITIVE_TURN_REJECTION_MARKERS = new Set(["INSUFFICIENT_BALANCE"]);
+// fail-fast 配置类失败（如 "failed to load configuration: Model provider `forge` not found"）：
+// 原生侧没有任何在途工作。若不打标，social 等待续跑队列会让 requiresRecovery 误判进
+// recovery_required，逼出无意义的"放弃确认"，且修好配置重试又回到同一死循环。
+// 只匹配此前缀——宽泛匹配会把运行中报错判成"无在途工作"，方向性错误。
+const CODEX_CONFIG_LOAD_FAILURE_TEXT = /^failed to load configuration\b/i;
 const CONTEXT_WINDOW_EXCEEDED_TEXT = /(?:ran out of room in the model'?s context window|context window (?:was )?(?:exceeded|is full)|maximum context length)/i;
 const ACTIVE_WRITER_TEXT = /already has an active writer/i;
 
@@ -745,13 +750,20 @@ export class CodexAppServerAdapter {
         const errorInfoKind = codexErrorInfoKind(message.error.data?.codexErrorInfo ?? message.error.data);
         const nativeSessionBusy = pending.method === "turn/start"
           && (ACTIVE_WRITER_TEXT.test(messageText) || errorInfoKind === "activeTurnNotSteerable");
+        const configLoadFailed = CODEX_CONFIG_LOAD_FAILURE_TEXT.test(messageText);
         // An error response does not by itself prove that turn/start had no provider-side effect.
-        pending.reject(Object.assign(new Error(messageText), {
-          code: nativeSessionBusy ? "TURN_ACTIVE" : message.error.code,
+        pending.reject(Object.assign(new Error(
+          configLoadFailed
+            ? `Codex 配置加载失败：${messageText}（本席位走 Codex 自身登录态，514cc 不写该文件；请检查 ~/.codex/config.toml 的 model_provider 是否指向存在的 [model_providers.X]，改完直接重发即可，无需恢复确认）`
+            : messageText,
+        ), {
+          code: configLoadFailed ? "CODEX_CONFIG_INVALID" : nativeSessionBusy ? "TURN_ACTIVE" : message.error.code,
           rpcResponseError: true,
           rpcMethod: pending.method,
           rpcErrorData: message.error.data ?? null,
           nativeSessionBusy,
+          // fail-fast：配置在任何原生工作开始前就拒绝，原生侧无在途、无残留
+          ...(configLoadFailed ? { nativeTurnSettled: true } : {}),
         }));
       }
       else pending.resolve(message.result);

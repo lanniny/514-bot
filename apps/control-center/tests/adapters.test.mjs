@@ -14,7 +14,6 @@ import {
 } from "../src/adapters/stream-utils.mjs";
 import { buildIsolatedMcpArgs, CodexAppServerAdapter } from "../src/adapters/codex-app-server.mjs";
 import { buildClaudeArgs, ClaudeCliAdapter } from "../src/adapters/claude-cli.mjs";
-import { GrokMcpAdapter } from "../src/adapters/grok-mcp.mjs";
 import { PiRpcAdapter, piProviderEnvPolicy } from "../src/adapters/pi-rpc.mjs";
 import { createAdapters } from "../src/adapters/index.mjs";
 
@@ -1271,30 +1270,12 @@ test("isolated MCP config rejects unsafe names before spawning", () => {
   );
 });
 
-test("adapter registry wires Grok to the repository-controlled MCP only", () => {
-  const adapters = createAdapters({
-    profiles: [
-      { id: "codex-technical", adapter: "codex-app-server", command: "codex", model: "gpt-test" },
-      { id: "claude-fable", adapter: "claude-stream-json", command: "claude", model: "fable-test" },
-      { id: "grok-search", adapter: "grok-mcp-via-codex-app-server", command: null, model: null },
-    ],
-    eventStore: { emit: async () => {} },
-    cwd: repoRoot,
-    approvalResolver: null,
-  });
-  const host = adapters.get("grok-search").host;
-  assert.equal(adapters.has("kimi-frontend"), false, "unconfigured primary bindings must not create default-command adapters");
-  assert.equal(host.disableMcp, true);
-  assert.equal(host.environmentProvider, "grok");
-  assert.deepEqual(host.environmentAllowlist, [
-    "GROK_SEARCH_RS_COMPAT_API_URL",
-    "GROK_SEARCH_RS_COMPAT_API_KEY",
-    "GROK_SEARCH_RS_COMPAT_MODEL",
-  ]);
-  assert.equal(host.mcpServers.length, 1);
-  assert.equal(host.mcpServers[0].name, "grok-search-rs");
-  assert.equal(host.mcpServers[0].command, process.execPath);
-  assert.match(host.mcpServers[0].args[0], /scripts[\\/]grok_search_chat_compat\.mjs$/);
+test("adapter registry rejects retired Grok Search seats and MCP execution backends", () => {
+  for (const profile of [
+    { id: "grok-search", adapter: "grok-mcp-via-codex-app-server", command: null },
+    { id: "grok-search", builtin: false, adapter: "codex-app-server", command: "codex" },
+    { id: "custom-search", builtin: false, adapter: "grok-mcp-via-codex-app-server", command: null },
+  ]) assert.throws(() => createAdapters({ profiles: [profile], eventStore: { emit: async () => {} }, cwd: repoRoot }), { code: "ADAPTER_MANIFEST_INVALID" });
 });
 
 test("adapter registry never restores required commands through constructor defaults", () => {
@@ -1714,41 +1695,6 @@ test("Codex app-server close waits for the child exit boundary", async () => {
   const started = Date.now();
   await adapter.close();
   assert.ok(Date.now() - started >= 25);
-});
-
-test("Grok MCP adapter probes inventory and executes web_search through app-server", async () => {
-  const calls = [];
-  const host = {
-    async start() {},
-    async createThread() { return "grok-thread"; },
-    async ensureThread() {},
-    async request(method, params) {
-      calls.push({ method, params });
-      if (method === "mcpServerStatus/list") {
-        return {
-          data: [{ name: "grok-search-rs", tools: { web_search: { name: "web_search", inputSchema: { type: "object" } } } }],
-          nextCursor: null,
-        };
-      }
-      if (method === "mcpServer/tool/call") return { content: [{ type: "text", text: "current result\nhttps://example.com" }], isError: false };
-      throw new Error(`unexpected method ${method}`);
-    },
-  };
-  const adapter = new GrokMcpAdapter({ host, eventStore: { emit: async () => {} } });
-  const health = await adapter.health();
-  assert.equal(health.available, true);
-  const checkpoints = [];
-  const result = await adapter.send({
-    prompt: "latest evidence",
-    runId: "run-grok",
-    onSessionStarted: async () => checkpoints.push("session"),
-    onTurnSubmitting: async () => checkpoints.push("submitting"),
-    onTurnAccepted: async () => checkpoints.push("accepted"),
-  });
-  assert.equal(result.protocol, "codex-app-server-mcp-v2");
-  assert.match(result.text, /example\.com/);
-  assert.deepEqual(checkpoints, ["session", "submitting", "accepted"]);
-  assert.equal(calls.find((call) => call.method === "mcpServer/tool/call").params.arguments.query, "latest evidence");
 });
 
 test("Codex app-server request cancellation removes the pending request immediately", async () => {
@@ -2200,32 +2146,6 @@ test("Codex lifecycle timeout prevents a stalled submission callback from sendin
   await adapter.close();
 });
 
-test("Grok MCP health propagates cancellation through active inventory", async () => {
-  let observedSignal;
-  const host = {
-    child: {},
-    async start() {},
-    async createThread({ signal }) {
-      observedSignal = signal;
-      return "health-thread";
-    },
-    async request(_method, _params, _timeoutMs, { signal }) {
-      observedSignal = signal;
-      return new Promise((_resolve, reject) => {
-        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-      });
-    },
-  };
-  const adapter = new GrokMcpAdapter({ host, eventStore: { emit: async () => {} } });
-  const controller = new AbortController();
-  const reason = Object.assign(new Error("last health subscriber disconnected"), { code: "CLIENT_DISCONNECTED" });
-  const pending = adapter.health({ signal: controller.signal });
-  await new Promise((resolveTimer) => setImmediate(resolveTimer));
-  controller.abort(reason);
-  await assert.rejects(pending, (error) => error === reason);
-  assert.equal(observedSignal, controller.signal);
-});
-
 test("Codex app-server marks a transport failure after turn submission as unsafe to replay", async () => {
   class AmbiguousChild extends FakeChild {
     handle(message) {
@@ -2644,4 +2564,29 @@ test("Codex idle watchdog resets on native traffic, so slow-but-alive turns surv
   } finally {
     await adapter.close();
   }
+});
+
+test("codex config-load failures settle instead of forcing ambiguous recovery", async () => {
+  const adapter = new CodexAppServerAdapter({ eventStore: { emit: async () => {} }, cwd: "C:/repo" });
+  const rejectWith = (id, method, error) => new Promise((resolve) => {
+    adapter.pending.set(id, {
+      method, timer: null, signal: undefined, onAbort: undefined,
+      resolve: () => resolve(null),
+      reject: (failure) => resolve(failure),
+    });
+    adapter.handleMessage({ id, error });
+  });
+  // LO 报障：启动期 "Model provider `forge` not found" 被误判进 recovery_required，
+  // 修好配置重试又回到同一死循环。fail-fast 必须直落 failed。
+  const failure = await rejectWith(701, "turn/start", { code: -32600, message: "failed to load configuration: Model provider `forge` not found" });
+  assert.equal(failure?.code, "CODEX_CONFIG_INVALID");
+  assert.equal(failure?.nativeTurnSettled, true);
+  assert.match(failure?.message, /Codex 配置加载失败/);
+  assert.match(failure?.message, /model_provider/);
+  assert.match(failure?.message, /无需恢复确认/);
+  // 非配置类错误原文透传，不误伤既有码
+  const other = await rejectWith(702, "turn/start", { code: -32600, message: "something else broke" });
+  assert.equal(other?.code, -32600);
+  assert.equal(other?.nativeTurnSettled, undefined);
+  assert.equal(other?.message, "something else broke");
 });

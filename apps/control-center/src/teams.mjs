@@ -65,7 +65,7 @@ export const BUILTIN_TEAM = Object.freeze({
   systemPrompt:
     "遵循 514cc 宪法：主脑规划-专家执行-独立验证三角；先读后写；危险操作二次确认；严禁 silent fallback；完成结论必须踩在验证证据上。",
   coordinator: DEFAULT_COORDINATOR,
-  members: Object.freeze(["claude-fable", "codex-technical", "grok-search", "grok-build", "kimi-frontend", "pi-resident"]),
+  members: Object.freeze(["claude-fable", "codex-technical", "grok-build", "kimi-frontend", "pi-resident"]),
   skills: Object.freeze(["co-review", "co-research", "co-status", "co-enhance", "vibe", "ssh", "docx"]),
   mcp: Object.freeze(["codex-agent", "serena", "playwright", "exa", "grok-search-rs", "context7", "sequential-thinking"]),
   appearance: Object.freeze({ background: Object.freeze({ preset: "none", image: "" }) }),

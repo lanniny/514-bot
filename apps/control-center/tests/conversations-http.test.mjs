@@ -197,8 +197,9 @@ test("conversation HTTP API persists direct and workspace identities with CAS", 
   assert.notEqual(continuedRun.id, messageRun.id);
   assert.equal(continuedRun.conversationId, messageConversation.id);
   assert.equal(continuedRun.projectId, null);
-  assert.equal(continuedRun.permissionMode, "plan");
-  assert.equal(continuedRun.buildApproval, null);
+  assert.equal(continuedRun.permissionMode, "build");
+  assert.equal(continuedRun.status, "waiting_approval");
+  assert.equal(continuedRun.buildApproval.status, "pending");
   assert.equal(continuedRun.remote, null);
   assert.equal(continuedRun.contextInheritedFromRunId, null);
   // 预算合同（LO 2026-08-30）：硬上限门槛已废，客户端显式给出的 maxBudgetUsdPerTurn 按实接受

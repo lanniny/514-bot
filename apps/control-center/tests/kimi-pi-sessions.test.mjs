@@ -196,7 +196,7 @@ test("large Kimi index keeps only per-cwd top-k while preserving exact counts an
     const project = result.projects.find((candidate) => candidate.sessions.some((session) => session.cli === "kimi"));
 
     assert.equal(kimiStatus?.available, true);
-    assert.equal(kimiStatus?.sessionCount, indexCount, "source count must include entries discarded from top-k memory");
+    assert.equal(kimiStatus?.sessionCount, indexCount, `source count must include entries discarded from top-k memory: ${JSON.stringify(kimiStatus?.diagnostics)}`);
     assert.equal(project?.sessionCount, indexCount, "project count must remain exact after bounded retention");
     assert.equal(project?.sessions.length, perProjectLimit, "only perProjectLimit Kimi sessions may be retained for one cwd");
     assert.deepEqual(

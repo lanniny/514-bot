@@ -72,8 +72,20 @@ export function formatRelative(value, fallback = "--") {
   return formatDate(value, fallback);
 }
 
-export function formatDuration(value) {
-  const number = Number(value);
+// Grok 式会话列表日期徽章：当天 → HH:mm；当年 → M/d；跨年 → Y/M/d。
+export function formatConversationStamp(value, fallback = "") {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  const now = new Date();
+  if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()) {
+    return new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  }
+  if (date.getFullYear() === now.getFullYear()) return `${date.getMonth() + 1}/${date.getDate()}`;
+  return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}`;
+}
+
+export function formatDuration(value) {  const number = Number(value);
   if (!Number.isFinite(number)) return "--";
   const milliseconds = number > 0 && number < 20 ? number * 1000 : number;
   if (milliseconds < 1000) return `${Math.round(milliseconds)} ms`;

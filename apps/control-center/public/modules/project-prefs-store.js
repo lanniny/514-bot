@@ -281,5 +281,6 @@ export function createProjectPrefsStore({
     loadProjectPrefs,
     ensureProjectPrefsWritable,
     saveProjectPrefs,
+    getPendingSave: () => projectPrefsPendingSave,
   };
 }

@@ -73,6 +73,7 @@ export const VIEW_TITLES = Object.freeze({
   automations: "自动化",
   terminal: "终端",
   market: "插件",
+  plugins: "插件中心",
   hosts: "远程主机",
   hero: "协作星图",
   appearance: "外观",
@@ -91,7 +92,6 @@ export const DEFAULT_COMPONENTS = Object.freeze([
 export const DEFAULT_MODELS = Object.freeze([
   { role: "规划编排", adapter: "Claude CLI", model: "运行时选择", strengths: ["规划", "编排", "综合"], status: "unknown" },
   { role: "技术", adapter: "Codex CLI", model: "运行时选择", strengths: ["实现", "代码评审", "验证"], status: "unknown" },
-  { role: "搜索", adapter: "Grok Search", model: "运行时选择", strengths: ["当前资料", "快速检索"], status: "unknown" },
   { role: "快执行", adapter: "Grok Build", model: "grok-4.5", strengths: ["快执行", "快综合"], status: "unknown" },
   { role: "扩展", adapter: "Pi", model: "运行时选择", strengths: ["RPC", "工具编排"], status: "unknown" },
 ]);
@@ -117,7 +117,7 @@ export const DEFAULT_SECRETS = Object.freeze([
  * 修改时直接赋值属性，不需要 setter。
  */
 export const state = {
-  view: "workbench",
+  view: "bot",
   customMacros: [], // W3.11 用户宏（/api/macros；palette 出项 + 原生命令兜底展开）
   bootstrap: {},
   health: null,

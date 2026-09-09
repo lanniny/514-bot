@@ -1,0 +1,126 @@
+/* pet.css — 514 桌宠悬浮窗（透明窗口内渲染，背景必须保持全透明）
+   字号/时长走 forge/tokens.css 的全局 token（--text-* / --dur-*），ui-lint 门禁同规约束 */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--sans, "Segoe UI", "Microsoft YaHei", system-ui, sans-serif);
+  transition: opacity var(--dur-fast) ease;
+}
+
+#pet-canvas {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+#pet-canvas:focus-visible { outline: 2px solid var(--ring); outline-offset: -3px; }
+#pet-mode-background,
+.pet-input-overlay {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+}
+.pet-input-overlay { z-index: 2; }
+.pet-input-overlay[hidden],
+#pet-mode-background:not([src]) { display: none; }
+
+/* 配对/加载/错误的提示条：默认隐藏，仅在非 ready 状态显示 */
+#pet-notice {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  bottom: 8px;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 24px);
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: rgba(255, 235, 240, 0.92);
+  background: rgba(24, 8, 14, 0.78);
+  border: 1px solid rgba(224, 24, 77, 0.35);
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity var(--dur-slow) ease;
+}
+
+body:is([data-pet-state="loading"], [data-pet-state="pairing"], [data-pet-state="reconnecting"], [data-pet-state="failure"], [data-pet-state="error"], [data-pet-state="attention"]) #pet-notice {
+  opacity: 1;
+}
+#pet-status { min-width: 0; }
+#pet-retry { pointer-events: auto; flex-shrink: 0; }
+button[hidden] { display: none !important; }
+button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
+button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* 互动模式工具条：仅在 interactive 时可点（穿透模式下窗口收不到鼠标事件） */
+#pet-toolbar {
+  position: absolute;
+  z-index: 5;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  box-sizing: border-box;
+  background: rgba(24, 8, 14, 0.72);
+  border-bottom: 1px solid rgba(224, 24, 77, 0.3);
+  cursor: move;
+  user-select: none;
+}
+
+#pet-toolbar[hidden] {
+  display: none;
+}
+
+#pet-toolbar-label {
+  flex: 1;
+  font-size: var(--text-xs);
+  color: rgba(255, 214, 224, 0.9);
+}
+
+#pet-toolbar button, #pet-retry {
+  appearance: none;
+  border: 1px solid rgba(224, 24, 77, 0.35);
+  background: rgba(36, 12, 20, 0.9);
+  color: rgba(255, 224, 232, 0.95);
+  border-radius: var(--radius-sm, 6px);
+  font-size: var(--text-xs);
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  padding: 4px;
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  body, #pet-notice { transition: none; }
+}
+
+#pet-toolbar button:hover {
+  background: rgba(70, 20, 34, 0.95);
+}
+
+/* QA 断言钩子：状态以 body[data-pet-state] 为唯一真源 */

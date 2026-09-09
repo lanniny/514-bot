@@ -58,7 +58,7 @@ try {
   console.log("NEW-SEAT-PEEK:", JSON.stringify(newPeek));
   await page.screenshot({ path: ".qa-v4/seat-wave-new-light.png" });
 
-  // ② 系统席位 codex-technical → 绑定成员 chip + 非可选 adapter 处理（grok-search 席位）
+  // ② System seat bindings remain visible; MCP tools never appear as seats.
   await page.locator('.runtime-seat-item[data-runtime-seat-id="codex-technical"]').click();
   await page.waitForFunction(() =>
     document.getElementById("runtime-seat-id-input")?.value === "codex-technical", null, { timeout: 10_000 });
@@ -70,21 +70,7 @@ try {
   }));
   console.log("BUILTIN-PEEK:", JSON.stringify(builtinPeek));
 
-  // grok-search 席位（绑定非可选 MCP adapter）→ 下拉应显示「内置席位专用」标记
-  await page.locator('.runtime-seat-item[data-runtime-seat-id="grok-search"]').click();
-  await page.waitForFunction(() =>
-    document.getElementById("runtime-seat-id-input")?.value === "grok-search", null, { timeout: 10_000 });
-  const mcpPeek = await page.evaluate(() => {
-    const select = document.getElementById("runtime-seat-adapter-select");
-    return {
-      adapterValue: select?.value,
-      selectedOptionText: select?.selectedOptions?.[0]?.textContent,
-      selectableCount: select?.options?.length,
-      details: document.querySelector(".runtime-seat-coordinator-reason")?.textContent,
-    };
-  });
-  console.log("MCP-SEAT-PEEK:", JSON.stringify(mcpPeek));
-  await page.screenshot({ path: ".qa-v4/seat-wave-mcp-light.png" });
+  if (await page.locator('.runtime-seat-item[data-runtime-seat-id="grok-search"]').count()) throw new Error("retired MCP seat is still visible");
 
   // ③ 新建自定义席位 → 保存 → 绑定空态 + 删除 title
   await page.locator("#runtime-seat-new-button").click();

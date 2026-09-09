@@ -512,13 +512,21 @@
 .budget-menu-editor input {
   flex: 1 1 auto;
   min-width: 0;
-  height: 26px;
+  min-height: 32px;
+  height: 32px;
   padding: 0 8px;
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--surface);
   color: var(--text);
   font-size: var(--text-xs);
+}
+
+@media (pointer: coarse) {
+  .budget-menu-editor input {
+    min-height: 44px;
+    height: 44px;
+  }
 }
 
 .budget-menu-editor input:focus {
@@ -528,9 +536,15 @@
 
 .budget-menu-apply {
   flex: 0 0 auto;
-  min-height: 26px;
+  min-height: 32px;
   padding: 0 10px;
   font-size: var(--text-xs);
+}
+
+@media (pointer: coarse) {
+  .budget-menu-apply {
+    min-height: 44px;
+  }
 }
 
 .pick-menu-row:hover,
@@ -596,7 +610,7 @@
  * 窄屏回退：状态 pill 让位标题
  * ========================================================================== */
 
-@media (max-width: 900px) {
+@media (max-width: 820px) {
   #view-workbench #conversation-meta {
     display: none;
   }
@@ -606,19 +620,71 @@
   }
 }
 
+/* ── 窄屏 footer：真两列网格（v49 U2 · 2026-09-04）───────────────────────
+   实测证据（改前，逐档量到）：
+     700–1920px  始终单行、占比稳定 91-94%、从不溢出 —— 控件本就弹性收缩
+                 （156→141→125→120px），桌面**没有**"略窄即换行"的问题，
+                 所以本轮不动桌面结构（原方案 U2 拟包一层参数胶囊，实测证伪后撤销：
+                 .pick-menu 是 absolute 定位、依赖 .pick-menu-host 作定位祖先，
+                 无收益的结构改动只会白担风险）。
+     ≤560px      塌成 3 行、高 100px，且宽度分配失控：model-pick 独占 460px 一行、
+                 budget-pick 又占 390px。根因是 `flex: 1 1 calc(50% - 8px)` 只是
+                 "希望"两列，一旦某项内容宽度超过 50% 就自己占满整行，
+                 flex-basis 挡不住 —— 这不是两列布局，是运气好时像两列。
+
+   改法：窄屏上 grid **显式定位**，四列 `auto 1fr 1fr auto`：
+     行1  附件 ｜ 模型 ｜ Effort ｜ 发送
+     行2  热调 ｜ 权限 ｜ 预算
+   列宽由容器决定、与内容宽度无关，所以参数胶囊必然等宽；附件与发送锚死在
+   行1 两端，不随条件显示的热调胶囊漂移。
+
+   两条实测踩坑，别再走一遍：
+   · 给胶囊加 `grid-column: span 2` → 它们占进附件/发送所在的列，把 28px 图标
+     按钮撑到 120px。
+   · 让附件/发送独占一行、胶囊 2×2 → 宽度整齐了，但行数 3→4、高度 100→130px。
+     高度回退不算改好，所以最终用显式定位把两者压进 2 行。 */
 @media (max-width: 560px) {
   .composer-shell .composer-footer {
-    flex-wrap: wrap;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto;
+    align-items: center;
+    row-gap: 6px;
   }
 
-  .composer-footer .model-pick,
-  .composer-footer .permission-pick {
-    flex: 1 1 calc(50% - 8px);
-    max-width: none;
+  /* 显式坐标而非依赖源序：热调胶囊是条件显示的，靠自动流会让整张网格错位。
+     这四个 id 在 index.html 的 composer-footer 内是稳定契约，
+     tests/v49-ux-guards.test.mjs 锁住它们与此处的对应关系。 */
+  .composer-footer .composer-attach {
+    grid-area: 1 / 1;
+  }
+
+  .composer-shell .composer-footer .send-button {
+    grid-area: 1 / 4;
+  }
+
+  .composer-footer #task-model-pick {
+    grid-area: 1 / 2;
+  }
+
+  .composer-footer #task-effort-pick {
+    grid-area: 1 / 3;
+  }
+
+  .composer-footer #task-permission-pick {
+    grid-area: 2 / 2;
+  }
+
+  .composer-footer #task-budget-pick {
+    grid-area: 2 / 3;
   }
 
   .composer-footer .composer-session-controls {
-    order: 5;
+    grid-area: 2 / 1;
+  }
+
+  .composer-footer .pick-menu-host,
+  .composer-footer .permission-pick {
+    max-width: none;
   }
 }
 
@@ -1122,7 +1188,7 @@ button.conv-chip:hover {
 /* 窄屏一行到底：wrap 的判定用 flex base size（标题未收缩前的全文宽），长标题会把 chips
  * 挤到第二行——窄屏禁 wrap + 隐藏参与 CLI 行（团队呈现由 composer 成员条承担），
  * 标题照常省略、chips 裁剪到只剩 …。meta 隐藏由上游 900px 既有规则承担。 */
-@media (max-width: 900px) {
+@media (max-width: 820px) {
   #view-workbench .conversation-heading .conversation-heading-main {
     flex-wrap: nowrap;
   }

@@ -442,6 +442,7 @@ name = "cc-desktop"
 version = "0.1.0"
 dependencies = [
  "auto-launch",
+ "dunce",
  "serde",
  "serde_json",
  "tauri",

@@ -751,6 +751,7 @@ export class SessionAggregator {
           ? status.sessionCount
           : projects.reduce((total, project) => total + project.sessionCount, 0),
         ...(status.error ? { error: status.error } : {}),
+        ...(status.diagnostics ? { diagnostics: status.diagnostics } : {}),
         projects,
       };
     } catch (error) {
@@ -793,6 +794,7 @@ export class SessionAggregator {
       sessionCount: result.sessionCount,
       sessions,
       ...(result.error ? { error: result.error } : {}),
+      ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
     };
   }
 
@@ -801,7 +803,8 @@ export class SessionAggregator {
   // 的 turn.prompt 事件（2026-07-20 本机 0.27.0 实测格式）。sessionDir 来自文件内容——realpath 限根到
   // ~/.kimi-code/sessions（索引被篡改指向任意路径时 fail-closed 跳过）。
   async #mergeKimiProjects(projects, { perProjectLimit, includeSummaries }) {
-    const status = { available: false, sessionCount: 0 };
+    const diagnostics = { indexLines: 0, invalidEntries: 0, acceptedEntries: 0, missingDirectories: 0, outsideRoot: 0, missingWorkdir: 0, metadataFallbacks: 0, readErrors: 0 };
+    const status = { available: false, sessionCount: 0, diagnostics };
     const kimiRoot = join(this.home, ".kimi-code");
     const sessionsRoot = join(kimiRoot, "sessions");
     let realRoot;
@@ -813,19 +816,22 @@ export class SessionAggregator {
         let realDir;
         try {
           realDir = await realpath(entry.sessionDir);
-        } catch {
-          return null; // 索引残留（会话目录已删）跳过
+        } catch (error) {
+          if (!["ENOENT", "ENOTDIR"].includes(error.code)) return { error };
+          diagnostics.missingDirectories += 1;
+          return null;
         }
-        if (!realDir.startsWith(realRoot + sep)) return null; // 限根不变量
+        if (!realDir.startsWith(realRoot + sep)) { diagnostics.outsideRoot += 1; return null; }
         let meta = null;
         try {
           meta = JSON.parse(await readFile(join(realDir, "state.json"), "utf8"));
         } catch {
           // 无 state.json 仍可列出（时间戳退化为 null）
+          diagnostics.metadataFallbacks += 1;
         }
         const cwd = typeof entry.workDir === "string" && entry.workDir.trim() ? entry.workDir.trim() : meta?.workDir;
         const key = normalizeCwdKey(cwd);
-        if (!key) return null;
+        if (!key) { diagnostics.missingWorkdir += 1; return null; }
         const modifiedMs = Date.parse(meta?.updatedAt ?? meta?.createdAt ?? "") || 0;
         return {
           key,
@@ -844,12 +850,16 @@ export class SessionAggregator {
           },
         };
       });
+      // Drain the owned batch before rejecting an incomplete source snapshot.
+      const failed = records.find((record) => record?.error);
+      if (failed) throw failed.error;
       for (const record of records) {
         if (!record) continue;
         if (!byCwd.has(record.key)) byCwd.set(record.key, { cwd: record.cwd, sessionCount: 0, sessions: [] });
         const group = byCwd.get(record.key);
         group.sessionCount += 1;
         status.sessionCount += 1;
+        diagnostics.acceptedEntries += 1;
         retainNewestSession(group.sessions, record.session, perProjectLimit);
       }
       // readline 可能已把多行缓冲在内存中；每个固定页主动让出一次，避免长索引独占事件循环。
@@ -863,12 +873,15 @@ export class SessionAggregator {
       let lineCount = 0;
       for await (const line of lines) {
         lineCount += 1;
-        if (line.trim().startsWith("{")) {
+        diagnostics.indexLines += 1;
+        if (line.trim()) {
           try {
             const entry = JSON.parse(line);
-            if (entry?.sessionId && entry?.sessionDir) batch.push({ entry, ordinal: lineCount });
+            if (typeof entry?.sessionId === "string" && entry.sessionId.trim() && typeof entry.sessionDir === "string" && entry.sessionDir.trim()) {
+              batch.push({ entry, ordinal: lineCount });
+            } else diagnostics.invalidEntries += 1;
           } catch {
-            // 损坏或写到一半的索引行跳过
+            diagnostics.invalidEntries += 1;
           }
         }
         if (lineCount % KIMI_INDEX_BATCH_SIZE === 0) {
@@ -879,6 +892,8 @@ export class SessionAggregator {
       if (batch.length) await processBatch(batch);
     } catch (error) {
       status.error = error.code || error.message;
+      diagnostics.readErrors += 1;
+      status.sessionCount = 0;
       return status; // 无 kimi 存储：如实不合并
     } finally {
       lines?.close();

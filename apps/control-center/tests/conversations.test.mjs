@@ -376,3 +376,93 @@ test("corrupt stores fail closed and are not overwritten", async (t) => {
   );
   assert.equal(await readFile(path, "utf8"), "{broken");
 });
+
+test("noteMessagePreview persists Grok-style preview and advances updatedAt monotonically", async (t) => {
+  const dataRoot = await fixture(t);
+  const store = await new ConversationStore({ dataRoot }).init();
+  const created = await store.create({ kind: "direct", title: "Miku", directMemberId: "miku-fast" });
+  assert.equal(created.preview, null);
+
+  const base = Date.parse(created.updatedAt);
+  const newerStamp = new Date(base + 3_600_000).toISOString();
+  const olderStamp = new Date(base + 1_800_000).toISOString();
+  const older = await store.noteMessagePreview(created.id, {
+    text: "第一件事：把剩余卡片接到真实数据",
+    from: "LO",
+    at: newerStamp,
+  });
+  assert.deepEqual(older.preview, { text: "第一件事：把剩余卡片接到真实数据", from: "LO", at: newerStamp });
+  assert.equal(older.updatedAt, newerStamp);
+
+  // 乱序/迟到事件不得把排序锚点 updatedAt 倒车
+  const late = await store.noteMessagePreview(created.id, { text: "迟到的旧事件", from: "miku-fast", at: olderStamp });
+  assert.equal(late.preview.text, "迟到的旧事件");
+  assert.equal(late.updatedAt, newerStamp);
+
+  const restarted = await new ConversationStore({ dataRoot }).init();
+  assert.equal(restarted.get(created.id).preview.text, "迟到的旧事件");
+});
+
+test("preview is write-only through noteMessagePreview; create/update bodies cannot forge it", async (t) => {
+  const dataRoot = await fixture(t);
+  const store = await new ConversationStore({ dataRoot }).init();
+  const created = await store.create({
+    kind: "direct", title: "Miku", directMemberId: "miku-fast",
+    preview: { text: "伪造预览", from: "LO", at: "2026-09-09T08:00:00.000Z" },
+  });
+  assert.equal(created.preview, null, "create body 里的 preview 必须被忽略");
+  const updated = await store.update(created.id, {
+    title: "Miku v2",
+    preview: { text: "伪造预览", from: "LO", at: "2026-09-09T08:00:00.000Z" },
+  });
+  assert.equal(updated.preview, null, "update body 里的 preview 必须被忽略");
+  assert.equal(store.get(created.id).preview, null);
+});
+
+test("noteMessagePreview fails closed on unknown, deleted, or empty input", async (t) => {
+  const dataRoot = await fixture(t);
+  const store = await new ConversationStore({ dataRoot }).init();
+  const created = await store.create({ kind: "direct", title: "Miku", directMemberId: "miku-fast" });
+  await assert.rejects(
+    store.noteMessagePreview("c-missing", { text: "x" }),
+    (error) => error.code === "CONVERSATION_NOT_FOUND",
+  );
+  await assert.rejects(
+    store.noteMessagePreview(created.id, { text: "   " }),
+    (error) => error.code === "VALIDATION_FAILED",
+  );
+  await assert.rejects(
+    store.noteMessagePreview(created.id, { text: "x".repeat(241) }),
+    (error) => error.code === "VALIDATION_FAILED",
+  );
+  await store.remove(created.id);
+  await assert.rejects(
+    store.noteMessagePreview(created.id, { text: "x" }),
+    (error) => error.code === "CONVERSATION_DELETED",
+  );
+});
+
+test("corrupt preview values on disk degrade to null instead of bricking the store", async (t) => {
+  const dataRoot = await fixture(t);
+  await writeFile(
+    join(dataRoot, "conversations.json"),
+    JSON.stringify({
+      schema: CONVERSATION_SCHEMA,
+      revision: 0,
+      items: [
+        {
+          id: "c-bad-preview", kind: "direct", title: "bad", directMemberId: "miku-fast",
+          memberIds: ["miku-fast"], runIds: [], activeRunId: null, projectId: null,
+          scope: "global", roomRole: "task", pinned: false, unread: false,
+          preview: { text: 42, at: "not-a-date" },
+          hiddenAt: null, deletedAt: null, sourceConversationId: null,
+          revision: 0, createdAt: null, updatedAt: null,
+        },
+      ],
+    }),
+    "utf8",
+  );
+  const store = await new ConversationStore({ dataRoot }).init();
+  assert.equal(store.status().failClosed, false);
+  assert.equal(store.get("c-bad-preview").preview, null);
+});
