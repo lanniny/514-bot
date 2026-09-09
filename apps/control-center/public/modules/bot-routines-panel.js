@@ -79,8 +79,9 @@ function routineRow(routine) {
  * @param {HTMLElement|null} options.emptyEl — 空态元素（可空，缺省用 listEl 内置空态）
  * @param {string} options.memberId — owning Bot
  * @param {(text: string, tone?: string) => void} options.toast
+ * @param {(capability: string, fields?: object) => void} [options.onTrack]
  */
-export async function renderBotRoutines({ listEl, emptyEl = null, memberId, toast = () => {} }) {
+export async function renderBotRoutines({ listEl, emptyEl = null, memberId, toast = () => {}, onTrack } = {}) {
   if (!listEl || !memberId) return;
   listEl.innerHTML = `<p class="bot-panel-empty">正在读取例行任务…</p>`;
   let routines;
@@ -109,8 +110,12 @@ export async function renderBotRoutines({ listEl, emptyEl = null, memberId, toas
           const routine = routines.find((item) => item.id === id);
           const turningOn = routine?.enabled !== true;
           try {
-            if (turningOn) await enableRoutine(id);
-            else await pauseRoutine(id);
+            if (turningOn) {
+              await enableRoutine(id);
+              onTrack?.("routine.enable", { outcome: "success" });
+            } else {
+              await pauseRoutine(id);
+            }
             toast(turningOn ? "例行已启用（已接调度器）" : "例行已暂停", "ok");
           } catch (error) {
             // enable 桥接失败（503）如实告知：不留下「看起来在跑」的假状态
@@ -128,7 +133,7 @@ export async function renderBotRoutines({ listEl, emptyEl = null, memberId, toas
         toast(`操作失败：${error.message}`, "error");
       } finally {
         button.disabled = false;
-        await renderBotRoutines({ listEl, emptyEl, memberId, toast });
+        await renderBotRoutines({ listEl, emptyEl, memberId, toast, onTrack });
       }
     });
   });
@@ -142,8 +147,9 @@ export async function renderBotRoutines({ listEl, emptyEl = null, memberId, toas
  * @param {() => Array<{id: string, label: string}>} options.memberOptions — owning Bot 候选（roster）
  * @param {() => Promise<void>} options.onSaved — 保存成功后的列表刷新
  * @param {(text: string, tone?: string) => void} options.toast
+ * @param {(capability: string, fields?: object) => void} [options.onTrack]
  */
-export function bindRoutineDialog({ dialog, defaultOwningMemberId, memberOptions, onSaved, toast = () => {} }) {
+export function bindRoutineDialog({ dialog, defaultOwningMemberId, memberOptions, onSaved, toast = () => {}, onTrack } = {}) {
   if (!dialog) return;
   const form = dialog.querySelector("form");
   const owningSelect = dialog.querySelector("[data-routine-field='owningMemberId']");
@@ -183,6 +189,7 @@ export function bindRoutineDialog({ dialog, defaultOwningMemberId, memberOptions
     if (submit) submit.disabled = true;
     try {
       await createRoutine(input);
+      onTrack?.("routine.create", { outcome: "success" });
       toast("例行任务已创建（先测试再启用）", "ok");
       dialog.returnValue = "saved";
       dialog.close();

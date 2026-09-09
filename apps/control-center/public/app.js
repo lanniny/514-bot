@@ -146,6 +146,7 @@ import { createDeltaMerge } from "./modules/delta-merge.js";
 import { createSettingsRailChrome } from "./modules/settings-rail-chrome.js";
 import { createRouterPreviewPanel } from "./modules/router-preview-panel.js";
 import { createTelemetryClient } from "./modules/telemetry-client.js";
+import { PRODUCT_ACTION_IDS } from "./modules/product-telemetry-catalog.js";
 import { createProductHealthPanel } from "./modules/product-health-panel.js";
 import { createShadowComparePanel } from "./modules/shadow-compare-panel.js";
 import { renderBotRoutines, bindRoutineDialog, openRoutineDialog } from "./modules/bot-routines-panel.js";
@@ -177,6 +178,9 @@ const request = apiRequest;
 // P-21 产品行为埋点（v48 S0）：fire-and-forget，任何失败静默吞掉。
 // apiReady 用于避开首次 token 兑换前的 401 竞态（见 api.js:100 注释）。
 const telemetry = createTelemetryClient({ request: apiRequest, apiReady });
+function trackProductAction(capability, fields) {
+  telemetry.trackAction(capability, fields);
+}
 const SETTLEMENT_REQUEST_TIMEOUT_MS = 12_000;
 const settlementRequester = createSettlementRequester({
   request,
@@ -3506,6 +3510,7 @@ function setView(view, {
   // 自举面板（channels/market/office）只在首载 boot 一次；切入视图时按需刷新，
   // 门闸授权/加载失败后切走再切回不再是死屏。
   if (view === "channels") {
+    trackProductAction(PRODUCT_ACTION_IDS.channelOpen);
     void import("./channels-panel.js").then((m) => m.refreshChannelsPanel?.());
   } else if (view === "market") {
     void import("./market-panel.js").then((m) => m.refreshMarketPanel?.());
@@ -18122,7 +18127,7 @@ function botRenderAgent(agentId = botState.agentId) {
   botRenderMemberPanel();
   // Grok 对标：右栏 Routines 区接 /api/bots/routines 真数据（仅单聊视图；项目群无 owning Bot 概念）
   if (!groupView) {
-    void renderBotRoutines({ listEl: byId("bot-routine-list"), memberId: next, toast: botCollabToast });
+    void renderBotRoutines({ listEl: byId("bot-routine-list"), memberId: next, toast: botCollabToast, onTrack: trackProductAction });
   }
   // Grok 对标：右栏 Channels 区接 /api/channels 真源（群聊单聊都显示——频道是全局接入面）
   void botLoadPanelChannels();
@@ -20225,6 +20230,7 @@ function openSaveSkillFromRun(runId = "") {
     request,
     toast,
     onSaved: async () => {
+      trackProductAction(PRODUCT_ACTION_IDS.skillSave, { outcome: "success" });
       await botLoadPrivateSkills();
     },
   });
@@ -20287,7 +20293,8 @@ function renderProductTourStep() {
   if (next) next.textContent = model?.isLast ? "完成" : "下一步";
 }
 
-function dismissProductTour() {
+function dismissProductTour({ completed = false } = {}) {
+  trackProductAction(completed ? PRODUCT_ACTION_IDS.tourComplete : PRODUCT_ACTION_IDS.tourDismiss);
   writeProductTourDismissed(true);
   const dialog = byId("bot-product-tour-dialog");
   if (dialog?.open) dialog.close();
@@ -20363,8 +20370,10 @@ function botValueProofStreamMarkup(run) {
 }
 
 function openValueProofTarget(target, runId) {
+  const dest = String(target || "");
+  if (dest) trackProductAction(PRODUCT_ACTION_IDS.valueProofLink, { action: dest });
   const id = String(runId || "").trim();
-  switch (String(target || "")) {
+  switch (dest) {
     case "evidence":
       openBotEvidenceSurface();
       return;
@@ -20443,7 +20452,7 @@ function bindProductOrientation() {
           channelStatus: productOrientationChannelStatus,
         });
         if (!model || model.isLast) {
-          dismissProductTour();
+          dismissProductTour({ completed: true });
           return;
         }
         productTourIndex += 1;
@@ -20451,6 +20460,7 @@ function bindProductOrientation() {
       }
     });
     tour.addEventListener("cancel", () => {
+      trackProductAction(PRODUCT_ACTION_IDS.tourDismiss);
       writeProductTourDismissed(true);
     });
     tour.dataset.orientationBound = "1";
@@ -21174,8 +21184,12 @@ async function botMaybeKickoffRelay(conversation, prompt, run) {
   try {
     const result = await postRelayKickoff({ runId: run.id, from: "lo", text: normalized });
     const count = Array.isArray(result?.dispatched) ? result.dispatched.length : 0;
-    if (count) toast(`已按点名派发 ${count} 项交接（右栏「任务」页可见）`, "success", 4200);
+    if (count) {
+      trackProductAction(PRODUCT_ACTION_IDS.kickoffSend, { outcome: "success", count });
+      toast(`已按点名派发 ${count} 项交接（右栏「任务」页可见）`, "success", 4200);
+    }
   } catch (error) {
+    trackProductAction(PRODUCT_ACTION_IDS.kickoffSend, { outcome: "failure" });
     toast(`点名派发未成功：${error.message}（消息已正常发送）`, "warning", 5000);
   }
 }
@@ -21723,9 +21737,10 @@ function initBotShell() {
       .map((member) => ({ id: String(member?.id ?? ""), label: member?.label || member?.id }))
       .filter((member) => member.id),
     onSaved: async () => {
-      await renderBotRoutines({ listEl: byId("bot-routine-list"), memberId: botState.agentId, toast: botCollabToast });
+      await renderBotRoutines({ listEl: byId("bot-routine-list"), memberId: botState.agentId, toast: botCollabToast, onTrack: trackProductAction });
     },
     toast: botCollabToast,
+    onTrack: trackProductAction,
   });
   byId("bot-routine-create-button")?.addEventListener("click", () => openRoutineDialog(routineDialog));
   routineDialog?.querySelectorAll("[data-routine-dialog-close]").forEach((button) => {
@@ -29902,6 +29917,7 @@ async function start() {
   // v4.0：命令面板 + 团队面板初始化
   initCmdPalette({
     extraItems: () => FORGE_PALETTE_EXTRA_ITEMS(),
+    onOpen: () => trackProductAction(PRODUCT_ACTION_IDS.paletteInvoke),
     onNavigate: (viewId) => setView(viewId),
     onAction: (actionId) => {
       if (handleCatalogPaletteAction(actionId)) return;

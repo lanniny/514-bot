@@ -10,7 +10,8 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, readFile, access } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ProductTelemetry, filterFields, TELEMETRY_TYPES } from "../src/product-telemetry.mjs";
+import { ProductTelemetry, filterFields, TELEMETRY_TYPES, unusedRegistered, REGISTERED_VIEWS } from "../src/product-telemetry.mjs";
+import { REGISTERED_CAPABILITIES, PRODUCT_ACTION_IDS } from "../public/modules/product-telemetry-catalog.js";
 
 async function withTelemetry(run, options = {}) {
   const dir = await mkdtemp(join(tmpdir(), "514cc-telemetry-"));
@@ -255,6 +256,40 @@ test("summary 聚合视图与能力使用分布", async () => {
   });
 });
 
+test("unusedRegistered 对注册全集做差集，未知观察值不进分母", () => {
+  const result = unusedRegistered(["bot", "ghost-view"], ["bot", "workbench", "team"]);
+  assert.deepEqual(result.used, ["bot"]);
+  assert.deepEqual(result.unused, ["workbench", "team"]);
+  assert.deepEqual(result.known, ["bot", "workbench", "team"]);
+});
+
+test("summary 聚合注册视图的从未打开（C5）", async () => {
+  const known = ["bot", "workbench", "team", "channels"];
+  await withTelemetry(async (telemetry) => {
+    await telemetry.record("usage.view", { view: "bot" });
+    await telemetry.record("usage.view", { view: "bot" });
+    await telemetry.record("usage.capability", { capability: PRODUCT_ACTION_IDS.paletteInvoke });
+    const result = await telemetry.summary();
+    assert.deepEqual(result.usedViews, ["bot"]);
+    assert.deepEqual(result.unusedViews, ["workbench", "team", "channels"]);
+    assert.ok(!result.unusedViews.includes("bot"));
+    assert.deepEqual(result.usedCapabilities, [PRODUCT_ACTION_IDS.paletteInvoke]);
+    assert.ok(result.unusedCapabilities.includes(PRODUCT_ACTION_IDS.kickoffSend));
+    assert.ok(!result.unusedCapabilities.includes(PRODUCT_ACTION_IDS.paletteInvoke));
+    assert.equal(result.knownViews.length, known.length);
+  }, { knownViews: known, knownCapabilities: [...REGISTERED_CAPABILITIES] });
+});
+
+test("零事件时全部注册视图判为从未打开", async () => {
+  await withTelemetry(async (telemetry) => {
+    const result = await telemetry.summary();
+    assert.deepEqual(result.usedViews, []);
+    assert.deepEqual(result.unusedViews, [...REGISTERED_VIEWS]);
+    assert.equal(result.unusedViews.length, REGISTERED_VIEWS.length);
+    assert.ok(result.unusedViews.length >= 14);
+  });
+});
+
 test("无托付数据时 trustedDelegationRate 为 null 而非 1", async () => {
   await withTelemetry(async (telemetry) => {
     await telemetry.record("usage.view", { view: "bot" });
@@ -330,6 +365,10 @@ test("端到端：埋点四端点经 HTTP 可用且写入独立文件", async ()
     assert.equal(summary.schema, "514cc.product-telemetry.summary/v1");
     assert.equal(summary.byView.workbench, 1);
     assert.equal(summary.trustedDelegationRate, null);
+    assert.ok(summary.usedViews.includes("workbench"));
+    assert.ok(summary.unusedViews.includes("bot"), "未访问的注册视图必须出现在 unusedViews");
+    assert.ok(!summary.unusedViews.includes("workbench"));
+    assert.ok(summary.unusedCapabilities.includes(PRODUCT_ACTION_IDS.kickoffSend));
 
     // 4) 落盘文件独立于 events.jsonl，且不含敏感输入
     const telemetryPath = join(dataRoot, "product-telemetry.jsonl");

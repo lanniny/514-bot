@@ -28,6 +28,13 @@
 import { rm, readFile, writeFile, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { EventStore } from "./event-store.mjs";
+import {
+  REGISTERED_VIEWS,
+  REGISTERED_CAPABILITIES,
+  unusedRegistered,
+} from "../public/modules/product-telemetry-catalog.js";
+
+export { REGISTERED_VIEWS, REGISTERED_CAPABILITIES, unusedRegistered };
 
 /** 埋点事件类型分类学，对应 v48 §8.2 的四层指标。未在此列的 type 一律拒绝。 */
 export const TELEMETRY_TYPES = Object.freeze({
@@ -111,9 +118,11 @@ export class ProductTelemetry {
    * @param {boolean} options.enabled   总开关默认值；**磁盘上的持久化值优先**（见 #loadSettings）
    * @param {number}  options.rateLimit 每分钟事件上限
    */
-  constructor({ path, enabled = true, rateLimit = DEFAULT_RATE_LIMIT } = {}) {
+  constructor({ path, enabled = true, rateLimit = DEFAULT_RATE_LIMIT, knownViews, knownCapabilities } = {}) {
     if (!path) throw new Error("ProductTelemetry requires a path");
     this.path = path;
+    this.knownViews = Array.isArray(knownViews) ? [...knownViews] : [...REGISTERED_VIEWS];
+    this.knownCapabilities = Array.isArray(knownCapabilities) ? [...knownCapabilities] : [...REGISTERED_CAPABILITIES];
     // F-3 修复：opt-out 必须跨重启存活。只放内存里等于"可临时暂停到下次重启"，
     // 而 LO 授权时说的是"可关闭"——那是两回事。
     this.settingsPath = `${path.replace(/\.jsonl$/, "")}.settings.json`;
@@ -270,6 +279,9 @@ export class ProductTelemetry {
       if (type === "trust.delegated") delegations += 1;
     }
 
+    const views = unusedRegistered(Object.keys(byView), this.knownViews);
+    const capabilities = unusedRegistered(Object.keys(byCapability), this.knownCapabilities);
+
     return {
       schema: "514cc.product-telemetry.summary/v1",
       enabled: this.enabled,
@@ -289,8 +301,14 @@ export class ProductTelemetry {
         : null,
       delegations,
       interventions,
-      // 死能力回收（P-20）的判据：调用方拿已知视图集合与之做差集
+      // 死能力回收（P-20）的判据：注册全集 − 已观察。unknown 观察值不进分母。
       observedViews: Object.keys(byView).sort(),
+      knownViews: views.known,
+      usedViews: views.used,
+      unusedViews: views.unused,
+      knownCapabilities: capabilities.known,
+      usedCapabilities: capabilities.used,
+      unusedCapabilities: capabilities.unused,
     };
   }
 
