@@ -56,7 +56,7 @@ export const BOT_PALETTE_ACTIONS = Object.freeze([
   {
     id: "bot:save-skill",
     label: "把成功 run 存为 Private skill",
-    icon: "bookmark-plus",
+    icon: "plus",
     keywords: "save skill private 沉淀 成功 run",
     detail: "仅对已成功的 run 开放；无成功 run 会如实提示",
   },

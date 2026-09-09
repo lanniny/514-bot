@@ -154,6 +154,7 @@ import { bindSaveSkillDialog, openSaveSkillDialog } from "./modules/save-skill-d
 import {
   capabilityMapMarkup,
   listCapabilityMapItems,
+  paintOrientationMarkup,
   productTourStepMarkup,
   productTourStepModel,
   shouldAutoStartProductTour,
@@ -20276,8 +20277,7 @@ function renderProductTourStep() {
     settlementPresent: settlementSurfacePresent(),
     channelStatus: productOrientationChannelStatus,
   });
-  const mount = dialog.querySelector("[data-product-tour-step]");
-  if (mount) mount.innerHTML = productTourStepMarkup(model);
+  paintOrientationMarkup(dialog.querySelector("[data-product-tour-step]"), productTourStepMarkup(model));
   const back = dialog.querySelector("[data-product-tour-back]");
   const next = dialog.querySelector("[data-product-tour-next]");
   if (back) back.hidden = !model || model.isFirst;
@@ -20317,10 +20317,10 @@ function maybeStartProductTour() {
 function paintCapabilityMap(status = productOrientationChannelStatus) {
   const mount = byId("bot-capability-map-dialog")?.querySelector("[data-capability-map-list]");
   if (!mount) return;
-  mount.innerHTML = capabilityMapMarkup(listCapabilityMapItems({
+  paintOrientationMarkup(mount, capabilityMapMarkup(listCapabilityMapItems({
     channelStatus: status,
     settlementPresent: settlementSurfacePresent(),
-  }));
+  })));
 }
 
 function openCapabilityMap() {
@@ -20460,7 +20460,7 @@ function handleCatalogPaletteAction(actionId) {
 function botSaveSkillCardMarkup(run) {
   if (!isSucceededRun(run)) return "";
   return `<article class="bot-card bot-save-skill-card" data-bot-card="save-skill" data-run-id="${escapeHtml(String(run.id))}">
-    <div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-bookmark-plus"></use></svg></span><div><strong>沉淀为 Private skill</strong><span>把这次成功的目标与结果存成可复用流程</span></div></div>
+    <div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-plus"></use></svg></span><div><strong>沉淀为 Private skill</strong><span>把这次成功的目标与结果存成可复用流程</span></div></div>
     <p class="bot-card-copy">草稿来自 run 的真实目标/结果；缺字段会空着，不会编造成果。</p>
     <div class="bot-card-actions">${saveSkillActionMarkup(run.id)}</div>
   </article>`;
