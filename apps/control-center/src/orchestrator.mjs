@@ -20,6 +20,7 @@ import {
   resolveOrchestrationMode,
   socialContractOf,
 } from "./social-contract.mjs";
+import { applyKickoffTaskGraph, executeConversationKickoff, kickoffTaskTextFor } from "./bot-kickoff.mjs";
 
 export { normalizeRunSources, promptWithRunSources } from "./run-sources.mjs";
 
@@ -888,6 +889,7 @@ export class Orchestrator {
             to,
             busMessageId: operationMessageId("task", targets.length === 1 && to === startAgentId ? run.id : `${run.id}:${to}`),
             kind: "task",
+            ...(kickoffTaskTextFor(run, to) ? { text: kickoffTaskTextFor(run, to) } : {}),
             ...this.currentInteraction(run),
           })));
           for (const item of run.resumeQueue) {
@@ -2171,6 +2173,23 @@ export class Orchestrator {
     }
   }
 
+  async conversationKickoff(conversationId, request = {}) {
+    const id = String(conversationId || "").trim();
+    if (!id) throw Object.assign(new Error("conversationId is required"), { code: "VALIDATION_FAILED" });
+    const { correlationId, ...innerRequest } = request;
+    const previous = this.conversationMessageChains.get(id) || Promise.resolve();
+    const operation = previous.catch(() => {}).then(() => executeConversationKickoff(this, id, innerRequest));
+    const tail = operation.catch(() => {});
+    this.conversationMessageChains.set(id, tail);
+    try {
+      const result = await operation;
+      if (correlationId && result?.run) requestCorrelationMap.set(result.run, correlationId);
+      return result;
+    } finally {
+      if (this.conversationMessageChains.get(id) === tail) this.conversationMessageChains.delete(id);
+    }
+  }
+
   async conversationMessage(conversationId, request = {}) {
     const id = String(conversationId || "").trim();
     if (!id) throw Object.assign(new Error("conversationId is required"), { code: "VALIDATION_FAILED" });
@@ -2762,6 +2781,9 @@ export class Orchestrator {
         kind: "mention",
         state: "queued",
       });
+    }
+    if (Array.isArray(input.kickoffTasks) && input.kickoffTasks.length >= 2) {
+      applyKickoffTaskGraph(run, input.kickoffTasks);
     }
     await withManagedClipboardSourceRegistration({
       dataRoot: this.dataRoot,
@@ -4603,7 +4625,7 @@ export class Orchestrator {
               from: "lo",
               to: next.to,
               kind: "task",
-              text: run.prompt,
+              text: next.text || kickoffTaskTextFor(run, next.to) || run.prompt,
             });
           }
           if (!run.initialTaskProjectedAt) {

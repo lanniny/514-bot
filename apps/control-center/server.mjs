@@ -2214,6 +2214,25 @@ async function api(request, response, url, requestId) {
     const conversation = await state.conversations.create(input);
     return json(response, 201, { schema: "514cc.conversation/v2", conversation, revision: state.conversations.status().revision });
   }
+  if (request.method === "POST" && pathname === "/api/bots/relay/kickoff") {
+    const input = await body(request) ?? {};
+    delete input.waitForTurn;
+    delete input.projectId;
+    if (process.env.CONTROL_CENTER_TEST_MODE !== "1") delete input.execute;
+    const conversationId = String(input.conversationId || "").trim();
+    delete input.conversationId;
+    const result = await state.orchestrator.conversationKickoff(conversationId, {
+      ...input,
+      waitForTurn: false,
+      correlationId: requestId,
+    });
+    return json(response, result.created ? 202 : 200, {
+      schema: "514cc.bot-kickoff/v1",
+      created: result.created === true,
+      tasks: result.tasks || [],
+      run: runForPublic(result.run),
+    });
+  }
   const conversationMessagesMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/messages$/);
   if (request.method === "POST" && conversationMessagesMatch) {
     const conversationId = decodeURIComponent(conversationMessagesMatch[1]);

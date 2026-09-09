@@ -749,6 +749,29 @@ test("Bot messages keep coherent Markdown, visible identities, compact activity 
   assert.doesNotMatch(css, /background: var\(--bot-accent\); color: #fff/);
 });
 
+test("Bot group composer send with two @mentions uses kickoff instead of run-create", async () => {
+  const [app, api, collabApi] = await Promise.all([
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/api.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/bot-collab-api.js`, "utf8"),
+  ]);
+  assert.match(api, /botRelayKickoff: "\/api\/bots\/relay\/kickoff"/);
+  assert.match(collabApi, /request\("\/api\/bots\/relay\/kickoff"/);
+  assert.match(app, /import \{ createBotCollabApi \} from "\.\/modules\/bot-collab-api\.js"/);
+  assert.match(app, /import \{ parseComposerKickoff, shouldComposerKickoff \} from "\.\/modules\/bot-kickoff-parse\.js"/);
+  assert.match(app, /const botCollabApi = createBotCollabApi\(\{ request \}\)/);
+  assert.match(app, /async function botSubmitKickoff\(/);
+  const submit = app.match(/async function botSubmitComposer\(event\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.match(submit, /shouldComposerKickoff\(prompt, botKickoffMembers\(conversation\)/);
+  assert.match(submit, /await botSubmitKickoff\(conversation, prompt, kickoff, options\)/);
+  assert.match(app, /botCollabApi\.kickoff\(\{/);
+  assert.doesNotMatch(app.match(/async function botSubmitKickoff\([\s\S]*?\n\}/)?.[0] || "", /request\(conversationEndpoint \|\| API\.runs/);
+  assert.match(app, /const handoffs = allTasks\.filter\(\(task\) => task\?\.kind === "handoff"\)/);
+  const createRun = app.match(/async function createRun\(event\) \{[\s\S]*?\n\}/)?.[0] || "";
+  assert.doesNotMatch(createRun, /\/api\/bots\/relay\/kickoff/);
+  assert.match(createRun, /conversationEndpoint \? \{[\s\S]{0,160}messageIntent: "steer"/);
+});
+
 test("Bot mentions keep structured member identity and Conversation-scoped routing", async () => {
   const [html, app, css, module] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
@@ -770,8 +793,9 @@ test("Bot mentions keep structured member identity and Conversation-scoped routi
   assert.match(module, /data-bot-mention-remove/);
   assert.match(app, /recipientMemberIds: botSubmission\?\.recipientMemberIds/);
   assert.match(app, /recipientMemberIds: botMentionSelectedIds\(conversation\)/);
-  assert.match(module, /botState\.mentionSelections\[botMentionContextKey\(\)\] = \[id\]/);
-  assert.match(module, /removeRequestedAgentMention\(nextValue, botMentionTokenLabel\(previousId\)\)/);
+  assert.match(module, /conversation\?\.kind === "workspace_group" \? MAX_REQUESTED_AGENTS \+ 1 : 1/);
+  assert.match(module, /replaceSingle\s*\?\s*\[id\]/);
+  assert.match(module, /removeRequestedAgentMention\(nextValue, botMentionTokenLabel\(previousId, conversation\)\)/);
   assert.match(app, /event\.key === "Escape"[\s\S]{0,180}botHideMentionMenu\(\)/);
   assert.match(css, /\.bot-mention-menu/);
   assert.match(css, /\.bot-mention-recipient/);

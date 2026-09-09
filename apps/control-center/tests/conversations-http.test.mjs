@@ -105,6 +105,43 @@ test("conversation HTTP API persists direct and workspace identities with CAS", 
   assert.equal(group.scope, "project");
   assert.equal(group.roomRole, "default");
   assert.ok(group.projectId);
+
+  const unauthorizedKickoff = await fetch(new URL("/api/bots/relay/kickoff", baseUrl), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ conversationId: group.id, prompt: "@claude-fable a @codex-technical b" }),
+  });
+  assert.equal(unauthorizedKickoff.status, 401);
+  const singleMentionKickoff = await request("/api/bots/relay/kickoff", {
+    method: "POST",
+    body: JSON.stringify({
+      conversationId: group.id,
+      prompt: "@codex-technical only one person",
+      execute: false,
+    }),
+  });
+  assert.equal(singleMentionKickoff.status, 422);
+  assert.equal((await singleMentionKickoff.json()).error.code, "VALIDATION_FAILED");
+  const kickoffResponse = await request("/api/bots/relay/kickoff", {
+    method: "POST",
+    body: JSON.stringify({
+      conversationId: group.id,
+      prompt: "@claude-fable 规划方案 @codex-technical 写补丁",
+      execute: false,
+    }),
+  });
+  const kickoffPayload = await kickoffResponse.json();
+  assert.equal(kickoffResponse.status, 202, JSON.stringify(kickoffPayload));
+  assert.equal(kickoffPayload.schema, "514cc.bot-kickoff/v1");
+  assert.equal(kickoffPayload.created, true);
+  assert.equal(kickoffPayload.tasks.length, 2);
+  assert.deepEqual(kickoffPayload.tasks.map((task) => task.assigneeId), ["claude-fable", "codex-technical"]);
+  assert.match(kickoffPayload.tasks[0].text, /规划方案/);
+  assert.match(kickoffPayload.tasks[1].text, /写补丁/);
+  const kickoffHandoffs = (kickoffPayload.run?.taskGraph?.tasks || []).filter((task) => task.kind === "handoff");
+  assert.equal(kickoffHandoffs.length, 2);
+  assert.equal(kickoffPayload.run.conversationId, group.id);
+  assert.equal(kickoffPayload.run.orchestrationMode, "social");
   const duplicateCwd = await request("/api/conversations", {
     method: "POST",
     body: JSON.stringify({ kind: "workspace_group", title: "Conflict", memberIds: ["codex-technical"], cwd: `${workspaceA}/` }),

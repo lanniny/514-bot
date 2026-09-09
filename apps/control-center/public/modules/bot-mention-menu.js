@@ -7,7 +7,7 @@
 
 import { escapeHtml } from "../utils.js";
 import { lucideIcon } from "../lucide.js";
-import { removeRequestedAgentMention } from "../state.js";
+import { MAX_REQUESTED_AGENTS, removeRequestedAgentMention } from "../state.js";
 
 export function createBotMentionMenu({
   botState,
@@ -38,7 +38,8 @@ export function createBotMentionMenu({
   function botMentionSelectedIds(conversation = botActiveConversation()) {
     const key = botMentionContextKey(conversation);
     const allowed = new Set(botMentionScope(conversation));
-    const selected = [...new Set((botState.mentionSelections[key] || []).map(String).filter((id) => allowed.has(id)))].slice(0, 1);
+    const max = conversation?.kind === "workspace_group" ? MAX_REQUESTED_AGENTS + 1 : 1;
+    const selected = [...new Set((botState.mentionSelections[key] || []).map(String).filter((id) => allowed.has(id)))].slice(0, max);
     botState.mentionSelections[key] = selected;
     return selected;
   }
@@ -159,17 +160,22 @@ export function createBotMentionMenu({
     const input = byId("bot-composer-input");
     const range = botState.mentionRange;
     if (!input || !range || !botMentionScope().includes(id)) return;
-    const previousId = botMentionSelectedIds()[0] || "";
-    const meta = botMeta(id);
-    const tokenLabel = botMentionTokenLabel(id);
+    const conversation = botActiveConversation();
+    const selected = botMentionSelectedIds(conversation);
+    const tokenLabel = botMentionTokenLabel(id, conversation);
     const before = input.value.slice(0, range.start);
     const after = input.value.slice(range.end);
     let nextValue = `${before}@${tokenLabel} ${after}`;
-    if (previousId && previousId !== id) {
-      nextValue = removeRequestedAgentMention(nextValue, botMentionTokenLabel(previousId));
+    const replaceSingle = conversation?.kind !== "workspace_group";
+    const previousId = selected[0] || "";
+    if (replaceSingle && previousId && previousId !== id) {
+      nextValue = removeRequestedAgentMention(nextValue, botMentionTokenLabel(previousId, conversation));
     }
     input.value = nextValue;
-    botState.mentionSelections[botMentionContextKey()] = [id];
+    const nextIds = replaceSingle
+      ? [id]
+      : [...new Set([...selected, id])].slice(0, MAX_REQUESTED_AGENTS + 1);
+    botState.mentionSelections[botMentionContextKey(conversation)] = nextIds;
     const caret = Math.min(input.value.length, before.length + tokenLabel.length + 2);
     input.setSelectionRange(caret, caret);
     input.dispatchEvent(new Event("input", { bubbles: true }));

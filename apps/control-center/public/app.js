@@ -123,6 +123,8 @@ import {
 } from "./modules/run-live-activity.js";
 import { createWorkbenchTopology } from "./modules/workbench-topology.js";
 import { createBotMentionMenu } from "./modules/bot-mention-menu.js";
+import { createBotCollabApi } from "./modules/bot-collab-api.js";
+import { parseComposerKickoff, shouldComposerKickoff } from "./modules/bot-kickoff-parse.js";
 import { createBotAttachments } from "./modules/bot-attachments.js";
 import { createBotSettlement, BOT_SETTLEMENT_SCHEMA, RUN_SETTLEMENT_TTL_MS, validateBotSettlementEnvelope } from "./modules/bot-settlement.js";
 import { createConversationWindow } from "./modules/conversation-window.js";
@@ -151,6 +153,7 @@ import {
 
 // 兼容层：旧代码中的 request() 和 accessToken 引用
 const request = apiRequest;
+const botCollabApi = createBotCollabApi({ request });
 // P-21 产品行为埋点（v48 S0）：fire-and-forget，任何失败静默吞掉。
 // apiReady 用于避开首次 token 兑换前的 401 竞态（见 api.js:100 注释）。
 const telemetry = createTelemetryClient({ request: apiRequest, apiReady });
@@ -17820,7 +17823,9 @@ function botRenderCollaborationWorkspace() {
     return;
   }
   if (tab === "tasks") {
-    const tasks = Array.isArray(run?.taskGraph?.tasks) ? run.taskGraph.tasks : [];
+    const allTasks = Array.isArray(run?.taskGraph?.tasks) ? run.taskGraph.tasks : [];
+    const handoffs = allTasks.filter((task) => task?.kind === "handoff");
+    const tasks = handoffs.length ? handoffs : allTasks;
     const delegations = Array.isArray(run?.taskGraph?.delegations) ? run.taskGraph.delegations : [];
     panel.innerHTML = `<header class="bot-collab-panel-head"><div><span>RUN TASK GRAPH</span><h3>任务</h3></div><strong>${tasks.length}</strong></header>
       <div class="bot-collab-list">${tasks.length ? tasks.map(botCollaborationTaskMarkup).join("") : '<p class="bot-collab-empty">当前运行还没有任务记录</p>'}</div>
@@ -20570,6 +20575,92 @@ async function botInterruptCurrentRun() {
   }
 }
 
+function botKickoffMembers(conversation = botActiveConversation()) {
+  return [...new Set((conversation?.memberIds || []).map(String).filter(Boolean))].map((id) => ({
+    id,
+    label: botMeta(id).label,
+    tokenLabel: botMentionTokenLabel(id, conversation),
+    tokens: [id, botMeta(id).label, botMentionTokenLabel(id, conversation)],
+  }));
+}
+
+async function botSubmitKickoff(conversation, prompt, kickoff, options = {}) {
+  const tasks = Array.isArray(kickoff?.tasks) ? kickoff.tasks : [];
+  const assigneeIds = tasks.map((task) => String(task.assigneeId || "")).filter(Boolean);
+  if (assigneeIds.length < 2) return false;
+  const [primary, ...collaborators] = assigneeIds;
+  botState.agentId = primary;
+  const submission = {
+    token: `bot-kickoff-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    agentId: primary,
+    prompt: botPromptKey(prompt),
+    requestedAgentIds: collaborators,
+    recipientMemberIds: assigneeIds,
+    orchestrationMode: "social",
+    groupTitle: String(conversation.title || "").trim().slice(0, 120),
+    teamId: "",
+    ephemeralTeam: botEphemeralTeamForMembers(conversation.memberIds || [], conversation.title),
+    conversationId: conversation.id,
+    conversationKind: "workspace_group",
+    cwd: null,
+    usesBotAttachments: options.attachmentSources?.length > 0,
+    attachmentContextKey: options.attachmentContextKey || null,
+    attachmentSources: [...(options.attachmentSources || [])],
+    kickoff: true,
+    submittedAt: Date.now(),
+  };
+  botState.pendingSubmissions.push(submission);
+  if (botState.pendingSubmissions.length > 8) {
+    const evicted = botState.pendingSubmissions.shift();
+    if (botState.pendingSubmission === evicted) botState.pendingSubmission = botState.pendingSubmissions.at(-1) || null;
+    if (evicted?.agentId === botState.agentId) botMarkSubmissionFailure(new Error("待提交任务过多，请稍后重试"), evicted);
+  }
+  botState.pendingSubmission = submission;
+  botState.conversationAdmissionToken = submission.token;
+  submission.localToken = botAppendUserMessage(options.displayText || prompt);
+  const runState = byId("bot-run-state");
+  const composerState = byId("bot-composer-state");
+  if (runState) { runState.textContent = "queued"; runState.className = "bot-run-state is-running"; }
+  if (composerState) composerState.textContent = "已拆成交接任务";
+  botArmFirstResponseClock();
+  botScheduleSubmissionTimeout(submission);
+  try {
+    const payload = await botCollabApi.kickoff({
+      conversationId: conversation.id,
+      prompt,
+      tasks,
+      sources: submission.attachmentSources.length ? submission.attachmentSources : undefined,
+    });
+    const raw = payload?.run ?? payload;
+    const run = normalizeRun(raw ?? { prompt, status: "planning" }, 0);
+    state.runs = [run, ...state.runs.filter((item) => item.id !== run.id)];
+    const botBound = botBindRun(run, {
+      prompt,
+      agentId: primary,
+      agentIds: collaborators,
+      submission,
+    });
+    if (!botBound) {
+      run.botBinding = "late-detached";
+      appendDiagnostic(`Bot kickoff 已结算失败；迟到运行 ${run.id} 保留给协作台回读`, "warning");
+      toast(`Bot 发送已超时；运行 ${run.id} 已留在协作台`, "warning", 6000);
+      return true;
+    }
+    if (submission.usesBotAttachments) botRenderAttachments();
+    setView("bot", { focus: false });
+    botActivateCollaborationTab("tasks");
+    botRenderAgent(primary);
+    toast(`已向 ${assigneeIds.length} 位成员交接任务`, "success");
+    appendDiagnostic(`kickoff ${run.id}: ${prompt.slice(0, 80)}`);
+    return true;
+  } catch (error) {
+    botMarkSubmissionFailure(error, submission);
+    toast(error.message, "error");
+    appendDiagnostic(`kickoff 失败：${error.message}`, "error");
+    return false;
+  }
+}
+
 async function botSubmitComposer(event) {
   event.preventDefault();
   const readOnlyReason = botConversationReadOnlyReason();
@@ -20625,6 +20716,12 @@ async function botSubmitComposer(event) {
       && [...ephemeralTeam.members].sort().join("\u0000") === [...memberIds].sort().join("\u0000");
     if (!memberIds.length || !exactMembers) {
       toast("工作区群聊缺少可协调成员，请先编辑成员名单", "warning", 5000);
+      return;
+    }
+    const kickoff = parseComposerKickoff(prompt, botKickoffMembers(conversation));
+    if (shouldComposerKickoff(prompt, botKickoffMembers(conversation), { conversationKind: conversation.kind }) && kickoff) {
+      const queued = await botSubmitKickoff(conversation, prompt, kickoff, options);
+      if (queued) botClearVisibleComposer();
       return;
     }
     const recipientMemberIds = botMentionSelectedIds(conversation);

@@ -12,6 +12,7 @@ const API = Object.freeze({
   runs: "/api/runs",
   projects: "/api/projects",
   project: (id) => `/api/projects/${encodeURIComponent(id)}`,
+  botRelayKickoff: "/api/bots/relay/kickoff",
   conversations: "/api/conversations",
   purgeDeletedConversations: "/api/conversations/deleted",
   conversation: (id) => `/api/conversations/${encodeURIComponent(id)}`,
