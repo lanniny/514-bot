@@ -514,6 +514,38 @@
               </form>
             </dialog>
 
+            <dialog class="bot-routine-dialog bot-save-skill-dialog" id="save-skill-dialog" aria-labelledby="save-skill-dialog-title">
+              <form method="dialog" novalidate>
+                <header><div><span class="bot-kicker">Grok 式沉淀</span><h2 id="save-skill-dialog-title">存为 Private skill</h2></div><button class="bot-icon-button" type="button" data-save-skill-close title="关闭" aria-label="关闭存为 Private skill"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-x"></use></svg></button></header>
+                <p class="bot-routine-hint">从这次成功 run 的目标与结果生成草稿。保存前请核对；缺字段不会编造。</p>
+                <p class="bot-save-skill-source" data-save-skill-source></p>
+                <p class="bot-routine-hint" data-save-skill-empty hidden></p>
+                <div class="bot-routine-grid">
+                  <label class="bot-settings-field is-wide"><span>Name</span><input data-save-skill-field="name" maxlength="80" required placeholder="可复用流程名" /></label>
+                  <label class="bot-settings-field is-wide"><span>Description</span><input data-save-skill-field="description" maxlength="200" required placeholder="何时用、解决什么" /></label>
+                  <label class="bot-settings-field is-wide"><span>Instructions</span><textarea data-save-skill-field="instructions" rows="7" maxlength="4000" required placeholder="目标、步骤、验收"></textarea></label>
+                </div>
+                <p class="bot-routine-error" data-save-skill-error role="alert" hidden></p>
+                <footer><button type="button" class="bot-text-button" data-save-skill-close>取消</button><button type="submit" class="bot-card-confirm">保存 Private skill</button></footer>
+              </form>
+            </dialog>
+
+            <dialog class="bot-routine-dialog bot-kickoff-help-dialog" id="bot-kickoff-help-dialog" aria-labelledby="bot-kickoff-help-title">
+              <form method="dialog">
+                <header><div><span class="bot-kicker">协作 kickoff</span><h2 id="bot-kickoff-help-title">如何发起 kickoff</h2></div><button class="bot-icon-button" type="submit" title="关闭" aria-label="关闭 kickoff 帮助"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-x"></use></svg></button></header>
+                <div class="bot-kickoff-help-body">
+                  <p>在 514 Bot 协作室输入框里用 <kbd>@成员</kbd> 点名，再写下共同目标后发送。</p>
+                  <ul>
+                    <li>至少点名 <strong>两位</strong> 成员才会走 relay/kickoff；单点名只是普通定向消息。</li>
+                    <li>共享目标会作为前缀发给每个被点名的成员；可以写成 <code>@烛 评审 diff @织 查竞品</code>。</li>
+                    <li>kickoff 失败不会撤回已经发出的消息——右栏交接板会显示真实派发结果。</li>
+                    <li>没有协作室时，先新建群聊或从成员页拉人进房间。</li>
+                  </ul>
+                </div>
+                <footer><button type="submit" class="bot-card-confirm">知道了</button></footer>
+              </form>
+            </dialog>
+
             <aside class="bot-agent-panel" id="bot-agent-panel" role="dialog" aria-modal="true" aria-labelledby="bot-panel-agent-name" aria-describedby="bot-panel-kicker" aria-hidden="true" inert hidden>
               <header class="bot-panel-header"><div><span class="bot-kicker" id="bot-panel-kicker">会话详情</span><h2 id="bot-panel-agent-name">Master</h2></div><div class="bot-panel-actions"><button class="bot-icon-button" id="bot-agent-settings-button" type="button" title="成员设置" aria-label="打开成员设置"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-settings"></use></svg></button><button class="bot-icon-button" id="bot-agent-panel-close" type="button" title="关闭会话详情" aria-label="关闭会话详情"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-x"></use></svg></button></div></header>
               <dl class="bot-inspector-facts" aria-label="当前会话摘要">

@@ -53,7 +53,7 @@ test("team page owns the starmap and hero is only an alias into that surface", a
     readFile(resolve(publicRoot, "index.html"), "utf8"),
     readFile(resolve(publicRoot, "app.js"), "utf8"),
     readFile(resolve(publicRoot, "hero-starmap.js"), "utf8"),
-    readFile(resolve(publicRoot, "command-palette.js"), "utf8"),
+    readFile(resolve(publicRoot, "modules/palette-catalog.js"), "utf8"),
   ]);
   assert.match(index, /id="team-starmap-root"/);
   assert.doesNotMatch(index, /id="view-hero"|id="hero-container"|data-view="hero"|src="\.\/hero-starmap\.js"/);
@@ -62,5 +62,5 @@ test("team page owns the starmap and hero is only an alias into that surface", a
   assert.match(starmap, /export function mountTeamStarmap/);
   assert.match(starmap, /export function activityFromPanel/);
   assert.doesNotMatch(starmap, /bootWhenReady|getElementById\("hero-container"\)/);
-  assert.match(palette, /hero: "hero constellation 星图/);
+  assert.match(palette, /hero: \{ icon: "orbit", keywords: "hero constellation 星图/);
 });

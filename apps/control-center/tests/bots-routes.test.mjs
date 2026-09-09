@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { BusStore } from "../src/bus.mjs";
 import { AutomationStore } from "../src/automations.mjs";
 import { registerBotsRoutes, resetBotsServicesForTest } from "../src/bots/routes.mjs";
+import { draftPrivateSkillFromRun } from "../public/modules/private-skill-from-run.js";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -262,6 +263,29 @@ test("private skills CRUD round-trips through the API surface and persists to di
   const disk = JSON.parse(await readFile(join(root, "bot-private-skills.json"), "utf8"));
   assert.equal(disk.schema, "514cc.bot-private-skills/v1");
   assert.equal(disk.items.length, 0);
+});
+
+test("a succeeded-run draft persists through the existing private-skills API", async (t) => {
+  const { call } = await freshSurface(t);
+  const draft = draftPrivateSkillFromRun({
+    id: "run-from-settlement",
+    status: "succeeded",
+    title: "Weekly ledger sweep",
+    prompt: "Summarize route-gate / DELTA / handoff drift",
+    result: { final: "Three open drifts; no secrets in the summary." },
+  });
+  assert.ok(draft?.ready);
+  const created = await call("POST", "/api/bots/private-skills", {
+    name: draft.name,
+    description: draft.description,
+    instructions: draft.instructions,
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.payload.skill.name, draft.name);
+  assert.match(created.payload.skill.instructions, /Source run: run-from-settlement/);
+  const list = await call("GET", "/api/bots/private-skills");
+  assert.equal(list.payload.count, 1);
+  assert.equal(list.payload.skills[0].id, created.payload.skill.id);
 });
 
 test("private skills fail closed on unknown id, secrets, and missing fields", async (t) => {

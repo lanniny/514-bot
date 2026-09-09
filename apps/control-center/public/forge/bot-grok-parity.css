@@ -9,6 +9,13 @@
 .bot-routine-actions .bot-icon-button { width: 26px; height: 26px; }
 .bot-routine-actions .bot-icon-button svg { width: 14px; height: 14px; }
 .bot-routine-hint { margin: 0 0 12px; color: var(--bot-muted); font-size: var(--text-xs); line-height: 1.6; }
+.bot-save-skill-source { margin: 0 0 10px; color: var(--bot-muted); font-size: var(--text-xs); }
+.bot-kickoff-help-body { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 10px; overflow: auto; font-size: var(--text-sm); line-height: 1.6; }
+.bot-kickoff-help-body p,
+.bot-kickoff-help-body ul { margin: 0; }
+.bot-kickoff-help-body ul { padding-left: 1.2em; }
+.bot-kickoff-help-body kbd,
+.bot-kickoff-help-body code { font-size: var(--text-xs); }
 
 /* ---- 新建例行 dialog ---- */
 .bot-routine-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 20px; border: 1px solid var(--bot-line); border-radius: 8px; background: var(--bot-panel); color: var(--bot-ink); }

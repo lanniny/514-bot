@@ -149,6 +149,8 @@ import { createTelemetryClient } from "./modules/telemetry-client.js";
 import { createProductHealthPanel } from "./modules/product-health-panel.js";
 import { createShadowComparePanel } from "./modules/shadow-compare-panel.js";
 import { renderBotRoutines, bindRoutineDialog, openRoutineDialog } from "./modules/bot-routines-panel.js";
+import { draftPrivateSkillFromRun, isSucceededRun, saveSkillActionMarkup } from "./modules/private-skill-from-run.js";
+import { bindSaveSkillDialog, openSaveSkillDialog } from "./modules/save-skill-dialog.js";
 import { loadBotProfileSection, saveBotProfileSection, markBotProfileDirty } from "./modules/bot-profile-editor.js";
 import { renderRelayBoard } from "./modules/bot-relay-board.js";
 import { postRelayKickoff } from "./modules/bot-collab-api.js";
@@ -19045,7 +19047,8 @@ function botRenderConversationMessages(agentId, run, messages) {
     avatarHtml: (id) => botMessageAvatar(id),
     labelFor: (id) => botMeta(id).label,
   });
-  const html = `${messageHtml}${liveMarkup}${typingHtml}${approvalOutcomeHtml}`;
+  const saveSkillHtml = run && !page.after ? botSaveSkillCardMarkup(run) : "";
+  const html = `${messageHtml}${liveMarkup}${typingHtml}${approvalOutcomeHtml}${saveSkillHtml}`;
   renderWorkspaceAttention();
   const conversationLabel = botState.activeGroupRunId && String(run?.id) === String(botState.activeGroupRunId)
     ? botGroupTitle(run)
@@ -20181,6 +20184,105 @@ function botTrapWorkspaceFocus(event) {
 // ---- LO 私有技能（Grok: Private skills；真源 /api/bots/private-skills，增删改落盘）----
 let botPrivateSkillsCache = [];
 
+function resolveSucceededRun(runId = "") {
+  const id = String(runId || "").trim();
+  const candidates = [
+    id ? state.runs.find((item) => String(item?.id || "") === id) : null,
+    botRunForAgent(),
+    typeof selectedRun === "function" ? selectedRun() : null,
+  ];
+  return candidates.find((run) => isSucceededRun(run)) || null;
+}
+
+function openSaveSkillFromRun(runId = "") {
+  const dialog = byId("save-skill-dialog");
+  const run = resolveSucceededRun(runId);
+  if (!run) {
+    toast(runId ? "该 run 不是成功状态，不能沉淀为 Private skill" : "当前没有已成功的 run 可沉淀", "info", 4200);
+    return;
+  }
+  const draft = draftPrivateSkillFromRun(run);
+  if (!draft) {
+    toast("无法从该 run 生成技能草稿", "warning", 3600);
+    return;
+  }
+  bindSaveSkillDialog({
+    dialog,
+    request,
+    toast,
+    onSaved: async () => {
+      await botLoadPrivateSkills();
+    },
+  });
+  openSaveSkillDialog(dialog, draft);
+}
+
+function openCreateRoutineFromPalette() {
+  setView("bot");
+  const dialog = byId("bot-routine-dialog");
+  if (!dialog) {
+    toast("新建例行表单不可用", "error");
+    return;
+  }
+  openRoutineDialog(dialog);
+}
+
+function openKickoffHelp() {
+  setView("bot");
+  const dialog = byId("bot-kickoff-help-dialog");
+  if (dialog && typeof dialog.showModal === "function") {
+    dialog.showModal();
+    return;
+  }
+  const composer = byId("bot-composer-input");
+  composer?.focus({ preventScroll: true });
+  toast("在协作室用 @成员1 @成员2 写下共同目标后发送，才会走 kickoff", "info", 5600);
+}
+
+function handleCatalogPaletteAction(actionId) {
+  if (actionId.startsWith("bot-settings:")) {
+    const tab = actionId.slice("bot-settings:".length);
+    setView("bot");
+    botOpenSettings(tab || "general");
+    return true;
+  }
+  if (actionId.startsWith("config-surface:")) {
+    const surface = actionId.slice("config-surface:".length);
+    setView("config", { configSurface: surface, focus: true });
+    return true;
+  }
+  switch (actionId) {
+    case "bot:create-routine":
+      openCreateRoutineFromPalette();
+      return true;
+    case "bot:open-channels":
+      setView("bot");
+      botOpenWorkspace("channels");
+      return true;
+    case "bot:private-skills":
+      setView("bot");
+      botOpenSettings("plugins");
+      return true;
+    case "bot:kickoff-help":
+      openKickoffHelp();
+      return true;
+    case "bot:save-skill":
+      openSaveSkillFromRun();
+      return true;
+    default:
+      return false;
+  }
+}
+
+function botSaveSkillCardMarkup(run) {
+  if (!isSucceededRun(run)) return "";
+  return `<article class="bot-card bot-save-skill-card" data-bot-card="save-skill" data-run-id="${escapeHtml(String(run.id))}">
+    <div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-bookmark-plus"></use></svg></span><div><strong>沉淀为 Private skill</strong><span>把这次成功的目标与结果存成可复用流程</span></div></div>
+    <p class="bot-card-copy">草稿来自 run 的真实目标/结果；缺字段会空着，不会编造成果。</p>
+    <div class="bot-card-actions">${saveSkillActionMarkup(run.id)}</div>
+  </article>`;
+}
+
 function botPrivateSkillRowMarkup(skill) {
   return `<div class="bot-private-skill-row" role="listitem" data-private-skill-id="${escapeHtml(skill.id)}"><span><strong>${escapeHtml(skill.name)}</strong><small>${escapeHtml(skill.description)}</small></span><span class="bot-private-skill-actions"><button class="bot-text-button" type="button" data-bot-action="private-skill-edit" data-private-skill-id="${escapeHtml(skill.id)}">Edit</button><button class="bot-icon-button" type="button" data-bot-action="private-skill-delete" data-private-skill-id="${escapeHtml(skill.id)}" title="删除 Private skill" aria-label="删除 ${escapeHtml(skill.name)}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-trash-2"></use></svg></button></span></div>`;
 }
@@ -21036,6 +21138,11 @@ function initBotShell() {
       retryBotSettlement(retry.dataset.botSettlementRetry);
       return;
     }
+    const saveSkill = event.target.closest("[data-save-private-skill]");
+    if (saveSkill) {
+      openSaveSkillFromRun(saveSkill.dataset.savePrivateSkill);
+      return;
+    }
     const diff = event.target.closest("[data-bot-settlement-diff]");
     if (!diff) return;
     const runId = String(diff.dataset.botSettlementDiff || "");
@@ -21503,6 +21610,11 @@ byId("bot-member-runtime-profile")?.addEventListener("change", () => {
       }
       conversationTabs.openTab(runId, botState.agentId);
       void conversationHeader.toggleRunDiff(runId);
+      return;
+    }
+    const saveSkill = event.target.closest("[data-save-private-skill]");
+    if (saveSkill) {
+      openSaveSkillFromRun(saveSkill.dataset.savePrivateSkill);
       return;
     }
     const answerOption = event.target.closest("[data-bot-answer-option]");
@@ -22320,6 +22432,7 @@ function worktreeSettlementMarkup(run) {
         ${gitCommands ? `<button class="text-button" type="button" data-settlement-copy-path="${escapeHtml(run.worktreePath)}">复制路径</button>` : ""}
         ${gitCommands ? `<button class="text-button" type="button" data-settlement-copy-git="${escapeHtml(gitCommands)}">复制 git 命令</button>` : ""}
         ${gitCommands ? `<button class="text-button" type="button" data-settlement-reveal="${escapeHtml(run.worktreePath)}">打开资源管理器</button>` : ""}
+        ${isSucceededRun(run) ? saveSkillActionMarkup(run.id, { className: "text-button" }) : ""}
       </div>
       ${hintsHtml}
     </div>`;
@@ -22384,8 +22497,20 @@ function runCompletionMarkup(run) {
       <strong>${lucideIcon("check", "icon lucide")} 任务完成</strong>
       <span>${escapeHtml(parts.filter(Boolean).join(" · "))}</span>
       ${run.worktreePath ? "" : runDiffButtonMarkup(run)}
+      ${saveSkillActionMarkup(run.id, { className: "text-button" })}
     </div>
     ${worktreeSettlementMarkup(run)}`;
+}
+
+function runSaveSkillMarkup(run) {
+  if (!isSucceededRun(run)) return "";
+  if ((run.turns ?? []).length) return "";
+  return `
+    <div class="run-end-note is-succeeded" data-stream-key="tail:save-skill">
+      <strong>沉淀为 Private skill</strong>
+      <span>这次成功 run 没有轮次统计，仍可以从已捕获的目标/结果存成技能。</span>
+      ${saveSkillActionMarkup(run.id, { className: "text-button" })}
+    </div>`;
 }
 
 // 失败任务重新发起：prompt 回填 composer 并切到新任务模式（不自动提交——LO 可先改再发）
@@ -23355,7 +23480,7 @@ function renderSelectedRun({ preserveStreamState = true } = {}) {
   const tailMarkup = newerGate + liveProcessRowsMarkup(run) + turnProgressMarkup(run) + liveTurnMarkup(run);
   const tailHead = tailMarkup;
   const tailRest = pendingAskMarkup(run) + inlineApprovalsMarkup(run)
-    + runCompletionMarkup(run) + runFailureMarkup(run) + runDiffPanelMarkup(run);
+    + runCompletionMarkup(run) + runSaveSkillMarkup(run) + runFailureMarkup(run) + runDiffPanelMarkup(run);
   const deltaMarkup = liveDeltaMarkup(run);
   const completeTailMarkup = tailHead + deltaMarkup + tailRest;
   const renderSignature = conversationRenderSignature(renderContext, messageWindow, historyGate, completeTailMarkup);
@@ -27470,6 +27595,11 @@ function bindEvents() {
         (error) => toast(`复制失败：${error.message}`, "error"),
       );
     }
+    const savePrivateSkill = event.target.closest("[data-save-private-skill]");
+    if (savePrivateSkill) {
+      openSaveSkillFromRun(savePrivateSkill.dataset.savePrivateSkill);
+      return;
+    }
     const settlementReveal = event.target.closest("[data-settlement-reveal]");
     if (settlementReveal) {
       const path = settlementReveal.dataset.settlementReveal || "";
@@ -29509,6 +29639,7 @@ async function start() {
     extraItems: () => FORGE_PALETTE_EXTRA_ITEMS(),
     onNavigate: (viewId) => setView(viewId),
     onAction: (actionId) => {
+      if (handleCatalogPaletteAction(actionId)) return;
       if (actionId === "refresh") void refreshAll();
       else if (actionId === "toggle-theme") toggleTheme();
       else if (actionId === "new-task") focusTaskInput();

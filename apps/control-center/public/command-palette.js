@@ -18,47 +18,15 @@
 import { lucideIcon } from "./lucide.js";
 import { escapeHtml } from "./utils.js";
 import { request as apiRequest } from "./api.js";
-import { VIEW_TITLES } from "./state.js";
-import { NAV_ITEMS } from "./modules/nav-config.js";
+import {
+  listPaletteViewItems,
+  listPaletteSettingsItems,
+  listPaletteConfigItems,
+  listPaletteBotActions,
+  listStaticPaletteCatalog,
+} from "./modules/palette-catalog.js";
 
-// 不在主导航里的深链视图（hero 星图 / router 路由 / terminal 终端 / capabilities 能力…）
-// 由命令面板兜底；其余一律以导航单一真源 NAV_ITEMS 为准，避免"导航换了图标、
-// 命令面板还显示旧的"这类双写漂移（UI-AUDIT P0-5）。
-const PALETTE_ONLY_ICONS = {
-  router: "route",
-  terminal: "terminal",
-  capabilities: "puzzle",
-  memory: "brain",
-  hero: "orbit",
-  appearance: "palette",
-  browser: "globe",
-};
-
-const NAV_ICON_BY_VIEW = {
-  ...PALETTE_ONLY_ICONS,
-  ...Object.fromEntries(Object.entries(NAV_ITEMS).map(([view, item]) => [view, item.icon])),
-};
-
-const NAV_KEYWORDS_BY_VIEW = {
-  bot: "514 bot agent chat master 代理 对话 工作台",
-  workbench: "collaboration workbench 协作 任务",
-  overview: "overview 总览 dashboard 健康",
-  config: "config 配置 settings 设置 源 capabilities 能力 skills 技能 MCP 图谱 provider 供应商",
-  router: "router 路由 model 模型 设置 派工 团队",
-  security: "security 安全 shield 诊断 设置",
-  observability: "observability 观测 pulse delta handoff 交接 记忆 memory",
-  sessions: "sessions 会话 conversation 历史",
-  team: "team 团队 协作 roster agent 成员 星图 constellation 路由 派工",
-  hero: "hero constellation 星图 协作星图 orbit 团队",
-  bootstrapper: "bootstrapper 项目 创建 new project scaffold 脚手架",
-  office: "office 文档 工坊 docx ppt",
-  automations: "automation 自动化 定时 闲时 cron schedule 计划",
-  appearance: "appearance theme 外观 主题 字号 深色 亮色",
-  browser: "browser 浏览器 内置浏览",
-  market: "market plugin 市场 插件 skill mcp",
-  hosts: "hosts ssh 远程主机",
-  channels: "channels 渠道",
-};
+export { listStaticPaletteCatalog, listPaletteViewItems };
 
 const QUICK_ACTIONS = [
   { id: "refresh", label: "刷新数据", icon: "refresh-cw", group: "操作", keywords: "refresh 刷新 reload", action: "refresh" },
@@ -196,15 +164,21 @@ function resetSearch() {
   _searchState = "idle";
 }
 
-/** 视图导航项与 VIEW_TITLES 同步：state.js 新增视图（如 team）后自动出现 */
+/** 视图导航项由 palette-catalog 从 NAV_ITEMS + VIEW_TITLES 派生，禁止再手写一份。 */
 function getNavItems() {
-  return Object.keys(VIEW_TITLES).map((id) => ({
-    id,
-    label: VIEW_TITLES[id],
-    icon: NAV_ICON_BY_VIEW[id] || "layout-dashboard",
-    group: "视图",
-    keywords: NAV_KEYWORDS_BY_VIEW[id] || "",
-  }));
+  return listPaletteViewItems();
+}
+
+function getCatalogActionItems() {
+  return [
+    ...listPaletteSettingsItems(),
+    ...listPaletteConfigItems(),
+    ...listPaletteBotActions(),
+  ];
+}
+
+export function listBuiltInPaletteItems() {
+  return [...getNavItems(), ...QUICK_ACTIONS, ...AGENTS, ...getCatalogActionItems()];
 }
 
 function getAllItems() {
@@ -214,7 +188,7 @@ function getAllItems() {
   } catch {
     extra = [];
   }
-  return [...getNavItems(), ...QUICK_ACTIONS, ...AGENTS, ...extra];
+  return [...listBuiltInPaletteItems(), ...extra];
 }
 
 function filterItems(query) {
