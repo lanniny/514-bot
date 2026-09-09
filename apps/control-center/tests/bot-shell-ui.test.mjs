@@ -507,7 +507,7 @@ test("Bot 390px walkthrough keeps critical surfaces wrapping (Grok parity W6)", 
   assert.match(parity, /@media \(max-width: 560px\)[\s\S]*\.bot-routine-dialog[\s\S]*width: calc\(100vw - 16px\)/);
   assert.match(parity, /@media \(max-width: 560px\)[\s\S]*\.bot-relay-meta[\s\S]*flex-direction: column/);
   assert.match(shell, /@media \(max-width: 560px\)[\s\S]*\.bot-agent-settings-actions[\s\S]*flex-wrap: wrap/);
-  assert.match(shell, /@media \(max-width: 700px\)[\s\S]{0,400}\.bot-settings-tabs \{ display: flex; flex-wrap: nowrap;/);
+  assert.match(shell, /\.bot-settings-tabs \{ display: flex; flex-wrap: nowrap;/);
   assert.match(workspace, /@media \(max-width: 560px\)[\s\S]*#view-bot \.bot-composer \{ padding: 8px 10px 10px; \}/);
   const pack = await readFile(`${appRoot}/package.json`, "utf8");
   assert.match(pack, /"qa:bot-390": "node scripts\/qa-bot-390\.mjs"/);

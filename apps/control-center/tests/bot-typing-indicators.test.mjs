@@ -96,6 +96,7 @@ test("markup escapes member identity", () => {
     labelFor: () => '<script>alert(1)</script>',
   });
   assert.doesNotMatch(html, /<script>/);
-  assert.doesNotMatch(html, /onerror=/);
+  assert.doesNotMatch(html, /onerror="/);
+  assert.match(html, /onerror=&quot;/);
   assert.match(html, /&lt;script&gt;/);
 });

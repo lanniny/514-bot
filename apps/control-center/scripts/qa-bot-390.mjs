@@ -136,7 +136,34 @@ function controlSnapshot(selectors) {
   });
 }
 
+async function closeBotOverlays(page) {
+  if (await page.locator("#bot-routine-dialog").evaluate((el) => el?.open === true).catch(() => false)) {
+    await page.locator("#bot-routine-dialog [data-routine-dialog-close]").first().click();
+    await page.waitForFunction(() => document.querySelector("#bot-routine-dialog")?.open !== true, null, { timeout: 8_000 });
+  }
+  if (await page.locator("#bot-agent-settings-panel:not([hidden])").count()) {
+    await page.locator("#bot-agent-settings-close").click();
+    await page.waitForFunction(() => document.querySelector("#bot-agent-settings-panel")?.hidden === true, null, { timeout: 8_000 });
+  }
+  if (await page.locator("#bot-agent-panel:not([hidden])").count()) {
+    await page.locator("#bot-agent-panel-close").click();
+    await page.waitForFunction(() => document.querySelector("#bot-agent-panel")?.hidden === true, null, { timeout: 8_000 });
+  }
+}
+
+async function showRoster(page) {
+  await closeBotOverlays(page);
+  const tabs = page.locator("#bot-surface-tab-chats");
+  if (!(await tabs.isVisible().catch(() => false))) {
+    const back = page.locator("#bot-mobile-back");
+    if (await back.isVisible().catch(() => false)) await back.click();
+  }
+  await tabs.waitFor({ state: "visible", timeout: 10_000 });
+  await tabs.click();
+}
+
 async function openConversation(page, conversationId, projectId) {
+  await showRoster(page);
   const row = page.locator(`[data-bot-conversation="${conversationId}"]`);
   if (!(await row.isVisible().catch(() => false))) {
     const toggle = page.locator(`[data-bot-project-toggle="${projectId}"]`);
@@ -148,7 +175,6 @@ async function openConversation(page, conversationId, projectId) {
 
 async function walkViewport(page, viewport, { directId, groupId, projectId, outputDir: shots }) {
   await page.setViewportSize({ width: viewport.width, height: viewport.height });
-  await page.locator("#bot-surface-tab-chats").click();
   await openConversation(page, directId, projectId);
 
   const composer = await page.evaluate(controlSnapshot, ["#bot-composer-input", ".bot-send-button", "#bot-composer-form"]);
@@ -164,7 +190,7 @@ async function walkViewport(page, viewport, { directId, groupId, projectId, outp
     "#bot-routine-dialog button[type='submit']",
     "#bot-routine-dialog [data-routine-dialog-close]",
   ]);
-  assert.ok(dialogControls.every((item) => item.usable), `${viewport.name} routine dialog unusable: ${JSON.stringify(dialogControls)}`);
+  assert.ok(dialogControls.every((item) => item.usable && item.inY), `${viewport.name} routine dialog unusable: ${JSON.stringify(dialogControls)}`);
   await page.locator("#bot-routine-dialog [data-routine-dialog-close]").first().click();
   await page.waitForFunction(() => document.querySelector("#bot-routine-dialog")?.open !== true, null, { timeout: 10_000 });
 
@@ -180,11 +206,7 @@ async function walkViewport(page, viewport, { directId, groupId, projectId, outp
   ]);
   assert.ok(settings.every((item) => item.present && item.visible), `${viewport.name} member settings hidden: ${JSON.stringify(settings)}`);
   assert.ok(settings.filter((item) => item.selector !== "#bot-agent-settings-submit").every((item) => item.inX), `${viewport.name} member settings clipped: ${JSON.stringify(settings)}`);
-  await page.locator("#bot-agent-settings-close").click();
-  await page.waitForFunction(() => document.querySelector("#bot-agent-settings-panel")?.hidden === true, null, { timeout: 10_000 });
-  await page.locator("#bot-agent-panel-close").click().catch(() => {});
-
-  await page.locator("#bot-surface-tab-chats").click();
+  await closeBotOverlays(page);
   await openConversation(page, groupId, projectId);
   await page.locator("#bot-agent-info-button").click();
   await page.waitForSelector("#bot-collab-tabs:not([hidden])", { timeout: 10_000 });
