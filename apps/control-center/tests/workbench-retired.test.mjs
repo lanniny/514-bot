@@ -37,8 +37,12 @@ test("workbench is retired as a navigable primary surface and remaps onto Bot", 
   assert.doesNotMatch(html, /data-workspace-view="workbench"/);
   assert.match(html, /data-view-jump="bot"/);
   assert.match(html, /id="bot-active-runs"/);
+  assert.match(html, /id="bot-ops-rail"/);
+  assert.match(html, /id="bot-terminal-drawer"/);
   assert.match(html, /bot-roster-scroll/);
   assert.match(app, /function handleBotHomeTerminalToggle\(/);
+  assert.match(app, /function ensureBotTerminalDock\(/);
+  assert.match(app, /function renderBotOpsRail\(/);
   assert.match(app, /expanded: botActiveRunsExpanded/);
   assert.match(html, /id="bot-composer-recipient"/);
   assert.match(html, /id="bot-composer-team"/);

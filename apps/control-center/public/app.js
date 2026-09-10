@@ -117,11 +117,18 @@ import {
   isRetiredWorkbenchHash,
   botConversationForRun,
   botActiveRunsMarkup,
+  botActiveRunFiltersMarkup,
+  botActiveRunsToolbarMarkup,
+  botOpsApprovalsMarkup,
+  botMemberConnectionsMarkup,
+  botHostConnectionsMarkup,
+  botPendingApprovals,
   isWorkbenchViewActive,
   listActiveRuns,
   selectOptionsMarkup,
   normalizeComposerPermission,
 } from "./modules/bot-workspace-chrome.js";
+import { createBotTerminalDock } from "./modules/bot-terminal-dock.js";
 import { mountBotPetSettings } from "./modules/bot-pet-settings.js";
 import { createConversationWorkspace, pageWorkspaceIndex } from "./modules/conversation-workspace.js";
 import { collaborationProcessModel, collaborationProcessMarkup, collaborationReviewMarkup } from "./modules/collaboration-process.js";
@@ -2128,6 +2135,18 @@ function isBotHomeChrome() {
   return !isWorkbenchViewActive();
 }
 
+let botTerminalDock = null;
+function ensureBotTerminalDock() {
+  if (botTerminalDock) return botTerminalDock;
+  botTerminalDock = createBotTerminalDock({
+    document,
+    window,
+    createPanel: createTerminalPanel,
+  });
+  botTerminalDock.syncCwd?.(byId("terminal-drawer-cwd")?.textContent || "");
+  return botTerminalDock;
+}
+
 function syncRailToggleButton(collapsed) {
   const toggle = byId("chrome-rail-toggle");
   if (!toggle) return;
@@ -2160,11 +2179,11 @@ function railCollapsed() {
 function syncBotHomeChromeButtons() {
   const terminal = byId("global-terminal-toggle");
   if (terminal) {
-    const open = state.view === "terminal";
+    const open = Boolean(botTerminalDock?.isOpen?.());
     terminal.setAttribute("aria-pressed", String(open));
     terminal.classList.toggle("is-active", open);
-    terminal.title = open ? "回到工作对话" : "打开终端";
-    terminal.setAttribute("aria-label", open ? "回到工作对话" : "打开终端");
+    terminal.title = open ? "收起底部终端" : "打开终端";
+    terminal.setAttribute("aria-label", open ? "收起底部终端" : "打开终端");
   }
   const panel = byId("global-mc-toggle");
   if (panel) {
@@ -2179,7 +2198,12 @@ function syncBotHomeChromeButtons() {
 
 function handleBotHomeTerminalToggle() {
   if (isWorkbenchViewActive()) return;
-  setView(state.view === "terminal" ? "bot" : "terminal");
+  const leaving = state.view !== "bot";
+  if (leaving) setView("bot");
+  ensureBotTerminalDock();
+  if (leaving) botTerminalDock?.setOpen?.(true);
+  else botTerminalDock?.toggle?.();
+  syncBotHomeChromeButtons();
 }
 
 function handleBotHomePanelToggle() {
@@ -21573,20 +21597,61 @@ function syncBotComposerControls() {
 }
 
 let botActiveRunsExpanded = false;
+let botActiveRunsFilter = "all";
 
 function renderBotActiveRuns() {
   const list = byId("bot-active-runs-list");
   const section = byId("bot-active-runs");
   const count = byId("bot-active-runs-count");
+  const toolbar = byId("bot-active-runs-toolbar");
   if (!list || !section) return;
   const items = listActiveRuns(state.runs);
+  if (toolbar) {
+    commitMarkup(toolbar, [
+      botActiveRunFiltersMarkup(state.runs, { escapeHtml, filter: botActiveRunsFilter }),
+      botActiveRunsToolbarMarkup(state.runs, { escapeHtml }),
+    ].join(""));
+  }
   commitMarkup(list, botActiveRunsMarkup(state.runs, {
     escapeHtml,
     selectedRunId: state.selectedRunId || botState.runId || "",
     expanded: botActiveRunsExpanded,
+    filter: botActiveRunsFilter,
+    agentLabel,
+    formatRelative,
   }));
   section.hidden = items.length === 0;
   if (count) count.textContent = items.length ? String(items.length) : "";
+}
+
+function renderBotOpsRail() {
+  const count = byId("bot-ops-approval-count");
+  const list = byId("bot-ops-approvals-list");
+  const fold = byId("bot-ops-approvals");
+  const pending = botPendingApprovals(state.approvals);
+  if (count) {
+    count.hidden = pending.length === 0;
+    count.textContent = pending.length ? String(pending.length) : "";
+  }
+  if (list) commitMarkup(list, botOpsApprovalsMarkup(state.approvals, { escapeHtml }));
+  if (fold) fold.hidden = pending.length === 0;
+  renderBotMemberConnections();
+}
+
+function renderBotMemberConnections() {
+  const host = byId("bot-member-connections");
+  const count = byId("bot-member-connections-count");
+  if (!host) return;
+  const members = teamPulseMembers();
+  const hosts = Array.isArray(state.configHosts) ? state.configHosts : [];
+  const live = members.filter((item) => item.tone === "ok" || item.tone === "live").length
+    + hosts.filter((item) => item.enabled !== false).length;
+  const total = members.length + hosts.length;
+  commitMarkup(host, [
+    botMemberConnectionsMarkup(members, { escapeHtml }),
+    botHostConnectionsMarkup(hosts, { escapeHtml }),
+  ].join(""));
+  if (count) count.textContent = total ? `${live}/${total}` : "";
 }
 
 async function openBotForRun(runId, { tab } = {}) {
@@ -21643,7 +21708,17 @@ function handleBotWorkspaceAction(action) {
   if (action === "git-commit") void runWorkbenchGitAction("commit");
   else if (action === "git-push") void runWorkbenchGitAction("push");
   else if (action === "browser") openWorkbenchBrowser();
-  else if (action === "terminal") setView("terminal");
+  else if (action === "terminal") {
+    handleBotHomeTerminalToggle();
+  }
+  else if (action === "approvals") {
+    const fold = byId("bot-ops-approvals");
+    if (fold) {
+      fold.hidden = false;
+      fold.open = true;
+      fold.scrollIntoView({ block: "nearest" });
+    }
+  }
   else if (action === "cli") void openRunCliTerminal();
   else if (action === "runtime") {
     botCloseSettings();
@@ -21666,6 +21741,19 @@ function bindBotWorkspaceFolds() {
       event.preventDefault();
       botActiveRunsExpanded = false;
       renderBotActiveRuns();
+      return;
+    }
+    const filter = event.target.closest("[data-bot-run-filter]");
+    if (filter) {
+      event.preventDefault();
+      botActiveRunsFilter = String(filter.dataset.botRunFilter || "all");
+      botActiveRunsExpanded = false;
+      renderBotActiveRuns();
+      return;
+    }
+    if (event.target.closest("[data-bot-clear-finished]")) {
+      event.preventDefault();
+      void clearFinishedRuns();
       return;
     }
     const activeRun = event.target.closest("[data-bot-active-run]");
@@ -21704,6 +21792,9 @@ function bindBotWorkspaceFolds() {
 
 function initBotShell() {
   bindBotWorkspaceFolds();
+  ensureBotTerminalDock();
+  renderBotOpsRail();
+  syncBotHomeChromeButtons();
   const root = byId("view-bot");
   if (!root || root.dataset.botReady === "1") {
     if (root) botRenderAgent(botState.agentId);
@@ -22366,7 +22457,10 @@ function renderTeamPulse() {
       ? `${chips}<span class="team-pulse-count">${live}/${members.length}</span>`
       : `<span class="subtle">CLI 席位加载中</span>`);
   }
-  if (state.view === "bot") renderBotWorkspaceSettings();
+  if (state.view === "bot") {
+    renderBotWorkspaceSettings();
+    renderBotOpsRail();
+  }
 }
 
 // ===== 协作台会话流增强：内联审批卡 / 恢复条 / 终态原因 =====
@@ -26222,6 +26316,7 @@ function renderApprovals() {
   elements["approval-list"].innerHTML = approvalRows || leaseRows
     ? `${approvalRows}${leaseRows}`
     : emptyMarkup("暂无待处理审批或执行租约", "权限请求会在这里等待显式决定");
+  renderBotOpsRail();
 }
 
 async function resolveApproval(id, decision) {
@@ -26846,10 +26941,14 @@ function syncTerminalCwdLabels() {
   const rail = byId("rail-terminal-cwd");
   if (drawer) drawer.textContent = label;
   if (rail) rail.textContent = label;
+  botTerminalDock?.syncCwd?.(label);
 }
 
 function openBottomTerminal() {
-  setView("terminal");
+  if (state.view !== "bot") setView("bot");
+  ensureBotTerminalDock();
+  botTerminalDock?.setOpen?.(true);
+  syncBotHomeChromeButtons();
 }
 
 let railTerminalPanel = null;
@@ -29857,7 +29956,13 @@ async function start() {
     root: byId("view-bot"),
     input: byId("bot-composer-input"),
     getSnapshot: botWorkspaceSnapshot,
-    onNavigate: (view) => setView(view),
+    onNavigate: (view) => {
+      if (view === "terminal") {
+        handleBotWorkspaceAction("terminal");
+        return;
+      }
+      setView(view);
+    },
     openConversation: (conversationId) => botOpenConversation(conversationId),
     beforeRunSelection: botBeginSelectionIntent,
     openRun: async (conversationId, runId) => {
