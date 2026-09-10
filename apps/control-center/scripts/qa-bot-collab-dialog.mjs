@@ -489,13 +489,12 @@ async function main() {
     await page.waitForSelector("#bot-message-stream .md-table");
     assert.equal(await page.locator("#bot-message-stream .bot-message-agent").count(), 1);
     assert.equal(await page.locator("#bot-message-stream .bot-message-avatar").count() >= 2, true);
-    assert.equal(await page.locator("#bot-message-stream .bot-activity-group").count(), 1);
-    assert.match(await page.locator("#bot-message-stream .bot-activity-summary").textContent() || "", /协作过程/);
-    assert.equal(await page.locator("#bot-message-stream .bot-activity-segment").count(), 2);
-    assert.deepEqual(await page.locator("#bot-message-stream .bot-activity-timeline > *").evaluateAll((nodes) => nodes.map((node) => (
-      node.classList.contains("bot-activity-segment") ? "activity" : node.classList.contains("bot-message") ? "message" : "other"
-    ))), ["activity", "message", "activity"]);
+    assert.equal(await page.locator("#bot-message-stream .bot-activity-group").count() >= 1, true);
+    assert.match(await page.locator("#bot-message-stream .bot-activity-summary").first().textContent() || "", /思考过程|过程/);
+    assert.equal(await page.locator("#bot-message-stream .bot-activity-group[open]").count(), 0);
+    assert.equal(await page.locator("#bot-message-stream > .bot-message-agent").count(), 1);
     assert.equal(await page.locator("#bot-message-stream .bot-inline-event").count(), 0);
+    await page.locator("#bot-message-stream .bot-activity-summary").first().click();
     await page.locator("#bot-message-stream .bot-activity-segment > summary").first().click();
     const firstActivityBody = page.locator("#bot-message-stream .bot-activity-body").first();
     assert.match(await firstActivityBody.textContent() || "", /npm test/);

@@ -20375,11 +20375,13 @@ function botValueProofStreamMarkup(run) {
     runProjection.queueSettlementLoad("bot", runId, () => loadBotSettlement(runId, { force: Boolean(view), runSignature }));
   }
   const settlement = view?.status === "ok" && view.data && typeof view.data === "object" ? view.data : null;
-  return valueProofCardMarkup(projectValueProof({
+  const card = valueProofCardMarkup(projectValueProof({
     run,
     settlement,
     events: eventsForCurrentRun(runId),
   }), { surface: "bot", variant: "stream" });
+  if (!card) return "";
+  return `<details class="bot-proof-fold" data-stream-key="tail:value-proof"><summary class="bot-proof-summary">详情</summary>${card}</details>`;
 }
 
 function openValueProofTarget(target, runId) {

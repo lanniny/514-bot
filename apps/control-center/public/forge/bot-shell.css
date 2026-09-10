@@ -421,6 +421,25 @@ body.team-bg-active .bot-composer {
 .bot-inline-event > span:nth-child(2) > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bot-inline-event .icon { width: 14px; height: 14px; }
 .bot-inline-event time { margin: 0; flex: 0 0 auto; }
+.bot-live-process,
+.bot-proof-fold { display: grid; width: min(760px, 100%); gap: 6px; }
+.bot-process-toggle,
+.bot-proof-summary {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+  color: var(--bot-muted);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+}
+.bot-process-toggle::-webkit-details-marker,
+.bot-proof-summary::-webkit-details-marker { display: none; }
+.bot-process-toggle:hover,
+.bot-proof-summary:hover { color: var(--bot-ink); }
 .bot-activity-group { display: grid; width: min(760px, 100%); gap: 8px; }
 .bot-activity-summary { display: grid; min-height: 44px; grid-template-columns: 28px minmax(0, 1fr) auto auto; align-items: center; gap: 8px; padding: 7px 10px; border: 1px solid var(--bot-line); border-radius: 7px; background: color-mix(in srgb, var(--bot-panel) 72%, var(--bot-soft)); color: var(--bot-muted); box-shadow: 0 1px 6px rgba(20, 40, 80, .08); }
 .bot-activity-summary > span:nth-child(2) { display: flex; min-width: 0; flex-direction: column; gap: 2px; }

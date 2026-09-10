@@ -1,4 +1,5 @@
-/* bot-grok-face.css — 默认 Bot 聊天面：深黑画布 / 窄轨 / 胶囊输入 / 安静空态。
+/* bot-grok-face.css — 默认 Bot 聊天面：对话流 / 胶囊输入 / 安静空态。
+ * 浅色 / 深色都走同一套结构，只换令牌；主题由 html[data-theme] 与既有 theme-toggle 持久化。
  * 加载顺序：晚于 bot-workspace / shell-refresh / ui-polish，才能压过工作台浅色与壁纸玻璃。
  * 工作台面（html:not(.is-bot-grok-face)）零回归；壁纸仍可在 Appearance 切回。 */
 
@@ -13,6 +14,7 @@ html.is-bot-grok-face {
   --bot-grok-user: #2b2b2b;
   --bot-grok-send: #f4f4f4;
   --bot-grok-send-ink: #111111;
+  --bot-grok-shadow: color-mix(in srgb, black 28%, transparent);
   --bot-grok-rail: 56px;
   --bot-grok-roster: 236px;
   --bot-chrome-bg: var(--bot-grok-canvas);
@@ -20,6 +22,22 @@ html.is-bot-grok-face {
   --bot-chrome-line: var(--bot-grok-line);
   --bot-chrome-text: var(--bot-grok-ink);
   --bot-chrome-muted: var(--bot-grok-muted);
+  color-scheme: dark;
+}
+
+html.is-bot-grok-face[data-theme="light"] {
+  --bot-grok-canvas: #f7f7f8;
+  --bot-grok-raised: #ffffff;
+  --bot-grok-pill: #ffffff;
+  --bot-grok-line: #e4e4e7;
+  --bot-grok-ink: #171717;
+  --bot-grok-muted: #6f6f73;
+  --bot-grok-soft: #efeff1;
+  --bot-grok-user: #ececee;
+  --bot-grok-send: #171717;
+  --bot-grok-send-ink: #f7f7f8;
+  --bot-grok-shadow: color-mix(in srgb, #171717 10%, transparent);
+  color-scheme: light;
 }
 
 html.is-bot-grok-face.is-bot-surface body,
@@ -224,6 +242,10 @@ html.is-bot-grok-face #view-bot .bot-message-stream {
   gap: 22px;
 }
 
+html.is-bot-grok-face #view-bot .bot-message {
+  max-width: min(720px, 100%);
+}
+
 html.is-bot-grok-face #view-bot .bot-message-user .bot-bubble {
   max-width: min(560px, 100%);
   padding: 12px 16px;
@@ -237,14 +259,94 @@ html.is-bot-grok-face #view-bot .bot-message-agent .bot-bubble {
   padding: 2px 0;
   background: transparent;
   box-shadow: none;
+  line-height: 1.7;
+}
+
+html.is-bot-grok-face #view-bot .bot-run-state.is-idle,
+html.is-bot-grok-face #view-bot .workspace-history-row,
+html.is-bot-grok-face #view-bot .live-elapsed,
+html.is-bot-grok-face #view-bot .bot-message-tool-note {
+  display: none;
+}
+
+html.is-bot-grok-face #view-bot .live-turn {
+  color: var(--bot-muted);
+  font-size: var(--text-sm);
 }
 
 html.is-bot-grok-face #view-bot details.bot-activity-group,
+html.is-bot-grok-face #view-bot details.bot-live-process,
+html.is-bot-grok-face #view-bot details.bot-proof-fold,
 html.is-bot-grok-face #view-bot .bot-activity-summary,
 html.is-bot-grok-face #view-bot .bot-activity-segment {
-  border-color: color-mix(in srgb, var(--bot-line) 80%, transparent);
-  background: color-mix(in srgb, var(--bot-soft) 70%, transparent);
+  width: auto;
+  max-width: min(560px, 100%);
+  border: 0;
+  background: transparent;
   box-shadow: none;
+}
+
+html.is-bot-grok-face #view-bot .bot-activity-summary,
+html.is-bot-grok-face #view-bot .bot-process-toggle,
+html.is-bot-grok-face #view-bot .bot-proof-summary {
+  display: inline-flex;
+  min-height: 28px;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--bot-muted);
+  box-shadow: none;
+  font-size: var(--text-xs);
+}
+
+html.is-bot-grok-face #view-bot .bot-activity-summary:hover,
+html.is-bot-grok-face #view-bot .bot-process-toggle:hover,
+html.is-bot-grok-face #view-bot .bot-proof-summary:hover {
+  background: transparent;
+  box-shadow: none;
+  color: var(--bot-ink);
+}
+
+html.is-bot-grok-face #view-bot .bot-activity-icon {
+  width: 16px;
+  height: 16px;
+  background: transparent;
+  color: var(--bot-muted);
+}
+
+html.is-bot-grok-face #view-bot .bot-activity-summary small,
+html.is-bot-grok-face #view-bot .bot-activity-summary time {
+  display: none;
+}
+
+html.is-bot-grok-face #view-bot .bot-activity-summary strong,
+html.is-bot-grok-face #view-bot .bot-process-toggle,
+html.is-bot-grok-face #view-bot .bot-proof-summary {
+  color: inherit;
+  font-weight: 500;
+}
+
+html.is-bot-grok-face #view-bot details.bot-activity-group[open],
+html.is-bot-grok-face #view-bot details.bot-live-process[open],
+html.is-bot-grok-face #view-bot details.bot-proof-fold[open] {
+  width: min(720px, 100%);
+}
+
+html.is-bot-grok-face #view-bot details.bot-activity-group[open] .bot-activity-timeline,
+html.is-bot-grok-face #view-bot details.bot-live-process[open] .live-process-rows,
+html.is-bot-grok-face #view-bot details.bot-proof-fold[open] .bot-card {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--bot-line);
+  border-radius: 12px;
+  background: var(--bot-soft);
+}
+
+html.is-bot-grok-face #view-bot .bot-activity-segment {
+  border: 1px solid var(--bot-line);
 }
 
 html.is-bot-grok-face #view-bot .bot-message-empty.bot-empty-hero {
@@ -321,7 +423,7 @@ html.is-bot-grok-face #view-bot .bot-composer-row {
   border: 1px solid var(--bot-line);
   border-radius: 28px;
   background: var(--bot-grok-pill);
-  box-shadow: 0 10px 28px color-mix(in srgb, black 28%, transparent);
+  box-shadow: 0 10px 28px var(--bot-grok-shadow);
 }
 
 html.is-bot-grok-face body.team-bg-active #view-bot .bot-composer-row {
@@ -330,7 +432,7 @@ html.is-bot-grok-face body.team-bg-active #view-bot .bot-composer-row {
 
 html.is-bot-grok-face #view-bot .bot-composer-row:focus-within {
   border-color: color-mix(in srgb, var(--bot-ink) 22%, var(--bot-line));
-  box-shadow: 0 10px 28px color-mix(in srgb, black 28%, transparent);
+  box-shadow: 0 10px 28px var(--bot-grok-shadow);
 }
 
 html.is-bot-grok-face #view-bot .bot-composer textarea {
