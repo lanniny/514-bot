@@ -98,11 +98,9 @@ function bootTerminalDrawer() {
 
   closeButton?.addEventListener("click", () => setOpen(false));
 
-  // 角位开关是终端的常驻入口：非协作台时先切回协作台
+  // 协作台退役后，Bot 主页的角位开关由 app.js 接到终端视图；这里只服务仍打开的协作台。
   globalToggle?.addEventListener("click", () => {
-    if (!drawer.closest(".view")?.classList.contains("is-active")) {
-      document.querySelector('.topbar-nav [data-view="bot"], [data-view="bot"]')?.click();
-    }
+    if (!drawer.closest(".view")?.classList.contains("is-active")) return;
     setOpen(!isOpen());
   });
 
@@ -214,12 +212,9 @@ function bootMissionControlCollapse() {
   collapseButton.addEventListener("click", () => setCollapsed(true));
   strip.addEventListener("click", () => setCollapsed(false));
 
-  // 右上角角位开关：非协作台时先切回协作台（MC 是协作台右栏）
+  // 协作台退役后，Bot 主页的角位开关由 app.js 接到会话详情；这里只服务仍打开的协作台。
   globalMcToggle?.addEventListener("click", () => {
-    const workbenchActive = shell.closest(".view")?.classList.contains("is-active");
-    if (!workbenchActive) {
-      document.querySelector('.topbar-nav [data-view="bot"], [data-view="bot"]')?.click();
-    }
+    if (!shell.closest(".view")?.classList.contains("is-active")) return;
     setCollapsed(!shell.classList.contains("mc-collapsed"));
   });
 

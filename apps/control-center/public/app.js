@@ -117,6 +117,8 @@ import {
   isRetiredWorkbenchHash,
   botConversationForRun,
   botActiveRunsMarkup,
+  isWorkbenchViewActive,
+  listActiveRuns,
   selectOptionsMarkup,
   normalizeComposerPermission,
 } from "./modules/bot-workspace-chrome.js";
@@ -175,7 +177,7 @@ import { loadBotProfileSection, saveBotProfileSection, markBotProfileDirty } fro
 import { renderRelayBoard } from "./modules/bot-relay-board.js";
 import { postRelayKickoff } from "./modules/bot-collab-api.js";
 import { botTypingMarkup, botTypingMembers } from "./modules/bot-typing-indicators.js";
-import { bindBotGrokFace } from "./modules/bot-grok-face.js";
+import { bindBotGrokFace, applyRosterCollapsed, readRosterCollapsed, writeRosterCollapsed } from "./modules/bot-grok-face.js";
 import {
   state, ACTIVE_RUN_STATES, TERMINAL_RUN_STATES, VIEW_TITLES,
   DEFAULT_COMPONENTS, DEFAULT_MODELS, DEFAULT_POLICIES, DEFAULT_SECRETS,
@@ -2122,21 +2124,72 @@ function chromeNavigate(direction) {
 
 const RAIL_COLLAPSED_KEY = "514cc:workbench-rail-collapsed";
 
-function applyRailCollapsed(collapsed, { persist = true } = {}) {
-  document.querySelectorAll(".workbench-shell").forEach((shell) => shell.classList.toggle("rail-collapsed", collapsed));
+function isBotHomeChrome() {
+  return !isWorkbenchViewActive();
+}
+
+function syncRailToggleButton(collapsed) {
   const toggle = byId("chrome-rail-toggle");
-  if (toggle) {
-    toggle.setAttribute("aria-pressed", String(collapsed));
-    const label = collapsed ? "展开左栏" : "收起左栏";
-    toggle.title = label;
-    toggle.setAttribute("aria-label", label);
-    toggle.querySelector("use")?.setAttribute("href", collapsed ? "#lucide-panel-right" : "#lucide-panel-left");
+  if (!toggle) return;
+  toggle.setAttribute("aria-pressed", String(collapsed));
+  const label = isBotHomeChrome()
+    ? (collapsed ? "展开对话列表" : "收起对话列表")
+    : (collapsed ? "展开左栏" : "收起左栏");
+  toggle.title = label;
+  toggle.setAttribute("aria-label", label);
+  toggle.querySelector("use")?.setAttribute("href", collapsed ? "#lucide-panel-right" : "#lucide-panel-left");
+}
+
+function applyRailCollapsed(collapsed, { persist = true } = {}) {
+  if (isBotHomeChrome()) {
+    writeRosterCollapsed(collapsed);
+    applyRosterCollapsed(collapsed);
+    syncRailToggleButton(collapsed);
+    return;
   }
+  document.querySelectorAll(".workbench-shell").forEach((shell) => shell.classList.toggle("rail-collapsed", collapsed));
+  syncRailToggleButton(collapsed);
   if (persist) { try { localStorage.setItem(RAIL_COLLAPSED_KEY, collapsed ? "1" : "0"); } catch {} }
 }
 
 function railCollapsed() {
+  if (isBotHomeChrome()) return readRosterCollapsed();
   return document.querySelector(".workbench-shell")?.classList.contains("rail-collapsed") ?? false;
+}
+
+function syncBotHomeChromeButtons() {
+  const terminal = byId("global-terminal-toggle");
+  if (terminal) {
+    const open = state.view === "terminal";
+    terminal.setAttribute("aria-pressed", String(open));
+    terminal.classList.toggle("is-active", open);
+    terminal.title = open ? "回到工作对话" : "打开终端";
+    terminal.setAttribute("aria-label", open ? "回到工作对话" : "打开终端");
+  }
+  const panel = byId("global-mc-toggle");
+  if (panel) {
+    const open = byId("bot-agent-panel")?.hidden === false;
+    panel.setAttribute("aria-pressed", String(open));
+    panel.classList.toggle("is-active", open);
+    panel.title = open ? "关闭会话详情" : "打开会话详情";
+    panel.setAttribute("aria-label", open ? "关闭会话详情" : "打开会话详情");
+  }
+  syncRailToggleButton(railCollapsed());
+}
+
+function handleBotHomeTerminalToggle() {
+  if (isWorkbenchViewActive()) return;
+  setView(state.view === "terminal" ? "bot" : "terminal");
+}
+
+function handleBotHomePanelToggle() {
+  if (isWorkbenchViewActive()) return;
+  if (state.view !== "bot") {
+    setView("bot");
+  }
+  const open = byId("bot-agent-panel")?.hidden !== false;
+  botSetPanel(open, byId("bot-agent-info-button"));
+  syncBotHomeChromeButtons();
 }
 
 // 焦点捕获：HTML 菜单会抢走输入框焦点（原生菜单不会）——编辑命令先归还焦点再执行
@@ -2202,8 +2255,8 @@ function initializeChromeMenus() {
     { icon: "zoomOut", label: "缩小界面字号", action: () => applyUiFontSize(readUiFontSize() - 1) },
     { icon: "history", label: "重置界面字号", action: () => applyUiFontSize(14) },
     "---",
-    { icon: "terminal", label: "打开/收起底部终端（Ctrl+`）", action: () => byId("global-terminal-toggle")?.click() },
-    { icon: "panelRight", label: "打开/关闭环境信息", action: () => byId("global-mc-toggle")?.click() },
+    { icon: "terminal", label: "打开终端", action: () => byId("global-terminal-toggle")?.click() },
+    { icon: "panelRight", label: "打开/关闭会话详情", action: () => byId("global-mc-toggle")?.click() },
   ]);
   bindMenu("chrome-menu-help", () => [
     { icon: "eye", label: "产品导览", action: () => openProductTour({ reason: "help" }) },
@@ -2254,7 +2307,21 @@ function initializeChromeMenus() {
       byId(id)?.addEventListener("click", () => setOverflowOpen(false));
     }
   }
-  applyRailCollapsed(readStoredFlag(RAIL_COLLAPSED_KEY), { persist: false });
+  if (isBotHomeChrome()) {
+    applyRosterCollapsed(readRosterCollapsed());
+    syncRailToggleButton(readRosterCollapsed());
+  } else {
+    applyRailCollapsed(readStoredFlag(RAIL_COLLAPSED_KEY), { persist: false });
+  }
+  byId("global-terminal-toggle")?.addEventListener("click", () => {
+    if (isWorkbenchViewActive()) return;
+    handleBotHomeTerminalToggle();
+  });
+  byId("global-mc-toggle")?.addEventListener("click", () => {
+    if (isWorkbenchViewActive()) return;
+    handleBotHomePanelToggle();
+  });
+  syncBotHomeChromeButtons();
   syncChromeNavButtons();
 }
 
@@ -3391,6 +3458,7 @@ function syncBotSurfaceChrome(view) {
   const sidebar = byId("sidebar");
   if (sidebar) { sidebar.hidden = false; sidebar.removeAttribute("data-bot-hidden-chrome"); }
   syncNavAccessibility();
+  syncBotHomeChromeButtons();
 }
 
 let pendingBotWorkspaceRoute = null;
@@ -17853,8 +17921,8 @@ function botRenderRoster() {
   ].join(""));
   const rosterLabel = byId("bot-roster-label");
   if (rosterLabel) rosterLabel.textContent = attentionConversations.length
-    ? `会话导航 · ${attentionConversations.length} 项待处理`
-    : "会话导航";
+    ? `项目与会话 · ${attentionConversations.length} 项待处理`
+    : "项目与会话";
   const rosterEmpty = byId("bot-roster-empty");
   const contactEmpty = byId("bot-contact-empty");
   if (rosterEmpty) {
@@ -21504,18 +21572,21 @@ function syncBotComposerControls() {
   }
 }
 
+let botActiveRunsExpanded = false;
+
 function renderBotActiveRuns() {
   const list = byId("bot-active-runs-list");
   const section = byId("bot-active-runs");
   const count = byId("bot-active-runs-count");
   if (!list || !section) return;
+  const items = listActiveRuns(state.runs);
   commitMarkup(list, botActiveRunsMarkup(state.runs, {
     escapeHtml,
     selectedRunId: state.selectedRunId || botState.runId || "",
+    expanded: botActiveRunsExpanded,
   }));
-  const n = list.querySelectorAll("[data-bot-active-run]").length;
-  section.hidden = n === 0;
-  if (count) count.textContent = n ? String(n) : "";
+  section.hidden = items.length === 0;
+  if (count) count.textContent = items.length ? String(items.length) : "";
 }
 
 async function openBotForRun(runId, { tab } = {}) {
@@ -21585,6 +21656,18 @@ function bindBotWorkspaceFolds() {
   if (!root || root.dataset.botWorkspaceFolds === "1") return;
   root.dataset.botWorkspaceFolds = "1";
   root.addEventListener("click", (event) => {
+    if (event.target.closest("[data-bot-active-runs-expand]")) {
+      event.preventDefault();
+      botActiveRunsExpanded = true;
+      renderBotActiveRuns();
+      return;
+    }
+    if (event.target.closest("[data-bot-active-runs-collapse]")) {
+      event.preventDefault();
+      botActiveRunsExpanded = false;
+      renderBotActiveRuns();
+      return;
+    }
     const activeRun = event.target.closest("[data-bot-active-run]");
     if (activeRun) {
       event.preventDefault();

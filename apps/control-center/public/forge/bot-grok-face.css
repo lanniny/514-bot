@@ -282,6 +282,7 @@ html.is-bot-grok-face #view-bot .bot-icon-rail .bot-icon-button[aria-pressed="tr
 }
 
 html.is-bot-grok-face #view-bot .bot-roster {
+  overflow: hidden;
   border-right: 1px solid var(--bot-line);
   background: var(--bot-sidebar);
 }
@@ -765,11 +766,25 @@ html.is-bot-grok-face #view-bot .bot-conversation {
   position: relative;
 }
 
+html.is-bot-grok-face #view-bot .bot-roster-scroll {
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 html.is-bot-grok-face #view-bot .bot-active-runs {
   display: flex;
+  flex: 0 1 auto;
+  max-height: min(32vh, 240px);
+  min-height: 0;
   flex-direction: column;
   gap: 6px;
   padding: 0 4px 10px;
+  overflow: hidden;
+}
+
+html.is-bot-grok-face #view-bot #bot-active-runs-list {
+  overflow-y: auto;
 }
 
 html.is-bot-grok-face #view-bot .bot-active-run {
@@ -796,6 +811,25 @@ html.is-bot-grok-face #view-bot .bot-active-run strong {
 html.is-bot-grok-face #view-bot .bot-active-run span {
   color: var(--bot-muted, color-mix(in srgb, var(--bot-ink) 62%, transparent));
   font-size: var(--text-xs, 0.75rem);
+}
+
+html.is-bot-grok-face #view-bot .bot-run-status-chip {
+  color: var(--bot-muted);
+  background: var(--bot-soft);
+}
+
+html.is-bot-grok-face #view-bot .bot-run-status-chip.is-running {
+  color: var(--bot-green);
+}
+
+html.is-bot-grok-face #view-bot .bot-run-status-chip.is-waiting,
+html.is-bot-grok-face #view-bot .bot-run-status-chip.is-attention,
+html.is-bot-grok-face #view-bot .bot-run-status-chip.is-warning {
+  color: var(--bot-yellow);
+}
+
+html.is-bot-grok-face #view-bot .bot-run-status-chip.is-error {
+  color: var(--bot-red);
 }
 
 html.is-bot-grok-face #view-bot .bot-active-run.is-current,
