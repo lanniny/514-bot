@@ -712,9 +712,28 @@ body.team-bg-active .bot-active-run.is-current {
   font-size: var(--text-xs);
 }
 .bot-inspector-identity .bot-kicker {
-  margin-bottom: 1px;
+  margin-bottom: 0;
   letter-spacing: 0;
   text-transform: none;
+}
+.bot-inspector-kicker-row {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 1px;
+}
+.bot-inspector-kicker-row .bot-inspector-status {
+  min-width: 0;
+  flex: 1 1 auto;
+  margin-top: 0;
+  text-align: left;
+}
+.bot-inspector-kicker-row .bot-inspector-status::before {
+  margin-right: 6px;
+  color: var(--bot-muted);
+  content: "·";
+  opacity: .5;
 }
 .bot-agent-panel > .bot-panel-header h2 {
   overflow: hidden;
