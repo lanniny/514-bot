@@ -915,9 +915,30 @@ html.is-bot-grok-face #view-bot .bot-panel-header {
   border-bottom-color: var(--bot-line);
 }
 
+html.is-bot-grok-face #view-bot .bot-inspector-toolbar {
+  background: color-mix(in srgb, var(--bot-panel) 70%, transparent);
+}
+
 html.is-bot-grok-face #view-bot .bot-ops-chips button {
-  background: var(--bot-soft);
-  border-color: transparent;
+  background: transparent;
+  border-color: var(--bot-line);
+}
+
+html.is-bot-grok-face #view-bot .bot-inspector-card,
+html.is-bot-grok-face #view-bot .bot-inspector-runs,
+html.is-bot-grok-face #view-bot .bot-ops-files,
+html.is-bot-grok-face #view-bot .bot-ops-approvals {
+  background: color-mix(in srgb, var(--bot-panel) 92%, transparent);
+}
+
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-inspector-toolbar,
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-inspector-card,
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-inspector-runs,
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-ops-files,
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-ops-approvals {
+  background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) calc(var(--forge-glass-alpha, 86%) - 8%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(12px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(12px) saturate(150%));
 }
 
 html.is-bot-grok-face #view-bot .bot-terminal-drawer {

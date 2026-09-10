@@ -839,6 +839,8 @@ test("Bot keeps Conversation chat stable while collaboration context moves to a 
   assert.match(html.slice(inspectorStart), /id="bot-collab-tabs"[\s\S]*id="bot-collab-panel"[\s\S]*id="bot-run-queue"/);
   assert.match(html.slice(inspectorStart), /id="bot-ops-rail"[\s\S]*id="bot-ops-files"[\s\S]*id="bot-member-connections"/);
   assert.match(html.slice(inspectorStart), /id="bot-routine-list"[\s\S]*id="bot-channels-list"/);
+  assert.match(html.slice(inspectorStart), /class="bot-inspector-identity"[\s\S]*id="bot-panel-avatar"[\s\S]*id="bot-inspector-status"/);
+  assert.match(html.slice(inspectorStart), /class="bot-inspector-toolbar"[\s\S]*class="bot-ops-chips"[\s\S]*class="bot-inspector-scroll"/);
   assert.doesNotMatch(html, /<aside class="bot-ops-rail"/);
   const collaborationStart = app.indexOf("function botRenderCollaborationWorkspace()");
   const collaborationEnd = app.indexOf("function botActivateCollaborationTab", collaborationStart);
@@ -850,6 +852,10 @@ test("Bot keeps Conversation chat stable while collaboration context moves to a 
   assert.match(css, /grid-template-areas: "roster conversation ops"/);
   assert.match(css, /\.bot-shell-grid\.is-ops-collapsed \{/);
   assert.match(css, /\.bot-inspector-ops \{/);
+  assert.match(css, /\.bot-inspector-toolbar \{/);
+  assert.match(css, /\.bot-inspector-scroll \{/);
+  assert.match(css, /\.bot-inspector-card \{/);
+  assert.match(css, /\.bot-ops-chips \{\n  display: grid;\n  grid-template-columns: repeat\(6, minmax\(0, 1fr\)\);/);
   assert.match(css, /\.bot-agent-panel \{ grid-area: ops; \}/);
   assert.match(css, /\.bot-active-run\.is-current \{[\s\S]*inset 2px 0 0/);
   assert.match(css, /\.bot-agent-row\.is-active \{[\s\S]*inset 2px 0 0/);

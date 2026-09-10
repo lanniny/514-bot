@@ -18270,10 +18270,10 @@ function botRenderAgent(agentId = botState.agentId) {
     row.setAttribute("aria-selected", String(active));
     row.tabIndex = active ? 0 : -1;
   });
-  for (const id of ["bot-header-avatar", "bot-panel-agent-name"]) {
+  for (const id of ["bot-header-avatar", "bot-panel-avatar", "bot-panel-agent-name"]) {
     const node = byId(id);
     if (!node) continue;
-    if (id === "bot-header-avatar") {
+    if (id === "bot-header-avatar" || id === "bot-panel-avatar") {
       if (groupView) {
         node.className = "bot-agent-avatar is-group";
         node.innerHTML = botGroupAvatarMarkup(groupRun || groupView);
@@ -18323,6 +18323,13 @@ function botRenderAgent(agentId = botState.agentId) {
   if (inspectorScope) inspectorScope.textContent = project ? `${project.title} / ${roomLabel}` : roomLabel;
   if (inspectorRef) inspectorRef.textContent = conversationRef || "尚未建立";
   if (inspectorRun) inspectorRun.textContent = inspectorRunLabel;
+  const inspectorStatus = byId("bot-inspector-status");
+  if (inspectorStatus) {
+    inspectorStatus.textContent = inspectorRunLabel;
+    inspectorStatus.dataset.tone = !visibleRun
+      ? "idle"
+      : inspectorPresentation?.className?.replace(/^is-/, "") || "idle";
+  }
   document.querySelectorAll("[data-bot-direct-only]").forEach((node) => { node.hidden = Boolean(groupView); });
   const panelSettingsButton = byId("bot-agent-settings-button");
   if (panelSettingsButton) panelSettingsButton.hidden = Boolean(groupView);

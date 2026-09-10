@@ -112,6 +112,7 @@ test("Grok face lets custom wallpaper show through when team-bg-active", async (
   const css = await readFile(`${appRoot}/public/forge/bot-grok-face.css`, "utf8");
   assert.match(css, /:not\(:has\(body\.team-bg-active\)\) \.atelier-stage/);
   assert.match(css, /html\.is-bot-grok-face body\.team-bg-active #view-bot \.bot-agent-panel/);
+  assert.match(css, /html\.is-bot-grok-face body\.team-bg-active #view-bot \.bot-inspector-card/);
   assert.match(css, /html\.is-bot-grok-face #view-bot \.bot-shell-grid \{[\s\S]{0,80}--bot-ops: 320px/);
   assert.match(css, /html\.is-bot-grok-face #view-bot \.bot-shell-grid\.is-ops-collapsed/);
   assert.match(css, /html\.is-bot-grok-face #view-bot \.bot-active-run\.is-current \{[\s\S]*inset 2px 0 0 var\(--bot-ink\)/);
