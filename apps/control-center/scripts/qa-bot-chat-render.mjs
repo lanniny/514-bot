@@ -175,10 +175,14 @@ async function main() {
     assert.equal(mobile.toolsVisible, false);
 
     await page.setViewportSize({ width: 1440, height: 900 });
-    await page.addStyleTag({
-      content: `body.team-bg-active, html.is-bot-grok-face body.team-bg-active .atelier-stage { background-image: linear-gradient(160deg, #7eb8e8, #f6f1c8 55%, #f4d35e) !important; background-size: cover !important; }`,
+    await page.evaluate(() => {
+      document.body.classList.add("team-bg-active");
+      const sheet = [...document.styleSheets].find((item) => {
+        try { return item.cssRules?.length >= 0; } catch { return false; }
+      });
+      if (!sheet) return;
+      sheet.insertRule("html.is-bot-grok-face body.team-bg-active, html.is-bot-grok-face body.team-bg-active .atelier-stage { background-image: linear-gradient(160deg, #7eb8e8, #f6f1c8 55%, #f4d35e) !important; background-size: cover !important; }", sheet.cssRules.length);
     });
-    await page.evaluate(() => document.body.classList.add("team-bg-active"));
     await page.waitForTimeout(200);
     await page.screenshot({ path: resolve(outputDir, "bot-chat-after-send-wallpaper.png"), fullPage: false });
     const wallpaper = await measure(page);
