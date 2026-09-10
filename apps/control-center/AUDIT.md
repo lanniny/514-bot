@@ -43,8 +43,9 @@ Bot 是唯一主界面。本轮先修 P0 聊天渲染，再按模块记账：已
 
 | 状态 | 项 |
 |---|---|
+| 已修 | ≤820 进入会话后，Grok 不再被 `is-roster-collapsed` 强迫显示名册，也不会把工作台 `workspace-navigation` 重新摊开 |
 | 未动 | `bot-active-runs` 有 max-height；icon rail 与 roster 双导航 |
-| 下一波 | `workspace-navigation` 在 Grok 面隐藏，icon rail 才是真入口——工作台面两套导航并存；联系人/对话 tab 与 rail 的 pressed 态偶发不同步 |
+| 下一波 | 工作台面两套导航仍并存；联系人/对话 tab 与 rail 的 pressed 态偶发不同步 |
 
 ### 4. Right inspector（PR #17 统一栏）
 
@@ -72,7 +73,7 @@ Bot 是唯一主界面。本轮先修 P0 聊天渲染，再按模块记账：已
 
 | 状态 | 项 |
 |---|---|
-| 已隔离 | `#view-workbench` `hidden`；route 退役到 bot；Grok 面藏 project/view bar |
+| 已隔离 | `#view-workbench` `hidden`；route 退役到 bot；Grok 面藏 project/view bar；≤820 不再把 `workspace-navigation` 强行加回 Grok 面 |
 | 下一波 | `#view-workbench` 整页仍在 DOM（体积大）；`workspace-view-bar` / `workspace-project-bar` / `workspace-navigation` 仍挂在 Bot 树里；`conversation-stream` 工作台样式文件继续加载。下一波应 quarantine 整页 workbench，而不是继续双维护。 |
 
 ### 8. APIs wired in UI but unreachable / UI missing for live APIs

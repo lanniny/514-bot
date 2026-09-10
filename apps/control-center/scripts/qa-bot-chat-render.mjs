@@ -155,16 +155,40 @@ async function main() {
 
     await page.setViewportSize({ width: 560, height: 844 });
     await page.waitForTimeout(300);
+    const mobileConversation = await page.evaluate(() => {
+      const grid = document.querySelector("#view-bot .bot-shell-grid");
+      const conversation = document.querySelector("#view-bot .bot-conversation");
+      const roster = document.querySelector("#view-bot .bot-roster");
+      return {
+        mobileClass: Boolean(grid?.classList.contains("is-mobile-conversation")),
+        conversationDisplay: conversation ? getComputedStyle(conversation).display : "missing",
+        rosterDisplay: roster ? getComputedStyle(roster).display : "missing",
+      };
+    });
+    assert.equal(mobileConversation.mobileClass, true, "sending should keep the mobile conversation pane open");
+    assert.equal(mobileConversation.conversationDisplay, "flex");
+    assert.equal(mobileConversation.rosterDisplay, "none");
     await page.screenshot({ path: resolve(outputDir, "bot-chat-after-send-560.png"), fullPage: false });
     const mobile = await measure(page);
     assert.equal(mobile.emptyVisible, false);
     assert.match(mobile.messageText, /你好/);
     assert.equal(mobile.toolsVisible, false);
 
-    console.log(JSON.stringify({ before, after, mobile, outputDir }, null, 2));
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.addStyleTag({
+      content: `body.team-bg-active, html.is-bot-grok-face body.team-bg-active .atelier-stage { background-image: linear-gradient(160deg, #7eb8e8, #f6f1c8 55%, #f4d35e) !important; background-size: cover !important; }`,
+    });
+    await page.evaluate(() => document.body.classList.add("team-bg-active"));
+    await page.waitForTimeout(200);
+    await page.screenshot({ path: resolve(outputDir, "bot-chat-after-send-wallpaper.png"), fullPage: false });
+    const wallpaper = await measure(page);
+    assert.equal(wallpaper.emptyVisible, false);
+    assert.ok(wallpaper.messageWidth <= 760, `wallpaper column too wide: ${wallpaper.messageWidth}`);
+
+    console.log(JSON.stringify({ before, after, mobile, mobileConversation, wallpaper, outputDir }, null, 2));
   } finally {
     await browser.close();
-    await stopTestServer(child);
+    await stopTestServer(child, { token }).catch(() => child.kill("SIGKILL"));
   }
 }
 
