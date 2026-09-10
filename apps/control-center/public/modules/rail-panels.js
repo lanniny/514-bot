@@ -598,7 +598,10 @@ export function createRailPanels({
     const entry = event.target.closest(`[${files.entry}]`);
     if (entry && !entry.disabled) {
       event.preventDefault();
-      void loadFiles(entry.getAttribute(files.entry), { force: true });
+      const nextPath = typeof entry.getAttribute === "function"
+        ? entry.getAttribute(files.entry)
+        : entry.dataset?.railFilesPath;
+      void loadFiles(nextPath || "", { force: true });
       return;
     }
     if (event.target.closest(`#${files.save}`)) {
