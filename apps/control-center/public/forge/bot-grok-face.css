@@ -812,7 +812,7 @@ html.is-bot-grok-face #view-bot .bot-active-run strong {
 html.is-bot-grok-face #view-bot .bot-active-run-meta,
 html.is-bot-grok-face #view-bot .bot-active-run-meta span {
   color: var(--bot-muted, color-mix(in srgb, var(--bot-ink) 62%, transparent));
-  font-size: 11px;
+  font-size: var(--text-xs);
 }
 
 html.is-bot-grok-face #view-bot .bot-run-status-chip {
