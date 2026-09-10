@@ -121,7 +121,8 @@ import {
   botActiveRunsToolbarMarkup,
   botOpsApprovalsMarkup,
   botMemberConnectionsMarkup,
-  botHostConnectionsMarkup,
+  botMemberComputerRows,
+  botMemberComputerCount,
   botPendingApprovals,
   isWorkbenchViewActive,
   listActiveRuns,
@@ -2147,6 +2148,41 @@ function ensureBotTerminalDock() {
   return botTerminalDock;
 }
 
+let botOpsFiles = null;
+function botOpsActiveRunId() {
+  return state.selectedRunId || botState.runId || selectedRun()?.id || null;
+}
+
+function ensureBotOpsFiles() {
+  if (botOpsFiles) return botOpsFiles;
+  const root = byId("bot-ops-rail");
+  if (!root) return null;
+  botOpsFiles = createRailPanels({
+    root,
+    request,
+    runsEndpoint: API.runs,
+    icon: (name) => lucideIcon(name, "icon lucide"),
+    escapeHtml,
+    getRunId: botOpsActiveRunId,
+    getRun: () => selectedRun() || (state.runs || []).find((run) => String(run?.id) === String(botOpsActiveRunId())),
+    openSystemBrowser: openExternalUrl,
+    notify: toast,
+    fileIds: {
+      path: "bot-ops-files-path",
+      list: "bot-ops-files-list",
+      preview: "bot-ops-files-preview",
+      filter: "bot-ops-files-filter",
+      root: "bot-ops-files-root",
+      editor: "bot-ops-files-editor",
+      save: "bot-ops-files-save",
+      revert: "bot-ops-files-revert",
+      status: "bot-ops-files-editor-status",
+      entry: "data-rail-files-path",
+    },
+  });
+  return botOpsFiles;
+}
+
 function syncRailToggleButton(collapsed) {
   const toggle = byId("chrome-rail-toggle");
   if (!toggle) return;
@@ -4015,6 +4051,7 @@ async function loadConfigHosts({ force = false } = {}) {
     syncConfigHostView();
   }
   renderConfigHostBar();
+  if (state.view === "bot") renderBotMemberConnections();
 }
 
 function renderConfigHostBar() {
@@ -5809,6 +5846,7 @@ async function probeConfigHost(id) {
   if (typeof renderConfigHostBar === "function") renderConfigHostBar();
   renderConfigTopology();
   if (state.configHostId === id) renderConfigRemotePanel();
+  if (state.view === "bot") renderBotMemberConnections();
 }
 
 /** 远程安装 CLI：确认框明示命令通道，结果内联如实回显，成功后重探测刷新矩阵。 */
@@ -21636,22 +21674,46 @@ function renderBotOpsRail() {
   if (list) commitMarkup(list, botOpsApprovalsMarkup(state.approvals, { escapeHtml }));
   if (fold) fold.hidden = pending.length === 0;
   renderBotMemberConnections();
+  if (byId("bot-ops-files")?.open) ensureBotOpsFiles()?.activate("files");
+}
+
+function botOpsMemberComputerSource() {
+  const team = currentTeam() || teamById(state.selectedTeamId) || state.teams.find((item) => item.builtin);
+  const ids = team?.members?.length
+    ? team.members
+    : (state.memberCatalog || []).map((member) => member?.id).filter(Boolean);
+  const catalog = new Map((state.memberCatalog || []).map((member) => [String(member.id), member]));
+  return ids.map((id) => {
+    const member = catalog.get(String(id)) || { id };
+    return {
+      ...member,
+      id,
+      label: member.label || agentLabel(id),
+      cli: cliLabel(agentCli(id)),
+    };
+  });
 }
 
 function renderBotMemberConnections() {
   const host = byId("bot-member-connections");
   const count = byId("bot-member-connections-count");
   if (!host) return;
-  const members = teamPulseMembers();
+  // 数据源：成员席位 × SSH/远程主机台账 × configHostProbes。
+  // 禁止用 teamPulseMembers / CLI health / 进行中的 run 冒充「电脑已连接」。
+  if (!Array.isArray(state.configHosts)) void loadConfigHosts();
+  const members = botOpsMemberComputerSource();
   const hosts = Array.isArray(state.configHosts) ? state.configHosts : [];
-  const live = members.filter((item) => item.tone === "ok" || item.tone === "live").length
-    + hosts.filter((item) => item.enabled !== false).length;
-  const total = members.length + hosts.length;
-  commitMarkup(host, [
-    botMemberConnectionsMarkup(members, { escapeHtml }),
-    botHostConnectionsMarkup(hosts, { escapeHtml }),
-  ].join(""));
-  if (count) count.textContent = total ? `${live}/${total}` : "";
+  const rows = botMemberComputerRows({
+    members,
+    hosts,
+    probes: state.configHostProbes,
+  });
+  const tally = botMemberComputerCount(rows);
+  commitMarkup(host, botMemberConnectionsMarkup(rows, { escapeHtml }));
+  if (count) count.textContent = tally.total ? `${tally.connected}/${tally.total}` : "";
+  for (const row of rows) {
+    if (row.hostId && !state.configHostProbes.has(row.hostId)) void probeConfigHost(row.hostId);
+  }
 }
 
 async function openBotForRun(runId, { tab } = {}) {
@@ -21718,6 +21780,14 @@ function handleBotWorkspaceAction(action) {
       fold.open = true;
       fold.scrollIntoView({ block: "nearest" });
     }
+  }
+  else if (action === "files") {
+    const fold = byId("bot-ops-files");
+    if (fold) {
+      fold.open = true;
+      fold.scrollIntoView({ block: "nearest" });
+    }
+    ensureBotOpsFiles()?.activate("files");
   }
   else if (action === "cli") void openRunCliTerminal();
   else if (action === "runtime") {
@@ -21793,6 +21863,7 @@ function bindBotWorkspaceFolds() {
 function initBotShell() {
   bindBotWorkspaceFolds();
   ensureBotTerminalDock();
+  ensureBotOpsFiles();
   renderBotOpsRail();
   syncBotHomeChromeButtons();
   const root = byId("view-bot");
@@ -26873,6 +26944,7 @@ function syncSideChatDraftFromComposer() {
 function syncRailToActiveRun() {
   const activeId = railTools?.activeId();
   if (activeId) railPanels?.activate(activeId);
+  if (byId("bot-ops-files")?.open) ensureBotOpsFiles()?.activate("files");
 }
 
 function focusWorkbenchProject(project) {

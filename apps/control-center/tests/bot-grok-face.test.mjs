@@ -49,6 +49,14 @@ test("Grok face preference defaults to grok and can switch to workbench", async 
   assert.equal(more.attrs["aria-expanded"], "false");
 });
 
+test("Grok face lets custom wallpaper show through when team-bg-active", async () => {
+  const css = await readFile(`${appRoot}/public/forge/bot-grok-face.css`, "utf8");
+  assert.match(css, /:not\(:has\(body\.team-bg-active\)\) \.atelier-stage/);
+  assert.match(css, /html\.is-bot-grok-face body\.team-bg-active #view-bot \.bot-ops-rail/);
+  assert.match(css, /--forge-glass-filter/);
+  assert.doesNotMatch(css, /html\.is-bot-grok-face body\.team-bg-active #view-bot \.bot-composer \{\s*background: var\(--bot-bg\);/);
+});
+
 test("Grok face CSS keeps 390px composer and chips tappable", async () => {
   const css = await readFile(`${appRoot}/public/forge/bot-grok-face.css`, "utf8");
   assert.match(css, /@media \(max-width: 560px\)/);

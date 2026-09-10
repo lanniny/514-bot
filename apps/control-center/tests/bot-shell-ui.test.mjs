@@ -213,10 +213,12 @@ test("Default Bot face is the Grok-like dark shell without dropping capabilities
   assert.match(face, /html\.is-bot-grok-face #view-bot \{/);
   assert.match(face, /--bot-grok-canvas:/);
   assert.match(face, /html\.is-bot-grok-face\[data-theme="light"\]/);
-  assert.match(face, /grid-template-columns: var\(--bot-grok-rail\) var\(--bot-grok-roster\) minmax\(0, 1fr\)/);
+  assert.match(face, /grid-template-columns: var\(--bot-grok-rail\) var\(--bot-grok-roster\) minmax\(0, 1fr\) var\(--bot-ops\)/);
   assert.match(face, /\.bot-composer-row \{[\s\S]*border-radius: 28px/);
   assert.match(face, /html\.is-bot-grok-face body\.team-bg-active #view-bot/);
-  assert.match(face, /backdrop-filter: none/);
+  assert.match(face, /:not\(:has\(body\.team-bg-active\)\) \.atelier-stage/);
+  assert.match(face, /--forge-glass-filter/);
+  assert.doesNotMatch(face, /html\.is-bot-grok-face body\.team-bg-active[^{]*\{[\s\S]*?backdrop-filter: none/);
   assert.match(face, /@media \(max-width: 560px\)[\s\S]*min-height: 44px/);
   assert.match(face, /@media \(max-width: 820px\)[\s\S]*\.bot-icon-rail \{[\s\S]*display: none/);
 });
@@ -840,7 +842,7 @@ test("Bot keeps Conversation chat stable while collaboration context moves to a 
   assert.doesNotMatch(collaborationCode, /stream\.hidden|composer\.hidden/);
   assert.match(collaborationCode, /panel\.hidden = false/);
   assert.match(collaborationCode, /当前没有执行中的 Run/);
-  assert.match(css, /\.bot-shell-grid \{[\s\S]{0,220}grid-template-columns: 260px minmax\(0, 1fr\);/);
+  assert.match(css, /\.bot-shell-grid \{[\s\S]{0,220}grid-template-columns: 260px minmax\(0, 1fr\) var\(--bot-ops, 248px\);/);
   assert.doesNotMatch(css, /\.bot-shell\.is-panel-open \.bot-shell-grid/);
   assert.match(css, /\.bot-agent-panel \{ position: absolute;[\s\S]{0,220}right: 0;[\s\S]{0,220}width: min\(340px/);
 });

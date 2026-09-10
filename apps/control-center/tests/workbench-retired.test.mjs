@@ -38,6 +38,7 @@ test("workbench is retired as a navigable primary surface and remaps onto Bot", 
   assert.match(html, /data-view-jump="bot"/);
   assert.match(html, /id="bot-active-runs"/);
   assert.match(html, /id="bot-ops-rail"/);
+  assert.match(html, /data-bot-workspace-action="files"/);
   assert.match(html, /id="bot-terminal-drawer"/);
   assert.match(html, /bot-roster-scroll/);
   assert.match(app, /function handleBotHomeTerminalToggle\(/);

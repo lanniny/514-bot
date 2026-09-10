@@ -16,6 +16,11 @@ import {
   botOpsApprovalsMarkup,
   botMemberConnectionsMarkup,
   botHostConnectionsMarkup,
+  botMemberComputerRows,
+  botUnassignedHostRows,
+  botMemberComputerCount,
+  botMemberAssignedHost,
+  botHostConnectionTone,
   isWorkbenchViewActive,
   selectOptionsMarkup,
   normalizeComposerPermission,
@@ -109,12 +114,16 @@ test("chrome helpers remap retired workbench and render Bot folds", () => {
     /data-approval-id="a1"/,
   );
   assert.match(
-    botMemberConnectionsMarkup([{ id: "codex-technical", label: "烛", cli: "Codex", tone: "ok" }], { escapeHtml }),
+    botMemberConnectionsMarkup([{ id: "codex-technical", label: "烛", cli: "lo@host", tone: "ok", configured: true }], { escapeHtml }),
     /已连接/,
   );
   assert.match(
-    botHostConnectionsMarkup([{ id: "h1", name: "书房", user: "lo", host: "192.168.1.8", enabled: true }], { escapeHtml }),
+    botHostConnectionsMarkup([{ id: "h1", name: "书房", user: "lo", host: "192.168.1.8", enabled: true, tone: "unknown", statusLabel: "未探测" }], { escapeHtml }),
     /书房/,
+  );
+  assert.doesNotMatch(
+    botHostConnectionsMarkup([{ id: "h1", name: "书房", user: "lo", host: "192.168.1.8", enabled: true, tone: "unknown", statusLabel: "未探测" }], { escapeHtml }),
+    /已连接/,
   );
 
   assert.match(
@@ -124,4 +133,50 @@ test("chrome helpers remap retired workbench and render Bot folds", () => {
   assert.equal(normalizeComposerPermission("review"), "review");
   assert.equal(normalizeComposerPermission("build"), "build");
   assert.equal(normalizeComposerPermission("auto"), "plan");
+});
+
+test("member computers ignore agent pulse and stay 未配置 without a host", () => {
+  const rows = botMemberComputerRows({
+    members: [
+      { id: "claude-fable", label: "Claude", tone: "ok", cli: "Claude" },
+      { id: "codex-technical", label: "烛", tone: "live", cli: "Codex" },
+    ],
+    hosts: [],
+    probes: {},
+  });
+  assert.deepEqual(rows.map((row) => row.tone), ["none", "none"]);
+  assert.equal(rows.every((row) => row.configured === false), true);
+  assert.deepEqual(botMemberComputerCount(rows), { connected: 0, configured: 0, total: 2 });
+  const markup = botMemberConnectionsMarkup(rows, { escapeHtml });
+  assert.match(markup, /未配置/);
+  assert.doesNotMatch(markup, /已连接/);
+  assert.doesNotMatch(markup, /工作中/);
+  assert.equal(botMemberAssignedHost({ id: "claude-fable" }, []), null);
+});
+
+test("assigned member host uses probe status, never pulse live/ok", () => {
+  const hosts = [{ id: "h1", name: "书房", user: "lo", host: "192.168.1.8", enabled: true }];
+  assert.equal(botMemberAssignedHost({ id: "claude-fable", hostId: "h1" }, hosts)?.id, "h1");
+  const down = botMemberComputerRows({
+    members: [{ id: "claude-fable", label: "Claude", hostId: "h1", tone: "live" }],
+    hosts,
+    probes: { h1: { status: "error" } },
+  });
+  assert.equal(down[0].tone, "error");
+  assert.equal(down[0].configured, true);
+  assert.match(botMemberConnectionsMarkup(down, { escapeHtml }), /断开/);
+  assert.doesNotMatch(botMemberConnectionsMarkup(down, { escapeHtml }), /工作中/);
+  assert.equal(botHostConnectionTone(hosts[0], null).tone, "unknown");
+  assert.equal(botUnassignedHostRows([{ id: "claude-fable", hostId: "h1" }], hosts, {}).length, 0);
+  assert.equal(botUnassignedHostRows([{ id: "claude-fable" }], hosts, { h1: { status: "ok" } })[0].tone, "ok");
+
+  const viaHostMember = botMemberComputerRows({
+    members: [{ id: "grok-builder", label: "织" }],
+    hosts: [{ id: "h2", name: "工位", user: "lo", host: "10.0.0.8", enabled: true, memberId: "grok-builder" }],
+    probes: { h2: { status: "ok" } },
+  });
+  assert.equal(viaHostMember[0].configured, true);
+  assert.equal(viaHostMember[0].tone, "ok");
+  assert.deepEqual(botMemberComputerCount(viaHostMember), { connected: 1, configured: 1, total: 1 });
+  assert.match(botMemberConnectionsMarkup(viaHostMember, { escapeHtml }), /已连接/);
 });

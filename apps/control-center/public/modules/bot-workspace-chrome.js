@@ -56,12 +56,118 @@ export const BOT_RUN_STATUS_GROUPS = Object.freeze([
 ]);
 
 export const BOT_CONNECTION_TONES = Object.freeze({
-  live: { label: "工作中", tone: "live" },
   ok: { label: "已连接", tone: "ok" },
-  warn: { label: "降级", tone: "warn" },
+  warn: { label: "待确认", tone: "warn" },
   error: { label: "断开", tone: "error" },
+  probing: { label: "探测中", tone: "probing" },
   unknown: { label: "未探测", tone: "unknown" },
+  none: { label: "未配置", tone: "none" },
 });
+
+const MEMBER_HOST_KEYS = Object.freeze([
+  "hostId",
+  "sshHostId",
+  "computerHostId",
+  "remoteHostId",
+]);
+
+export function botMemberAssignedHost(member, hosts = []) {
+  const items = Array.isArray(hosts) ? hosts : [];
+  const memberId = String(member?.id || "").trim();
+  const declared = MEMBER_HOST_KEYS
+    .map((key) => String(member?.[key] || member?.computer?.[key] || "").trim())
+    .filter(Boolean);
+  if (declared.length) {
+    return items.find((host) => declared.includes(String(host?.id || ""))) || {
+      id: declared[0],
+      missing: true,
+    };
+  }
+  if (!memberId) return null;
+  return items.find((host) => (
+    String(host?.memberId || "") === memberId
+    || String(host?.agentId || "") === memberId
+  )) || null;
+}
+
+export function botHostConnectionTone(host, probe) {
+  if (!host || host.missing || host.enabled === false) {
+    return host?.missing ? BOT_CONNECTION_TONES.error : BOT_CONNECTION_TONES.unknown;
+  }
+  const status = String(probe?.status || "").toLowerCase();
+  if (status === "ok" || status === "healthy") return BOT_CONNECTION_TONES.ok;
+  if (status === "error" || status === "failed") return BOT_CONNECTION_TONES.error;
+  if (status === "loading" || status === "probing") return BOT_CONNECTION_TONES.probing;
+  if (status === "unconfirmed" || status === "warning") return BOT_CONNECTION_TONES.warn;
+  return BOT_CONNECTION_TONES.unknown;
+}
+
+export function botMemberComputerRows({
+  members = [],
+  hosts = [],
+  probes = {},
+} = {}) {
+  const hostList = Array.isArray(hosts) ? hosts.filter((host) => host && host.id) : [];
+  const probeMap = probes instanceof Map ? probes : new Map(Object.entries(probes || {}));
+  return (Array.isArray(members) ? members : []).map((member) => {
+    const assigned = botMemberAssignedHost(member, hostList);
+    if (!assigned) {
+      return {
+        id: member?.id || "",
+        label: member?.label || member?.id || "未命名成员",
+        cli: member?.cli || "",
+        tone: "none",
+        hostId: "",
+        configured: false,
+      };
+    }
+    const tone = botHostConnectionTone(assigned, probeMap.get(String(assigned.id)));
+    const target = assigned.missing
+      ? "主机缺失"
+      : assigned.enabled === false
+        ? "已停用"
+        : assigned.user && assigned.host
+          ? `${assigned.user}@${assigned.host}`
+          : assigned.name || assigned.host || assigned.id;
+    return {
+      id: member?.id || "",
+      label: member?.label || member?.id || "未命名成员",
+      cli: target,
+      tone: tone.tone,
+      hostId: String(assigned.id || ""),
+      configured: true,
+    };
+  });
+}
+
+export function botUnassignedHostRows(members = [], hosts = [], probes = {}) {
+  const assignedIds = new Set(
+    (Array.isArray(members) ? members : [])
+      .map((member) => botMemberAssignedHost(member, hosts)?.id)
+      .filter(Boolean)
+      .map(String),
+  );
+  const probeMap = probes instanceof Map ? probes : new Map(Object.entries(probes || {}));
+  return (Array.isArray(hosts) ? hosts : [])
+    .filter((host) => host && host.id && !assignedIds.has(String(host.id)))
+    .map((host) => {
+      const tone = botHostConnectionTone(host, probeMap.get(String(host.id)));
+      return {
+        ...host,
+        tone: tone.tone,
+        statusLabel: host.enabled === false ? "已停用" : tone.label,
+      };
+    });
+}
+
+export function botMemberComputerCount(rows = []) {
+  const items = Array.isArray(rows) ? rows : [];
+  return {
+    connected: items.filter((row) => row?.tone === "ok").length,
+    configured: items.filter((row) => row?.configured).length,
+    total: items.length,
+  };
+}
 
 export function botRunStatusChip(status) {
   const key = String(status || "").toLowerCase().replaceAll("-", "_");
@@ -239,9 +345,11 @@ export function botMemberConnectionsMarkup(members = [], { escapeHtml } = {}) {
   const items = Array.isArray(members) ? members : [];
   if (!items.length) return `<p class="bot-ops-empty">还没有可观测的成员席位</p>`;
   return items.map((member) => {
-    const tone = BOT_CONNECTION_TONES[member?.tone] || BOT_CONNECTION_TONES.unknown;
+    const tone = BOT_CONNECTION_TONES[member?.tone] || BOT_CONNECTION_TONES.none;
     const label = String(member?.label || member?.id || "未命名成员");
-    const detail = [member?.cli, tone.label].filter(Boolean).join(" · ");
+    const detail = member?.configured
+      ? [member?.cli, tone.label].filter(Boolean).join(" · ")
+      : tone.label;
     return `<div class="bot-connection-row is-${escapeHtml(tone.tone)}" data-bot-connection="${escapeHtml(String(member?.id || ""))}">
         <span class="bot-connection-dot" aria-hidden="true"></span>
         <span class="bot-connection-copy"><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)}</small></span>
@@ -253,13 +361,13 @@ export function botHostConnectionsMarkup(hosts = [], { escapeHtml } = {}) {
   if (typeof escapeHtml !== "function") return "";
   const items = (Array.isArray(hosts) ? hosts : []).filter((host) => host && host.id);
   if (!items.length) return "";
-  return `<div class="bot-connection-hosts" aria-label="远程主机">
+  return `<div class="bot-connection-hosts" aria-label="已登记主机">
       ${items.map((host) => {
-        const enabled = host.enabled !== false;
-        const tone = enabled ? "ok" : "unknown";
+        const tone = BOT_CONNECTION_TONES[host?.tone] || botHostConnectionTone(host);
         const label = String(host.name || host.host || host.id);
-        const detail = [host.user && host.host ? `${host.user}@${host.host}` : host.host, enabled ? "已登记" : "已停用"].filter(Boolean).join(" · ");
-        return `<div class="bot-connection-row is-${tone}" data-bot-host="${escapeHtml(String(host.id))}">
+        const target = host.user && host.host ? `${host.user}@${host.host}` : host.host;
+        const detail = [target, host.statusLabel || tone.label].filter(Boolean).join(" · ");
+        return `<div class="bot-connection-row is-${escapeHtml(tone.tone)}" data-bot-host="${escapeHtml(String(host.id))}">
             <span class="bot-connection-dot" aria-hidden="true"></span>
             <span class="bot-connection-copy"><strong>${escapeHtml(label)}</strong><small>${escapeHtml(detail)}</small></span>
           </div>`;

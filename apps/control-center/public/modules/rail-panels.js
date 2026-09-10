@@ -90,10 +90,25 @@ export function createRailPanels({
   getRun = () => null,
   openSystemBrowser = null,
   notify = () => {},
+  fileIds = {},
 } = {}) {
   if (!root || typeof request !== "function") {
     return { activate() {}, reset() {}, destroy() {} };
   }
+
+  const files = {
+    path: "rail-files-path",
+    list: "rail-files-list",
+    preview: "rail-files-preview",
+    filter: "rail-files-filter",
+    root: "rail-files-root",
+    editor: "rail-files-editor",
+    save: "rail-files-save",
+    revert: "rail-files-revert",
+    status: "rail-files-editor-status",
+    entry: "data-rail-files-path",
+    ...fileIds,
+  };
 
   const reviewBody = root.querySelector("#rail-review-body");
   const reviewStat = root.querySelector("#rail-review-stat");
@@ -102,10 +117,10 @@ export function createRailPanels({
   const browserUrl = root.querySelector("#rail-browser-url");
   const browserEmpty = root.querySelector("#rail-browser-empty");
   const browserHistory = root.querySelector("#rail-browser-history");
-  const filesPath = root.querySelector("#rail-files-path");
-  const filesList = root.querySelector("#rail-files-list");
-  const filesPreview = root.querySelector("#rail-files-preview");
-  const filesFilter = root.querySelector("#rail-files-filter");
+  const filesPath = root.querySelector(`#${files.path}`);
+  const filesList = root.querySelector(`#${files.list}`);
+  const filesPreview = root.querySelector(`#${files.preview}`);
+  const filesFilter = root.querySelector(`#${files.filter}`);
 
   const loaded = { review: null, files: null };
   let filesEntries = [];
@@ -381,9 +396,9 @@ export function createRailPanels({
     const content = !visible.length
       ? `<p class="rail-tool-note">${keyword ? "没有匹配的条目" : "目录为空"}</p>`
       : `${filesCurrentPath
-        ? `<button class="rail-files-entry is-parent" type="button" data-rail-files-path="${escapeHtml(filesCurrentPath.split("/").slice(0, -1).join("/"))}">${icon("arrow-up")}<span>上级目录</span></button>`
+        ? `<button class="rail-files-entry is-parent" type="button" ${files.entry}="${escapeHtml(filesCurrentPath.split("/").slice(0, -1).join("/"))}">${icon("arrow-up")}<span>上级目录</span></button>`
         : ""}${visible.map((entry) => `
-        <button class="rail-files-entry" type="button" data-rail-files-path="${escapeHtml(entry.path)}" data-entry-type="${escapeHtml(entry.type)}"${entry.openable === false ? " disabled" : ""} title="${escapeHtml(entry.path)}">
+        <button class="rail-files-entry" type="button" ${files.entry}="${escapeHtml(entry.path)}" data-entry-type="${escapeHtml(entry.type)}"${entry.openable === false ? " disabled" : ""} title="${escapeHtml(entry.path)}">
           ${icon(entry.type === "directory" ? "chevron-right" : "file-text")}<span>${escapeHtml(entry.name)}</span>
         </button>`).join("")}`;
     const truncated = filesDirectoryTruncation
@@ -429,20 +444,20 @@ export function createRailPanels({
       <header class="rail-files-preview-head">
         <div>
           <strong title="${escapeHtml(path)}">${escapeHtml(path.split("/").pop() || "文件")}</strong>
-          <span>${escapeHtml(file.language || "text")} · <b class="${dirty ? "is-dirty" : ""}" id="rail-files-editor-status">${status}</b></span>
+          <span>${escapeHtml(file.language || "text")} · <b class="${dirty ? "is-dirty" : ""}" id="${files.status}">${status}</b></span>
         </div>
         ${editable ? `<div class="rail-files-actions">
-          <button class="icon-button" id="rail-files-revert" type="button" title="还原未保存修改" aria-label="还原未保存修改"${dirty ? "" : " disabled"}>${icon("rotate-ccw")}</button>
-          <button class="rail-files-save" id="rail-files-save" type="button"${dirty ? "" : " disabled"}>${icon("save")}<span>保存</span></button>
+          <button class="icon-button" id="${files.revert}" type="button" title="还原未保存修改" aria-label="还原未保存修改"${dirty ? "" : " disabled"}>${icon("rotate-ccw")}</button>
+          <button class="rail-files-save" id="${files.save}" type="button"${dirty ? "" : " disabled"}>${icon("save")}<span>保存</span></button>
         </div>` : ""}
       </header>
       ${editable
-        ? `<textarea class="rail-files-editor" id="rail-files-editor" aria-label="编辑 ${escapeHtml(path.split("/").pop() || "文件")}" spellcheck="false">${escapeHtml(content)}</textarea>`
+        ? `<textarea class="rail-files-editor" id="${files.editor}" aria-label="编辑 ${escapeHtml(path.split("/").pop() || "文件")}" spellcheck="false">${escapeHtml(content)}</textarea>`
         : `<pre class="rail-files-preview-body" tabindex="0"><code>${escapeHtml(baseline)}</code></pre>`}`;
   }
 
   function updateEditorDraft() {
-    const editor = root.querySelector("#rail-files-editor");
+    const editor = root.querySelector(`#${files.editor}`);
     if (!fileView || !editor) return;
     fileView.content = editor.value;
     const dirty = fileView.content !== fileView.baseline;
@@ -451,9 +466,9 @@ export function createRailPanels({
     } else {
       fileDrafts.delete(fileView.draftKey);
     }
-    const status = root.querySelector("#rail-files-editor-status");
-    const save = root.querySelector("#rail-files-save");
-    const revert = root.querySelector("#rail-files-revert");
+    const status = root.querySelector(`#${files.status}`);
+    const save = root.querySelector(`#${files.save}`);
+    const revert = root.querySelector(`#${files.revert}`);
     if (status) {
       status.textContent = dirty ? "未保存" : "已同步";
       status.classList.toggle("is-dirty", dirty);
@@ -463,7 +478,7 @@ export function createRailPanels({
   }
 
   async function saveCurrentFile() {
-    const editor = root.querySelector("#rail-files-editor");
+    const editor = root.querySelector(`#${files.editor}`);
     const snapshot = fileView;
     if (!snapshot?.editable || !editor || snapshot.runId !== getRunId()) return;
     const content = editor.value;
@@ -473,9 +488,9 @@ export function createRailPanels({
     fileSaveController?.abort();
     const ownedController = new AbortController();
     fileSaveController = ownedController;
-    const save = root.querySelector("#rail-files-save");
-    const revert = root.querySelector("#rail-files-revert");
-    const status = root.querySelector("#rail-files-editor-status");
+    const save = root.querySelector(`#${files.save}`);
+    const revert = root.querySelector(`#${files.revert}`);
+    const status = root.querySelector(`#${files.status}`);
     if (save) save.disabled = true;
     if (revert) revert.disabled = true;
     if (status) status.textContent = "正在保存";
@@ -580,25 +595,25 @@ export function createRailPanels({
       openBrowserUrl(open.dataset.railBrowserOpen);
       return;
     }
-    const entry = event.target.closest("[data-rail-files-path]");
+    const entry = event.target.closest(`[${files.entry}]`);
     if (entry && !entry.disabled) {
       event.preventDefault();
-      void loadFiles(entry.dataset.railFilesPath, { force: true });
+      void loadFiles(entry.getAttribute(files.entry), { force: true });
       return;
     }
-    if (event.target.closest("#rail-files-save")) {
+    if (event.target.closest(`#${files.save}`)) {
       event.preventDefault();
       void saveCurrentFile();
       return;
     }
-    if (event.target.closest("#rail-files-revert")) {
+    if (event.target.closest(`#${files.revert}`)) {
       event.preventDefault();
       if (!fileView) return;
       fileDrafts.delete(fileView.draftKey);
       renderFilePreview(fileView.serverValue);
       return;
     }
-    if (event.target.closest("#rail-files-root")) {
+    if (event.target.closest(`#${files.root}`)) {
       event.preventDefault();
       void loadFiles("", { force: true });
       return;
@@ -621,11 +636,11 @@ export function createRailPanels({
 
   const handleFilter = () => renderFilesTree();
   const handleInput = (event) => {
-    if (event.target.closest("#rail-files-editor")) updateEditorDraft();
+    if (event.target.closest(`#${files.editor}`)) updateEditorDraft();
   };
   const handleKeydown = (event) => {
     if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey || event.key.toLowerCase() !== "s") return;
-    if (!event.target.closest("#rail-files-editor")) return;
+    if (!event.target.closest(`#${files.editor}`)) return;
     event.preventDefault();
     void saveCurrentFile();
   };
