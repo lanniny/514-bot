@@ -23,6 +23,9 @@ test("Bot roster has a real scroll container so 项目协作室 is not clipped",
   assert.match(css, /\.bot-active-runs \{[\s\S]*max-height: min\(42vh, 360px\);/);
   assert.match(css, /#bot-active-runs-list \{[\s\S]*overflow-y: auto;/);
   assert.match(css, /\.bot-inspector-ops \{/);
+  assert.match(css, /\.bot-inspector-toolbar \{/);
+  assert.match(css, /\.bot-inspector-scroll \{/);
+  assert.match(css, /\.bot-inspector-card \{/);
   assert.match(css, /\.bot-shell-grid\.is-ops-collapsed \{/);
   assert.match(grok, /html\.is-bot-grok-face #view-bot \.bot-roster-scroll/);
   assert.match(grok, /html\.is-bot-grok-face #view-bot \.bot-active-runs \{[\s\S]*max-height: min\(42vh, 360px\);/);
@@ -58,10 +61,15 @@ test("Bot home top icons have destinations after workbench retirement", async ()
   assert.doesNotMatch(roster, /id="bot-ops-rail"/);
   const inspector = html.slice(html.indexOf('id="bot-agent-panel"'));
   assert.match(inspector, /id="bot-ops-rail"/);
+  assert.match(inspector, /class="bot-inspector-toolbar"/);
+  assert.match(inspector, /class="bot-inspector-scroll"/);
+  assert.match(inspector, /id="bot-panel-avatar"/);
+  assert.match(inspector, /id="bot-inspector-status"/);
   assert.match(inspector, /id="bot-ops-files"/);
   assert.match(inspector, /成员电脑连接/);
   assert.match(inspector, /id="bot-routine-list"/);
   assert.match(inspector, /id="bot-channels-list"/);
+  assert.match(inspector, /class="bot-inspector-toolbar"[\s\S]*class="bot-inspector-scroll"[\s\S]*bot-inspector-card[\s\S]*id="bot-computer-preview"/);
   assert.match(html, /class="bot-conversation"[\s\S]*id="bot-agent-panel"[\s\S]*id="bot-ops-rail"/);
   assert.match(app, /botMemberComputerRows\(/);
   assert.match(app, /ensureBotOpsFiles\(/);
@@ -77,6 +85,9 @@ test("Bot home top icons have destinations after workbench retirement", async ()
   assert.match(app, /applyOpsRailCollapsed\(!readOpsCollapsed\(\)\)/);
   assert.match(app, /writeRosterCollapsed\(collapsed\)/);
   assert.match(app, /applyRosterCollapsed\(collapsed\)/);
+  assert.match(app, /bot-header-avatar", "bot-panel-avatar", "bot-panel-agent-name"/);
+  assert.match(app, /bot-inspector-status/);
+  assert.match(app, /querySelectorAll\("\.bot-computer-bar strong"\)/);
   assert.match(app, /function applyOpsRailCollapsed\(/);
   assert.match(app, /applyOpsCollapsed\(next\)/);
   assert.match(app, /conversationListsRun\(conversation, id\)/);

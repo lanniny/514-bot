@@ -18270,10 +18270,10 @@ function botRenderAgent(agentId = botState.agentId) {
     row.setAttribute("aria-selected", String(active));
     row.tabIndex = active ? 0 : -1;
   });
-  for (const id of ["bot-header-avatar", "bot-panel-agent-name"]) {
+  for (const id of ["bot-header-avatar", "bot-panel-avatar", "bot-panel-agent-name"]) {
     const node = byId(id);
     if (!node) continue;
-    if (id === "bot-header-avatar") {
+    if (id === "bot-header-avatar" || id === "bot-panel-avatar") {
       if (groupView) {
         node.className = "bot-agent-avatar is-group";
         node.innerHTML = botGroupAvatarMarkup(groupRun || groupView);
@@ -18323,6 +18323,13 @@ function botRenderAgent(agentId = botState.agentId) {
   if (inspectorScope) inspectorScope.textContent = project ? `${project.title} / ${roomLabel}` : roomLabel;
   if (inspectorRef) inspectorRef.textContent = conversationRef || "尚未建立";
   if (inspectorRun) inspectorRun.textContent = inspectorRunLabel;
+  const inspectorStatus = byId("bot-inspector-status");
+  if (inspectorStatus) {
+    inspectorStatus.textContent = inspectorRunLabel;
+    inspectorStatus.dataset.tone = !visibleRun
+      ? "idle"
+      : inspectorPresentation?.className?.replace(/^is-/, "") || "idle";
+  }
   document.querySelectorAll("[data-bot-direct-only]").forEach((node) => { node.hidden = Boolean(groupView); });
   const panelSettingsButton = byId("bot-agent-settings-button");
   if (panelSettingsButton) panelSettingsButton.hidden = Boolean(groupView);
@@ -18349,8 +18356,9 @@ function botRenderAgent(agentId = botState.agentId) {
   if (panelStatus) panelStatus.textContent = "not-provisioned · 等待配置";
   const computerTitle = byId("bot-computer-view-title");
   if (computerTitle) computerTitle.textContent = `${meta.label} computer`;
-  const computerChrome = document.querySelector(".bot-computer-screen-large .bot-computer-bar strong");
-  if (computerChrome) computerChrome.textContent = `${meta.label} computer`;
+  document.querySelectorAll(".bot-computer-bar strong").forEach((node) => {
+    node.textContent = `${meta.label} computer`;
+  });
   botRenderMemberPanel();
   // Grok 对标：右栏 Routines 区接 /api/bots/routines 真数据（仅单聊视图；项目群无 owning Bot 概念）
   if (!groupView) {
