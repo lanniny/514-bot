@@ -21,10 +21,13 @@ test("chrome menu cluster sits in the topbar before the breadcrumb", async () =>
   const menus = html.indexOf('<div class="chrome-menus" id="chrome-menus">');
   const title = html.indexOf('<div class="topbar-title"');
   assert.ok(menus > -1 && title > -1 && menus < title, "chrome-menus 必须在 topbar-title 之前");
-  for (const id of ["chrome-rail-toggle", "chrome-nav-back", "chrome-nav-forward", "chrome-menu-file", "chrome-menu-edit", "chrome-menu-view", "chrome-menu-help"]) {
+  for (const id of ["chrome-rail-toggle", "chrome-nav-back", "chrome-nav-forward", "chrome-menu-overflow", "chrome-app-menus", "chrome-app-menus-panel", "chrome-menu-file", "chrome-menu-edit", "chrome-menu-view", "chrome-menu-help"]) {
     assertIncludes(html, `id="${id}"`, `缺菜单钮：${id}`);
   }
-  for (const icon of ["#lucide-arrow-left", "#lucide-arrow-right"]) {
+  assertIncludes(html, 'class="chrome-cluster chrome-nav-cluster"', "导航必须成簇，避免散落芯片");
+  assertIncludes(html, 'class="chrome-menu-overflow"', "低频文件/编辑/视图/帮助必须收进溢出菜单");
+  assertIncludes(html, 'class="chrome-cluster chrome-utils-cluster"', "主题/刷新/终端/环境必须成簇");
+  for (const icon of ["#lucide-arrow-left", "#lucide-arrow-right", "#lucide-ellipsis"]) {
     assertIncludes(html, icon, `菜单列图标缺失：${icon}`);
   }
   assertIncludes(html, 'class="icon lucide chrome-rail-glyph"', "左栏开关必须使用 Lucide 双态图标");
@@ -39,7 +42,7 @@ test("chrome ids are registered and menu icons exist in MENU_ICONS", async () =>
   const app = await source("public/app.js");
   const listStart = app.indexOf("function cacheElements()");
   const list = app.slice(listStart, listStart + 14000);
-  for (const id of ["chrome-rail-toggle", "chrome-nav-back", "chrome-nav-forward", "chrome-menu-file", "chrome-menu-edit", "chrome-menu-view", "chrome-menu-help"]) {
+  for (const id of ["chrome-rail-toggle", "chrome-nav-back", "chrome-nav-forward", "chrome-menu-overflow", "chrome-app-menus", "chrome-app-menus-panel", "chrome-menu-file", "chrome-menu-edit", "chrome-menu-view", "chrome-menu-help"]) {
     assertIncludes(list, `"${id}"`, `cacheElements 未登记 ${id}`);
   }
   const iconsBlock = app.slice(app.indexOf("const MENU_ICONS = {"), app.indexOf("const MENU_ICONS = {") + 4000);
@@ -53,11 +56,13 @@ test("initializeChromeMenus wires rail toggle, nav history, and four menus with 
   const fnStart = app.indexOf("function initializeChromeMenus()");
   assert.ok(fnStart > -1, "缺 initializeChromeMenus 定义");
   // 窗口须覆盖到帮助菜单（函数尾部）；视图导航条目加入后函数变长，定窗同步放大
-  const fn = app.slice(fnStart, fnStart + 5600);
+  const fn = app.slice(fnStart, fnStart + 7600);
   assertIncludes(fn, 'bindMenu("chrome-menu-file"');
   assertIncludes(fn, 'bindMenu("chrome-menu-edit"');
   assertIncludes(fn, 'bindMenu("chrome-menu-view"');
   assertIncludes(fn, 'bindMenu("chrome-menu-help"');
+  assertIncludes(fn, 'byId("chrome-menu-overflow")', "溢出菜单必须接线");
+  assertIncludes(fn, "setOverflowOpen", "溢出菜单必须有开关");
   assertIncludes(fn, 'byId("new-task-row")?.click()', "文件菜单的新建任务必须复用既有入口");
   assertIncludes(fn, 'applyUiFontSize(14)', "视图菜单缺字号重置");
   assertIncludes(fn, "getVersion()", "帮助菜单的关于必须给真实版本");
@@ -110,15 +115,18 @@ test("unified chrome color + floating conversation card styles", async () => {
   assertIncludes(wave, "@media (min-width: 821px) {");
   assertIncludes(wave, "justify-self: end;");
   assertIncludes(css, "@media (max-width: 560px) {");
-  assertIncludes(css, ".topbar-brand,\n  .chrome-menus,");
-  assertIncludes(css, ".topbar-actions #global-mc-toggle {");
-  assertIncludes(css, ".topbar-actions {\n    flex: 0 0 auto;\n    overflow: hidden;");
+  assertIncludes(css, ".topbar-brand,\n  .chrome-nav-cluster,");
+  assertIncludes(css, ".chrome-utils-cluster {");
+  assertIncludes(css, ".topbar-actions {\n    flex: 0 0 auto;\n    overflow: visible;");
+  assertIncludes(wave, ".chrome-menu-overflow {");
+  assertIncludes(wave, ".chrome-app-menus-panel {");
+  assertIncludes(wave, "body.atelier .topbar .icon-button,");
 });
 
 test("wave-9 icons exist in the lucide manifest", async () => {
   const manifest = JSON.parse(await source("public/lucide-icons.json"));
   const names = new Set((manifest.icons ?? []).map((icon) => icon.name ?? icon));
-  for (const icon of ["panel-left", "arrow-left", "arrow-right"]) {
+  for (const icon of ["panel-left", "arrow-left", "arrow-right", "ellipsis"]) {
     assert.ok(names.has(icon), `lucide manifest 缺少 ${icon}`);
   }
 });

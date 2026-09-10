@@ -8,7 +8,7 @@ const commands = new Map([
   ["bot-window-close", "plugin:window|close"],
 ]);
 const dragSurfaces = ".topbar, .bot-roster-header, .bot-conversation-header, .bot-panel-header, .bot-computer-view-header, .bot-settings-header";
-const interactive = "button, a, input, select, textarea, .topbar-nav, .topbar-actions, [contenteditable]:not([contenteditable=\"false\"]), [role=\"button\"]";
+const interactive = "button, a, input, select, textarea, summary, .topbar-nav, .topbar-actions, .chrome-app-menus-panel, [contenteditable]:not([contenteditable=\"false\"]), [role=\"button\"]";
 
 export function mountDesktopWindowChrome({ document, window, invoke, reload, onError }) {
   mounts.get(document)?.dispose();

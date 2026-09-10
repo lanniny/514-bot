@@ -1030,9 +1030,7 @@ html.is-bot-surface #view-bot {
 }
 
 @media (max-width: 700px) {
-  .is-bot-surface .topbar-actions #theme-toggle,
-  .is-bot-surface .topbar-actions #global-terminal-toggle,
-  .is-bot-surface .topbar-actions #global-mc-toggle { display: none; }
+  .is-bot-surface .chrome-utils-cluster { display: none; }
   html.is-bot-surface .topbar-title { display: none !important; }
   html.is-bot-surface .main-content,
   html.is-bot-surface .main-content:not(:has(#view-workbench.is-active)) { padding: 0 !important; }

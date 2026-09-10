@@ -75,7 +75,7 @@ test("initializeWindowChrome guards on the Tauri bridge and wires desktop drag s
     assertIncludes(fn, `"${id}"`, `Bot 窗口控件未接入初始化：${id}`);
   }
   assertIncludes(fn, 'event.detail === 2 ? "plugin:window|toggle_maximize" : "plugin:window|start_dragging"', "双击应 toggle_maximize，单击 start_dragging");
-  assertIncludes(fn, "button, a, input, select, textarea, .topbar-nav, .topbar-actions", "拖拽命中必须放行交互元素");
+  assertIncludes(fn, "button, a, input, select, textarea, summary, .topbar-nav, .topbar-actions, .chrome-app-menus-panel", "拖拽命中必须放行交互元素");
   assertIncludes(fn, "document.querySelectorAll(dragSurfaces)", "拖拽面必须绑定到当前可见视图标题栏");
   assertIncludes(fn, 'listen(surface, "pointerdown"', "触屏/触笔拖拽保留 Pointer Events");
   assertIncludes(fn, 'listen(surface, "mousedown"', "鼠标双击必须读取真实 MouseEvent 点击次数");

@@ -3538,14 +3538,16 @@ body.team-bg-active .global-statusbar {
   border-top-color: color-mix(in oklab, var(--border) 60%, transparent);
 }
 
-/* 「协作/总览/会话…」等常规视图下，顶栏里的 chrome 菜单（文件/编辑/视图/帮助）
-   与右侧 icon 簇原本各铺 surface-soft 实底，玻璃顶栏底下再叠一层会发暗——
-   透出即可，按钮各自 hover/active 态不受影响。 */
+/* 「协作/总览/会话…」等常规视图下，顶栏图标默认透出，避免每个控件各铺一层芯片。
+   搜索触发器保留轻表面，hover 仍由各按钮自己的态负责。 */
 body.team-bg-active .topbar .chrome-menu-label,
 body.team-bg-active .topbar .chrome-icon-button,
-body.team-bg-active .topbar .command-trigger,
+body.team-bg-active .topbar .chrome-menu-overflow,
 body.team-bg-active .topbar .icon-button,
 body.team-bg-active .topbar .window-control-button {
+  background: transparent;
+}
+body.team-bg-active .topbar .command-trigger {
   background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) 70%, transparent);
 }
 
@@ -3856,6 +3858,7 @@ body.team-bg-active .context-rail::-webkit-scrollbar-thumb {
   }
   body.team-bg-active .topbar .chrome-menu-label,
   body.team-bg-active .topbar .chrome-icon-button,
+  body.team-bg-active .topbar .chrome-menu-overflow,
   body.team-bg-active .topbar .command-trigger,
   body.team-bg-active .topbar .icon-button,
   body.team-bg-active .topbar .window-control-button,

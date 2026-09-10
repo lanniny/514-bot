@@ -52,14 +52,116 @@ html.is-bot-grok-face.is-bot-surface .global-statusbar {
   color: var(--bot-grok-muted);
 }
 
-html.is-bot-grok-face.is-bot-surface .topbar :is(button, input, strong, span) {
+html.is-bot-grok-face.is-bot-surface .topbar {
+  gap: 8px;
+  padding: 0 10px 0 8px;
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar .mobile-menu-button,
+html.is-bot-grok-face.is-bot-surface .topbar .chrome-icon-button,
+html.is-bot-grok-face.is-bot-surface .topbar .icon-button,
+html.is-bot-grok-face.is-bot-surface .topbar .chrome-menu-overflow,
+html.is-bot-grok-face.is-bot-surface .topbar .window-control-button {
+  background: transparent;
+  border-color: transparent;
+  color: var(--bot-grok-muted);
+  box-shadow: none;
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar :is(strong) {
   color: var(--bot-grok-ink);
 }
 
-html.is-bot-grok-face.is-bot-surface .topbar .command-trigger {
-  background: var(--bot-grok-raised);
-  border-color: var(--bot-grok-line);
+html.is-bot-grok-face.is-bot-surface .topbar-crumb-group,
+html.is-bot-grok-face.is-bot-surface .topbar-separator,
+html.is-bot-grok-face.is-bot-surface .chrome-menu-overflow-label,
+html.is-bot-grok-face.is-bot-surface .connection-badge-label {
   color: var(--bot-grok-muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar-title {
+  min-width: 0;
+  gap: 6px;
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar-title strong {
+  color: var(--bot-grok-ink);
+  font-weight: 600;
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar .mobile-menu-button:hover,
+html.is-bot-grok-face.is-bot-surface .topbar .chrome-icon-button:hover:not(:disabled),
+html.is-bot-grok-face.is-bot-surface .topbar .icon-button:hover:not(:disabled),
+html.is-bot-grok-face.is-bot-surface .topbar .chrome-menu-overflow:hover,
+html.is-bot-grok-face.is-bot-surface .chrome-app-menus.is-open .chrome-menu-overflow,
+html.is-bot-grok-face.is-bot-surface .topbar .window-control-button:hover {
+  background: var(--bot-grok-soft);
+  color: var(--bot-grok-ink);
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar :is(.icon-button, .chrome-icon-button, .chrome-menu-overflow):focus:not(:focus-visible) {
+  background: transparent;
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar .command-trigger {
+  min-height: 30px;
+  padding: 0 10px 0 8px;
+  border: 1px solid var(--bot-grok-line);
+  border-radius: 9px;
+  background: var(--bot-grok-raised);
+  color: var(--bot-grok-muted);
+  box-shadow: none;
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar .command-trigger:hover {
+  border-color: color-mix(in srgb, var(--bot-grok-ink) 22%, var(--bot-grok-line));
+  background: var(--bot-grok-raised);
+  color: var(--bot-grok-ink);
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar .command-trigger .forge-kbd {
+  border-color: var(--bot-grok-line);
+  background: var(--bot-grok-soft);
+  color: var(--bot-grok-muted);
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar .connection-badge {
+  min-height: 28px;
+  gap: 6px;
+  padding: 0 2px 0 4px;
+  border: 0;
+  background: transparent;
+  color: var(--bot-grok-muted);
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar .connection-badge.is-ok,
+html.is-bot-grok-face.is-bot-surface .topbar .connection-badge.is-warning,
+html.is-bot-grok-face.is-bot-surface .topbar .connection-badge.is-error {
+  background: transparent;
+}
+
+html.is-bot-grok-face.is-bot-surface .chrome-app-menus-panel {
+  border-color: var(--bot-grok-line);
+  background: var(--bot-grok-raised);
+  box-shadow: 0 12px 32px var(--bot-grok-shadow);
+}
+
+html.is-bot-grok-face.is-bot-surface .chrome-app-menus-panel .chrome-menu-label {
+  color: var(--bot-grok-ink);
+}
+
+html.is-bot-grok-face.is-bot-surface .chrome-app-menus-panel .chrome-menu-label:hover {
+  background: var(--bot-grok-soft);
+}
+
+html.is-bot-grok-face.is-bot-surface .chrome-utils-cluster {
+  padding-left: 2px;
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar-actions {
+  gap: 4px;
 }
 
 html.is-bot-grok-face.is-bot-surface:has(#view-bot.is-active) .atelier-stage {
@@ -578,6 +680,10 @@ html.is-bot-grok-face #view-bot .bot-roster-footer .bot-icon-button {
 }
 
 @media (max-width: 820px) {
+  html.is-bot-grok-face.is-bot-surface .topbar-title {
+    display: flex !important;
+  }
+
   html.is-bot-grok-face #view-bot .bot-icon-rail {
     display: none;
   }
@@ -607,6 +713,25 @@ html.is-bot-grok-face #view-bot .bot-roster-footer .bot-icon-button {
 }
 
 @media (max-width: 560px) {
+  html.is-bot-grok-face.is-bot-surface .topbar {
+    gap: 4px;
+    padding: 0 6px;
+  }
+
+  html.is-bot-grok-face.is-bot-surface .chrome-menu-overflow-label,
+  html.is-bot-grok-face.is-bot-surface .connection-badge-label,
+  html.is-bot-grok-face.is-bot-surface .topbar .command-trigger span,
+  html.is-bot-grok-face.is-bot-surface .topbar .command-trigger kbd {
+    display: none;
+  }
+
+  html.is-bot-grok-face.is-bot-surface .topbar .command-trigger {
+    width: 30px;
+    min-width: 30px;
+    padding: 0;
+    justify-content: center;
+  }
+
   html.is-bot-grok-face #view-bot .bot-composer {
     padding: 8px 10px 10px;
   }
