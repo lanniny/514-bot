@@ -49,10 +49,54 @@ test("Grok face preference defaults to grok and can switch to workbench", async 
   assert.equal(more.attrs["aria-expanded"], "false");
 });
 
+test("ops rail collapse persists and pins the right sidebar class", async () => {
+  const store = new Map();
+  const classes = new Set();
+  const rail = { attrs: {}, setAttribute(name, value) { this.attrs[name] = String(value); } };
+  globalThis.localStorage = {
+    getItem: (key) => (store.has(key) ? store.get(key) : null),
+    setItem: (key, value) => { store.set(key, String(value)); },
+  };
+  globalThis.document = {
+    querySelector(selector) {
+      if (selector === "#view-bot .bot-shell-grid") {
+        return {
+          classList: {
+            toggle(name, on) {
+              if (on) classes.add(name);
+              else classes.delete(name);
+            },
+          },
+        };
+      }
+      return null;
+    },
+    getElementById(id) {
+      return id === "bot-ops-rail" ? rail : null;
+    },
+  };
+  const {
+    BOT_OPS_KEY,
+    readOpsCollapsed,
+    writeOpsCollapsed,
+    applyOpsCollapsed,
+  } = await import("../public/modules/bot-grok-face.js");
+  assert.equal(readOpsCollapsed(), false);
+  writeOpsCollapsed(true);
+  assert.equal(store.get(BOT_OPS_KEY), "1");
+  assert.equal(applyOpsCollapsed(true), true);
+  assert.equal(classes.has("is-ops-collapsed"), true);
+  assert.equal(rail.attrs["aria-hidden"], "true");
+  assert.equal(applyOpsCollapsed(false), false);
+  assert.equal(classes.has("is-ops-collapsed"), false);
+});
+
 test("Grok face lets custom wallpaper show through when team-bg-active", async () => {
   const css = await readFile(`${appRoot}/public/forge/bot-grok-face.css`, "utf8");
   assert.match(css, /:not\(:has\(body\.team-bg-active\)\) \.atelier-stage/);
   assert.match(css, /html\.is-bot-grok-face body\.team-bg-active #view-bot \.bot-ops-rail/);
+  assert.match(css, /html\.is-bot-grok-face #view-bot \.bot-shell-grid\.is-ops-collapsed/);
+  assert.match(css, /html\.is-bot-grok-face #view-bot \.bot-active-run\.is-current \{[\s\S]*inset 2px 0 0 var\(--bot-ink\)/);
   assert.match(css, /--forge-glass-filter/);
   assert.doesNotMatch(css, /html\.is-bot-grok-face body\.team-bg-active #view-bot \.bot-composer \{\s*background: var\(--bot-bg\);/);
 });

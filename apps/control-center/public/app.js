@@ -116,6 +116,8 @@ import {
   retireWorkbenchView,
   isRetiredWorkbenchHash,
   botConversationForRun,
+  conversationListsRun,
+  botRunAgentId,
   botActiveRunsMarkup,
   botActiveRunFiltersMarkup,
   botActiveRunsToolbarMarkup,
@@ -185,7 +187,7 @@ import { loadBotProfileSection, saveBotProfileSection, markBotProfileDirty } fro
 import { renderRelayBoard } from "./modules/bot-relay-board.js";
 import { postRelayKickoff } from "./modules/bot-collab-api.js";
 import { botTypingMarkup, botTypingMembers } from "./modules/bot-typing-indicators.js";
-import { bindBotGrokFace, applyRosterCollapsed, readRosterCollapsed, writeRosterCollapsed } from "./modules/bot-grok-face.js";
+import { bindBotGrokFace, applyRosterCollapsed, readRosterCollapsed, writeRosterCollapsed, applyOpsCollapsed, readOpsCollapsed, writeOpsCollapsed } from "./modules/bot-grok-face.js";
 import {
   state, ACTIVE_RUN_STATES, TERMINAL_RUN_STATES, VIEW_TITLES,
   DEFAULT_COMPONENTS, DEFAULT_MODELS, DEFAULT_POLICIES, DEFAULT_SECRETS,
@@ -471,6 +473,7 @@ function cacheElements() {
     "bot-window-maximize",
     "bot-window-close",
     "chrome-rail-toggle",
+    "chrome-ops-toggle",
     "chrome-nav-back",
     "chrome-nav-forward",
     "chrome-menu-overflow",
@@ -2195,6 +2198,24 @@ function syncRailToggleButton(collapsed) {
   toggle.querySelector("use")?.setAttribute("href", collapsed ? "#lucide-panel-right" : "#lucide-panel-left");
 }
 
+function syncOpsToggleButton(collapsed = readOpsCollapsed()) {
+  const toggle = byId("chrome-ops-toggle");
+  if (!toggle) return;
+  toggle.setAttribute("aria-pressed", String(collapsed));
+  const label = collapsed ? "展开右侧栏" : "收起右侧栏";
+  toggle.title = label;
+  toggle.setAttribute("aria-label", label);
+  toggle.querySelector("use")?.setAttribute("href", collapsed ? "#lucide-panel-left" : "#lucide-panel-right");
+}
+
+function applyOpsRailCollapsed(collapsed, { persist = true } = {}) {
+  const next = Boolean(collapsed);
+  if (persist) writeOpsCollapsed(next);
+  applyOpsCollapsed(next);
+  syncOpsToggleButton(next);
+  return next;
+}
+
 function applyRailCollapsed(collapsed, { persist = true } = {}) {
   if (isBotHomeChrome()) {
     writeRosterCollapsed(collapsed);
@@ -2230,6 +2251,7 @@ function syncBotHomeChromeButtons() {
     panel.setAttribute("aria-label", open ? "关闭会话详情" : "打开会话详情");
   }
   syncRailToggleButton(railCollapsed());
+  syncOpsToggleButton(readOpsCollapsed());
 }
 
 function handleBotHomeTerminalToggle() {
@@ -2271,6 +2293,10 @@ function initializeChromeMenus() {
     applyRailCollapsed(!railCollapsed());
     pulseChromeButton("chrome-rail-toggle");
   });
+  byId("chrome-ops-toggle")?.addEventListener("click", () => {
+    applyOpsRailCollapsed(!readOpsCollapsed());
+    pulseChromeButton("chrome-ops-toggle");
+  });
   getChromeViewHistory().initialize();
   syncChromeNavButtons();
   const bindMenu = (id, buildItems) => {
@@ -2309,6 +2335,7 @@ function initializeChromeMenus() {
     ]),
     "---",
     { icon: "panelLeft", label: railCollapsed() ? "展开左栏" : "收起左栏", action: () => applyRailCollapsed(!railCollapsed()) },
+    { icon: "panelRight", label: readOpsCollapsed() ? "展开右侧栏" : "收起右侧栏", action: () => applyOpsRailCollapsed(!readOpsCollapsed()) },
     "---",
     { icon: "moon", label: "切换主题（亮/暗）", action: () => elements["theme-toggle"]?.click() },
     { icon: "zoomIn", label: "放大界面字号", action: () => applyUiFontSize(readUiFontSize() + 1) },
@@ -2370,6 +2397,7 @@ function initializeChromeMenus() {
   if (isBotHomeChrome()) {
     applyRosterCollapsed(readRosterCollapsed());
     syncRailToggleButton(readRosterCollapsed());
+    applyOpsRailCollapsed(readOpsCollapsed(), { persist: false });
   } else {
     applyRailCollapsed(readStoredFlag(RAIL_COLLAPSED_KEY), { persist: false });
   }
@@ -19406,7 +19434,9 @@ async function botOpenConversationRun(conversation, runId, agentId = botState.ag
   const id = String(runId || "");
   const conversationId = String(conversation?.id || "");
   const selectionToken = botState.selectionEpoch;
-  if (!conversation?.id || !(conversation.runIds || []).some((candidate) => String(candidate) === id)) return;
+  if (!conversation?.id || !id) return;
+  const knownRun = runProjection.resolveRun(id);
+  if (!conversationListsRun(conversation, id) && knownRun && !botRunBelongsToConversation(knownRun, conversation)) return;
   if (botState.clearedRunIds.has(id)) {
     toast("该运行主体已清理，仅保留 Conversation 审计引用", "info", 4200);
     return;
@@ -21719,20 +21749,33 @@ function renderBotMemberConnections() {
 async function openBotForRun(runId, { tab } = {}) {
   const id = String(runId || "");
   if (!id) return false;
-  const conversation = botConversationForRun(botState.conversations, id);
-  setView("bot", {
-    updateHash: true,
-    focus: false,
-    botWorkspaceHash: botWorkspaceRoute({
-      conversationId: conversation?.id || "",
-      runId: id,
-      ...(tab ? { tab } : {}),
-    }),
-  });
-  if (conversation) {
-    botOpenConversation(conversation.id);
-    await botOpenConversationRun(conversation, id);
+  const run = runProjection.resolveRun(id) || (state.runs || []).find((item) => String(item?.id) === id) || null;
+  const conversation = botConversationForRun(botState.conversations, id, run);
+  state.selectedRunId = id;
+  botState.runId = id;
+  if (conversation?.id) botState.selectedRunIds[conversation.id] = id;
+  renderBotActiveRuns();
+  if (state.view !== "bot") {
+    setView("bot", {
+      updateHash: true,
+      focus: false,
+      botWorkspaceHash: botWorkspaceRoute({
+        conversationId: conversation?.id || "",
+        runId: id,
+        ...(tab ? { tab } : {}),
+      }),
+    });
   }
+  if (!conversation) {
+    const agentId = botRunAgentId(run);
+    if (agentId) botRenderAgent(agentId);
+    renderBotActiveRuns();
+    return Boolean(run);
+  }
+  const opened = botOpenConversation(conversation.id);
+  if (opened !== false) await botOpenConversationRun(conversation, id);
+  renderBotActiveRuns();
+  botRenderRoster();
   return true;
 }
 
@@ -21829,6 +21872,7 @@ function bindBotWorkspaceFolds() {
     const activeRun = event.target.closest("[data-bot-active-run]");
     if (activeRun) {
       event.preventDefault();
+      event.stopPropagation();
       void openBotForRun(activeRun.dataset.botActiveRun);
       return;
     }
@@ -21836,6 +21880,11 @@ function bindBotWorkspaceFolds() {
       event.preventDefault();
       const overflow = byId("bot-composer-overflow");
       if (overflow) overflow.open = true;
+    }
+    if (event.target.closest("#bot-ops-rail-close")) {
+      event.preventDefault();
+      applyOpsRailCollapsed(true);
+      return;
     }
     const action = event.target.closest("[data-bot-workspace-action]")?.dataset.botWorkspaceAction;
     if (!action) return;
@@ -30043,7 +30092,9 @@ async function start() {
       if (!runId) {
         delete botState.selectedRunIds[conversationId];
         botRenderAgent();
-      } else if (conversation.runIds?.includes(runId)) await botOpenConversationRun(conversation, runId);
+      } else if (conversationListsRun(conversation, runId) || conversationOwnsRun(runProjection.resolveRun(runId), conversation, botState.conversations)) {
+        await botOpenConversationRun(conversation, runId);
+      }
     },
     onRefresh: async () => {
       await Promise.all([loadBootstrap(), loadRuns(), botLoadConversations()]).catch((error) => toast(error.message, "warning"));

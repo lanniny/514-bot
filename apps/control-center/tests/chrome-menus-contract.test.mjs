@@ -21,7 +21,7 @@ test("chrome menu cluster sits in the topbar before the breadcrumb", async () =>
   const menus = html.indexOf('<div class="chrome-menus" id="chrome-menus">');
   const title = html.indexOf('<div class="topbar-title"');
   assert.ok(menus > -1 && title > -1 && menus < title, "chrome-menus 必须在 topbar-title 之前");
-  for (const id of ["chrome-rail-toggle", "chrome-nav-back", "chrome-nav-forward", "chrome-menu-overflow", "chrome-app-menus", "chrome-app-menus-panel", "chrome-menu-file", "chrome-menu-edit", "chrome-menu-view", "chrome-menu-help"]) {
+  for (const id of ["chrome-rail-toggle", "chrome-ops-toggle", "chrome-nav-back", "chrome-nav-forward", "chrome-menu-overflow", "chrome-app-menus", "chrome-app-menus-panel", "chrome-menu-file", "chrome-menu-edit", "chrome-menu-view", "chrome-menu-help"]) {
     assertIncludes(html, `id="${id}"`, `缺菜单钮：${id}`);
   }
   assertIncludes(html, 'class="chrome-cluster chrome-nav-cluster"', "导航必须成簇，避免散落芯片");
@@ -42,7 +42,7 @@ test("chrome ids are registered and menu icons exist in MENU_ICONS", async () =>
   const app = await source("public/app.js");
   const listStart = app.indexOf("function cacheElements()");
   const list = app.slice(listStart, listStart + 14000);
-  for (const id of ["chrome-rail-toggle", "chrome-nav-back", "chrome-nav-forward", "chrome-menu-overflow", "chrome-app-menus", "chrome-app-menus-panel", "chrome-menu-file", "chrome-menu-edit", "chrome-menu-view", "chrome-menu-help"]) {
+  for (const id of ["chrome-rail-toggle", "chrome-ops-toggle", "chrome-nav-back", "chrome-nav-forward", "chrome-menu-overflow", "chrome-app-menus", "chrome-app-menus-panel", "chrome-menu-file", "chrome-menu-edit", "chrome-menu-view", "chrome-menu-help"]) {
     assertIncludes(list, `"${id}"`, `cacheElements 未登记 ${id}`);
   }
   const iconsBlock = app.slice(app.indexOf("const MENU_ICONS = {"), app.indexOf("const MENU_ICONS = {") + 4000);

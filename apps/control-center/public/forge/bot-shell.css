@@ -65,13 +65,25 @@
   height: 100%;
   min-width: 0;
   grid-template-columns: 260px minmax(0, 1fr) var(--bot-ops, 248px);
+  grid-template-areas: "roster conversation ops";
+  grid-template-rows: minmax(0, 1fr);
 }
+.bot-shell-grid.is-ops-collapsed {
+  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-areas: "roster conversation";
+}
+.bot-icon-rail { grid-area: icons; }
+.bot-roster { grid-area: roster; }
+.bot-conversation { grid-area: conversation; }
+.bot-ops-rail { grid-area: ops; }
 .bot-roster,
 .bot-conversation,
 .bot-ops-rail,
 .bot-agent-panel { min-width: 0; min-height: 0; }
 
 .bot-roster {
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -96,6 +108,13 @@ body.team-bg-active .bot-agent-panel {
 
 body.team-bg-active .bot-composer {
   background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) calc(var(--forge-glass-alpha, 86%) + 6%), transparent);
+}
+
+body.team-bg-active .bot-agent-row.is-active,
+body.team-bg-active .bot-active-run.is-current {
+  background: color-mix(in oklab, var(--workspace-link, var(--bot-accent)) 16%, transparent);
+  border-color: color-mix(in srgb, var(--workspace-link, var(--bot-accent)) 40%, var(--bot-line));
+  box-shadow: inset 2px 0 0 var(--workspace-link, var(--bot-accent));
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
@@ -218,7 +237,11 @@ body.team-bg-active .bot-composer {
 .bot-tree-conversation.is-deleted:hover { background: transparent; }
 .bot-agent-row { display: flex; width: 100%; min-height: 58px; align-items: center; gap: 10px; padding: 8px 9px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--bot-ink); text-align: left; transition: background var(--dur-fast, 120ms) ease, border-color var(--dur-fast, 120ms) ease, box-shadow var(--dur-fast, 120ms) ease; }
 .bot-agent-row:hover { border-color: var(--bot-line); background: color-mix(in srgb, var(--bot-panel) 65%, transparent); }
-.bot-agent-row.is-active { border-color: color-mix(in srgb, var(--workspace-link, var(--bot-accent)) 45%, var(--bot-line-strong)); background: var(--bot-panel); box-shadow: 0 1px 4px rgba(20, 40, 80, .10); }
+.bot-agent-row.is-active {
+  border-color: color-mix(in srgb, var(--workspace-link, var(--bot-accent)) 42%, var(--bot-line));
+  background: color-mix(in srgb, var(--workspace-link, var(--bot-accent)) 10%, transparent);
+  box-shadow: inset 2px 0 0 var(--workspace-link, var(--bot-accent));
+}
 .bot-agent-row:focus-visible { outline: 2px solid var(--bot-accent); outline-offset: -2px; }
 .bot-agent-avatar,
 .bot-message-avatar,
@@ -1141,6 +1164,7 @@ html.is-bot-surface #view-bot {
 
 @media (max-width: 980px) {
   .bot-shell-grid { grid-template-columns: 220px minmax(0, 1fr) var(--bot-ops, 220px); }
+  .bot-shell-grid.is-ops-collapsed { grid-template-columns: 220px minmax(0, 1fr); }
   .bot-message-stream { padding-right: 28px; padding-left: 28px; }
 }
 
@@ -1159,7 +1183,17 @@ html.is-bot-surface #view-bot {
   html.is-bot-surface #view-bot { border: 0; border-radius: 0; box-shadow: none; }
   .bot-shell { width: 100%; height: 100%; min-height: 0; margin: 0; }
   .bot-shell-grid { display: block; overflow: hidden; }
-  .bot-ops-rail { display: none; }
+  .bot-ops-rail {
+    display: none;
+    position: absolute;
+    z-index: 16;
+    inset: 0 0 0 auto;
+    width: min(280px, 86vw);
+    border-left: 1px solid var(--bot-line);
+    box-shadow: -16px 0 40px color-mix(in oklab, var(--forge-ink) 16%, transparent);
+  }
+  .bot-shell-grid:not(.is-ops-collapsed) .bot-ops-rail { display: flex; }
+  .bot-shell-grid.is-ops-collapsed .bot-ops-rail { display: none; }
   .bot-agent-avatar { width: 25px; height: 25px; font-size: var(--text-xs); }
   .bot-agent-copy strong { font-size: var(--text-xs); }
   .bot-unread-dot { width: 5px; height: 5px; }
@@ -1305,6 +1339,8 @@ html.is-bot-surface #view-bot {
   overscroll-behavior: contain;
 }
 .bot-active-runs {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex: 0 1 auto;
   max-height: min(42vh, 360px);
@@ -1313,6 +1349,7 @@ html.is-bot-surface #view-bot {
   gap: 4px;
   padding: 0 4px 8px;
   overflow: hidden;
+  pointer-events: auto;
 }
 .bot-active-runs[hidden] { display: none !important; }
 .bot-active-runs .bot-tree-section-title {
@@ -1480,10 +1517,15 @@ html.is-bot-surface #view-bot {
   font-style: normal;
   opacity: .55;
 }
-.bot-active-run.is-current,
 .bot-active-run:hover,
 .bot-active-run:focus-visible {
-  background: var(--bot-soft);
+  background: color-mix(in srgb, var(--bot-ink) 6%, transparent);
+  outline: 0;
+}
+.bot-active-run.is-current {
+  background: color-mix(in srgb, var(--workspace-link, var(--bot-accent)) 10%, transparent);
+  border-color: color-mix(in srgb, var(--workspace-link, var(--bot-accent)) 36%, var(--bot-line));
+  box-shadow: inset 2px 0 0 var(--workspace-link, var(--bot-accent));
   outline: 0;
 }
 .bot-run-status-chip {
@@ -1529,10 +1571,30 @@ html.is-bot-surface #view-bot {
   min-width: 0;
   flex-direction: column;
   gap: 6px;
-  padding: 10px 10px 12px;
+  padding: 0 10px 12px;
   overflow: auto;
   border-left: 1px solid var(--bot-line);
   background: var(--bot-sidebar);
+  z-index: 4;
+}
+.bot-shell-grid.is-ops-collapsed .bot-ops-rail {
+  display: none;
+}
+.bot-ops-rail-header {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 -10px 2px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--bot-line);
+}
+.bot-ops-rail-header strong {
+  color: var(--bot-ink);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: .04em;
 }
 .bot-ops-chips {
   display: flex;

@@ -4,6 +4,7 @@ import {
   retireWorkbenchView,
   isRetiredWorkbenchHash,
   botConversationForRun,
+  conversationListsRun,
   listActiveRuns,
   listFinishedRuns,
   listRecoverableRuns,
@@ -43,6 +44,9 @@ test("chrome helpers remap retired workbench and render Bot folds", () => {
   ];
   assert.equal(botConversationForRun(conversations, "r-live")?.id, "c2");
   assert.equal(botConversationForRun(conversations, "missing"), null);
+  assert.equal(botConversationForRun(conversations, "r-via-id", { id: "r-via-id", conversationId: "c1" })?.id, "c1");
+  assert.equal(conversationListsRun(conversations[1], "r-live"), true);
+  assert.equal(conversationListsRun(conversations[0], "r-live"), false);
 
   const runs = [
     { id: "r1", status: "running", title: "正在写补丁", startAgentId: "codex-technical", updatedAt: "2026-09-10T05:00:00.000Z" },

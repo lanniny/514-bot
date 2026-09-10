@@ -5,6 +5,10 @@ function conversationClaimsRun(conversation, runId) {
     && conversation.runIds.some((candidate) => String(candidate) === runId);
 }
 
+export function conversationListsRun(conversation, runId) {
+  return conversationClaimsRun(conversation, String(runId || ""));
+}
+
 export function conversationOwnsRun(run, conversation, conversations = []) {
   if (!run?.id || !conversation?.id) return false;
   if (run.conversationId) {

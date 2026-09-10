@@ -202,6 +202,9 @@
             <button class="chrome-icon-button" id="chrome-rail-toggle" type="button" title="收起/展开对话列表" aria-label="收起或展开对话列表" aria-pressed="false">
               <svg class="icon lucide chrome-rail-glyph" aria-hidden="true"><use href="#lucide-panel-left"></use></svg>
             </button>
+            <button class="chrome-icon-button" id="chrome-ops-toggle" type="button" title="收起/展开右侧栏" aria-label="收起或展开右侧栏" aria-pressed="false">
+              <svg class="icon lucide chrome-ops-glyph" aria-hidden="true"><use href="#lucide-panel-right"></use></svg>
+            </button>
             <button class="chrome-icon-button" id="chrome-nav-back" type="button" title="后退（上一视图）" aria-label="后退到上一视图" disabled>
               <svg aria-hidden="true" class="icon lucide"><use href="#lucide-arrow-left"></use></svg>
             </button>
@@ -543,6 +546,12 @@
               </section>
             </section>
             <aside class="bot-ops-rail" id="bot-ops-rail" aria-label="右侧运维">
+              <header class="bot-ops-rail-header">
+                <strong>运维</strong>
+                <button class="bot-icon-button" id="bot-ops-rail-close" type="button" title="收起右侧栏" aria-label="收起右侧栏">
+                  <svg class="icon lucide" aria-hidden="true"><use href="#lucide-x"></use></svg>
+                </button>
+              </header>
               <div class="bot-tree-section-title"><strong>工具</strong></div>
               <div class="bot-ops-chips" role="group" aria-label="Bot 右侧工具">
                 <button type="button" data-bot-workspace-action="approvals"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-shield-check"></use></svg><span>审批</span><b id="bot-ops-approval-count" hidden></b></button>

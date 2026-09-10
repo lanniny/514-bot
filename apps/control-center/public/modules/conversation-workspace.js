@@ -1,5 +1,5 @@
 import { botWorkspaceRoute, readBotWorkspaceRoute } from "./bot-workspace-route.js";
-import { conversationOwnsRun } from "./conversation-run-ownership.js";
+import { conversationOwnsRun, conversationListsRun } from "./conversation-run-ownership.js";
 import { connectionPresentation } from "./control-connection-state.js";
 import { runStatusText } from "../utils.js";
 
@@ -31,8 +31,11 @@ export function workspaceContext({ conversations, projects, resolveRun }, conver
     return conversationOwnsRun(run, conversation, conversations) ? run : null;
   };
   const currentRun = owned(conversation?.activeRunId);
-  const selectedIsLinked = !selectedRunId || selectedRunId === conversation?.activeRunId || conversation?.runIds?.includes(selectedRunId);
-  const selectedRun = selectedIsLinked ? owned(selectedRunId || conversation?.activeRunId) : null;
+  const requestedId = selectedRunId || conversation?.activeRunId || "";
+  const selectedIsLinked = !selectedRunId
+    || conversationListsRun(conversation, selectedRunId)
+    || Boolean(owned(selectedRunId));
+  const selectedRun = selectedIsLinked ? owned(requestedId) : null;
   return { conversation, project, currentRun, selectedRun, historical: Boolean(selectedRunId && selectedRunId !== conversation?.activeRunId), readOnly: Boolean(conversation?.deletedAt || project?.archivedAt) };
 }
 

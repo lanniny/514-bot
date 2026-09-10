@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { conversationOwnsRun } from "../public/modules/conversation-run-ownership.js";
+import { conversationOwnsRun, conversationListsRun } from "../public/modules/conversation-run-ownership.js";
 
 test("modern runs belong only to their explicit conversationId", () => {
   const conversationA = { id: "conversation-a", activeRunId: "run-1", runIds: ["run-1"] };
@@ -27,6 +27,13 @@ test("ambiguous legacy ownership fails closed for every Conversation", () => {
 
   assert.equal(conversationOwnsRun(run, conversationA, [conversationA, conversationB]), false);
   assert.equal(conversationOwnsRun(run, conversationB, [conversationA, conversationB]), false);
+});
+
+test("conversationListsRun matches activeRunId or runIds without type traps", () => {
+  const conversation = { id: "c1", activeRunId: "r-live", runIds: ["r-old", "r-live"] };
+  assert.equal(conversationListsRun(conversation, "r-live"), true);
+  assert.equal(conversationListsRun(conversation, "r-old"), true);
+  assert.equal(conversationListsRun(conversation, "missing"), false);
 });
 
 test("duplicate projections of the same Conversation do not create a false conflict", () => {

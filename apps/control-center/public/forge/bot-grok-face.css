@@ -223,13 +223,33 @@ html.is-bot-grok-face body.team-bg-active #view-bot .bot-composer {
   backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
 }
 
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-tree-conversation.is-active,
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-agent-row.is-active,
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-active-run.is-current {
+  background: color-mix(in oklab, var(--bot-ink) 14%, transparent);
+  border-color: color-mix(in srgb, var(--bot-ink) 28%, var(--bot-line));
+  box-shadow: inset 2px 0 0 var(--bot-ink);
+}
+
 html.is-bot-grok-face #view-bot .bot-shell-grid {
   --bot-ops: 248px;
   grid-template-columns: var(--bot-grok-rail) var(--bot-grok-roster) minmax(0, 1fr) var(--bot-ops);
+  grid-template-areas: "icons roster conversation ops";
 }
 
 html.is-bot-grok-face #view-bot .bot-shell-grid.is-roster-collapsed {
   grid-template-columns: var(--bot-grok-rail) minmax(0, 1fr) var(--bot-ops);
+  grid-template-areas: "icons conversation ops";
+}
+
+html.is-bot-grok-face #view-bot .bot-shell-grid.is-ops-collapsed {
+  grid-template-columns: var(--bot-grok-rail) var(--bot-grok-roster) minmax(0, 1fr);
+  grid-template-areas: "icons roster conversation";
+}
+
+html.is-bot-grok-face #view-bot .bot-shell-grid.is-roster-collapsed.is-ops-collapsed {
+  grid-template-columns: var(--bot-grok-rail) minmax(0, 1fr);
+  grid-template-areas: "icons conversation";
 }
 
 html.is-bot-grok-face #view-bot .bot-shell-grid.is-roster-collapsed .bot-roster {
@@ -343,8 +363,9 @@ html.is-bot-grok-face #view-bot .bot-tree-conversation {
 
 html.is-bot-grok-face #view-bot .bot-tree-conversation.is-active,
 html.is-bot-grok-face #view-bot .bot-agent-row.is-active {
-  background: var(--bot-soft);
-  box-shadow: none;
+  background: color-mix(in srgb, var(--bot-ink) 8%, transparent);
+  border-color: color-mix(in srgb, var(--bot-ink) 20%, var(--bot-line));
+  box-shadow: inset 2px 0 0 var(--bot-ink);
 }
 
 html.is-bot-grok-face #view-bot .bot-conversation-header {
@@ -708,12 +729,29 @@ html.is-bot-grok-face #view-bot .bot-roster-footer .bot-icon-button {
   }
 
   html.is-bot-grok-face #view-bot .bot-shell-grid,
-  html.is-bot-grok-face #view-bot .bot-shell-grid.is-roster-collapsed {
+  html.is-bot-grok-face #view-bot .bot-shell-grid.is-roster-collapsed,
+  html.is-bot-grok-face #view-bot .bot-shell-grid.is-ops-collapsed,
+  html.is-bot-grok-face #view-bot .bot-shell-grid.is-roster-collapsed.is-ops-collapsed {
     display: block;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: none;
   }
 
   html.is-bot-grok-face #view-bot .bot-ops-rail {
+    display: none;
+    position: absolute;
+    z-index: 16;
+    inset: 0 0 0 auto;
+    width: min(280px, 86vw);
+    border-left-color: var(--bot-line);
+    box-shadow: -16px 0 40px var(--bot-grok-shadow);
+  }
+
+  html.is-bot-grok-face #view-bot .bot-shell-grid:not(.is-ops-collapsed) .bot-ops-rail {
+    display: flex;
+  }
+
+  html.is-bot-grok-face #view-bot .bot-shell-grid.is-ops-collapsed .bot-ops-rail {
     display: none;
   }
 
@@ -856,14 +894,23 @@ html.is-bot-grok-face #view-bot .bot-run-status-chip.is-error {
   color: var(--bot-red);
 }
 
-html.is-bot-grok-face #view-bot .bot-active-run.is-current,
 html.is-bot-grok-face #view-bot .bot-active-run:hover {
-  background: var(--bot-soft);
+  background: color-mix(in srgb, var(--bot-ink) 6%, transparent);
+}
+
+html.is-bot-grok-face #view-bot .bot-active-run.is-current {
+  background: color-mix(in srgb, var(--bot-ink) 8%, transparent);
+  border-color: color-mix(in srgb, var(--bot-ink) 20%, var(--bot-line));
+  box-shadow: inset 2px 0 0 var(--bot-ink);
 }
 
 html.is-bot-grok-face #view-bot .bot-ops-rail {
   border-left-color: var(--bot-line);
   background: var(--bot-sidebar);
+}
+
+html.is-bot-grok-face #view-bot .bot-ops-rail-header {
+  border-bottom-color: var(--bot-line);
 }
 
 html.is-bot-grok-face #view-bot .bot-ops-chips button {

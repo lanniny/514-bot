@@ -6,6 +6,7 @@
 
 export const BOT_FACE_KEY = "514cc-bot-face";
 export const BOT_ROSTER_KEY = "514cc-bot-roster-collapsed";
+export const BOT_OPS_KEY = "514cc-bot-ops-collapsed";
 
 export function readBotFacePreference() {
   try {
@@ -60,6 +61,38 @@ export function applyRosterCollapsed(collapsed = readRosterCollapsed()) {
     chats.setAttribute("aria-pressed", String(!collapsed));
   }
   return Boolean(collapsed);
+}
+
+export function readOpsCollapsed() {
+  try {
+    const stored = localStorage.getItem(BOT_OPS_KEY);
+    if (stored === "1") return true;
+    if (stored === "0") return false;
+  } catch {
+    /* fall through to viewport default */
+  }
+  try {
+    return globalThis.matchMedia?.("(max-width: 820px)")?.matches === true;
+  } catch {
+    return false;
+  }
+}
+
+export function writeOpsCollapsed(collapsed) {
+  try {
+    localStorage.setItem(BOT_OPS_KEY, collapsed ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+export function applyOpsCollapsed(collapsed = readOpsCollapsed()) {
+  const grid = document.querySelector("#view-bot .bot-shell-grid");
+  const rail = document.getElementById("bot-ops-rail");
+  const next = Boolean(collapsed);
+  grid?.classList.toggle("is-ops-collapsed", next);
+  rail?.setAttribute("aria-hidden", String(next));
+  return next;
 }
 
 export function syncBotFaceControls(face = readBotFacePreference()) {
@@ -121,11 +154,13 @@ export function bindBotGrokFace(root = document.getElementById("view-bot")) {
   if (!root || root.dataset.botGrokFaceReady === "1") {
     applyBotFacePreference();
     applyRosterCollapsed();
+    applyOpsCollapsed();
     return;
   }
   root.dataset.botGrokFaceReady = "1";
   applyBotFacePreference();
   applyRosterCollapsed();
+  applyOpsCollapsed();
 
   root.addEventListener("click", (event) => {
     const rail = event.target.closest("[data-bot-rail]");
