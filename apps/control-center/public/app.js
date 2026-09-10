@@ -18356,8 +18356,9 @@ function botRenderAgent(agentId = botState.agentId) {
   if (panelStatus) panelStatus.textContent = "not-provisioned · 等待配置";
   const computerTitle = byId("bot-computer-view-title");
   if (computerTitle) computerTitle.textContent = `${meta.label} computer`;
-  const computerChrome = document.querySelector(".bot-computer-screen-large .bot-computer-bar strong");
-  if (computerChrome) computerChrome.textContent = `${meta.label} computer`;
+  document.querySelectorAll(".bot-computer-bar strong").forEach((node) => {
+    node.textContent = `${meta.label} computer`;
+  });
   botRenderMemberPanel();
   // Grok 对标：右栏 Routines 区接 /api/bots/routines 真数据（仅单聊视图；项目群无 owning Bot 概念）
   if (!groupView) {

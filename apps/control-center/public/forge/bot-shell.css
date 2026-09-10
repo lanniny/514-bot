@@ -729,8 +729,9 @@ body.team-bg-active .bot-active-run.is-current {
   gap: 6px;
 }
 .bot-inspector-status {
-  max-width: 92px;
+  display: block;
   overflow: hidden;
+  margin-top: 2px;
   color: var(--bot-muted);
   font-size: var(--text-xs);
   text-overflow: ellipsis;

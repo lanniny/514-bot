@@ -87,6 +87,7 @@ test("Bot home top icons have destinations after workbench retirement", async ()
   assert.match(app, /applyRosterCollapsed\(collapsed\)/);
   assert.match(app, /bot-header-avatar", "bot-panel-avatar", "bot-panel-agent-name"/);
   assert.match(app, /bot-inspector-status/);
+  assert.match(app, /querySelectorAll\("\.bot-computer-bar strong"\)/);
   assert.match(app, /function applyOpsRailCollapsed\(/);
   assert.match(app, /applyOpsCollapsed\(next\)/);
   assert.match(app, /conversationListsRun\(conversation, id\)/);
