@@ -164,33 +164,6 @@ html.is-bot-grok-face.is-bot-surface .topbar-actions {
   gap: 4px;
 }
 
-@media (max-width: 700px) {
-  html.is-bot-grok-face.is-bot-surface .topbar-title {
-    display: flex !important;
-  }
-}
-
-@media (max-width: 390px) {
-  html.is-bot-grok-face.is-bot-surface .topbar {
-    gap: 4px;
-    padding: 0 6px;
-  }
-
-  html.is-bot-grok-face.is-bot-surface .chrome-menu-overflow-label,
-  html.is-bot-grok-face.is-bot-surface .connection-badge-label,
-  html.is-bot-grok-face.is-bot-surface .topbar .command-trigger span,
-  html.is-bot-grok-face.is-bot-surface .topbar .command-trigger kbd {
-    display: none;
-  }
-
-  html.is-bot-grok-face.is-bot-surface .topbar .command-trigger {
-    width: 30px;
-    min-width: 30px;
-    padding: 0;
-    justify-content: center;
-  }
-}
-
 html.is-bot-grok-face.is-bot-surface:has(#view-bot.is-active) .atelier-stage {
   opacity: 0;
   pointer-events: none;
@@ -707,6 +680,10 @@ html.is-bot-grok-face #view-bot .bot-roster-footer .bot-icon-button {
 }
 
 @media (max-width: 820px) {
+  html.is-bot-grok-face.is-bot-surface .topbar-title {
+    display: flex !important;
+  }
+
   html.is-bot-grok-face #view-bot .bot-icon-rail {
     display: none;
   }
@@ -736,6 +713,25 @@ html.is-bot-grok-face #view-bot .bot-roster-footer .bot-icon-button {
 }
 
 @media (max-width: 560px) {
+  html.is-bot-grok-face.is-bot-surface .topbar {
+    gap: 4px;
+    padding: 0 6px;
+  }
+
+  html.is-bot-grok-face.is-bot-surface .chrome-menu-overflow-label,
+  html.is-bot-grok-face.is-bot-surface .connection-badge-label,
+  html.is-bot-grok-face.is-bot-surface .topbar .command-trigger span,
+  html.is-bot-grok-face.is-bot-surface .topbar .command-trigger kbd {
+    display: none;
+  }
+
+  html.is-bot-grok-face.is-bot-surface .topbar .command-trigger {
+    width: 30px;
+    min-width: 30px;
+    padding: 0;
+    justify-content: center;
+  }
+
   html.is-bot-grok-face #view-bot .bot-composer {
     padding: 8px 10px 10px;
   }
