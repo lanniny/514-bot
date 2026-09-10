@@ -1291,7 +1291,79 @@ button.conv-chip:hover {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.chrome-cluster {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 1px;
+}
+
+.chrome-app-menus {
+  position: relative;
+  flex: 0 0 auto;
+  margin-left: 2px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border);
+}
+
+.chrome-menu-overflow {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px 0 6px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-soft);
+  font: inherit;
+  font-size: var(--text-sm);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chrome-menu-overflow .icon {
+  width: 15px;
+  height: 15px;
+}
+
+.chrome-menu-overflow:hover,
+.chrome-app-menus.is-open .chrome-menu-overflow {
+  background: var(--sidebar-hover);
+  color: var(--text-strong);
+}
+
+.chrome-app-menus-panel {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 6px);
+  left: 0;
+  display: flex;
+  min-width: 132px;
+  flex-direction: column;
   gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface, var(--bg));
+  box-shadow: var(--shadow-menu, 0 10px 28px rgba(23, 23, 23, 0.12));
+}
+
+.chrome-app-menus-panel[hidden] {
+  display: none;
+}
+
+.chrome-app-menus-panel .chrome-menu-label {
+  width: 100%;
+  justify-content: flex-start;
+  padding: 6px 10px;
+  border-radius: 7px;
+  text-align: left;
 }
 
 .chrome-icon-button {
@@ -1302,7 +1374,7 @@ button.conv-chip:hover {
   justify-content: center;
   padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text-soft);
   cursor: pointer;
@@ -1389,13 +1461,17 @@ button.conv-chip:hover {
 }
 
 .chrome-menu-label {
+  display: inline-flex;
+  align-items: center;
   padding: 4px 8px;
   border: 0;
-  border-radius: 6px;
+  border-radius: 7px;
   background: transparent;
   color: var(--text-soft);
+  font: inherit;
   font-size: var(--text-sm);
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .chrome-menu-label:hover {
@@ -1408,6 +1484,26 @@ button.conv-chip:hover {
   height: 16px;
   margin: 0 4px;
   background: var(--border);
+}
+
+body.atelier .topbar .icon-button,
+body.atelier .topbar .chrome-icon-button,
+body.atelier .topbar .window-control-button {
+  background: transparent;
+}
+
+body.atelier .topbar .connection-badge {
+  min-height: 28px;
+  padding: 0 8px 0 7px;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+}
+
+body.atelier .topbar .connection-badge.is-ok,
+body.atelier .topbar .connection-badge.is-warning,
+body.atelier .topbar .connection-badge.is-error {
+  background: transparent;
 }
 
 /* 上栏与左栏统一：实色 var(--sidebar)，与 experience-polish 压平后的 rail 完全一致
@@ -1469,20 +1565,17 @@ body.atelier .topbar {
 
 /* Bot 工作面的最终视觉所有权在 bot-shell.css；这里不再撤下 514cc chrome。 */
 
-/* 移动顶栏只保留导航、当前视图、命令与连接状态。桌面菜单簇和低频工具
- * 在 390px 会把 topbar 撑出视口；它们仍可通过汉堡、命令面板和视图内入口访问。 */
+/* 窄屏：导航簇与低频工具让位；应用菜单改走溢出钮，搜索/连接状态保持可发现。 */
 @media (max-width: 560px) {
   body.atelier .topbar {
     min-width: 0;
-    overflow: hidden;
+    overflow: visible;
   }
 
   .topbar-brand,
-  .chrome-menus,
-  .topbar-actions #theme-toggle,
-  .topbar-actions #refresh-button,
-  .topbar-actions #global-terminal-toggle,
-  .topbar-actions #global-mc-toggle {
+  .chrome-nav-cluster,
+  .chrome-menu-overflow-label,
+  .chrome-utils-cluster {
     display: none;
   }
 
@@ -1493,6 +1586,18 @@ body.atelier .topbar {
 
   .topbar-actions {
     flex: 0 0 auto;
-    overflow: hidden;
+    overflow: visible;
+  }
+
+  .chrome-menu-overflow {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .chrome-app-menus {
+    margin-left: 0;
+    padding-left: 0;
+    border-left: 0;
   }
 }

@@ -454,6 +454,9 @@ function cacheElements() {
     "chrome-rail-toggle",
     "chrome-nav-back",
     "chrome-nav-forward",
+    "chrome-menu-overflow",
+    "chrome-app-menus",
+    "chrome-app-menus-panel",
     "chrome-menu-file",
     "chrome-menu-edit",
     "chrome-menu-view",
@@ -2204,6 +2207,32 @@ function initializeChromeMenus() {
       confirmLabel: "好",
     }) },
   ]);
+  const overflow = byId("chrome-menu-overflow");
+  const overflowPanel = byId("chrome-app-menus-panel");
+  const overflowHost = byId("chrome-app-menus");
+  if (overflow && overflowPanel && overflowHost) {
+    const setOverflowOpen = (open) => {
+      overflowPanel.hidden = !open;
+      overflow.setAttribute("aria-expanded", String(open));
+      overflowHost.classList.toggle("is-open", open);
+    };
+    overflow.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setOverflowOpen(overflowPanel.hidden);
+    });
+    document.addEventListener("pointerdown", (event) => {
+      if (!overflowHost.contains(event.target)) setOverflowOpen(false);
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !overflowPanel.hidden) {
+        setOverflowOpen(false);
+        overflow.focus({ preventScroll: true });
+      }
+    });
+    for (const id of ["chrome-menu-file", "chrome-menu-edit", "chrome-menu-view", "chrome-menu-help"]) {
+      byId(id)?.addEventListener("click", () => setOverflowOpen(false));
+    }
+  }
   applyRailCollapsed(readStoredFlag(RAIL_COLLAPSED_KEY), { persist: false });
   syncChromeNavButtons();
 }
@@ -2450,7 +2479,7 @@ function setApiState() {
   const badge = elements["api-connection-badge"];
   if (!badge) return;
   const dot = badge.querySelector(".status-dot");
-  const label = badge.querySelector("span:last-child");
+  const label = badge.querySelector(".connection-badge-label") || badge.querySelector("span:last-child");
   const normalized = normalizeStatus(snapshot.apiState);
   badge.className = `connection-badge is-${normalized}`;
   dot.className = `status-dot is-${normalized}`;

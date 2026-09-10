@@ -197,21 +197,30 @@
         <nav class="topbar-nav" aria-label="主导航" data-nav-surface="topbar">
       </nav>
         <div class="chrome-menus" id="chrome-menus">
-          <!-- 应用菜单列（控制台形态第九轮）：frameless 后补回原生菜单栏的功能入口，Codex 式布局 -->
-          <button class="chrome-icon-button" id="chrome-rail-toggle" type="button" title="收起/展开左栏" aria-label="收起或展开左栏" aria-pressed="false">
-            <svg class="icon lucide chrome-rail-glyph" aria-hidden="true"><use href="#lucide-panel-left"></use></svg>
-          </button>
-          <button class="chrome-icon-button" id="chrome-nav-back" type="button" title="后退（上一视图）" aria-label="后退到上一视图" disabled>
-            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-arrow-left"></use></svg>
-          </button>
-          <button class="chrome-icon-button" id="chrome-nav-forward" type="button" title="前进（下一视图）" aria-label="前进到下一视图" disabled>
-            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-arrow-right"></use></svg>
-          </button>
-          <span class="chrome-menu-divider" aria-hidden="true"></span>
-          <button class="chrome-menu-label" id="chrome-menu-file" type="button" aria-haspopup="menu">文件</button>
-          <button class="chrome-menu-label" id="chrome-menu-edit" type="button" aria-haspopup="menu">编辑</button>
-          <button class="chrome-menu-label" id="chrome-menu-view" type="button" aria-haspopup="menu">视图</button>
-          <button class="chrome-menu-label" id="chrome-menu-help" type="button" aria-haspopup="menu">帮助</button>
+          <!-- 导航簇 + 低频应用菜单溢出（顶栏整理：少芯片、清层次） -->
+          <div class="chrome-cluster chrome-nav-cluster" role="group" aria-label="导航">
+            <button class="chrome-icon-button" id="chrome-rail-toggle" type="button" title="收起/展开左栏" aria-label="收起或展开左栏" aria-pressed="false">
+              <svg class="icon lucide chrome-rail-glyph" aria-hidden="true"><use href="#lucide-panel-left"></use></svg>
+            </button>
+            <button class="chrome-icon-button" id="chrome-nav-back" type="button" title="后退（上一视图）" aria-label="后退到上一视图" disabled>
+              <svg aria-hidden="true" class="icon lucide"><use href="#lucide-arrow-left"></use></svg>
+            </button>
+            <button class="chrome-icon-button" id="chrome-nav-forward" type="button" title="前进（下一视图）" aria-label="前进到下一视图" disabled>
+              <svg aria-hidden="true" class="icon lucide"><use href="#lucide-arrow-right"></use></svg>
+            </button>
+          </div>
+          <div class="chrome-app-menus" id="chrome-app-menus">
+            <button class="chrome-menu-overflow" id="chrome-menu-overflow" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="chrome-app-menus-panel" title="应用菜单（文件 / 编辑 / 视图 / 帮助）" aria-label="应用菜单">
+              <svg class="icon lucide" aria-hidden="true"><use href="#lucide-ellipsis"></use></svg>
+              <span class="chrome-menu-overflow-label">菜单</span>
+            </button>
+            <div class="chrome-app-menus-panel" id="chrome-app-menus-panel" hidden role="menu" aria-label="应用菜单">
+              <button class="chrome-menu-label" id="chrome-menu-file" type="button" role="menuitem" aria-haspopup="menu">文件</button>
+              <button class="chrome-menu-label" id="chrome-menu-edit" type="button" role="menuitem" aria-haspopup="menu">编辑</button>
+              <button class="chrome-menu-label" id="chrome-menu-view" type="button" role="menuitem" aria-haspopup="menu">视图</button>
+              <button class="chrome-menu-label" id="chrome-menu-help" type="button" role="menuitem" aria-haspopup="menu">帮助</button>
+            </div>
+          </div>
         </div>
         <div class="topbar-title" aria-live="polite">
           <span class="topbar-crumb-group" id="current-view-group">协作</span>
@@ -227,7 +236,7 @@
           <details class="control-connection-details">
             <summary class="connection-badge is-pending" id="api-connection-badge" title="连接状态">
               <span class="status-dot is-pending"></span>
-              <span>授权未验证</span>
+              <span class="connection-badge-label">授权未验证</span>
             </summary>
             <div class="control-connection-popover" role="status">
               <span id="control-service-state">服务检查中</span>
@@ -235,19 +244,21 @@
               <span id="control-data-state">工作数据未加载</span>
             </div>
           </details>
-          <button class="icon-button" id="theme-toggle" type="button" title="切换为深色" aria-label="切换为深色">
-            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-moon"></use></svg>
-          </button>
-          <button class="icon-button" id="refresh-button" type="button" title="刷新当前数据" aria-label="刷新当前数据">
-            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg>
-          </button>
-          <!-- codeg RightEdgeChrome 式角位开关：右栏终端标签 + 右侧 Mission Control，统一右上角 -->
-          <button class="icon-button" id="global-terminal-toggle" type="button" title="打开/收起底部终端（Ctrl+`）" aria-label="打开或收起底部终端" aria-pressed="false">
-            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-square-terminal"></use></svg>
-          </button>
-          <button class="icon-button" id="global-mc-toggle" type="button" title="打开/关闭环境信息" aria-label="打开或关闭环境信息" aria-pressed="false">
-            <svg aria-hidden="true" class="icon lucide"><use href="#lucide-panel-right"></use></svg>
-          </button>
+          <div class="chrome-cluster chrome-utils-cluster" role="group" aria-label="工具">
+            <button class="icon-button" id="theme-toggle" type="button" title="切换为深色" aria-label="切换为深色">
+              <svg aria-hidden="true" class="icon lucide"><use href="#lucide-moon"></use></svg>
+            </button>
+            <button class="icon-button" id="refresh-button" type="button" title="刷新当前数据" aria-label="刷新当前数据">
+              <svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg>
+            </button>
+            <!-- codeg RightEdgeChrome 式角位开关：右栏终端标签 + 右侧 Mission Control，统一右上角 -->
+            <button class="icon-button" id="global-terminal-toggle" type="button" title="打开/收起底部终端（Ctrl+`）" aria-label="打开或收起底部终端" aria-pressed="false">
+              <svg aria-hidden="true" class="icon lucide"><use href="#lucide-square-terminal"></use></svg>
+            </button>
+            <button class="icon-button" id="global-mc-toggle" type="button" title="打开/关闭环境信息" aria-label="打开或关闭环境信息" aria-pressed="false">
+              <svg aria-hidden="true" class="icon lucide"><use href="#lucide-panel-right"></use></svg>
+            </button>
+          </div>
           <!-- 桌面壳窗口控制（控制台形态第七轮）：仅 Tauri 壳内显示，浏览器模式保持 hidden -->
           <span class="window-controls" id="window-controls" hidden>
             <button class="window-control-button" id="window-minimize" type="button" title="最小化" aria-label="最小化窗口">
