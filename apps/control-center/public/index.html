@@ -199,7 +199,7 @@
         <div class="chrome-menus" id="chrome-menus">
           <!-- 导航簇 + 低频应用菜单溢出（顶栏整理：少芯片、清层次） -->
           <div class="chrome-cluster chrome-nav-cluster" role="group" aria-label="导航">
-            <button class="chrome-icon-button" id="chrome-rail-toggle" type="button" title="收起/展开左栏" aria-label="收起或展开左栏" aria-pressed="false">
+            <button class="chrome-icon-button" id="chrome-rail-toggle" type="button" title="收起/展开对话列表" aria-label="收起或展开对话列表" aria-pressed="false">
               <svg class="icon lucide chrome-rail-glyph" aria-hidden="true"><use href="#lucide-panel-left"></use></svg>
             </button>
             <button class="chrome-icon-button" id="chrome-nav-back" type="button" title="后退（上一视图）" aria-label="后退到上一视图" disabled>
@@ -252,10 +252,10 @@
               <svg aria-hidden="true" class="icon lucide"><use href="#lucide-refresh-cw"></use></svg>
             </button>
             <!-- codeg RightEdgeChrome 式角位开关：右栏终端标签 + 右侧 Mission Control，统一右上角 -->
-            <button class="icon-button" id="global-terminal-toggle" type="button" title="打开/收起底部终端（Ctrl+`）" aria-label="打开或收起底部终端" aria-pressed="false">
+            <button class="icon-button" id="global-terminal-toggle" type="button" title="打开终端" aria-label="打开终端" aria-pressed="false">
               <svg aria-hidden="true" class="icon lucide"><use href="#lucide-square-terminal"></use></svg>
             </button>
-            <button class="icon-button" id="global-mc-toggle" type="button" title="打开/关闭环境信息" aria-label="打开或关闭环境信息" aria-pressed="false">
+            <button class="icon-button" id="global-mc-toggle" type="button" title="打开会话详情" aria-label="打开会话详情" aria-pressed="false">
               <svg aria-hidden="true" class="icon lucide"><use href="#lucide-panel-right"></use></svg>
             </button>
           </div>
@@ -460,18 +460,18 @@
                 <label class="bot-search"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-search"></use></svg><input id="bot-agent-search" type="search" placeholder="搜索工作对话" aria-label="搜索标题、成员、项目或会话短 ID" autocomplete="off" /></label>
                 <details class="workspace-filter-menu"><summary class="bot-icon-button" title="筛选项目与记录" aria-label="筛选项目与记录"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-list-filter"></use></svg></summary><div class="workspace-index-filters"><label for="workspace-project-filter">项目范围</label><select id="workspace-project-filter" aria-label="筛选项目"><option value="">全部项目与私聊</option></select><label><input id="workspace-show-inactive" type="checkbox" checked /><span>含隐藏与已删除</span></label></div></details>
               </div>
-              <section class="bot-surface-panel is-active" id="bot-surface-chats" role="tabpanel" aria-labelledby="bot-surface-tab-chats">
+              <section class="bot-surface-panel bot-roster-scroll is-active" id="bot-surface-chats" role="tabpanel" aria-labelledby="bot-surface-tab-chats">
                 <section class="bot-active-runs" id="bot-active-runs" hidden>
                   <div class="bot-tree-section-title"><strong>正在工作</strong><span id="bot-active-runs-count"></span></div>
                   <div id="bot-active-runs-list"></div>
                 </section>
-                <div class="bot-roster-label" id="bot-roster-label">会话导航</div>
+                <div class="bot-roster-label" id="bot-roster-label">项目与会话</div>
                 <div class="bot-agent-list" id="bot-agent-list">
                   <div class="bot-project-tree" id="bot-project-tree" role="tree" aria-label="项目与对话"></div>
                 </div>
                 <div class="bot-roster-empty" id="bot-roster-empty" hidden>没有匹配的对话</div>
               </section>
-              <section class="bot-surface-panel" id="bot-surface-contacts" role="tabpanel" aria-labelledby="bot-surface-tab-contacts" hidden>
+              <section class="bot-surface-panel bot-roster-scroll" id="bot-surface-contacts" role="tabpanel" aria-labelledby="bot-surface-tab-contacts" hidden>
                 <div class="bot-roster-label">全部成员</div>
                 <div class="bot-contact-list" id="bot-contact-list" role="list" aria-label="通讯录成员"></div>
                 <div class="bot-roster-empty" id="bot-contact-empty" hidden>没有匹配的成员</div>

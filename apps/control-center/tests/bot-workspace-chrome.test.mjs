@@ -6,6 +6,8 @@ import {
   botConversationForRun,
   listActiveRuns,
   botActiveRunsMarkup,
+  botRunStatusChip,
+  isWorkbenchViewActive,
   selectOptionsMarkup,
   normalizeComposerPermission,
 } from "../public/modules/bot-workspace-chrome.js";
@@ -39,6 +41,31 @@ test("chrome helpers remap retired workbench and render Bot folds", () => {
   assert.match(markup, /is-current/);
   assert.match(markup, /data-bot-active-run="r3"/);
   assert.doesNotMatch(markup, /data-bot-active-run="r2"/);
+  assert.match(markup, /bot-run-status-chip is-running/);
+  assert.match(markup, />进行中</);
+  assert.match(markup, />已中断</);
+  assert.doesNotMatch(markup, />interrupted</);
+  assert.doesNotMatch(markup, />waiting_agent</);
+  assert.doesNotMatch(markup, />recovery_required</);
+
+  assert.equal(botRunStatusChip("waiting_agent").label, "等待中");
+  assert.equal(botRunStatusChip("recovery_required").label, "需恢复");
+  assert.equal(botRunStatusChip("interrupted").label, "已中断");
+  assert.equal(isWorkbenchViewActive({
+    getElementById: () => ({ classList: { contains: () => false } }),
+  }), false);
+
+  const many = Array.from({ length: 8 }, (_, index) => ({
+    id: `r-extra-${index}`,
+    status: "waiting_agent",
+    title: `任务 ${index + 1}`,
+  }));
+  const collapsed = botActiveRunsMarkup(many, { escapeHtml });
+  assert.match(collapsed, /还有 2 项工作/);
+  assert.equal([...collapsed.matchAll(/data-bot-active-run="/g)].length, 6);
+  const expanded = botActiveRunsMarkup(many, { escapeHtml, expanded: true });
+  assert.match(expanded, /收起列表/);
+  assert.equal([...expanded.matchAll(/data-bot-active-run="/g)].length, 8);
 
   assert.match(
     selectOptionsMarkup([{ value: "plan", label: "只读计划" }], "plan", { escapeHtml }),
