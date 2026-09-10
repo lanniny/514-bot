@@ -1339,8 +1339,8 @@ button.conv-chip:hover {
 }
 
 .chrome-app-menus-panel {
-  position: absolute;
-  z-index: 80;
+  position: fixed;
+  z-index: 240;
   top: calc(100% + 6px);
   left: 0;
   display: flex;
@@ -1513,6 +1513,7 @@ body.atelier .topbar {
   background: var(--sidebar);
   /* L 形 chrome 一体化：底发丝线会把上栏与左栏/壳切成两层（Codex 参照无线），去掉 */
   border-bottom: 0;
+  overflow: visible;
 }
 
 /* 工作台壳铺 chrome 底色：卡片三边缝隙与圆角缺口透出同一色调（取代八轮 ::before 补丁） */

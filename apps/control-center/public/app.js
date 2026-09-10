@@ -2215,6 +2215,18 @@ function initializeChromeMenus() {
       overflowPanel.hidden = !open;
       overflow.setAttribute("aria-expanded", String(open));
       overflowHost.classList.toggle("is-open", open);
+      if (open) {
+        const rect = overflow.getBoundingClientRect();
+        const width = overflowPanel.offsetWidth || 132;
+        const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
+        overflowPanel.style.position = "fixed";
+        overflowPanel.style.top = `${Math.round(rect.bottom + 6)}px`;
+        overflowPanel.style.left = `${Math.round(left)}px`;
+      } else {
+        overflowPanel.style.removeProperty("top");
+        overflowPanel.style.removeProperty("left");
+        overflowPanel.style.removeProperty("position");
+      }
     };
     overflow.addEventListener("click", (event) => {
       event.stopPropagation();

@@ -101,6 +101,10 @@ html.is-bot-grok-face.is-bot-surface .topbar .window-control-button:hover {
   color: var(--bot-grok-ink);
 }
 
+html.is-bot-grok-face.is-bot-surface .topbar :is(.icon-button, .chrome-icon-button, .chrome-menu-overflow):focus:not(:focus-visible) {
+  background: transparent;
+}
+
 html.is-bot-grok-face.is-bot-surface .topbar .command-trigger {
   min-height: 30px;
   padding: 0 10px 0 8px;
