@@ -519,19 +519,24 @@ test("theme.js 首帧引导保持同步、白名单、零网络", async () => {
   const runTheme = (stored) => {
     let fetchCalls = 0;
     const dataset = {};
+    const classNames = new Set();
     const context = {
       localStorage: { getItem: (key) => (Object.hasOwn(stored, key) ? stored[key] : null) },
       window: { matchMedia: () => ({ matches: false }) },
       document: {
         documentElement: {
           dataset,
+          classList: {
+            add(name) { classNames.add(name); },
+            remove(name) { classNames.delete(name); },
+          },
           style: { setProperty() {}, removeProperty() {} },
         },
       },
       fetch: () => { fetchCalls += 1; },
     };
     vm.runInNewContext(themeSource, context);
-    return { dataset, fetchCalls };
+    return { dataset, fetchCalls, classNames };
   };
 
   const dirty = runTheme({
@@ -553,6 +558,14 @@ test("theme.js 首帧引导保持同步、白名单、零网络", async () => {
   assert.equal(dirty.dataset.codeWrap, "off");
   assert.equal(dirty.dataset.codeLines, "off");
   assert.equal(dirty.dataset.motion, "system");
+  assert.equal(dirty.classNames.has("is-bot-grok-face"), true, "缺省/脏 bot-face 必须回落 grok 面");
+
+  const workbench = runTheme({ "514cc-bot-face": "workbench" });
+  assert.equal(workbench.classNames.has("is-bot-grok-face"), false, "workbench 偏好必须摘掉 grok 面");
+  assert.equal(workbench.dataset.codeWrap, "off", "classList 路径不得打断后续 dataset 写入");
+
+  const dirtyFace = runTheme({ "514cc-bot-face": "javascript:alert(1)" });
+  assert.equal(dirtyFace.classNames.has("is-bot-grok-face"), true, "非法 bot-face 必须回落 grok 面");
 
   const clean = runTheme({
     "514cc-control-theme": "dark",
@@ -563,6 +576,7 @@ test("theme.js 首帧引导保持同步、白名单、零网络", async () => {
     "514cc-code-wrap": "on",
     "514cc-code-lines": "on",
     "514cc-motion": "reduce",
+    "514cc-bot-face": "grok",
   });
   assert.equal(clean.dataset.theme, "dark", "合法白名单值必须原样生效");
   assert.equal(clean.dataset.uiFace, "yahei");
@@ -572,6 +586,7 @@ test("theme.js 首帧引导保持同步、白名单、零网络", async () => {
   assert.equal(clean.dataset.codeWrap, "on");
   assert.equal(clean.dataset.codeLines, "on");
   assert.equal(clean.dataset.motion, "reduce");
+  assert.equal(clean.classNames.has("is-bot-grok-face"), true);
 });
 
 test("字体按钮组全员走 CSP 安全的属性规则且无内联 style / select 残留", async () => {

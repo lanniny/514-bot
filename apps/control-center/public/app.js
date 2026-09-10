@@ -166,6 +166,7 @@ import { loadBotProfileSection, saveBotProfileSection, markBotProfileDirty } fro
 import { renderRelayBoard } from "./modules/bot-relay-board.js";
 import { postRelayKickoff } from "./modules/bot-collab-api.js";
 import { botTypingMarkup, botTypingMembers } from "./modules/bot-typing-indicators.js";
+import { bindBotGrokFace } from "./modules/bot-grok-face.js";
 import {
   state, ACTIVE_RUN_STATES, TERMINAL_RUN_STATES, VIEW_TITLES,
   DEFAULT_COMPONENTS, DEFAULT_MODELS, DEFAULT_POLICIES, DEFAULT_SECRETS,
@@ -18731,6 +18732,18 @@ function botSetComputerView(open, opener = null) {
   botState.computerReturnPanel = false;
 }
 
+const BOT_EMPTY_CHIPS = [
+  { label: "帮我写", prompt: "帮我写一份简洁说明：" },
+  { label: "调研", prompt: "帮我调研这个问题并列出要点：" },
+  { label: "分析", prompt: "帮我分析下面的内容：" },
+  { label: "规划", prompt: "帮我规划接下来的步骤：" },
+];
+
+function botEmptyConversationMarkup(hint, title = "还没有消息") {
+  const chips = BOT_EMPTY_CHIPS.map((chip) => `<button type="button" role="listitem" data-bot-suggest="${escapeHtml(chip.prompt)}">${escapeHtml(chip.label)}</button>`).join("");
+  return `<div class="bot-message-empty bot-empty-hero"><strong class="bot-empty-brand">514</strong><span class="bot-empty-kicker">${escapeHtml(title)}</span><span>${hint}</span><div class="bot-empty-chips" role="list">${chips}</div></div>`;
+}
+
 function botConversationStoreKey(agentId = botState.agentId) {
   const conversation = botActiveConversation();
   if (conversation?.id) return `conversation:${conversation.id}`;
@@ -18767,7 +18780,7 @@ function botRenderMessageStore(agentId = botState.agentId) {
   if (stored?.html && (stored.historyRunId || null) === expectedRunId) {
     reconcileMessageMarkup(stream, stored.html);
   } else {
-    reconcileMessageMarkup(stream, `<div class="bot-message-empty"><strong>${expectedRunId ? "正在读取运行记录" : "还没有消息"}</strong><span>${escapeHtml(label)}</span></div>`);
+    reconcileMessageMarkup(stream, botEmptyConversationMarkup(escapeHtml(label), expectedRunId ? "正在读取运行记录" : "还没有消息"));
   }
   stream.dataset.storeContext = key;
   stream.dataset.historyRunId = String(expectedRunId || "");
@@ -19078,7 +19091,7 @@ function botRenderConversationMessages(agentId, run, messages) {
   const emptyHint = activeConversationForEmpty?.kind === "workspace_group"
     ? `${botGroupParticipants(activeConversationForEmpty).length} 位成员在此协作——点名 @成员 或直接下达任务`
     : `${escapeHtml(conversationLabel)} · ${escapeHtml(botMeta(agentId).role)}——直接说需求，或粘贴上下文让它接着做`;
-  const renderedHtml = html || `<div class="bot-message-empty"><strong>还没有消息</strong><span>${emptyHint}</span></div>`;
+  const renderedHtml = html || botEmptyConversationMarkup(emptyHint);
   const previousScroll = stream.scrollTop;
   const atBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 80;
   reconcileMessageMarkup(stream, renderedHtml);
@@ -21369,6 +21382,7 @@ function initBotShell() {
   }
   root.dataset.botReady = "1";
   bindProductOrientation();
+  bindBotGrokFace(root);
   botRenderAgent(botState.agentId);
   maybeStartProductTour();
   root.addEventListener("click", (event) => {
