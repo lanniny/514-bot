@@ -340,7 +340,10 @@ test("both right-rail file entry points edit through the guarded workspace PUT",
   assert.match(panels, /file\.editable === true/);
   assert.match(panels, /method: "PUT"/);
   assert.match(panels, /expectedRevision: snapshot\.revision/);
-  assert.match(panels, /#rail-files-editor/);
+  assert.match(panels, /editor: "rail-files-editor"/);
+  assert.match(panels, /\.\.\.fileIds/);
+  assert.match(panels, /#\$\{files\.editor\}/);
+  assert.match(app, /fileIds: \{[\s\S]*path: "bot-ops-files-path"/);
   assert.match(mission, /file\.editable === true/);
   assert.match(mission, /expectedRevision: snapshot\.revision/);
   assert.match(mission, /#mission-workspace-editor/);

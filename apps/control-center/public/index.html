@@ -477,22 +477,6 @@
                 <div class="bot-contact-list" id="bot-contact-list" role="list" aria-label="通讯录成员"></div>
                 <div class="bot-roster-empty" id="bot-contact-empty" hidden>没有匹配的成员</div>
               </section>
-              <section class="bot-ops-rail" id="bot-ops-rail" aria-label="工作台工具">
-                <div class="bot-tree-section-title"><strong>工具</strong></div>
-                <div class="bot-ops-chips" role="group" aria-label="协作台常用工具">
-                  <button type="button" data-bot-workspace-action="approvals"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-shield-check"></use></svg><span>审批</span><b id="bot-ops-approval-count" hidden></b></button>
-                  <button type="button" data-bot-workspace-action="browser"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-globe"></use></svg><span>浏览器</span></button>
-                  <button type="button" data-bot-workspace-action="git-commit"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-git-branch"></use></svg><span>提交</span></button>
-                  <button type="button" data-bot-workspace-action="git-push"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-upload"></use></svg><span>推送</span></button>
-                  <button type="button" data-bot-workspace-action="terminal"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-terminal"></use></svg><span>终端</span></button>
-                </div>
-                <details class="bot-ops-approvals" id="bot-ops-approvals" hidden>
-                  <summary>待处理审批</summary>
-                  <div id="bot-ops-approvals-list"></div>
-                </details>
-                <div class="bot-tree-section-title"><strong>成员电脑连接</strong><span id="bot-member-connections-count"></span></div>
-                <div id="bot-member-connections" class="bot-member-connections" aria-live="polite"></div>
-              </section>
               <footer class="bot-roster-footer">
                 <button type="button" class="bot-icon-button" data-bot-config-open="local-runtime" title="连接与运行配置" aria-label="连接与运行配置"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-settings"></use></svg></button>
                 <div class="workspace-secondary-navigation"><button type="button" data-bot-workspace-action="terminal"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-terminal"></use></svg><span>终端</span></button><button type="button" data-workspace-view="config"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-settings"></use></svg><span>设置</span></button></div>
@@ -558,6 +542,33 @@
                 <div class="terminal-drawer-body" id="bot-terminal-container"></div>
               </section>
             </section>
+            <aside class="bot-ops-rail" id="bot-ops-rail" aria-label="右侧运维">
+              <div class="bot-tree-section-title"><strong>工具</strong></div>
+              <div class="bot-ops-chips" role="group" aria-label="Bot 右侧工具">
+                <button type="button" data-bot-workspace-action="approvals"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-shield-check"></use></svg><span>审批</span><b id="bot-ops-approval-count" hidden></b></button>
+                <button type="button" data-bot-workspace-action="files"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-folder-open"></use></svg><span>文件</span></button>
+                <button type="button" data-bot-workspace-action="browser"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-globe"></use></svg><span>浏览器</span></button>
+                <button type="button" data-bot-workspace-action="git-commit"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-git-branch"></use></svg><span>提交</span></button>
+                <button type="button" data-bot-workspace-action="git-push"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-upload"></use></svg><span>推送</span></button>
+                <button type="button" data-bot-workspace-action="terminal"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-terminal"></use></svg><span>终端</span></button>
+              </div>
+              <details class="bot-ops-approvals" id="bot-ops-approvals" hidden>
+                <summary>待处理审批</summary>
+                <div id="bot-ops-approvals-list"></div>
+              </details>
+              <details class="bot-ops-files" id="bot-ops-files">
+                <summary>工作区文件</summary>
+                <div class="bot-ops-files-head">
+                  <span class="bot-ops-files-path" id="bot-ops-files-path">/</span>
+                  <button class="bot-icon-button" id="bot-ops-files-root" type="button" title="回到工作区根" aria-label="回到工作区根"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-folder-open"></use></svg></button>
+                </div>
+                <label class="bot-ops-files-filter"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-search"></use></svg><input id="bot-ops-files-filter" type="search" placeholder="筛选文件…" aria-label="筛选工作区文件" /></label>
+                <div id="bot-ops-files-list" class="bot-ops-files-list"></div>
+                <div id="bot-ops-files-preview" class="bot-ops-files-preview"></div>
+              </details>
+              <div class="bot-tree-section-title"><strong>成员电脑连接</strong><span id="bot-member-connections-count"></span></div>
+              <div id="bot-member-connections" class="bot-member-connections" aria-live="polite"></div>
+            </aside>
             <dialog class="workspace-members-dialog" id="workspace-members-dialog" aria-labelledby="workspace-members-title">
               <form>
                 <header><h2 id="workspace-members-title" data-workspace-members-title>协作成员</h2><button type="button" class="bot-icon-button" data-workspace-members-close title="关闭" aria-label="关闭成员编辑"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-x"></use></svg></button></header>
@@ -800,7 +811,7 @@
                   <div class="bot-settings-page-head"><div><h3>桌宠</h3><p class="bot-settings-lead">透明度、大小、指针追踪与 Live2D，保存在当前项目插件绑定</p></div></div>
                   <div id="bot-pet-settings-host"></div>
                 </section>
-                <section class="bot-settings-page" id="bot-settings-appearance" role="tabpanel" aria-labelledby="bot-settings-tab-appearance" hidden><h3>Appearance</h3><p class="bot-settings-lead">主题跟随系统，或固定在浅色 / 深色</p><div class="bot-theme-options" role="radiogroup" aria-label="主题"><button type="button" role="radio" data-bot-theme="system" aria-checked="true"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-layout-dashboard"></use></svg><span>System</span></button><button type="button" role="radio" data-bot-theme="light" aria-checked="false"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-sun"></use></svg><span>Light</span></button><button type="button" role="radio" data-bot-theme="dark" aria-checked="false"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-moon"></use></svg><span>Dark</span></button></div><p class="bot-settings-lead">Bot 聊天面：浅色 / 深色可切换，默认对话皮肤；工作台面保留壁纸与玻璃</p><div class="bot-face-options" role="radiogroup" aria-label="Bot 聊天面"><button type="button" role="radio" data-bot-face="grok" aria-checked="true"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-moon"></use></svg><span>深黑极简</span></button><button type="button" role="radio" data-bot-face="workbench" aria-checked="false"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-layout-dashboard"></use></svg><span>工作台面</span></button></div></section>
+                <section class="bot-settings-page" id="bot-settings-appearance" role="tabpanel" aria-labelledby="bot-settings-tab-appearance" hidden><h3>Appearance</h3><p class="bot-settings-lead">主题跟随系统，或固定在浅色 / 深色</p><div class="bot-theme-options" role="radiogroup" aria-label="主题"><button type="button" role="radio" data-bot-theme="system" aria-checked="true"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-layout-dashboard"></use></svg><span>System</span></button><button type="button" role="radio" data-bot-theme="light" aria-checked="false"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-sun"></use></svg><span>Light</span></button><button type="button" role="radio" data-bot-theme="dark" aria-checked="false"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-moon"></use></svg><span>Dark</span></button></div><p class="bot-settings-lead">Bot 聊天面：浅色 / 深色可切换，默认对话皮肤；自定义壁纸在深黑极简与工作台面下都会透出</p><div class="bot-face-options" role="radiogroup" aria-label="Bot 聊天面"><button type="button" role="radio" data-bot-face="grok" aria-checked="true"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-moon"></use></svg><span>深黑极简</span></button><button type="button" role="radio" data-bot-face="workbench" aria-checked="false"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-layout-dashboard"></use></svg><span>工作台面</span></button></div></section>
                 <section class="bot-settings-page" id="bot-settings-updates" role="tabpanel" aria-labelledby="bot-settings-tab-updates" hidden><h3>Updates</h3><p class="bot-settings-lead">应用更新与成员电脑迁移分开处理</p><article class="bot-update-card bot-release-card"><div><strong>构建真相</strong><p id="bot-release-truth-summary">本地控制面不连接发布服务；可读取当前运行实例的构建真相。</p></div><button class="bot-update-button" type="button" data-bot-action="release-truth-refresh">读取真相</button></article><div class="bot-release-truth" id="bot-release-truth" hidden></div><article class="bot-update-card"><div><strong>Update Bot's Computer</strong><p>迁移到新实例，保留文件和登录态；已装软件需重装。</p></div><button class="bot-update-button" type="button" data-bot-action="computer-update">Update</button></article><article class="bot-update-card is-danger"><div><strong>Reset Bot's Computer</strong><p>从快照恢复，可能丢失未同步工作。请优先使用 Update。</p></div><button class="bot-update-button" type="button" data-bot-action="computer-reset">Reset</button></article><div class="bot-update-track"><span>Update Track</span><button class="is-active" type="button" data-bot-action="update-track" data-bot-track="stable">Stable</button><button type="button" data-bot-action="update-track" data-bot-track="nightly">Nightly</button><button class="bot-text-button" type="button" data-bot-action="release-truth-refresh">读取构建真相</button></div></section>
               </div></div>
           </section>
