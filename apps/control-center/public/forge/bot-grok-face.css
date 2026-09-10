@@ -203,7 +203,6 @@ html.is-bot-grok-face #view-bot {
 html.is-bot-grok-face #view-bot .bot-shell,
 html.is-bot-grok-face #view-bot .bot-roster,
 html.is-bot-grok-face #view-bot .bot-conversation,
-html.is-bot-grok-face #view-bot .bot-ops-rail,
 html.is-bot-grok-face #view-bot .bot-agent-panel {
   background: var(--bot-bg);
 }
@@ -215,7 +214,6 @@ html.is-bot-grok-face body.team-bg-active #view-bot {
 
 html.is-bot-grok-face body.team-bg-active #view-bot .bot-roster,
 html.is-bot-grok-face body.team-bg-active #view-bot .bot-conversation,
-html.is-bot-grok-face body.team-bg-active #view-bot .bot-ops-rail,
 html.is-bot-grok-face body.team-bg-active #view-bot .bot-agent-panel,
 html.is-bot-grok-face body.team-bg-active #view-bot .bot-composer {
   background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) var(--forge-glass-alpha, 86%), transparent);
@@ -232,7 +230,7 @@ html.is-bot-grok-face body.team-bg-active #view-bot .bot-active-run.is-current {
 }
 
 html.is-bot-grok-face #view-bot .bot-shell-grid {
-  --bot-ops: 248px;
+  --bot-ops: 320px;
   grid-template-columns: var(--bot-grok-rail) var(--bot-grok-roster) minmax(0, 1fr) var(--bot-ops);
   grid-template-areas: "icons roster conversation ops";
 }
@@ -366,6 +364,10 @@ html.is-bot-grok-face #view-bot .bot-agent-row.is-active {
   background: color-mix(in srgb, var(--bot-ink) 8%, transparent);
   border-color: color-mix(in srgb, var(--bot-ink) 20%, var(--bot-line));
   box-shadow: inset 2px 0 0 var(--bot-ink);
+}
+
+html.is-bot-grok-face #view-bot .bot-agent-row.is-active::before {
+  display: none;
 }
 
 html.is-bot-grok-face #view-bot .bot-conversation-header {
@@ -737,21 +739,21 @@ html.is-bot-grok-face #view-bot .bot-roster-footer .bot-icon-button {
     grid-template-areas: none;
   }
 
-  html.is-bot-grok-face #view-bot .bot-ops-rail {
+  html.is-bot-grok-face #view-bot .bot-agent-panel {
     display: none;
     position: absolute;
     z-index: 16;
     inset: 0 0 0 auto;
-    width: min(280px, 86vw);
+    width: min(340px, 86vw);
     border-left-color: var(--bot-line);
     box-shadow: -16px 0 40px var(--bot-grok-shadow);
   }
 
-  html.is-bot-grok-face #view-bot .bot-shell-grid:not(.is-ops-collapsed) .bot-ops-rail {
+  html.is-bot-grok-face #view-bot .bot-shell-grid:not(.is-ops-collapsed) .bot-agent-panel:not([hidden]) {
     display: flex;
   }
 
-  html.is-bot-grok-face #view-bot .bot-shell-grid.is-ops-collapsed .bot-ops-rail {
+  html.is-bot-grok-face #view-bot .bot-shell-grid.is-ops-collapsed .bot-agent-panel {
     display: none;
   }
 
@@ -904,12 +906,12 @@ html.is-bot-grok-face #view-bot .bot-active-run.is-current {
   box-shadow: inset 2px 0 0 var(--bot-ink);
 }
 
-html.is-bot-grok-face #view-bot .bot-ops-rail {
+html.is-bot-grok-face #view-bot .bot-agent-panel {
   border-left-color: var(--bot-line);
   background: var(--bot-sidebar);
 }
 
-html.is-bot-grok-face #view-bot .bot-ops-rail-header {
+html.is-bot-grok-face #view-bot .bot-panel-header {
   border-bottom-color: var(--bot-line);
 }
 

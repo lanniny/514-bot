@@ -353,7 +353,7 @@ test("Structured Bot cards are runtime-generated and the stream ships no demo co
   assert.match(html, /id="bot-computer-return"[^>]*>交还给成员</);
   assert.match(app, /function botSetComputerView\(/);
   assert.match(app, /computerReturnPanel/);
-  assert.match(app, /botState\.panelOpener = byId\("bot-agent-info-button"\)/);
+  assert.match(app, /botState\.panelOpener = opener \|\| document\.activeElement/);
   assert.match(app, /bot-computer-view-close/);
   assert.match(app, /data-contextmenu|contextmenu/);
   assert.match(app, /api\/team-members.*DELETE|method: "DELETE"/);
@@ -364,17 +364,16 @@ test("Bot member info panel and settings tabs expose complete ARIA relationships
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
   ]);
-  assert.match(html, /id="bot-agent-panel"[^>]+role="dialog"[^>]+aria-modal="true"[^>]+aria-labelledby="bot-panel-agent-name"[^>]+aria-hidden="true"[^>]+inert/);
+  assert.match(html, /id="bot-agent-panel"[^>]+role="complementary"[^>]+aria-labelledby="bot-panel-agent-name"[^>]+aria-hidden="true"[^>]+inert/);
   assert.match(html, /aria-controls="bot-agent-panel"/);
   for (const tab of ["general", "plugins", "team", "workspace", "pet", "appearance", "updates"]) {
     assert.match(html, new RegExp(`data-bot-settings-tab="${tab}"`));
     assert.match(html, new RegExp(`id="bot-settings-${tab}"[^>]+role="tabpanel"[^>]+aria-labelledby="bot-settings-tab-${tab}"`));
   }
   assert.match(app, /function botSetPanel\(open/);
-  assert.match(app, /data-bot-panel-inert/);
-  assert.match(app, /function botAgentPanelFocusables\(/);
-  assert.match(app, /function botTrapAgentPanelFocus\(/);
-  assert.match(app, /bot-agent-panel"\)\?\.hidden === false && botTrapAgentPanelFocus\(event\)/);
+  assert.match(app, /applyOpsRailCollapsed\(false, \{ persist \}\)/);
+  assert.doesNotMatch(app, /data-bot-panel-inert/);
+  assert.doesNotMatch(app, /bot-agent-panel"\)\?\.hidden === false && botTrapAgentPanelFocus\(event\)/);
   assert.match(app, /function botSyncRosterRow\(agentId, meta\)/);
   assert.match(app, /botState\.panelOpener\?\.focus/);
   const leaveBotBlock = app.slice(
@@ -838,20 +837,24 @@ test("Bot keeps Conversation chat stable while collaboration context moves to a 
   assert.ok(conversationStart >= 0 && conversationEnd > conversationStart && inspectorStart > conversationEnd);
   assert.doesNotMatch(html.slice(conversationStart, conversationEnd), /bot-collab-tabs|bot-run-queue|bot-collab-panel/);
   assert.match(html.slice(inspectorStart), /id="bot-collab-tabs"[\s\S]*id="bot-collab-panel"[\s\S]*id="bot-run-queue"/);
+  assert.match(html.slice(inspectorStart), /id="bot-ops-rail"[\s\S]*id="bot-ops-files"[\s\S]*id="bot-member-connections"/);
+  assert.match(html.slice(inspectorStart), /id="bot-routine-list"[\s\S]*id="bot-channels-list"/);
+  assert.doesNotMatch(html, /<aside class="bot-ops-rail"/);
   const collaborationStart = app.indexOf("function botRenderCollaborationWorkspace()");
   const collaborationEnd = app.indexOf("function botActivateCollaborationTab", collaborationStart);
   const collaborationCode = app.slice(collaborationStart, collaborationEnd);
   assert.doesNotMatch(collaborationCode, /stream\.hidden|composer\.hidden/);
   assert.match(collaborationCode, /panel\.hidden = false/);
   assert.match(collaborationCode, /当前没有执行中的 Run/);
-  assert.match(css, /\.bot-shell-grid \{[\s\S]{0,420}grid-template-columns: 260px minmax\(0, 1fr\) var\(--bot-ops, 248px\);/);
+  assert.match(css, /\.bot-shell-grid \{[\s\S]{0,420}grid-template-columns: 260px minmax\(0, 1fr\) var\(--bot-ops, 320px\);/);
   assert.match(css, /grid-template-areas: "roster conversation ops"/);
   assert.match(css, /\.bot-shell-grid\.is-ops-collapsed \{/);
-  assert.match(css, /\.bot-ops-rail-header \{/);
+  assert.match(css, /\.bot-inspector-ops \{/);
+  assert.match(css, /\.bot-agent-panel \{ grid-area: ops; \}/);
   assert.match(css, /\.bot-active-run\.is-current \{[\s\S]*inset 2px 0 0/);
   assert.match(css, /\.bot-agent-row\.is-active \{[\s\S]*inset 2px 0 0/);
   assert.doesNotMatch(css, /\.bot-shell\.is-panel-open \.bot-shell-grid/);
-  assert.match(css, /\.bot-agent-panel \{ position: absolute;[\s\S]{0,220}right: 0;[\s\S]{0,220}width: min\(340px/);
+  assert.doesNotMatch(css, /\.bot-agent-panel \{ position: absolute;[\s\S]{0,220}right: 0;[\s\S]{0,220}width: min\(340px/);
 });
 
 test("Bot terminal runs are recent history, and the computer view is a real focus-contained modal", async () => {

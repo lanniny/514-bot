@@ -64,7 +64,7 @@
   width: 100%;
   height: 100%;
   min-width: 0;
-  grid-template-columns: 260px minmax(0, 1fr) var(--bot-ops, 248px);
+  grid-template-columns: 260px minmax(0, 1fr) var(--bot-ops, 320px);
   grid-template-areas: "roster conversation ops";
   grid-template-rows: minmax(0, 1fr);
 }
@@ -75,10 +75,9 @@
 .bot-icon-rail { grid-area: icons; }
 .bot-roster { grid-area: roster; }
 .bot-conversation { grid-area: conversation; }
-.bot-ops-rail { grid-area: ops; }
+.bot-agent-panel { grid-area: ops; }
 .bot-roster,
 .bot-conversation,
-.bot-ops-rail,
 .bot-agent-panel { min-width: 0; min-height: 0; }
 
 .bot-roster {
@@ -99,7 +98,6 @@ body.team-bg-active .bot-shell {
 
 body.team-bg-active .bot-roster,
 body.team-bg-active .bot-conversation,
-body.team-bg-active .bot-ops-rail,
 body.team-bg-active .bot-agent-panel {
   background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) var(--forge-glass-alpha, 86%), transparent);
   -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
@@ -121,7 +119,6 @@ body.team-bg-active .bot-active-run.is-current {
   body.team-bg-active .bot-shell,
   body.team-bg-active .bot-roster,
   body.team-bg-active .bot-conversation,
-  body.team-bg-active .bot-ops-rail,
   body.team-bg-active .bot-agent-panel {
     background: var(--bot-bg);
   }
@@ -683,10 +680,29 @@ body.team-bg-active .bot-active-run.is-current {
 .bot-image-preview-body { display: grid; min-height: 0; place-items: center; padding: 18px; overflow: auto; background: color-mix(in srgb, var(--bot-bg) 82%, var(--ink-absolute)); }
 .bot-image-preview-body img { display: block; width: auto; max-width: 100%; height: auto; max-height: calc(100vh - 132px); object-fit: contain; }
 
-.bot-shell-grid::after { position: absolute; z-index: 14; inset: 0; background: color-mix(in oklab, var(--forge-ink) 14%, transparent); content: ""; opacity: 0; pointer-events: none; transition: opacity var(--dur-fast) ease; }
-#view-bot.is-panel-open .bot-shell-grid::after { opacity: 1; }
-.bot-agent-panel { position: absolute; z-index: 15; top: 0; right: 0; bottom: 0; display: none; width: min(340px, calc(100% - 48px)); flex-direction: column; overflow: auto; border-left: 1px solid var(--bot-line); background: var(--bot-panel); box-shadow: -12px 0 32px color-mix(in oklab, var(--forge-ink) 12%, transparent); }
-.bot-agent-panel:not([hidden]) { display: flex !important; }
+.bot-agent-panel {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: auto;
+  border-left: 1px solid var(--bot-line);
+  background: var(--bot-sidebar);
+  z-index: 4;
+}
+.bot-shell-grid.is-ops-collapsed .bot-agent-panel,
+.bot-agent-panel[hidden] { display: none; }
+.bot-inspector-ops {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 12px;
+  border-top: 1px solid var(--bot-line);
+  border-bottom: 1px solid var(--bot-line);
+}
+.bot-agent-panel .bot-collab-panel,
+.bot-agent-panel .bot-run-queue {
+  max-height: none;
+}
 .bot-inspector-facts { display: grid; grid-template-columns: 1fr; gap: 0; margin: 0; padding: 8px 14px; border-bottom: 1px solid var(--bot-line); }
 .bot-inspector-facts > div { display: grid; min-width: 0; grid-template-columns: 52px minmax(0, 1fr); align-items: baseline; gap: 8px; padding: 6px 0; }
 .bot-inspector-facts dt { color: var(--bot-muted); font-size: var(--text-xs); }
@@ -1163,7 +1179,7 @@ html.is-bot-surface #view-bot {
 }
 
 @media (max-width: 980px) {
-  .bot-shell-grid { grid-template-columns: 220px minmax(0, 1fr) var(--bot-ops, 220px); }
+  .bot-shell-grid { grid-template-columns: 220px minmax(0, 1fr) var(--bot-ops, 280px); }
   .bot-shell-grid.is-ops-collapsed { grid-template-columns: 220px minmax(0, 1fr); }
   .bot-message-stream { padding-right: 28px; padding-left: 28px; }
 }
@@ -1183,17 +1199,17 @@ html.is-bot-surface #view-bot {
   html.is-bot-surface #view-bot { border: 0; border-radius: 0; box-shadow: none; }
   .bot-shell { width: 100%; height: 100%; min-height: 0; margin: 0; }
   .bot-shell-grid { display: block; overflow: hidden; }
-  .bot-ops-rail {
+  .bot-agent-panel {
     display: none;
     position: absolute;
     z-index: 16;
     inset: 0 0 0 auto;
-    width: min(280px, 86vw);
+    width: min(340px, 86vw);
     border-left: 1px solid var(--bot-line);
     box-shadow: -16px 0 40px color-mix(in oklab, var(--forge-ink) 16%, transparent);
   }
-  .bot-shell-grid:not(.is-ops-collapsed) .bot-ops-rail { display: flex; }
-  .bot-shell-grid.is-ops-collapsed .bot-ops-rail { display: none; }
+  .bot-shell-grid:not(.is-ops-collapsed) .bot-agent-panel:not([hidden]) { display: flex; }
+  .bot-shell-grid.is-ops-collapsed .bot-agent-panel { display: none; }
   .bot-agent-avatar { width: 25px; height: 25px; font-size: var(--text-xs); }
   .bot-agent-copy strong { font-size: var(--text-xs); }
   .bot-unread-dot { width: 5px; height: 5px; }
@@ -1218,7 +1234,6 @@ html.is-bot-surface #view-bot {
   .bot-image-preview-body { padding: 8px; }
   .bot-image-preview-body img { max-height: calc(100vh - 84px); }
   .bot-composer-hint { display: none; }
-  .bot-agent-panel:not([hidden]) { position: absolute; z-index: 15; inset: 0; width: auto; }
   .bot-agent-settings-panel:not([hidden]) { z-index: 24; }
   .bot-agent-settings-form { width: calc(100% - 20px); margin: 10px auto 24px; }
   .bot-member-settings-identity { align-items: flex-start; padding: 14px; }
@@ -1565,36 +1580,6 @@ html.is-bot-surface #view-bot {
   background: var(--bot-soft);
   color: var(--bot-ink);
   outline: 0;
-}
-.bot-ops-rail {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 6px;
-  padding: 0 10px 12px;
-  overflow: auto;
-  border-left: 1px solid var(--bot-line);
-  background: var(--bot-sidebar);
-  z-index: 4;
-}
-.bot-shell-grid.is-ops-collapsed .bot-ops-rail {
-  display: none;
-}
-.bot-ops-rail-header {
-  display: flex;
-  min-height: 42px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 0 -10px 2px;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--bot-line);
-}
-.bot-ops-rail-header strong {
-  color: var(--bot-ink);
-  font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: .04em;
 }
 .bot-ops-chips {
   display: flex;

@@ -58,7 +58,8 @@ html.is-bot-surface #view-bot { border: 0; box-shadow: none; }
   --workspace-link: #a1c7ff;
 }
 #view-bot * { letter-spacing: 0; }
-#view-bot .bot-shell-grid { grid-template-columns: 280px minmax(0, 1fr); }
+#view-bot .bot-shell-grid { grid-template-columns: 280px minmax(0, 1fr) var(--bot-ops, 320px); }
+#view-bot .bot-shell-grid.is-ops-collapsed { grid-template-columns: 280px minmax(0, 1fr); }
 #view-bot .bot-roster-header { min-height: 68px; padding: 16px 18px; border-bottom: 0; }
 #view-bot .bot-roster-header h1 { font-size: var(--workspace-heading); font-family: var(--sans); }
 #view-bot .bot-kicker { text-transform: none; }
@@ -150,7 +151,11 @@ body.team-bg-active #view-bot .bot-composer-row { background: transparent; }
 #view-bot .bot-tree-conversation .bot-agent-copy > span { grid-column: 2; grid-row: 2; min-width: 0; font-size: var(--text-xs); line-height: 1.5; }
 #view-bot .bot-tree-conversation > .bot-conversation-status { grid-column: 3; grid-row: 2; padding: 0; background: transparent; font-size: var(--text-xs); line-height: 1.5; font-weight: 500; }
 #view-bot .bot-tree-conversation > .bot-conversation-status::before { content: ""; display: inline-block; width: 4px; height: 4px; margin-right: 4px; border-radius: 50%; background: currentColor; vertical-align: middle; }
-#view-bot .bot-tree-conversation.is-active { background: var(--bot-soft); border-color: color-mix(in srgb, var(--workspace-link) 24%, transparent); box-shadow: none; }
+#view-bot .bot-tree-conversation.is-active {
+  background: color-mix(in srgb, var(--workspace-link, var(--bot-accent)) 10%, transparent);
+  border-color: color-mix(in srgb, var(--workspace-link, var(--bot-accent)) 36%, var(--bot-line));
+  box-shadow: inset 2px 0 0 var(--workspace-link, var(--bot-accent));
+}
 #view-bot .bot-roster-label { padding: 8px 16px; font-size: var(--text-xs); font-weight: 500; }
 #view-bot .bot-project-rooms { padding-left: 14px; }
 #view-bot .bot-project-rooms::before { left: 7px; }
