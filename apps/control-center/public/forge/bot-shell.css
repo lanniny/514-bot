@@ -409,8 +409,8 @@ body.team-bg-active .bot-active-run.is-current {
 .bot-message-error { display: flex; min-height: 100%; align-items: center; justify-content: center; flex-direction: column; gap: 10px; color: var(--bot-muted); font-size: var(--text-xs); text-align: center; }
 .bot-message-error strong { color: var(--bot-ink); font-size: var(--text-base); font-weight: 650; }
 .bot-message-error .bot-card-confirm { margin-top: 4px; }
-.bot-message { display: flex; max-width: min(760px, calc(100% - 12px)); gap: 9px; }
-.bot-message-user { align-self: auto; justify-content: flex-end; width: min(760px, calc(100% - 12px)); }
+.bot-message { display: flex; width: 100%; max-width: 760px; gap: 9px; }
+.bot-message-user { align-self: center; justify-content: flex-end; width: 100%; max-width: 760px; }
 .bot-message-avatar { width: 26px; height: 26px; font-size: var(--text-xs); }
 .bot-message-avatar { display: inline-grid; overflow: hidden; }
 .bot-message-author { display: block; }
@@ -425,7 +425,7 @@ body.team-bg-active .bot-active-run.is-current {
 .bot-message-user .bot-bubble { border-color: transparent; background: var(--bot-user-bubble-bg); color: var(--bot-user-bubble-ink); }
 .bot-message time { display: block; margin-top: 3px; color: var(--bot-muted); font-size: var(--text-xs); }
 .bot-message-agent { align-items: flex-start; gap: 8px; }
-.bot-message-agent { width: min(760px, 100%); }
+.bot-message-agent { width: 100%; max-width: 760px; }
 .bot-message-agent > div { flex: 1 1 auto; }
 .bot-message-agent .bot-message-avatar { display: inline-grid; width: 24px; height: 24px; font-size: var(--text-xs); }
 .bot-message-agent .bot-message-author { display: block; }

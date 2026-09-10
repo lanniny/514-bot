@@ -80,13 +80,15 @@ test("Grok face keeps a centered transcript column and hides workbench composer 
     readFile(`${appRoot}/public/index.html`, "utf8"),
   ]);
   assert.match(face, /--bot-transcript-width: 720px/);
-  assert.match(face, /#view-bot \.bot-message-user \{[\s\S]*align-self: auto/);
+  assert.match(face, /#view-bot \.bot-message-stream > :is\([\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*var\(--bot-transcript-width\)/);
+  assert.match(face, /#view-bot \.bot-message-user \{[\s\S]*align-self: center/);
+  assert.match(workspace, /#view-bot \.bot-message-stream > :is\([\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*var\(--workspace-reading-width\)/);
   assert.match(face, /#view-bot \.bot-message-stream:has\(\.bot-message\) \.bot-message-empty/);
   assert.match(face, /#view-bot \.bot-composer-ops-chips,[\s\S]*#view-bot \.bot-composer-footer \{[\s\S]*display: none !important/);
   assert.match(workspace, /#view-bot \.bot-message-stream:has\(\.bot-message\) \.bot-message-empty/);
   assert.match(workspace, /#view-bot \.bot-composer-overflow:not\(\[open\]\) \.bot-composer-footer/);
   assert.doesNotMatch(workspace, /#view-bot \.bot-composer-footer \{ display: flex !important/);
-  assert.match(shell, /\.bot-message-user \{ align-self: auto/);
+  assert.match(shell, /\.bot-message-user \{ align-self: center/);
   assert.match(html, /class="bot-composer-send-fields"/);
   assert.match(html, /class="bot-composer-ops-chips"/);
   assert.match(html, /id="bot-composer-overflow"/);

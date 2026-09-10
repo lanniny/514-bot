@@ -10,13 +10,14 @@ Bot 是唯一主界面。本轮先修 P0 聊天渲染，再按模块记账：已
 
 1. `botAppendUserMessage` 只 `appendChild`，不卸 `.bot-message-empty`。空态 `min-height: 62vh/100%` 仍占满对话列，气泡成为第二个 flex 子项。
 2. `.bot-message-user { align-self: flex-end }` 把整条消息甩到 **stream 右缘**。侧栏/右栏折叠后 stream 接近全宽，气泡就浮在壁纸右边。
-3. `botSaveMessageStore` 把「空态 + 气泡」一起写入 `innerHTML`；切回会话会原样还原。
-4. `#view-bot .bot-composer-footer { display: flex !important }` 压过 `<details>` 的 UA 隐藏，工作台条（直接发送/团队/模型/Effort/过程/成果/提交/预算/CLI）即使 overflow 关闭也摊在输入框下。
+3. `width: min(720px, 100%)` 在 flex 百分比基线未定时塌成内容宽；用户行 `justify-content: flex-end` 再把短行贴到 stream 右边。
+4. `botSaveMessageStore` 把「空态 + 气泡」一起写入 `innerHTML`；切回会话会原样还原。
+5. `#view-bot .bot-composer-footer { display: flex !important }` 压过 `<details>` 的 UA 隐藏，工作台条（直接发送/团队/模型/Effort/过程/成果/提交/预算/CLI）即使 overflow 关闭也摊在输入框下。
 
 本 PR 修复：
 
 - `modules/bot-transcript-dom.js`：有真实消息就卸空态；append / save / restore / full render 都走 normalize。
-- 对话列：消息 `align-self: auto`，宽 `min(720px, 100%)` 居中；用户气泡只在列内右对齐。
+- 对话列：`width: 100%; max-width: var(--bot-transcript-width); margin-inline: auto; align-self: center`。不用 `min(720px, 100%)`——flex 子项百分比基线未定时会塌成内容宽，再被 `justify-content: flex-end` 甩到 stream 右缘。
 - CSS `:has(.bot-message)` 兜底隐藏空态。
 - Grok 面 composer：默认只留胶囊输入；overflow 只开发送字段（收件人/团队/模型/Effort/权限/预算）。过程/Git/CLI/导览芯片与 footer 藏起，入口仍在右栏 inspector / 底部终端 / 设置。
 

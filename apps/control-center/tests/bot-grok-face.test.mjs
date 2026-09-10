@@ -126,6 +126,7 @@ test("Grok face CSS keeps 390px composer and chips tappable", async () => {
   assert.match(css, /min-height: 44px/);
   assert.doesNotMatch(css, /@media \(max-width: (?!560px|820px)\d+px\)/);
   assert.match(css, /--bot-transcript-width: 720px/);
+  assert.match(css, /\.bot-message-stream > :is\([\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*var\(--bot-transcript-width\)/);
   assert.match(css, /\.bot-composer-ops-chips/);
 });
 

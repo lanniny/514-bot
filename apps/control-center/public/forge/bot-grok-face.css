@@ -389,18 +389,20 @@ html.is-bot-grok-face #view-bot .bot-message-stream {
 }
 
 html.is-bot-grok-face #view-bot .bot-message-stream > :is(.bot-message, .bot-activity-group, .live-delta-bubble, .bot-card, .workspace-message-paging) {
-  width: min(var(--bot-transcript-width), 100%);
-  max-width: min(var(--bot-transcript-width), 100%);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--bot-transcript-width);
   margin-inline: auto;
-  align-self: auto;
+  align-self: center;
 }
 
 html.is-bot-grok-face #view-bot .bot-message {
-  max-width: min(var(--bot-transcript-width), 100%);
+  width: 100%;
+  max-width: var(--bot-transcript-width);
 }
 
 html.is-bot-grok-face #view-bot .bot-message-user {
-  align-self: auto;
+  align-self: center;
   justify-content: flex-end;
 }
 
