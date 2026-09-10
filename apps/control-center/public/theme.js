@@ -32,6 +32,11 @@
     document.documentElement.dataset.accent = /^(rose|teal|indigo)$/.test(accent || "") ? accent : "copper";
     var density = localStorage.getItem("514cc-density");
     document.documentElement.dataset.density = density === "compact" || density === "comfortable" ? density : "default";
+    if (localStorage.getItem("514cc-bot-face") === "workbench") {
+      document.documentElement.classList.remove("is-bot-grok-face");
+    } else {
+      document.documentElement.classList.add("is-bot-grok-face");
+    }
     document.documentElement.dataset.codeWrap = localStorage.getItem("514cc-code-wrap") === "on" ? "on" : "off";
     document.documentElement.dataset.codeLines = localStorage.getItem("514cc-code-lines") === "on" ? "on" : "off";
     document.documentElement.dataset.motion = localStorage.getItem("514cc-motion") === "reduce" ? "reduce" : "system";

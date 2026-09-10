@@ -1,0 +1,542 @@
+/* bot-grok-face.css — 默认 Bot 聊天面：深黑画布 / 窄轨 / 胶囊输入 / 安静空态。
+ * 加载顺序：晚于 bot-workspace / shell-refresh / ui-polish，才能压过工作台浅色与壁纸玻璃。
+ * 工作台面（html:not(.is-bot-grok-face)）零回归；壁纸仍可在 Appearance 切回。 */
+
+html.is-bot-grok-face {
+  --bot-grok-canvas: #050505;
+  --bot-grok-raised: #111111;
+  --bot-grok-pill: #1a1a1a;
+  --bot-grok-line: #2a2a2a;
+  --bot-grok-ink: #f4f4f4;
+  --bot-grok-muted: #8b8b8b;
+  --bot-grok-soft: #1f1f1f;
+  --bot-grok-user: #2b2b2b;
+  --bot-grok-send: #f4f4f4;
+  --bot-grok-send-ink: #111111;
+  --bot-grok-rail: 56px;
+  --bot-grok-roster: 236px;
+  --bot-chrome-bg: var(--bot-grok-canvas);
+  --bot-chrome-surface: var(--bot-grok-raised);
+  --bot-chrome-line: var(--bot-grok-line);
+  --bot-chrome-text: var(--bot-grok-ink);
+  --bot-chrome-muted: var(--bot-grok-muted);
+}
+
+html.is-bot-grok-face.is-bot-surface body,
+html.is-bot-grok-face.is-bot-surface .app-shell {
+  background: var(--bot-grok-canvas);
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar,
+html.is-bot-grok-face.is-bot-surface .global-statusbar {
+  background: var(--bot-grok-canvas);
+  border-color: var(--bot-grok-line);
+  color: var(--bot-grok-muted);
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar :is(button, input, strong, span) {
+  color: var(--bot-grok-ink);
+}
+
+html.is-bot-grok-face.is-bot-surface .topbar .command-trigger {
+  background: var(--bot-grok-raised);
+  border-color: var(--bot-grok-line);
+  color: var(--bot-grok-muted);
+}
+
+html.is-bot-grok-face.is-bot-surface:has(#view-bot.is-active) .atelier-stage {
+  opacity: 0;
+  pointer-events: none;
+}
+
+html.is-bot-grok-face #view-bot {
+  --bot-bg: var(--bot-grok-canvas);
+  --bot-sidebar: var(--bot-grok-raised);
+  --bot-panel: var(--bot-grok-raised);
+  --bot-line: var(--bot-grok-line);
+  --bot-line-strong: color-mix(in srgb, var(--bot-grok-ink) 18%, transparent);
+  --bot-ink: var(--bot-grok-ink);
+  --bot-muted: var(--bot-grok-muted);
+  --bot-soft: var(--bot-grok-soft);
+  --bot-accent: var(--bot-grok-ink);
+  --bot-accent-soft: var(--bot-grok-soft);
+  --bot-accent-ink: var(--bot-grok-send-ink);
+  --bot-user-bubble-bg: var(--bot-grok-user);
+  --bot-user-bubble-ink: var(--bot-grok-ink);
+  --workspace-link: var(--bot-grok-ink);
+  background: var(--bot-grok-canvas);
+  color: var(--bot-grok-ink);
+}
+
+html.is-bot-grok-face #view-bot .bot-shell,
+html.is-bot-grok-face #view-bot .bot-roster,
+html.is-bot-grok-face #view-bot .bot-conversation,
+html.is-bot-grok-face #view-bot .bot-agent-panel {
+  background: var(--bot-bg);
+}
+
+html.is-bot-grok-face body.team-bg-active .bot-shell,
+html.is-bot-grok-face body.team-bg-active #view-bot,
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-roster,
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-conversation,
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-agent-panel,
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-composer {
+  background: var(--bot-bg);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html.is-bot-grok-face #view-bot .bot-shell-grid {
+  grid-template-columns: var(--bot-grok-rail) var(--bot-grok-roster) minmax(0, 1fr);
+}
+
+html.is-bot-grok-face #view-bot .bot-shell-grid.is-roster-collapsed {
+  grid-template-columns: var(--bot-grok-rail) minmax(0, 1fr);
+}
+
+html.is-bot-grok-face #view-bot .bot-shell-grid.is-roster-collapsed .bot-roster {
+  display: none;
+}
+
+.bot-icon-rail,
+.bot-composer-seat,
+.bot-composer-more,
+.bot-composer-overflow > summary,
+.bot-composer-tools {
+  display: none;
+}
+
+.bot-empty-hero .bot-empty-brand {
+  color: var(--bot-ink);
+  font-size: var(--text-xl);
+  font-weight: 600;
+}
+
+.bot-empty-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.bot-empty-chips button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--bot-line);
+  border-radius: 999px;
+  background: var(--bot-panel);
+  color: var(--bot-ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+html.is-bot-grok-face #view-bot .bot-icon-rail {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px 12px;
+  border-right: 1px solid var(--bot-line);
+  background: var(--bot-bg);
+}
+
+html.is-bot-grok-face #view-bot .bot-icon-rail .bot-rail-spacer {
+  flex: 1 1 auto;
+  min-height: 8px;
+}
+
+html.is-bot-grok-face #view-bot .bot-icon-rail .bot-icon-button {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  color: var(--bot-muted);
+}
+
+html.is-bot-grok-face #view-bot .bot-icon-rail .bot-icon-button.is-active,
+html.is-bot-grok-face #view-bot .bot-icon-rail .bot-icon-button[aria-pressed="true"] {
+  background: var(--bot-soft);
+  color: var(--bot-ink);
+}
+
+html.is-bot-grok-face #view-bot .bot-roster {
+  border-right: 1px solid var(--bot-line);
+  background: var(--bot-sidebar);
+}
+
+html.is-bot-grok-face #view-bot .bot-roster-header {
+  min-height: 52px;
+  padding: 10px 12px;
+}
+
+html.is-bot-grok-face #view-bot .bot-roster-header h1 {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+html.is-bot-grok-face #view-bot .workspace-navigation,
+html.is-bot-grok-face #view-bot .workspace-secondary-navigation,
+html.is-bot-grok-face #view-bot .workspace-project-bar,
+html.is-bot-grok-face #view-bot .workspace-view-bar,
+html.is-bot-grok-face #view-bot .bot-composer-context .workspace-advanced-mode,
+html.is-bot-grok-face #view-bot .bot-member-seat-entry {
+  display: none;
+}
+
+html.is-bot-grok-face #view-bot .bot-surface-tabs {
+  margin: 0 10px;
+  padding: 2px;
+  background: var(--bot-soft);
+}
+
+html.is-bot-grok-face #view-bot .workspace-search-row {
+  padding: 8px 10px;
+}
+
+html.is-bot-grok-face #view-bot .bot-agent-row,
+html.is-bot-grok-face #view-bot .bot-tree-conversation {
+  min-height: 52px;
+  padding: 8px;
+  border-radius: 10px;
+}
+
+html.is-bot-grok-face #view-bot .bot-tree-conversation.is-active,
+html.is-bot-grok-face #view-bot .bot-agent-row.is-active {
+  background: var(--bot-soft);
+  box-shadow: none;
+}
+
+html.is-bot-grok-face #view-bot .bot-conversation-header {
+  min-height: 56px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--bot-line);
+}
+
+html.is-bot-grok-face #view-bot .bot-conversation-header h2 {
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+html.is-bot-grok-face #view-bot .bot-message-stream {
+  padding: 28px clamp(16px, 5vw, 56px) 16px;
+  gap: 22px;
+}
+
+html.is-bot-grok-face #view-bot .bot-message-user .bot-bubble {
+  max-width: min(560px, 100%);
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--bot-user-bubble-bg);
+  box-shadow: none;
+}
+
+html.is-bot-grok-face #view-bot .bot-message-agent .bot-bubble {
+  padding: 2px 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+html.is-bot-grok-face #view-bot details.bot-activity-group,
+html.is-bot-grok-face #view-bot .bot-activity-summary,
+html.is-bot-grok-face #view-bot .bot-activity-segment {
+  border-color: color-mix(in srgb, var(--bot-line) 80%, transparent);
+  background: color-mix(in srgb, var(--bot-soft) 70%, transparent);
+  box-shadow: none;
+}
+
+html.is-bot-grok-face #view-bot .bot-message-empty.bot-empty-hero {
+  min-height: min(62vh, 560px);
+  justify-content: center;
+  gap: 14px;
+  padding: 48px 20px 24px;
+}
+
+html.is-bot-grok-face #view-bot .bot-empty-brand {
+  color: var(--bot-ink);
+  font-size: var(--text-3xl, 2rem);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+html.is-bot-grok-face #view-bot .bot-empty-kicker {
+  color: var(--bot-ink);
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+html.is-bot-grok-face #view-bot .bot-empty-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+html.is-bot-grok-face #view-bot .bot-empty-chips button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--bot-line);
+  border-radius: 999px;
+  background: var(--bot-pill, var(--bot-grok-pill));
+  color: var(--bot-ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+html.is-bot-grok-face #view-bot .bot-empty-chips button:hover,
+html.is-bot-grok-face #view-bot .bot-empty-chips button:focus-visible {
+  border-color: color-mix(in srgb, var(--bot-ink) 28%, var(--bot-line));
+  background: var(--bot-soft);
+}
+
+html.is-bot-grok-face #view-bot .bot-composer {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 6px 20px 18px;
+  border: 0;
+  border-radius: 0;
+  background: linear-gradient(to top, var(--bot-bg) 62%, transparent);
+  box-shadow: none;
+}
+
+html.is-bot-grok-face #view-bot .bot-composer > * {
+  max-width: min(720px, 100%);
+  margin-inline: auto;
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-context {
+  display: none;
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-row {
+  align-items: flex-end;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--bot-line);
+  border-radius: 28px;
+  background: var(--bot-grok-pill);
+  box-shadow: 0 10px 28px color-mix(in srgb, black 28%, transparent);
+}
+
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-composer-row {
+  background: var(--bot-grok-pill);
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-row:focus-within {
+  border-color: color-mix(in srgb, var(--bot-ink) 22%, var(--bot-line));
+  box-shadow: 0 10px 28px color-mix(in srgb, black 28%, transparent);
+}
+
+html.is-bot-grok-face #view-bot .bot-composer textarea {
+  min-height: 28px;
+  padding: 8px 4px;
+  line-height: 1.5;
+}
+
+html.is-bot-grok-face #view-bot .bot-composer :is(.bot-attach-button, .bot-send-button, .bot-composer-more) {
+  width: 34px;
+  height: 34px;
+  margin: 0;
+  border-radius: 50%;
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-seat {
+  display: inline-flex;
+  width: auto;
+  min-width: 34px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px 0 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--bot-muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-seat .icon {
+  width: 15px;
+  height: 15px;
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-seat:hover,
+html.is-bot-grok-face #view-bot .bot-composer-more:hover {
+  background: var(--bot-soft);
+  color: var(--bot-ink);
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-more {
+  display: inline-grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--bot-muted);
+  cursor: pointer;
+}
+
+html.is-bot-grok-face #view-bot .bot-send-button {
+  background: var(--bot-grok-send);
+  color: var(--bot-grok-send-ink);
+}
+
+html.is-bot-grok-face #view-bot .bot-send-button:disabled {
+  background: var(--bot-line);
+  color: var(--bot-muted);
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-overflow {
+  max-width: min(720px, 100%);
+  margin: 8px auto 0;
+  color: var(--bot-muted);
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-overflow > summary {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-overflow:not([open]) .bot-composer-footer,
+html.is-bot-grok-face #view-bot .bot-composer-overflow:not([open]) .bot-composer-tools {
+  display: none !important;
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-footer {
+  display: flex !important;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  min-height: 0;
+  padding: 8px 4px 0;
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 2px 0;
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-tools button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--bot-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--bot-muted);
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-tools button:hover {
+  color: var(--bot-ink);
+  background: var(--bot-soft);
+}
+
+html.is-bot-grok-face #view-bot .bot-face-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0 0;
+}
+
+html.is-bot-grok-face #view-bot .bot-face-options button,
+#view-bot .bot-face-options button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--bot-line);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--bot-ink);
+  font: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+#view-bot .bot-face-options button[aria-checked="true"] {
+  border-color: var(--bot-ink);
+  background: var(--bot-soft);
+}
+
+html.is-bot-grok-face #view-bot .bot-roster-footer .bot-icon-button {
+  display: none;
+}
+
+@media (max-width: 820px) {
+  html.is-bot-grok-face #view-bot .bot-icon-rail {
+    display: none;
+  }
+
+  html.is-bot-grok-face #view-bot .bot-shell-grid,
+  html.is-bot-grok-face #view-bot .bot-shell-grid.is-roster-collapsed {
+    display: block;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  html.is-bot-grok-face #view-bot .bot-shell-grid.is-roster-collapsed .bot-roster {
+    display: flex;
+  }
+
+  html.is-bot-grok-face #view-bot .workspace-navigation,
+  html.is-bot-grok-face #view-bot .workspace-secondary-navigation {
+    display: flex;
+  }
+
+  html.is-bot-grok-face #view-bot .bot-composer {
+    padding: 8px 12px 12px;
+  }
+
+  html.is-bot-grok-face #view-bot .bot-conversation-header {
+    padding: 8px 12px;
+  }
+}
+
+@media (max-width: 560px) {
+  html.is-bot-grok-face #view-bot .bot-composer {
+    padding: 8px 10px 10px;
+  }
+
+  html.is-bot-grok-face #view-bot .bot-composer-row {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  html.is-bot-grok-face #view-bot .bot-composer-seat span {
+    display: none;
+  }
+
+  html.is-bot-grok-face #view-bot .bot-empty-chips button,
+  html.is-bot-grok-face #view-bot .bot-composer-tools button,
+  html.is-bot-grok-face #view-bot .bot-composer-footer select {
+    min-height: 44px;
+  }
+
+  html.is-bot-grok-face #view-bot .bot-empty-brand {
+    font-size: var(--text-2xl, 1.6rem);
+  }
+
+  html.is-bot-grok-face #view-bot .bot-message-empty.bot-empty-hero {
+    min-height: min(52vh, 420px);
+    padding: 28px 12px 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.is-bot-grok-face #view-bot .bot-composer-row,
+  html.is-bot-grok-face #view-bot .bot-empty-chips button {
+    transition: none;
+  }
+}

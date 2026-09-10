@@ -43,6 +43,12 @@ test("Living Orchestration art direction is the final visual owner", async () =>
     polishIndex >= 0 && consoleIndex > polishIndex && artIndex > consoleIndex,
     "艺术指导层必须晚于 polish 与 console-form，才能成为明确的视觉所有者",
   );
+  const grokFaceIndex = html.indexOf("./forge/bot-grok-face.css");
+  const uiPolishIndex = html.indexOf("./forge/ui-polish.css");
+  assert.ok(
+    grokFaceIndex > uiPolishIndex && grokFaceIndex > artIndex,
+    "Grok 默认 Bot 面必须晚于艺术指导与 ui-polish，才能压过工作台浅色与壁纸玻璃",
+  );
 
   const css = await source("public/forge/art-direction.css");
   for (const signature of [

@@ -182,6 +182,44 @@ test("UI polish layer unifies brand focus, nav anchors, rhythm and touch targets
   assert.match(polish, /@media \(min-width: 821px\) and \(max-width: 1100px\)[\s\S]*208px/);
 });
 
+test("Default Bot face is the Grok-like dark shell without dropping capabilities", async () => {
+  const [html, app, face, theme, module] = await Promise.all([
+    readFile(`${appRoot}/public/index.html`, "utf8"),
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/forge/bot-grok-face.css`, "utf8"),
+    readFile(`${appRoot}/public/theme.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/bot-grok-face.js`, "utf8"),
+  ]);
+  assert.match(html, /forge\/ui-polish\.css[\s\S]*forge\/bot-grok-face\.css/);
+  assert.match(html, /class="is-bot-surface is-bot-grok-face"/);
+  assert.match(html, /class="bot-icon-rail"/);
+  assert.match(html, /data-bot-rail="new"/);
+  assert.match(html, /data-bot-rail="chats"/);
+  assert.match(html, /id="bot-composer-overflow"/);
+  assert.match(html, /id="bot-composer-seat-chip"/);
+  assert.match(html, /data-bot-face="grok"/);
+  assert.match(html, /data-bot-face="workbench"/);
+  assert.match(html, /data-bot-action="product-tour"/);
+  assert.match(html, /data-bot-action="capability-map"/);
+  assert.match(html, /id="bot-kickoff-help-dialog"/);
+  assert.match(html, /id="bot-routine-dialog"/);
+  assert.match(html, /id="bot-private-skill-list"/);
+  assert.match(app, /bindBotGrokFace/);
+  assert.match(app, /botEmptyConversationMarkup/);
+  assert.match(app, /帮我写/);
+  assert.match(app, /data-bot-suggest/);
+  assert.match(theme, /514cc-bot-face/);
+  assert.match(module, /applyBotFacePreference/);
+  assert.match(face, /html\.is-bot-grok-face #view-bot \{/);
+  assert.match(face, /--bot-grok-canvas:/);
+  assert.match(face, /grid-template-columns: var\(--bot-grok-rail\) var\(--bot-grok-roster\) minmax\(0, 1fr\)/);
+  assert.match(face, /\.bot-composer-row \{[\s\S]*border-radius: 28px/);
+  assert.match(face, /html\.is-bot-grok-face body\.team-bg-active #view-bot/);
+  assert.match(face, /backdrop-filter: none/);
+  assert.match(face, /@media \(max-width: 560px\)[\s\S]*min-height: 44px/);
+  assert.match(face, /@media \(max-width: 820px\)[\s\S]*\.bot-icon-rail \{[\s\S]*display: none/);
+});
+
 test("Bot global dialogs keep compact geometry while inheriting the Forge palette", async () => {
   const [app, css] = await Promise.all([
     readFile(`${appRoot}/public/app.js`, "utf8"),
@@ -526,10 +564,11 @@ test("Bot roster channels and composer kickoff follow real sources (Grok parity 
 });
 
 test("Bot 390px walkthrough keeps critical surfaces wrapping (Grok parity W6)", async () => {
-  const [shell, workspace, parity] = await Promise.all([
+  const [shell, workspace, parity, face] = await Promise.all([
     readFile(`${appRoot}/public/forge/bot-shell.css`, "utf8"),
     readFile(`${appRoot}/public/forge/bot-workspace.css`, "utf8"),
     readFile(`${appRoot}/public/forge/bot-grok-parity.css`, "utf8"),
+    readFile(`${appRoot}/public/forge/bot-grok-face.css`, "utf8"),
   ]);
   assert.match(parity, /W6：390px 小屏走查/);
   assert.match(parity, /@media \(max-width: 560px\)[\s\S]*\.bot-routine-dialog[\s\S]*width: calc\(100vw - 16px\)/);
@@ -537,6 +576,8 @@ test("Bot 390px walkthrough keeps critical surfaces wrapping (Grok parity W6)", 
   assert.match(shell, /@media \(max-width: 560px\)[\s\S]*\.bot-agent-settings-actions[\s\S]*flex-wrap: wrap/);
   assert.match(shell, /\.bot-settings-tabs \{ display: flex; flex-wrap: nowrap;/);
   assert.match(workspace, /@media \(max-width: 560px\)[\s\S]*#view-bot \.bot-composer \{ padding: 8px 10px 10px; \}/);
+  assert.match(face, /@media \(max-width: 560px\)[\s\S]*\.bot-composer \{[\s\S]*padding: 8px 10px 10px/);
+  assert.match(face, /@media \(max-width: 560px\)[\s\S]*\.bot-empty-chips button[\s\S]*min-height: 44px/);
   const pack = await readFile(`${appRoot}/package.json`, "utf8");
   assert.match(pack, /"qa:bot-390": "node scripts\/qa-bot-390\.mjs"/);
 });
