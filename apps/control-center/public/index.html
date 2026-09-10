@@ -202,7 +202,7 @@
             <button class="chrome-icon-button" id="chrome-rail-toggle" type="button" title="收起/展开对话列表" aria-label="收起或展开对话列表" aria-pressed="false">
               <svg class="icon lucide chrome-rail-glyph" aria-hidden="true"><use href="#lucide-panel-left"></use></svg>
             </button>
-            <button class="chrome-icon-button" id="chrome-ops-toggle" type="button" title="收起/展开右侧栏" aria-label="收起或展开右侧栏" aria-pressed="false">
+            <button class="chrome-icon-button" id="chrome-ops-toggle" type="button" title="收起/展开右侧栏" aria-label="收起或展开右侧栏" aria-pressed="false" aria-controls="bot-agent-panel">
               <svg class="icon lucide chrome-ops-glyph" aria-hidden="true"><use href="#lucide-panel-right"></use></svg>
             </button>
             <button class="chrome-icon-button" id="chrome-nav-back" type="button" title="后退（上一视图）" aria-label="后退到上一视图" disabled>
@@ -258,7 +258,7 @@
             <button class="icon-button" id="global-terminal-toggle" type="button" title="打开/收起底部终端（Ctrl+`）" aria-label="打开终端" aria-pressed="false">
               <svg aria-hidden="true" class="icon lucide"><use href="#lucide-square-terminal"></use></svg>
             </button>
-            <button class="icon-button" id="global-mc-toggle" type="button" title="打开会话详情" aria-label="打开会话详情" aria-pressed="false">
+            <button class="icon-button" id="global-mc-toggle" type="button" title="展开右侧栏" aria-label="展开右侧栏" aria-pressed="false" aria-controls="bot-agent-panel">
               <svg aria-hidden="true" class="icon lucide"><use href="#lucide-panel-right"></use></svg>
             </button>
           </div>
@@ -490,7 +490,7 @@
               <div class="workspace-project-bar"><div><strong id="workspace-project">工作台</strong><span id="workspace-path"></span></div><span id="workspace-responsibility"></span><button type="button" class="bot-icon-button" data-workspace-refresh aria-label="刷新工作对话" title="刷新工作对话"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-refresh-cw"></use></svg></button></div>
               <header class="bot-conversation-header">
                 <button class="bot-mobile-back" id="bot-mobile-back" type="button" title="返回会话列表" aria-label="返回会话列表"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-arrow-left"></use></svg></button>
-                <button class="bot-conversation-heading" id="bot-agent-info-button" type="button" title="打开会话详情（Cmd+Shift+I）" aria-label="打开会话详情" aria-expanded="false" aria-controls="bot-agent-panel">
+                <button class="bot-conversation-heading" id="bot-agent-info-button" type="button" title="展开右侧栏（Cmd+Shift+I）" aria-label="展开右侧栏" aria-expanded="false" aria-controls="bot-agent-panel">
                   <span class="bot-agent-avatar" id="bot-header-avatar"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-bot"></use></svg></span><span class="bot-conversation-heading-copy"><h2 id="bot-conversation-title">工作对话</h2><span id="bot-conversation-meta">正在加载</span></span>
                 </button>
                 <div class="bot-conversation-actions"><span class="bot-first-response" id="bot-first-response" hidden></span><button class="bot-member-seat-entry" id="bot-member-seat-button" data-bot-seat-entry="1" type="button" title="设置当前成员的运行席位" aria-label="设置当前成员的运行席位"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-settings"></use></svg><span>席位设置</span></button><span class="bot-run-state is-idle" id="bot-run-state">ready</span><span class="window-controls bot-window-controls" id="bot-window-controls" hidden role="group" aria-label="窗口控制"><button class="window-control-button" id="bot-window-minimize" type="button" title="最小化" aria-label="最小化窗口"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-minus"></use></svg></button><button class="window-control-button" id="bot-window-maximize" type="button" title="最大化 / 还原" aria-label="最大化或还原窗口"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-square"></use></svg></button><button class="window-control-button is-close" id="bot-window-close" type="button" title="关闭" aria-label="关闭窗口"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-x"></use></svg></button></span></div>
@@ -545,39 +545,6 @@
                 <div class="terminal-drawer-body" id="bot-terminal-container"></div>
               </section>
             </section>
-            <aside class="bot-ops-rail" id="bot-ops-rail" aria-label="右侧运维">
-              <header class="bot-ops-rail-header">
-                <strong>运维</strong>
-                <button class="bot-icon-button" id="bot-ops-rail-close" type="button" title="收起右侧栏" aria-label="收起右侧栏">
-                  <svg class="icon lucide" aria-hidden="true"><use href="#lucide-x"></use></svg>
-                </button>
-              </header>
-              <div class="bot-tree-section-title"><strong>工具</strong></div>
-              <div class="bot-ops-chips" role="group" aria-label="Bot 右侧工具">
-                <button type="button" data-bot-workspace-action="approvals"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-shield-check"></use></svg><span>审批</span><b id="bot-ops-approval-count" hidden></b></button>
-                <button type="button" data-bot-workspace-action="files"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-folder-open"></use></svg><span>文件</span></button>
-                <button type="button" data-bot-workspace-action="browser"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-globe"></use></svg><span>浏览器</span></button>
-                <button type="button" data-bot-workspace-action="git-commit"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-git-branch"></use></svg><span>提交</span></button>
-                <button type="button" data-bot-workspace-action="git-push"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-upload"></use></svg><span>推送</span></button>
-                <button type="button" data-bot-workspace-action="terminal"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-terminal"></use></svg><span>终端</span></button>
-              </div>
-              <details class="bot-ops-approvals" id="bot-ops-approvals" hidden>
-                <summary>待处理审批</summary>
-                <div id="bot-ops-approvals-list"></div>
-              </details>
-              <details class="bot-ops-files" id="bot-ops-files">
-                <summary>工作区文件</summary>
-                <div class="bot-ops-files-head">
-                  <span class="bot-ops-files-path" id="bot-ops-files-path">/</span>
-                  <button class="bot-icon-button" id="bot-ops-files-root" type="button" title="回到工作区根" aria-label="回到工作区根"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-folder-open"></use></svg></button>
-                </div>
-                <label class="bot-ops-files-filter"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-search"></use></svg><input id="bot-ops-files-filter" type="search" placeholder="筛选文件…" aria-label="筛选工作区文件" /></label>
-                <div id="bot-ops-files-list" class="bot-ops-files-list"></div>
-                <div id="bot-ops-files-preview" class="bot-ops-files-preview"></div>
-              </details>
-              <div class="bot-tree-section-title"><strong>成员电脑连接</strong><span id="bot-member-connections-count"></span></div>
-              <div id="bot-member-connections" class="bot-member-connections" aria-live="polite"></div>
-            </aside>
             <dialog class="workspace-members-dialog" id="workspace-members-dialog" aria-labelledby="workspace-members-title">
               <form>
                 <header><h2 id="workspace-members-title" data-workspace-members-title>协作成员</h2><button type="button" class="bot-icon-button" data-workspace-members-close title="关闭" aria-label="关闭成员编辑"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-x"></use></svg></button></header>
@@ -674,8 +641,8 @@
               </form>
             </dialog>
 
-            <aside class="bot-agent-panel" id="bot-agent-panel" role="dialog" aria-modal="true" aria-labelledby="bot-panel-agent-name" aria-describedby="bot-panel-kicker" aria-hidden="true" inert hidden>
-              <header class="bot-panel-header"><div><span class="bot-kicker" id="bot-panel-kicker">会话详情</span><h2 id="bot-panel-agent-name">Master</h2></div><div class="bot-panel-actions"><button class="bot-icon-button" id="bot-agent-settings-button" type="button" title="成员设置" aria-label="打开成员设置"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-settings"></use></svg></button><button class="bot-icon-button" id="bot-agent-panel-close" type="button" title="关闭会话详情" aria-label="关闭会话详情"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-x"></use></svg></button></div></header>
+            <aside class="bot-agent-panel" id="bot-agent-panel" role="complementary" aria-labelledby="bot-panel-agent-name" aria-describedby="bot-panel-kicker" aria-hidden="true" inert hidden>
+              <header class="bot-panel-header"><div><span class="bot-kicker" id="bot-panel-kicker">成员与会话</span><h2 id="bot-panel-agent-name">Master</h2></div><div class="bot-panel-actions"><button class="bot-icon-button" id="bot-agent-settings-button" type="button" title="成员设置" aria-label="打开成员设置"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-settings"></use></svg></button><button class="bot-icon-button" type="button" data-project-plugins title="项目插件与工作流" aria-label="项目插件与工作流"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-puzzle"></use></svg></button><button class="bot-icon-button" id="bot-agent-panel-close" type="button" title="收起右侧栏" aria-label="收起右侧栏"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-x"></use></svg></button></div></header>
               <dl class="bot-inspector-facts" aria-label="当前会话摘要">
                 <div><dt>范围</dt><dd id="bot-inspector-scope">全局单聊</dd></div>
                 <div><dt>会话</dt><dd id="bot-inspector-ref">未建立</dd></div>
@@ -689,6 +656,33 @@
               </nav>
               <section class="bot-collab-panel" id="bot-collab-panel" role="tabpanel" aria-labelledby="bot-collab-tab-conversation" hidden></section>
               <section class="bot-run-queue" id="bot-run-queue" aria-live="polite" aria-label="当前会话的运行历史" hidden></section>
+              <section class="bot-inspector-ops" id="bot-ops-rail" aria-label="运维工具">
+                <div class="bot-tree-section-title"><strong>工具</strong></div>
+                <div class="bot-ops-chips" role="group" aria-label="Bot 右侧工具">
+                  <button type="button" data-bot-workspace-action="approvals"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-shield-check"></use></svg><span>审批</span><b id="bot-ops-approval-count" hidden></b></button>
+                  <button type="button" data-bot-workspace-action="files"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-folder-open"></use></svg><span>文件</span></button>
+                  <button type="button" data-bot-workspace-action="browser"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-globe"></use></svg><span>浏览器</span></button>
+                  <button type="button" data-bot-workspace-action="git-commit"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-git-branch"></use></svg><span>提交</span></button>
+                  <button type="button" data-bot-workspace-action="git-push"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-upload"></use></svg><span>推送</span></button>
+                  <button type="button" data-bot-workspace-action="terminal"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-terminal"></use></svg><span>终端</span></button>
+                </div>
+                <details class="bot-ops-approvals" id="bot-ops-approvals" hidden>
+                  <summary>待处理审批</summary>
+                  <div id="bot-ops-approvals-list"></div>
+                </details>
+                <details class="bot-ops-files" id="bot-ops-files">
+                  <summary>工作区文件</summary>
+                  <div class="bot-ops-files-head">
+                    <span class="bot-ops-files-path" id="bot-ops-files-path">/</span>
+                    <button class="bot-icon-button" id="bot-ops-files-root" type="button" title="回到工作区根" aria-label="回到工作区根"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-folder-open"></use></svg></button>
+                  </div>
+                  <label class="bot-ops-files-filter"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-search"></use></svg><input id="bot-ops-files-filter" type="search" placeholder="筛选文件…" aria-label="筛选工作区文件" /></label>
+                  <div id="bot-ops-files-list" class="bot-ops-files-list"></div>
+                  <div id="bot-ops-files-preview" class="bot-ops-files-preview"></div>
+                </details>
+                <div class="bot-tree-section-title"><strong>成员电脑连接</strong><span id="bot-member-connections-count"></span></div>
+                <div id="bot-member-connections" class="bot-member-connections" aria-live="polite"></div>
+              </section>
               <div data-bot-direct-only>
                 <button class="bot-computer-preview" id="bot-computer-preview" type="button" title="打开电脑视图" aria-label="打开电脑视图"><span class="bot-computer-screen"><span class="bot-computer-bar"><i></i><i></i><i></i><strong>Master computer</strong></span><span class="bot-computer-empty"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-layout-dashboard"></use></svg><strong>电脑尚未配置</strong><small>not-provisioned</small></span></span><span class="bot-preview-caption"><span><strong>成员电脑</strong><small id="bot-computer-status">not-provisioned · 等待配置</small></span><svg class="icon lucide" aria-hidden="true"><use href="#lucide-panel-right"></use></svg></span></button>
                 <section class="bot-panel-section"><div class="bot-section-heading"><h3>Routines</h3><button class="bot-text-button" type="button" data-bot-action="routines">查看全部</button><button class="bot-text-button" type="button" id="bot-routine-create-button">新建例行</button></div><div class="bot-routine-list" id="bot-routine-list"><p class="bot-panel-empty">正在读取例行任务…</p></div></section>

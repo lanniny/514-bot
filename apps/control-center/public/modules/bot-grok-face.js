@@ -88,10 +88,24 @@ export function writeOpsCollapsed(collapsed) {
 
 export function applyOpsCollapsed(collapsed = readOpsCollapsed()) {
   const grid = document.querySelector("#view-bot .bot-shell-grid");
-  const rail = document.getElementById("bot-ops-rail");
+  const panel = document.getElementById("bot-agent-panel");
+  const trigger = document.getElementById("bot-agent-info-button");
   const next = Boolean(collapsed);
   grid?.classList.toggle("is-ops-collapsed", next);
-  rail?.setAttribute("aria-hidden", String(next));
+  if (panel) {
+    panel.hidden = next;
+    panel.inert = next;
+    panel.setAttribute("aria-hidden", String(next));
+    if (next) panel.setAttribute("inert", "");
+    else panel.removeAttribute("inert");
+  }
+  const label = next ? "展开右侧栏" : "收起右侧栏";
+  trigger?.setAttribute("aria-expanded", String(!next));
+  if (trigger) {
+    trigger.title = `${label}（Cmd+Shift+I）`;
+    const name = document.getElementById("bot-panel-agent-name")?.textContent?.trim();
+    trigger.setAttribute("aria-label", name ? `${label}：${name}` : label);
+  }
   return next;
 }
 

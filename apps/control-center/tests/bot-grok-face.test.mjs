@@ -52,7 +52,17 @@ test("Grok face preference defaults to grok and can switch to workbench", async 
 test("ops rail collapse persists and pins the right sidebar class", async () => {
   const store = new Map();
   const classes = new Set();
-  const rail = { attrs: {}, setAttribute(name, value) { this.attrs[name] = String(value); } };
+  const panel = {
+    hidden: false,
+    inert: false,
+    attrs: {},
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+    removeAttribute(name) { delete this.attrs[name]; },
+  };
+  const trigger = {
+    attrs: {},
+    setAttribute(name, value) { this.attrs[name] = String(value); },
+  };
   globalThis.localStorage = {
     getItem: (key) => (store.has(key) ? store.get(key) : null),
     setItem: (key, value) => { store.set(key, String(value)); },
@@ -72,7 +82,9 @@ test("ops rail collapse persists and pins the right sidebar class", async () => 
       return null;
     },
     getElementById(id) {
-      return id === "bot-ops-rail" ? rail : null;
+      if (id === "bot-agent-panel") return panel;
+      if (id === "bot-agent-info-button") return trigger;
+      return null;
     },
   };
   const {
@@ -86,15 +98,21 @@ test("ops rail collapse persists and pins the right sidebar class", async () => 
   assert.equal(store.get(BOT_OPS_KEY), "1");
   assert.equal(applyOpsCollapsed(true), true);
   assert.equal(classes.has("is-ops-collapsed"), true);
-  assert.equal(rail.attrs["aria-hidden"], "true");
+  assert.equal(panel.hidden, true);
+  assert.equal(panel.attrs["aria-hidden"], "true");
+  assert.equal(trigger.attrs["aria-expanded"], "false");
   assert.equal(applyOpsCollapsed(false), false);
   assert.equal(classes.has("is-ops-collapsed"), false);
+  assert.equal(panel.hidden, false);
+  assert.equal(panel.attrs["aria-hidden"], "false");
+  assert.equal(trigger.attrs["aria-expanded"], "true");
 });
 
 test("Grok face lets custom wallpaper show through when team-bg-active", async () => {
   const css = await readFile(`${appRoot}/public/forge/bot-grok-face.css`, "utf8");
   assert.match(css, /:not\(:has\(body\.team-bg-active\)\) \.atelier-stage/);
-  assert.match(css, /html\.is-bot-grok-face body\.team-bg-active #view-bot \.bot-ops-rail/);
+  assert.match(css, /html\.is-bot-grok-face body\.team-bg-active #view-bot \.bot-agent-panel/);
+  assert.match(css, /html\.is-bot-grok-face #view-bot \.bot-shell-grid \{[\s\S]{0,80}--bot-ops: 320px/);
   assert.match(css, /html\.is-bot-grok-face #view-bot \.bot-shell-grid\.is-ops-collapsed/);
   assert.match(css, /html\.is-bot-grok-face #view-bot \.bot-active-run\.is-current \{[\s\S]*inset 2px 0 0 var\(--bot-ink\)/);
   assert.match(css, /--forge-glass-filter/);

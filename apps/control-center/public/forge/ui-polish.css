@@ -50,9 +50,9 @@ html body.atelier .app-shell.is-settings .settings-rail-label {
   top: 10px;
   bottom: 10px;
   left: 0;
-  width: 3px;
+  width: 2px;
   border-radius: 2px;
-  background: var(--workspace-link, var(--bot-accent, #984126));
+  background: var(--bot-accent, var(--workspace-link, #984126));
   content: "";
 }
 

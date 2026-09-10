@@ -2201,7 +2201,7 @@ function syncRailToggleButton(collapsed) {
 function syncOpsToggleButton(collapsed = readOpsCollapsed()) {
   const toggle = byId("chrome-ops-toggle");
   if (!toggle) return;
-  toggle.setAttribute("aria-pressed", String(collapsed));
+  toggle.setAttribute("aria-pressed", String(!collapsed));
   const label = collapsed ? "展开右侧栏" : "收起右侧栏";
   toggle.title = label;
   toggle.setAttribute("aria-label", label);
@@ -2212,7 +2212,7 @@ function applyOpsRailCollapsed(collapsed, { persist = true } = {}) {
   const next = Boolean(collapsed);
   if (persist) writeOpsCollapsed(next);
   applyOpsCollapsed(next);
-  syncOpsToggleButton(next);
+  syncBotHomeChromeButtons();
   return next;
 }
 
@@ -2244,11 +2244,12 @@ function syncBotHomeChromeButtons() {
   }
   const panel = byId("global-mc-toggle");
   if (panel) {
-    const open = byId("bot-agent-panel")?.hidden === false;
-    panel.setAttribute("aria-pressed", String(open));
-    panel.classList.toggle("is-active", open);
-    panel.title = open ? "关闭会话详情" : "打开会话详情";
-    panel.setAttribute("aria-label", open ? "关闭会话详情" : "打开会话详情");
+    const collapsed = readOpsCollapsed();
+    panel.setAttribute("aria-pressed", String(!collapsed));
+    panel.classList.toggle("is-active", !collapsed);
+    const label = collapsed ? "展开右侧栏" : "收起右侧栏";
+    panel.title = label;
+    panel.setAttribute("aria-label", label);
   }
   syncRailToggleButton(railCollapsed());
   syncOpsToggleButton(readOpsCollapsed());
@@ -2269,9 +2270,7 @@ function handleBotHomePanelToggle() {
   if (state.view !== "bot") {
     setView("bot");
   }
-  const open = byId("bot-agent-panel")?.hidden !== false;
-  botSetPanel(open, byId("bot-agent-info-button"));
-  syncBotHomeChromeButtons();
+  applyOpsRailCollapsed(!readOpsCollapsed());
 }
 
 // 焦点捕获：HTML 菜单会抢走输入框焦点（原生菜单不会）——编辑命令先归还焦点再执行
@@ -2343,7 +2342,6 @@ function initializeChromeMenus() {
     { icon: "history", label: "重置界面字号", action: () => applyUiFontSize(14) },
     "---",
     { icon: "terminal", label: "打开终端", action: () => byId("global-terminal-toggle")?.click() },
-    { icon: "panelRight", label: "打开/关闭会话详情", action: () => byId("global-mc-toggle")?.click() },
   ]);
   bindMenu("chrome-menu-help", () => [
     { icon: "eye", label: "产品导览", action: () => openProductTour({ reason: "help" }) },
@@ -3661,7 +3659,6 @@ function setView(view, {
     botCloseGroupDialog?.();
     botCloseAgentSettings?.();
     botSetComputerView?.(false);
-    botSetPanel?.(false);
     botCloseSettings?.();
   }
   if (state.view === "workbench" && view !== "workbench") cancelSettlementRequests("workbench");
@@ -18313,7 +18310,13 @@ function botRenderAgent(agentId = botState.agentId) {
   if (panelName) panelName.textContent = conversationLabel;
   if (panelKicker) panelKicker.textContent = groupView ? "项目会话" : "成员与会话";
   if (panel) panel.setAttribute("aria-label", `${conversationLabel} 会话详情`);
-  if (infoButton) infoButton.setAttribute("aria-label", `打开 ${conversationLabel} 会话详情`);
+  if (infoButton) {
+    const collapsed = readOpsCollapsed();
+    const label = collapsed ? "展开右侧栏" : "收起右侧栏";
+    infoButton.setAttribute("aria-label", `${label}：${conversationLabel}`);
+    infoButton.title = `${label}（Cmd+Shift+I）`;
+    infoButton.setAttribute("aria-expanded", String(!collapsed));
+  }
   const inspectorScope = byId("bot-inspector-scope");
   const inspectorRef = byId("bot-inspector-ref");
   const inspectorRun = byId("bot-inspector-run");
@@ -18489,44 +18492,20 @@ function botRemoveAgent(agentId) {
   });
 }
 
-function botSetPanel(open, opener = null) {
+function botSetPanel(open, opener = null, { persist = true } = {}) {
   const panel = byId("bot-agent-panel");
-  const root = byId("view-bot");
-  const trigger = byId("bot-agent-info-button");
-  if (!panel || !root) return;
-  const backgroundNodes = [
-    root.querySelector(".bot-roster"),
-    root.querySelector(".bot-conversation"),
-    document.querySelector(".topbar"),
-    document.querySelector(".global-statusbar"),
-  ].filter(Boolean);
+  if (!panel) return;
   if (open) {
     botState.panelOpener = opener || document.activeElement;
-    panel.hidden = false;
-    panel.inert = false;
-    panel.setAttribute("aria-hidden", "false");
-    for (const node of backgroundNodes) {
-      if (node.hasAttribute("inert")) continue;
-      node.setAttribute("inert", "");
-      node.setAttribute("data-bot-panel-inert", "1");
+    applyOpsRailCollapsed(false, { persist });
+    if (opener?.id === "bot-agent-info-button") {
+      byId("bot-agent-panel-close")?.focus({ preventScroll: true });
     }
-    root.classList.add("is-panel-open");
-    trigger?.setAttribute("aria-expanded", "true");
-    byId("bot-agent-panel-close")?.focus({ preventScroll: true });
-  } else {
-    panel.hidden = true;
-    panel.inert = true;
-    panel.setAttribute("aria-hidden", "true");
-    for (const node of backgroundNodes) {
-      if (node.getAttribute("data-bot-panel-inert") !== "1") continue;
-      node.removeAttribute("data-bot-panel-inert");
-      node.removeAttribute("inert");
-    }
-    root.classList.remove("is-panel-open");
-    trigger?.setAttribute("aria-expanded", "false");
-    botState.panelOpener?.focus?.({ preventScroll: true });
-    botState.panelOpener = null;
+    return;
   }
+  applyOpsRailCollapsed(true, { persist });
+  botState.panelOpener?.focus?.({ preventScroll: true });
+  botState.panelOpener = null;
 }
 
 function botAgentPanelFocusables() {
@@ -18940,15 +18919,9 @@ function botSetComputerView(open, opener = null) {
   view.setAttribute("aria-hidden", "true");
   [".bot-roster", ".bot-conversation"].forEach((selector) => root.querySelector(selector)?.removeAttribute("inert"));
   const panel = byId("bot-agent-panel");
-  if (restorePanel) {
-    panel.hidden = false;
+  if (panel && (restorePanel || panel.hidden === false)) {
     panel.inert = false;
-    panel.setAttribute("aria-hidden", "false");
-    root.classList.add("is-panel-open");
-    byId("bot-agent-info-button")?.setAttribute("aria-expanded", "true");
-    botState.panelOpener = byId("bot-agent-info-button");
-  } else if (panel?.hidden === false) {
-    panel.inert = false;
+    panel.removeAttribute("inert");
   }
   returnTarget?.focus?.({ preventScroll: true });
   botState.computerOpener = null;
@@ -19885,7 +19858,6 @@ function botOpenGroupDialog(opener = null, { mode = "project", projectId = "" } 
   botCloseSettings();
   botState.groupDialogOpener = opener || document.activeElement;
   botState.groupDialogReturnPanel = byId("bot-agent-panel")?.hidden === false;
-  botSetPanel(false);
   botRenderGroupMemberOptions();
   byId("bot-group-form")?.reset();
   botSyncGroupDialogMode({ mode, projectId, resetMembers: true });
@@ -20278,7 +20250,6 @@ function botOpenWorkspace(tab = "automations", opener = null) {
   if (!panel) return;
   botState.workspaceOpener = opener || document.activeElement;
   botCloseAgentSettings?.();
-  botSetPanel(false);
   botCloseSettings?.();
   botState.workspaceTab = "seats";
   botMountSeatComponent();
@@ -20841,7 +20812,6 @@ function botOpenSettings(tab = "general", opener = null) {
   if (!panel) return;
   botCloseWorkspace?.();
   botState.settingsOpener = opener || document.activeElement;
-  botSetPanel(false);
   panel.hidden = false;
   panel.inert = false;
   panel.setAttribute("aria-hidden", "false");
@@ -21817,6 +21787,7 @@ function handleBotWorkspaceAction(action) {
     handleBotHomeTerminalToggle();
   }
   else if (action === "approvals") {
+    applyOpsRailCollapsed(false);
     const fold = byId("bot-ops-approvals");
     if (fold) {
       fold.hidden = false;
@@ -21825,6 +21796,7 @@ function handleBotWorkspaceAction(action) {
     }
   }
   else if (action === "files") {
+    applyOpsRailCollapsed(false);
     const fold = byId("bot-ops-files");
     if (fold) {
       fold.open = true;
@@ -21881,7 +21853,7 @@ function bindBotWorkspaceFolds() {
       const overflow = byId("bot-composer-overflow");
       if (overflow) overflow.open = true;
     }
-    if (event.target.closest("#bot-ops-rail-close")) {
+    if (event.target.closest("#bot-agent-panel-close")) {
       event.preventDefault();
       applyOpsRailCollapsed(true);
       return;
@@ -22273,7 +22245,6 @@ function initBotShell() {
     void botOpenSeatWorkspace({ memberId: botState.agentId, opener: event.currentTarget });
   });
   byId("bot-computer-preview")?.addEventListener("click", (event) => {
-    botSetPanel(false);
     botSetComputerView(true, event.currentTarget);
   });
   byId("bot-computer-view-close")?.addEventListener("click", () => botSetComputerView(false));
@@ -22481,7 +22452,6 @@ byId("bot-member-runtime-profile")?.addEventListener("change", () => {
     }
   });
   document.addEventListener("keydown", (event) => {
-    if (byId("bot-agent-panel")?.hidden === false && botTrapAgentPanelFocus(event)) return;
     if (byId("bot-computer-view")?.hidden === false && botTrapComputerFocus(event)) return;
     if (byId("bot-group-dialog")?.hidden === false && botTrapGroupFocus(event)) return;
     if (byId("bot-agent-settings-panel")?.hidden === false && botTrapAgentSettingsFocus(event)) return;
@@ -22489,7 +22459,7 @@ byId("bot-member-runtime-profile")?.addEventListener("change", () => {
     if (byId("bot-settings-panel")?.hidden === false && botTrapSettingsFocus(event)) return;
     if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "i" && state.view === "bot") {
       event.preventDefault();
-      botSetPanel(byId("bot-agent-panel")?.hidden !== false, byId("bot-agent-info-button"));
+      applyOpsRailCollapsed(!readOpsCollapsed());
     }
     if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key === "," && state.view === "bot") {
       event.preventDefault();
@@ -22510,7 +22480,7 @@ byId("bot-member-runtime-profile")?.addEventListener("change", () => {
     } else if (event.key === "Escape" && byId("bot-computer-view")?.hidden === false) {
       event.preventDefault();
       botSetComputerView(false);
-    } else if (event.key === "Escape" && byId("bot-agent-panel")?.hidden === false) {
+    } else if (event.key === "Escape" && byId("bot-agent-panel")?.hidden === false && byId("bot-agent-panel")?.contains(document.activeElement)) {
       event.preventDefault();
       botSetPanel(false);
     }
