@@ -27,7 +27,7 @@ test("settings no longer owns a terminal view; workbench keeps two distinct term
   assert.match(app, /function activeWorkbenchCwd\(/);
   assert.match(app, /if \(!run && state\.pendingCwd\) return state\.pendingCwd;/);
   assert.match(app, /function focusWorkbenchProject\(/);
-  assert.match(app, /if \(view === "terminal"\) \{\s*openBottomTerminal\(\);/s);
+  assert.match(app, /if \(view === "terminal"\) \{\s*ensureViewTerminal\(\);/s);
   assert.match(chrome, /drawer\.classList\.add\("is-open"\)/);
   assert.match(chrome, /forge:open-bottom-terminal/);
   assert.match(chrome, /requestAnimationFrame\(\(\) => requestAnimationFrame\(reveal\)\)/);

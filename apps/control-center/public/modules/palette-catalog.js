@@ -10,6 +10,8 @@ import { VIEW_TITLES } from "../state.js";
 
 export const BOT_SETTINGS_TABS = Object.freeze([
   { id: "general", label: "Bot 设置 · General", icon: "user", keywords: "settings general 昵称 头像 个人" },
+  { id: "workspace", label: "Bot 设置 · 工作区", icon: "folder-git-2", keywords: "settings workspace git env browser terminal cli 环境 终端 浏览器" },
+  { id: "pet", label: "Bot 设置 · 桌宠", icon: "sparkles", keywords: "settings pet 桌宠 live2d 透明度 大小 指针" },
   { id: "plugins", label: "Bot 设置 · Plugins / Private skills", icon: "puzzle", keywords: "settings plugins skills mcp private 私有技能 插件" },
   { id: "team", label: "Bot 设置 · 成员", icon: "users", keywords: "settings team members 成员 联系人 席位" },
   { id: "appearance", label: "Bot 设置 · Appearance", icon: "palette", keywords: "settings appearance theme 外观 主题" },
@@ -88,7 +90,7 @@ export const PALETTE_DEEP_VIEWS = Object.freeze({
 
 const VIEW_KEYWORDS = Object.freeze({
   bot: "514 bot agent chat master 代理 对话 工作台",
-  workbench: "collaboration workbench 协作 任务 控制台",
+  workbench: "collaboration workbench 协作台 已并入 bot 任务 控制台",
   overview: "overview 总览 dashboard 健康",
   config: "config 配置 settings 设置 源 capabilities 能力 skills 技能 MCP 图谱 provider 供应商",
   router: PALETTE_DEEP_VIEWS.router.keywords,

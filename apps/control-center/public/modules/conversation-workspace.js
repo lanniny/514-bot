@@ -191,9 +191,11 @@ export function createConversationWorkspace({ root, input, getSnapshot, openConv
     const running = runtime && !["succeeded", "failed", "cancelled"].includes(runtime.status);
     const permissionSelect = doc.getElementById("workspace-next-permission");
     permissionSelect.disabled = Boolean(running || current.readOnly);
-    permissionSelect.value = running ? (runtime.permissionMode === "plan" ? "plan" : "build") : permissions.get(view.conversationId) || "plan";
+    permissionSelect.value = running
+      ? (["plan", "review", "build"].includes(runtime.permissionMode) ? runtime.permissionMode : "build")
+      : permissions.get(view.conversationId) || "plan";
     text("workspace-permission", runtime && !["succeeded", "failed", "cancelled"].includes(runtime.status)
-      ? `本轮权限：${runtime.permissionMode === "plan" ? "只读" : "受控写入"}` : "新运行权限");
+      ? `本轮权限：${runtime.permissionMode === "plan" ? "只读规划" : runtime.permissionMode === "review" ? "只读深审" : "受控写入"}` : "新运行权限");
     const budgetSelect = doc.getElementById("workspace-next-budget");
     if (budgetSelect) {
       budgetSelect.disabled = Boolean(running || current.readOnly);
@@ -269,7 +271,7 @@ export function createConversationWorkspace({ root, input, getSnapshot, openConv
   filters?.addEventListener("change", () => filters.classList.toggle("is-filtered", Boolean(doc.getElementById("workspace-project-filter").value) || !doc.getElementById("workspace-show-inactive").checked));
   doc.addEventListener("pointerdown", (event) => { if (filters && !filters.contains(event.target)) closeFilters(); });
   doc.getElementById("workspace-next-permission").addEventListener("change", (event) => {
-    permissions.set(getSnapshot().activeConversationId, event.target.value === "build" ? "build" : "plan");
+    permissions.set(getSnapshot().activeConversationId, event.target.value === "build" || event.target.value === "review" ? event.target.value : "plan");
     if (permissions.size > 50) permissions.delete(permissions.keys().next().value);
   });
   doc.getElementById("workspace-next-budget")?.addEventListener("change", (event) => {

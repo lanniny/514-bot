@@ -191,7 +191,9 @@ test("plugin center owns pet configuration and exposes details before installati
     readFile(new URL("../public/modules/project-plugins-panel.js", import.meta.url), "utf8"),
     readFile(new URL("../public/modules/pet-bridge.js", import.meta.url), "utf8"),
   ]);
-  assert.doesNotMatch(html, /bot-settings-tab-pet|id="bot-settings-pet"/);
+  assert.match(html, /data-bot-settings-tab="pet"/);
+  assert.match(html, /id="bot-settings-pet"/);
+  assert.match(html, /id="bot-pet-settings-host"/);
   assert.match(html, /data-drawer[^>]+role="dialog"[^>]+aria-modal="true"/);
   assert.match(html, /data-drawer-install/);
   assert.match(panel, /function petConfigForm\(/);

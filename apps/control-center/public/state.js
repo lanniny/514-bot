@@ -60,7 +60,7 @@ export function emptyComposerDraft() {
 export const VIEW_TITLES = Object.freeze({
   overview: "系统总览",
   bot: "514 Bot",
-  workbench: "协作台",
+  workbench: "协作台（已并入 514 Bot）",
   team: "团队协作",
   channels: "渠道",
   config: "配置图谱",

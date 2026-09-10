@@ -112,6 +112,15 @@ import { emptyState, inlineEmpty, renderPlaceholder, skeleton } from "./modules/
 import { createContextMenu } from "./modules/context-menu.js";
 import { createConversationRunProjection, settlementRunSignature, settlementViewNeedsRefresh } from "./modules/conversation-run-projection.js";
 import { readBotWorkspaceRoute, botWorkspaceRoute, ownsBotWorkspaceHash } from "./modules/bot-workspace-route.js";
+import {
+  retireWorkbenchView,
+  isRetiredWorkbenchHash,
+  botConversationForRun,
+  botActiveRunsMarkup,
+  selectOptionsMarkup,
+  normalizeComposerPermission,
+} from "./modules/bot-workspace-chrome.js";
+import { mountBotPetSettings } from "./modules/bot-pet-settings.js";
 import { createConversationWorkspace, pageWorkspaceIndex } from "./modules/conversation-workspace.js";
 import { collaborationProcessModel, collaborationProcessMarkup, collaborationReviewMarkup } from "./modules/collaboration-process.js";
 import { createConversationCommands } from "./modules/conversation-commands.js";
@@ -313,7 +322,7 @@ function parseForgeRoute(hashValue = location.hash) {
   if (routeView === "bot" && candidateSurface === "automations") {
     return { view: "automations", configSurface: null, memberId: null, runtimeProfileId: null, settingsFocus: null };
   }
-  const view = routeView === "experience" ? "bot" : routeView || "bot";
+  const view = retireWorkbenchView(routeView === "experience" ? "bot" : routeView || "bot");
   if (view === "config") {
     return {
       view,
@@ -333,7 +342,7 @@ function parseForgeRoute(hashValue = location.hash) {
 }
 
 function conversationDeepLinkFromHash(hashValue = location.hash) {
-  if (/^#\/?(?:bot|experience)(?:[/?]|$)/.test(String(hashValue))) return null;
+  if (/^#\/?(?:bot|experience|workbench)(?:[/?]|$)/.test(String(hashValue))) return null;
   const fragment = new URLSearchParams(String(hashValue).replace(/^#/, ""));
   const conversationId = fragment.get("conversation")?.trim() || null;
   const runId = fragment.get("run")?.trim() || null;
@@ -379,7 +388,7 @@ async function consumeConversationDeepLink(deepLink) {
     return true;
   }
   if (deepLink.session) {
-    if (state.view !== "workbench") setView("workbench");
+    if (state.view !== "bot") setView("bot");
     state.deepLinkSession = deepLink.session;
     await loadProjects();
     return true;
@@ -2479,7 +2488,7 @@ function initializeTheme() {
     button.addEventListener("click", () => applyThemePreference(button.dataset.appearanceApply));
   });
   byId("settings-open-browser")?.addEventListener("click", () => {
-    setView("workbench");
+    setView("bot");
     handleWorkbenchEnvironmentAction("browser");
   });
 }
@@ -3439,7 +3448,7 @@ function setView(view, {
 } = {}) {
   if (navigationToken && !navigationToken.isCurrent()) { onNavigationResult?.(false); return; }
   const workspaceRoute = botWorkspaceHash || (["bot", "experience"].includes(view) ? (readBotWorkspaceRoute(location.hash) ? location.hash : botWorkspace?.getRoute() || null) : null);
-  if (view === "experience") view = "bot";
+  if (view === "experience" || view === "workbench") view = "bot";
   if (view === "bot" && botWorkspaceRouteGuardActive) {
     pendingBotWorkspaceRoute?.options.onNavigationResult?.(false);
     pendingBotWorkspaceRoute = null;
@@ -3453,9 +3462,7 @@ function setView(view, {
     configSurface = "capabilities";
   }
   if (view === "terminal") {
-    openBottomTerminal();
-    onNavigationResult?.(false);
-    return;
+    ensureViewTerminal();
   }
   if (view === "hero") {
     setView("team", { updateHash: true, focus: false, navigationToken, onNavigationResult });
@@ -3509,8 +3516,13 @@ function setView(view, {
   else if (view !== "observability") state.settingsFocus = null;
   state.view = view;
   if (view !== "bot" && view !== "plugins") projectPluginsPanel?.deactivate();
-  if (view === "bot" && updateHash && !ownsBotWorkspaceHash(location.hash) && !/^#\/?bot\//.test(location.hash)) {
-    history.replaceState(history.state, "", workspaceRoute || botWorkspace?.getRoute() || "#bot");
+  if (view === "bot" && updateHash) {
+    const incomingHash = workspaceRoute || location.hash;
+    if (isRetiredWorkbenchHash(incomingHash) || isRetiredWorkbenchHash(location.hash)) {
+      history.replaceState(history.state, "", botWorkspaceRoute(readBotWorkspaceRoute(incomingHash) || {}));
+    } else if (!ownsBotWorkspaceHash(location.hash) && !/^#\/?bot\//.test(location.hash)) {
+      history.replaceState(history.state, "", workspaceRoute || botWorkspace?.getRoute() || "#bot");
+    }
   }
   const workspaceActivation = view === "bot" && workspaceRoute ? botWorkspace?.activate(workspaceRoute, { navigationToken }) : null;
   if (view !== "bot") conversationMembersEditor?.close({ force: true, restoreFocus: false });
@@ -3622,8 +3634,8 @@ function setView(view, {
     void loadConfigHosts({ force: true }); // 配置目标台账每进刷新（远程主机视图里增删过也能跟上）
     if (state.configHostId) syncConfigHostView(); // 带着远程目标回到本视图时恢复面板显隐
   }
-  if (view === "workbench" && !state.projectsData) void loadProjects();
-  if (view === "workbench" && !state.teams.length) void loadTeams();
+  if ((view === "bot" || view === "workbench") && !state.projectsData) void loadProjects();
+  if ((view === "bot" || view === "workbench") && !state.teams.length) void loadTeams();
   if (view === "automations") {
     void Promise.all([
       loadAutomations().catch(() => null),
@@ -3650,6 +3662,11 @@ function setView(view, {
   if (view === "overview") {
     renderOverview();
     void loadUsageOverview();
+  }
+  if (view === "bot") {
+    renderRuns();
+    syncBotComposerControls();
+    renderBotActiveRuns();
   }
   if (view === "workbench") {
     renderRuns();
@@ -5794,14 +5811,14 @@ async function openRunCliTerminal() {
       activeAgentId: result?.spec?.agentId || null,
     };
     window.dispatchEvent(new CustomEvent("forge:cli-immersive-open", { detail }));
-    // 罩层宿主（conversation-pane）不在当前视图 → 切回协作台再开一次；仍不行如实报错
+    // 罩层宿主优先挂 514 Bot 会话列；不在当前视图时切回 Bot 再开一次
     if (!document.getElementById("cli-immersive")) {
-      document.querySelector('.settings-rail-back[data-view="workbench"], [data-view="workbench"]')?.click?.();
+      setView("bot", { updateHash: true, focus: false });
       await new Promise((resolve) => { setTimeout(resolve, 400); });
       window.dispatchEvent(new CustomEvent("forge:cli-immersive-open", { detail }));
     }
     if (!document.getElementById("cli-immersive")) {
-      toast("打开 CLI 终端失败：当前视图没有会话面板，请切到协作台会话页再试", "error", 4200);
+      toast("打开 CLI 终端失败：当前视图没有会话面板，请切到 514 Bot 会话再试", "error", 4200);
       return;
     }
     if (result?.busy) {
@@ -7104,7 +7121,13 @@ function applyQuickTemplate(prompt, startAgent) {
     selectComposerTarget(startAgent, { focusInput: false });
     appliedStartAgent = startAgent;
   }
-  setView("workbench");
+  setView("bot");
+  const botInput = byId("bot-composer-input");
+  if (botInput) {
+    botInput.value = prompt;
+    botInput.dispatchEvent(new Event("input", { bubbles: true }));
+    botInput.focus({ preventScroll: true });
+  }
   elements["task-input"]?.focus({ preventScroll: true });
   toast(appliedStartAgent ? `模板已填入 · 直接发送给 ${agentLabel(appliedStartAgent)}` : "模板已填入任务内容，可修改后发送", "info", 2400);
 }
@@ -7196,6 +7219,7 @@ function renderRuns() {
       forgetConversationStreamKeysForRun(runId);
     }
   }
+  renderBotActiveRuns();
   if (state.view !== "workbench") return;
   // 左栏分区（互斥）：会话=普通任务；正在工作=活跃 run；置顶/已归档=renderRailMetaSections（run + 原生会话混合）
   // LO 2026-08-04：侧栏按选中团队隔离——其他团队的任务不进会话/正在工作区
@@ -20022,6 +20046,8 @@ function botActivateSettingsTab(tabId = "general", { focus = false } = {}) {
   if (next === "team") botRenderSettingsMembers();
   if (next === "plugins") botRenderPluginCapabilities();
   if (next === "plugins") void botLoadPrivateSkills();
+  if (next === "workspace") renderBotWorkspaceSettings();
+  if (next === "pet") ensureBotPetSettings();
   if (focus) tab.focus({ preventScroll: true });
 }
 
@@ -20441,8 +20467,8 @@ function openValueProofTarget(target, runId) {
       });
       return;
     case "replay":
-      setView("workbench");
-      if (id && state.runs.some((run) => String(run.id) === id)) void selectRun(id);
+      setView("bot");
+      if (id && state.runs.some((run) => String(run.id) === id)) void openBotForRun(id, { tab: "process" });
       window.dispatchEvent(new CustomEvent("forge:expand-mission-control"));
       missionControlDock?.activateTab?.("activity");
       queueMicrotask(() => {
@@ -21329,7 +21355,7 @@ async function botSubmitComposer(event) {
     displayText,
     attachmentContextKey: attachments.key,
     attachmentSources: attachments.sources,
-    recipientMemberIds: botMentionSelectedIds(conversation),
+    recipientMemberIds: botComposerRecipientIds(conversation),
   };
   const answerTarget = botState.answerTarget;
   const answerContext = answerTarget
@@ -21352,7 +21378,17 @@ async function botSubmitComposer(event) {
       // 恢复确认与工作台恢复条同语义：仅当用户点了「确认恢复并继续」才携带一次性 acknowledgeRecovery。
       const recoveryRun = botConversationActiveRun(conversation);
       const recoveryAck = Boolean(recoveryRun && recoveryRun.status === "recovery_required" && state.recoveryAckRunId === String(recoveryRun.id));
-      const acceptedRun = await conversationCommands.submit({ conversation, prompt, recipientMemberIds: options.recipientMemberIds, sources: attachments.sources, permissionMode: byId("workspace-next-permission")?.value, ...(socialBudget === undefined ? {} : { maxBudgetUsdPerTurn: socialBudget }), ...(recoveryAck ? { acknowledgeRecovery: true } : {}) });
+      const acceptedRun = await conversationCommands.submit({
+        conversation,
+        prompt,
+        recipientMemberIds: options.recipientMemberIds,
+        sources: attachments.sources,
+        permissionMode: normalizeComposerPermission(byId("workspace-next-permission")?.value),
+        model: byId("bot-next-model")?.value,
+        effort: byId("bot-next-effort")?.value,
+        ...(socialBudget === undefined ? {} : { maxBudgetUsdPerTurn: socialBudget }),
+        ...(recoveryAck ? { acknowledgeRecovery: true } : {}),
+      });
       void botMaybeKickoffRelay(conversation, prompt, acceptedRun); // 多 @ 群聊消息 → Grok 式 kickoff 派发（失败不影响已发消息）
       if (recoveryAck) state.recoveryAckRunId = null; // 确认标记随本次发送一次性消费（与工作台续聊同语义）
       consumeSubmittedAttachmentContext(attachments.key, attachments.sources);
@@ -21375,7 +21411,7 @@ async function botSubmitComposer(event) {
       toast("工作区群聊缺少可协调成员，请先编辑成员名单", "warning", 5000);
       return;
     }
-    const recipientMemberIds = botMentionSelectedIds(conversation);
+    const recipientMemberIds = botComposerRecipientIds(conversation);
     const [primary, ...collaborators] = (recipientMemberIds.length ? recipientMemberIds : memberIds)
       .slice(0, MAX_REQUESTED_AGENTS + 1);
     botState.agentId = primary;
@@ -21411,13 +21447,180 @@ async function botSubmitComposer(event) {
   const queued = botBridgeComposer(prompt, {
     conversation,
     ephemeralTeam,
-    recipientMemberIds: botMentionSelectedIds(conversation),
+    recipientMemberIds: botComposerRecipientIds(conversation),
     ...options,
   });
   if (queued) botClearVisibleComposer();
 }
 
+function botComposerRecipientIds(conversation) {
+  const mentioned = botMentionSelectedIds(conversation);
+  if (mentioned.length) return mentioned;
+  const selected = String(byId("bot-composer-recipient")?.value || "").trim();
+  return selected ? [selected] : [];
+}
+
+function syncBotComposerControls() {
+  const conversation = botActiveConversation();
+  const recipient = byId("bot-composer-recipient");
+  if (recipient) {
+    const members = conversation ? botMentionScope(conversation) : [];
+    const mentioned = botMentionSelectedIds(conversation)[0] || "";
+    const current = mentioned || recipient.value || conversation?.directMemberId || botState.agentId || "";
+    commitMarkup(recipient, members.length
+      ? selectOptionsMarkup(members.map((id) => ({ value: id, label: agentLabel(id) })), current, { escapeHtml })
+      : `<option value="">当前会话成员</option>`);
+  }
+  const team = byId("bot-composer-team");
+  if (team) {
+    commitMarkup(team, selectOptionsMarkup(
+      (state.teams || []).map((item) => ({ value: item.id, label: item.name || item.id })),
+      state.selectedTeamId,
+      { escapeHtml },
+    ));
+  }
+  const composerMemberId = String(botState.agentId || "");
+  const member = botCatalogMember(composerMemberId) || {};
+  const profile = botRuntimeProfile(String(member.runtimeProfileId || "")) || {};
+  const profileModel = String(profile.defaultModel ?? profile.model ?? "").trim();
+  const modelSelect = byId("bot-next-model");
+  if (modelSelect) {
+    const selectedModel = String(modelSelect.value || member.defaultModel || "").trim();
+    const models = normalizeMemberModelOptions(profile.modelOptions, selectedModel || profileModel);
+    commitMarkup(modelSelect, [
+      `<option value="">${escapeHtml(profileModel ? `跟随席位 · ${profileModel}` : "跟随运行席位")}</option>`,
+      ...models.map((option) => `<option value="${escapeHtml(option.id)}">${escapeHtml(option.label)}</option>`),
+    ].join(""));
+    if ([...modelSelect.options].some((option) => option.value === selectedModel)) modelSelect.value = selectedModel;
+  }
+  const effortSelect = byId("bot-next-effort");
+  if (effortSelect) {
+    const selectedEffort = String(effortSelect.value || member.defaultEffort || "");
+    const efforts = [...new Set([...(profile.effortLevels || []).map(String), selectedEffort].filter(Boolean))];
+    commitMarkup(effortSelect, ["", ...efforts]
+      .map((effort) => `<option value="${escapeHtml(effort)}">${escapeHtml(effort || "跟随运行席位")}</option>`)
+      .join(""));
+    effortSelect.value = selectedEffort;
+  }
+}
+
+function renderBotActiveRuns() {
+  const list = byId("bot-active-runs-list");
+  const section = byId("bot-active-runs");
+  const count = byId("bot-active-runs-count");
+  if (!list || !section) return;
+  commitMarkup(list, botActiveRunsMarkup(state.runs, {
+    escapeHtml,
+    selectedRunId: state.selectedRunId || botState.runId || "",
+  }));
+  const n = list.querySelectorAll("[data-bot-active-run]").length;
+  section.hidden = n === 0;
+  if (count) count.textContent = n ? String(n) : "";
+}
+
+async function openBotForRun(runId, { tab } = {}) {
+  const id = String(runId || "");
+  if (!id) return false;
+  const conversation = botConversationForRun(botState.conversations, id);
+  setView("bot", {
+    updateHash: true,
+    focus: false,
+    botWorkspaceHash: botWorkspaceRoute({
+      conversationId: conversation?.id || "",
+      runId: id,
+      ...(tab ? { tab } : {}),
+    }),
+  });
+  if (conversation) {
+    botOpenConversation(conversation.id);
+    await botOpenConversationRun(conversation, id);
+  }
+  return true;
+}
+
+let viewTerminalPanel = null;
+function ensureViewTerminal() {
+  const root = byId("terminal-container");
+  if (!root) return;
+  syncTerminalCwdLabels();
+  if (!viewTerminalPanel) {
+    viewTerminalPanel = createTerminalPanel(root);
+    void viewTerminalPanel.mount().then(() => viewTerminalPanel?.focusActive?.());
+    return;
+  }
+  viewTerminalPanel.focusActive?.();
+}
+
+let botPetSettingsHost = null;
+function ensureBotPetSettings() {
+  const host = byId("bot-pet-settings-host");
+  if (!host) return;
+  if (!botPetSettingsHost) botPetSettingsHost = mountBotPetSettings(host, { request, toast });
+  void botPetSettingsHost.refresh();
+}
+
+function renderBotWorkspaceSettings() {
+  const pulse = byId("bot-settings-cli-pulse");
+  if (!pulse) return;
+  const members = teamPulseMembers();
+  commitMarkup(pulse, members.length
+    ? members.map((member) => `<span class="bot-cli-chip is-${escapeHtml(member.tone)}" title="${escapeHtml(`${member.label} · ${member.cli || "—"}`)}">${escapeHtml(AGENT_SHORT[member.id] || member.label.slice(0, 2))}</span>`).join("")
+    : `<span class="bot-settings-lead">CLI 席位加载中</span>`);
+}
+
+function handleBotWorkspaceAction(action) {
+  if (action === "git-commit") void runWorkbenchGitAction("commit");
+  else if (action === "git-push") void runWorkbenchGitAction("push");
+  else if (action === "browser") openWorkbenchBrowser();
+  else if (action === "terminal") setView("terminal");
+  else if (action === "cli") void openRunCliTerminal();
+  else if (action === "runtime") {
+    botCloseSettings();
+    setView("config", { configSurface: "local-runtime" });
+  }
+}
+
+function bindBotWorkspaceFolds() {
+  const root = byId("view-bot");
+  if (!root || root.dataset.botWorkspaceFolds === "1") return;
+  root.dataset.botWorkspaceFolds = "1";
+  root.addEventListener("click", (event) => {
+    const activeRun = event.target.closest("[data-bot-active-run]");
+    if (activeRun) {
+      event.preventDefault();
+      void openBotForRun(activeRun.dataset.botActiveRun);
+      return;
+    }
+    if (event.target.closest("[data-bot-overflow-open]")) {
+      event.preventDefault();
+      const overflow = byId("bot-composer-overflow");
+      if (overflow) overflow.open = true;
+    }
+    const action = event.target.closest("[data-bot-workspace-action]")?.dataset.botWorkspaceAction;
+    if (!action) return;
+    event.preventDefault();
+    handleBotWorkspaceAction(action);
+  });
+  byId("bot-composer-recipient")?.addEventListener("change", (event) => {
+    const conversation = botActiveConversation();
+    const id = String(event.target.value || "");
+    if (!conversation) return;
+    botState.mentionSelections[botMentionContextKey(conversation)] = id ? [id] : [];
+    botRenderMentionRecipients();
+  });
+  byId("bot-composer-team")?.addEventListener("change", (event) => {
+    selectTeam(event.target.value);
+  });
+  byId("bot-settings-workspace")?.addEventListener("click", (event) => {
+    const action = event.target.closest("[data-bot-workspace-action]")?.dataset.botWorkspaceAction;
+    if (!action) return;
+    event.preventDefault();
+    handleBotWorkspaceAction(action);
+  });
+}
+
 function initBotShell() {
+  bindBotWorkspaceFolds();
   const root = byId("view-bot");
   if (!root || root.dataset.botReady === "1") {
     if (root) botRenderAgent(botState.agentId);
@@ -22074,6 +22277,13 @@ function renderTeamPulse() {
     global.innerHTML = `${chips}<span class="team-pulse-count">${live}/${members.length}</span>`;
     global.title = members.map((item) => `${item.label}: ${item.tone}`).join(" · ");
   }
+  const botPulse = byId("bot-cli-pulse");
+  if (botPulse) {
+    commitMarkup(botPulse, chips
+      ? `${chips}<span class="team-pulse-count">${live}/${members.length}</span>`
+      : `<span class="subtle">CLI 席位加载中</span>`);
+  }
+  if (state.view === "bot") renderBotWorkspaceSettings();
 }
 
 // ===== 协作台会话流增强：内联审批卡 / 恢复条 / 终态原因 =====
@@ -22959,7 +23169,7 @@ function transitionComposerContext(update) {
 }
 
 function enterNewTaskComposer(options = {}) {
-  if (state.view === "automations") setView("workbench", { updateHash: true, focus: false });
+  if (state.view === "automations") setView("bot", { updateHash: true, focus: false });
   closeCliImmersiveIfOpen(); // 新建任务 = 离开 CLI 沉浸接续
   const currentTarget = activeComposerTarget();
   transitionComposerContext(() => {
@@ -26373,7 +26583,7 @@ function collectWorkbenchGitDraft(action) {
     dialog.returnValue = "";
     title.textContent = committing ? "提交已暂存变更" : "推送当前分支";
     note.textContent = committing
-      ? "协作台只提交暂存区，不会自动执行 git add。"
+      ? "只提交暂存区，不会自动执行 git add。"
       : "协作台只推送当前分支到已配置 upstream，不会设置上游或 force push。";
     field.hidden = !committing;
     message.required = committing;
@@ -26556,9 +26766,7 @@ function syncTerminalCwdLabels() {
 }
 
 function openBottomTerminal() {
-  if (state.view !== "workbench") setView("workbench");
-  syncTerminalCwdLabels();
-  window.dispatchEvent(new CustomEvent("forge:open-bottom-terminal"));
+  setView("terminal");
 }
 
 let railTerminalPanel = null;
@@ -26575,10 +26783,7 @@ function ensureRailTerminal() {
 }
 
 function openRailTerminal() {
-  if (state.view !== "workbench") setView("workbench");
-  window.dispatchEvent(new CustomEvent("forge:expand-mission-control"));
-  railTools?.open("terminal");
-  ensureRailTerminal();
+  setView("terminal");
 }
 
 function handleWorkbenchEnvironmentAction(action, payload = {}) {
@@ -27249,7 +27454,7 @@ async function selectRun(id) {
     toast("对应任务不存在或尚未同步", "warning");
     return false;
   }
-  if (state.view === "automations") setView("workbench", { updateHash: true, focus: false });
+  if (state.view === "automations") setView("bot", { updateHash: true, focus: false });
   markSelectedSessionLink(null, null);
   if (run.unread) void patchRunMeta(normalizedId, { unread: false }); // 打开即已读
   conversationTabs.openTab(normalizedId); // 会话行默认进入真实执行所有者，不创建可发送的伪群聊页
@@ -29365,9 +29570,15 @@ function toggleTheme() {
 }
 
 function focusTaskInput() {
+  const botInput = byId("bot-composer-input");
+  if (botInput) {
+    setView("bot");
+    requestAnimationFrame(() => botInput.focus());
+    return;
+  }
   const input = byId("task-input");
   if (input) {
-    setView("workbench");
+    setView("bot");
     requestAnimationFrame(() => input.focus());
   }
 }
@@ -29800,8 +30011,8 @@ async function start() {
     }),
     onChanged: () => loadAutomations(),
     onOpenRun: (runId) => {
-      setView("workbench");
-      if (runId && state.runs.some((run) => run.id === runId)) selectRun(runId);
+      if (runId) void openBotForRun(runId);
+      else setView("bot");
     },
   });
   void ensureAutomationModelCatalogs(); // bootstrap 已就绪时立即补齐；未就绪由 loadBootstrap 末尾兜底
@@ -29986,7 +30197,7 @@ async function start() {
       else if (actionId.startsWith("select-agent:")) {
         const agentId = actionId.split(":")[1];
         // 切换到协作台并聚焦该 Agent
-        setView("workbench");
+        setView("bot");
       }
     },
   });
@@ -30025,8 +30236,8 @@ async function start() {
       },
       onOpenWorkbench: (dir) => {
         if (dir) state.pendingCwd = dir;
-        setView("workbench");
-        void openSessionDialog();
+        setView("bot");
+        byId("bot-new-group-button")?.click();
       },
       onOpenHosts: () => setView("hosts"),
     });
@@ -30059,12 +30270,12 @@ async function start() {
     state.configRuntimeFocusId = initialRoute.runtimeProfileId;
   }
   const legacyWorkbenchRoute = Boolean(state.deepLinkRunId || state.deepLinkProjectId || state.deepLinkSession);
-  const initialView = initialConversationRoute
+  const initialView = initialConversationRoute || legacyWorkbenchRoute || isRetiredWorkbenchHash(startupHash)
     ? "bot"
-    : legacyWorkbenchRoute ? "workbench" : (FORGE_VIEW_TITLES[initialRoute.view] ? initialRoute.view : "bot");
+    : (FORGE_VIEW_TITLES[initialRoute.view] ? initialRoute.view : "bot");
   botWorkspaceLocationReady = true;
   setView(initialView, {
-    updateHash: !legacyWorkbenchRoute && initialView !== "bot",
+    updateHash: initialView !== "bot",
     focus: false,
     configSurface: initialRoute.configSurface,
     preserveMemberTarget: Boolean(initialMemberTarget),
@@ -30072,7 +30283,10 @@ async function start() {
     botWorkspaceHash: initialConversationRoute
       ? botWorkspaceRoute(initialConversationRoute)
       : initialView === "bot" && !/^#\/?bot\//.test(startupHash)
-        ? (readBotWorkspaceRoute(startupHash) ? startupHash : "#bot") : undefined,
+        ? (readBotWorkspaceRoute(startupHash)
+          ? (isRetiredWorkbenchHash(startupHash) ? botWorkspaceRoute(readBotWorkspaceRoute(startupHash)) : startupHash)
+          : "#bot")
+        : undefined,
   });
   renderAll();
   connectEvents();

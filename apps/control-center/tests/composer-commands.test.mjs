@@ -225,8 +225,9 @@ test("run CLI handoff: one-key jump from UI to the live native CLI terminal", as
   assert.match(handoff, /result\?\.members/);
   assert.match(handoff, /agentLabel\(member\.agentId\)/);
   assert.match(handoff, /activeAgentId: result\?\.spec\?\.agentId/);
-  // 罩层宿主不在当前视图 → 切回协作台重开；CLI 会话不回底部抽屉（抽屉只放纯 shell）
-  assert.match(handoff, /\[data-view="workbench"\]/);
+  // 罩层宿主不在当前视图 → 切回 514 Bot 重开；CLI 会话不回底部抽屉（抽屉只放纯 shell）
+  assert.match(handoff, /setView\("bot"/);
+  assert.doesNotMatch(handoff, /\[data-view="workbench"\]/);
   assert.doesNotMatch(handoff, /openBottomTerminal\(\)/);
   // 切换会话页 / 新建任务都要收起罩层（罩层只属于它打开时的那条会话）
   const activate = extractFunction(tabsModule, "activateTab", "function closeTab");

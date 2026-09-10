@@ -3,7 +3,7 @@ const safeId = (value) => /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(String(valu
 
 export function readBotWorkspaceRoute(hash) {
   const raw = String(hash || "");
-  if (!/^#\/?(?:bot|experience)(?:\?|$)/.test(raw)) return null;
+  if (!/^#\/?(?:bot|experience|workbench)(?:\?|$)/.test(raw)) return null;
   const query = new URLSearchParams(raw.split("?")[1] || "");
   return { conversationId: safeId(query.get("conversation")), runId: safeId(query.get("run")), tab: TABS.includes(query.get("tab")) ? query.get("tab") : "conversation" };
 }

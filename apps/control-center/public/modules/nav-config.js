@@ -16,14 +16,13 @@
  */
 export const NAV_GROUPS = [
   { id: "collab", label: "工作空间", views: ["bot", "automations", "plugins", "sessions"] },
-  { id: "create", label: "协作工具", views: ["team", "workbench", "office", "bootstrapper", "channels"] },
+  { id: "create", label: "协作工具", views: ["team", "office", "bootstrapper", "channels"] },
   { id: "resources", label: "配置与资源", views: ["config", "market", "hosts"] },
   { id: "observe", label: "运行与安全", views: ["overview", "observability", "security"] },
 ];
 
 export const NAV_ITEMS = {
   bot: { icon: "messages-square", label: "514 Bot", short: "对话", tooltip: "514 Bot 项目与对话", primary: true },
-  workbench: { icon: "terminal", label: "运行控制台", short: "控制台", tooltip: "运行控制台" },
   plugins: { icon: "puzzle", label: "插件中心", short: "插件", tooltip: "项目插件中心" },
   team: { icon: "users", label: "团队协作", short: "团队", tooltip: "团队协作" },
   channels: { icon: "satellite-dish", label: "渠道", short: "渠道", tooltip: "渠道" },

@@ -163,7 +163,7 @@ export function createConversationTabs({
     renderMemberStrip();
     void syncModelPick();
     renderRuns(); // 左栏选中态跟随 tab
-    if (state.view !== "workbench") setView("workbench");
+    if (state.view !== "bot") setView("bot");
     renderSelectedRun?.({ preserveStreamState: true });
     void fetchRunEvents(tab.runId);
     restoreComposerDraftForCurrentContext();

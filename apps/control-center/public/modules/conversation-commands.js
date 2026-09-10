@@ -3,7 +3,7 @@ export function createConversationCommands({ request, onPending = () => {}, onAc
   const pending = new Map();
   return {
     isPending: (conversationId) => pending.has(String(conversationId || "")),
-    async submit({ conversation, prompt, recipientMemberIds = [], sources = [], permissionMode = "plan", maxBudgetUsdPerTurn = undefined, acknowledgeRecovery = undefined }) {
+    async submit({ conversation, prompt, recipientMemberIds = [], sources = [], permissionMode = "plan", model = undefined, effort = undefined, maxBudgetUsdPerTurn = undefined, acknowledgeRecovery = undefined }) {
       const conversationId = String(conversation?.id || "");
       if (!conversationId || conversation.deletedAt) throw new Error("工作对话不可用");
       if (pending.has(conversationId)) throw new Error("上一条消息仍在等待准入回执");
@@ -14,10 +14,12 @@ export function createConversationCommands({ request, onPending = () => {}, onAc
         conversationId, prompt: String(prompt || "").trim(),
         recipientMemberIds: Object.freeze([...recipientMemberIds]),
         sources: Object.freeze(sources.map((source) => Object.freeze({ ...source }))),
-        permissionMode: permissionMode === "build" ? "build" : "plan",
+        permissionMode: permissionMode === "build" || permissionMode === "review" ? permissionMode : "plan",
         // 工作区群聊恒为 social 协作：预算缺省时由调用方按 social 有限兜底传入；
         // undefined = 走席位默认（pipeline 可无限，social 由后端隐式回退兜底）。
         // acknowledgeRecovery 仅在调用方已获用户显式恢复确认时携带 true（一次性语义）。
+        ...(String(model || "").trim() ? { model: String(model).trim() } : {}),
+        ...(String(effort || "").trim() ? { effort: String(effort).trim() } : {}),
         ...(maxBudgetUsdPerTurn === undefined ? {} : { maxBudgetUsdPerTurn }),
         ...(acknowledgeRecovery === undefined ? {} : { acknowledgeRecovery }),
       });
@@ -36,6 +38,8 @@ export function createConversationCommands({ request, onPending = () => {}, onAc
             ...(command.sources.length ? { sources: command.sources } : {}),
             // Permission applies to a new Run. An active Run retains its own grant.
             permissionMode: command.permissionMode,
+            ...(command.model ? { model: command.model } : {}),
+            ...(command.effort ? { effort: command.effort } : {}),
             ...(command.maxBudgetUsdPerTurn === undefined ? {} : { maxBudgetUsdPerTurn: command.maxBudgetUsdPerTurn }),
             ...(command.acknowledgeRecovery === undefined ? {} : { acknowledgeRecovery: command.acknowledgeRecovery }),
           },

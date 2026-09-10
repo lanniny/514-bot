@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 
-test("514 Bot is the default work surface while the advanced workbench remains available", async () => {
+test("514 Bot is the default and only primary work surface; workbench view stays hidden", async () => {
   const [html, app, state, palette, css, artDirection, nativeChrome] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
@@ -40,7 +40,7 @@ test("514 Bot is the default work surface while the advanced workbench remains a
   assert.doesNotMatch(restoredChrome, /html\.is-bot-surface \.global-statusbar(?:\s*[,\{])/);
   assert.match(css, /html\.is-bot-surface \.main-content[\s\S]*padding: 8px 10px 9px !important[\s\S]*overflow: hidden/);
   assert.match(state, /bot: "514 Bot"/);
-  assert.match(app, /const view = routeView === "experience" \? "bot" : routeView \|\| "bot"/);
+  assert.match(app, /const view = retireWorkbenchView\(routeView === "experience" \? "bot" : routeView \|\| "bot"\)/);
   assert.match(app, /setView\(initialView/);
   assert.match(app, /function initBotShell\(/);
   assert.match(nativeChrome, /if \(botControls\) botControls.hidden = Boolean\(controls\)/);
@@ -355,14 +355,14 @@ test("Structured Bot cards are runtime-generated and the stream ships no demo co
   assert.match(app, /api\/team-members.*DELETE|method: "DELETE"/);
 });
 
-test("Bot member info panel and five settings tabs expose complete ARIA relationships", async () => {
+test("Bot member info panel and settings tabs expose complete ARIA relationships", async () => {
   const [html, app] = await Promise.all([
     readFile(`${appRoot}/public/index.html`, "utf8"),
     readFile(`${appRoot}/public/app.js`, "utf8"),
   ]);
   assert.match(html, /id="bot-agent-panel"[^>]+role="dialog"[^>]+aria-modal="true"[^>]+aria-labelledby="bot-panel-agent-name"[^>]+aria-hidden="true"[^>]+inert/);
   assert.match(html, /aria-controls="bot-agent-panel"/);
-  for (const tab of ["general", "plugins", "team", "appearance", "updates"]) {
+  for (const tab of ["general", "plugins", "team", "workspace", "pet", "appearance", "updates"]) {
     assert.match(html, new RegExp(`data-bot-settings-tab="${tab}"`));
     assert.match(html, new RegExp(`id="bot-settings-${tab}"[^>]+role="tabpanel"[^>]+aria-labelledby="bot-settings-tab-${tab}"`));
   }
@@ -1088,7 +1088,9 @@ test("Bot mentions keep structured member identity and Conversation-scoped routi
   assert.match(module, /data-bot-mention-id/);
   assert.match(module, /data-bot-mention-remove/);
   assert.match(app, /recipientMemberIds: botSubmission\?\.recipientMemberIds/);
-  assert.match(app, /recipientMemberIds: botMentionSelectedIds\(conversation\)/);
+  assert.match(app, /function botComposerRecipientIds\(/);
+  assert.match(app, /const mentioned = botMentionSelectedIds\(conversation\)/);
+  assert.match(app, /recipientMemberIds: botComposerRecipientIds\(conversation\)/);
   assert.match(module, /botState\.mentionSelections\[botMentionContextKey\(\)\] = \[id\]/);
   assert.match(module, /removeRequestedAgentMention\(nextValue, botMentionTokenLabel\(previousId\)\)/);
   assert.match(app, /event\.key === "Escape"[\s\S]{0,180}botHideMentionMenu\(\)/);
