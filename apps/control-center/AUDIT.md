@@ -83,6 +83,11 @@ Bot 是唯一主界面。本轮先修 P0 聊天渲染，再按模块记账：已
 | 诚实保留 | 成员电脑 `not-provisioned`；computer-update/reset toast「尚未接入」 |
 | 下一波 | 导览/能力地图只在设置；Grok 面 overflow 不再放这两颗芯片（设置仍在）。审计未做全量 `/api`↔UI 对表——需要单独脚本扫 `request("` vs 面板挂载。 |
 
+## 本轮验证（我跑过，不是“我认为”）
+
+- 契约测试：`bot-transcript-render` / `bot-grok-face` / `bot-shell-ui` / `bot-workspace-chrome` 全绿。
+- `npm run qa:bot-chat-render`：空态 → 发送「你好」后空态消失；桌面消息列宽 720、左右余量对称；composer 无 ops/footer；560 为会话面（roster `display:none`）；壁纸态列宽仍 720。
+
 ## 刻意没做
 
 - 不删 `#view-workbench`（回归面太大）。
