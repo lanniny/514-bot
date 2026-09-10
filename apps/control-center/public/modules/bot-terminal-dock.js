@@ -1,8 +1,8 @@
 /**
  * bot-terminal-dock.js — Bot 对话面底部终端抽屉。
  * 不切到 #view-terminal，PTY 懒挂载且关闭不销毁。
+ * 不静态 import terminal-panel.js：该模块在 load 时绑 window，Node 单测会炸。
  */
-import { createTerminalPanel } from "../terminal-panel.js";
 
 export const BOT_TERM_KEYS = Object.freeze({
   open: "514cc-bot-term-open",
@@ -24,7 +24,7 @@ export function createBotTerminalDock({
   document: root = globalThis.document,
   window: win = globalThis.window,
   storage = globalThis.localStorage,
-  createPanel = createTerminalPanel,
+  createPanel,
 } = {}) {
   const drawer = root.getElementById("bot-terminal-drawer");
   const body = root.getElementById("bot-terminal-container");
@@ -75,6 +75,7 @@ export function createBotTerminalDock({
         if (generation !== openGeneration) return;
         drawer.classList.add("is-open");
         if (!panel) {
+          if (typeof createPanel !== "function") return;
           panel = createPanel(body);
           void Promise.resolve(panel.mount?.()).then(() => panel?.focusActive?.());
         } else {

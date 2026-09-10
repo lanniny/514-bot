@@ -74,7 +74,7 @@ test("chrome helpers remap retired workbench and render Bot folds", () => {
 
   const filters = botActiveRunFiltersMarkup(runs, { escapeHtml, filter: "running" });
   assert.match(filters, /data-bot-run-filter="all"/);
-  assert.match(filters, /data-bot-run-filter="running"[^>]*is-active/);
+  assert.match(filters, /bot-active-run-filter is-active"[^>]*data-bot-run-filter="running"/);
   assert.match(filters, /data-bot-run-filter="warning"/);
   const filtered = botActiveRunsMarkup(runs, { escapeHtml, filter: "running" });
   assert.match(filtered, /data-bot-active-run="r1"/);
