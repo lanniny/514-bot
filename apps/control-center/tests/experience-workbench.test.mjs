@@ -43,15 +43,16 @@ test("view history distinguishes conversation, run and tab without changing lega
 test("all pre-existing view IDs and navigation entries remain available", async () => {
   const oldViews = ["overview", "bot", "workbench", "team", "channels", "config", "router", "security", "observability", "sessions", "bootstrapper", "office", "automations", "terminal", "market", "hosts", "hero", "appearance", "browser"];
   for (const view of oldViews) assert.ok(VIEW_TITLES[view], `missing old view: ${view}`);
-  const previousNavigation = ["bot", "workbench", "team", "channels", "bootstrapper", "office", "overview", "observability", "sessions", "market", "hosts", "config", "automations", "security"];
+  const previousNavigation = ["bot", "team", "channels", "bootstrapper", "office", "overview", "observability", "sessions", "market", "hosts", "config", "automations", "security"];
   for (const view of previousNavigation) assert.ok(navViews().includes(view), `missing previous navigation: ${view}`);
+  assert.ok(!navViews().includes("workbench"), "retired workbench must not remain in navigation");
   assert.ok(navViews().includes("plugins"));
   assert.equal(new Set(navViews()).size, navViews().length);
   const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
   for (const view of ["memory", "capabilities", "terminal", "hero", "router"]) assert.ok(app.includes(`if (view === "${view}")`), `missing alias: ${view}`);
   assert.match(app, /FORGE_VIEW_TITLES\[initialRoute\.view\] \? initialRoute\.view : "bot"/);
   assert.equal(VIEW_TITLES.experience, undefined);
-  assert.match(app, /if \(view === "experience"\) view = "bot"/);
+  assert.match(app, /if \(view === "experience" \|\| view === "workbench"\) view = "bot"/);
   assert.match(app, /createConversationWorkspace\(/);
   assert.match(app, /conversationCommands\.submit\(/);
 });

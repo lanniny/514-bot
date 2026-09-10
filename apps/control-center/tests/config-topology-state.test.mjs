@@ -235,6 +235,7 @@ test("config hash routes preserve member targets with deterministic provider def
   const routeSource = sourceSection("const CONFIG_SURFACES", "// API, TOKEN_KEY");
   const { configRouteHash, parseForgeRoute } = evaluateSection(routeSource, ["configRouteHash", "parseForgeRoute"], {
     location: { hash: "#workbench" },
+    retireWorkbenchView: (view) => (view === "workbench" || view === "experience" ? "bot" : view),
   });
 
   // parseForgeRoute 现统一带 settingsFocus（observability/memory 路由用），期望对象补齐该键
@@ -246,7 +247,7 @@ test("config hash routes preserve member targets with deterministic provider def
   assert.deepEqual(parseForgeRoute("#config/hooks"), { view: "config", configSurface: "hooks", ...emptyTarget });
   assert.deepEqual(parseForgeRoute("#config/sources"), { view: "config", configSurface: "sources", ...emptyTarget });
   assert.deepEqual(parseForgeRoute("#capabilities"), { view: "config", configSurface: "capabilities", ...emptyTarget });
-  assert.deepEqual(parseForgeRoute("#workbench"), { view: "workbench", configSurface: null, ...emptyTarget });
+  assert.deepEqual(parseForgeRoute("#workbench"), { view: "bot", configSurface: null, ...emptyTarget });
   assert.deepEqual(parseForgeRoute(""), { view: "bot", configSurface: null, ...emptyTarget });
   assert.deepEqual(parseForgeRoute("#"), { view: "bot", configSurface: null, ...emptyTarget });
   assert.deepEqual(parseForgeRoute("#experience?conversation=c&run=r"), { view: "bot", configSurface: null, ...emptyTarget });

@@ -452,7 +452,8 @@ function stableHue(text) {
 
 export function openImmersiveTerminal({ session, title = "", members = [], runId = null, activeAgentId = null } = {}) {
   if (!session?.id) return false;
-  const host = document.querySelector(".conversation-pane");
+  const host = document.querySelector("#view-bot.is-active .bot-conversation")
+    || document.querySelector(".conversation-pane");
   if (!host) return false;
   closeImmersiveTerminal();
   const overlay = document.createElement("div");

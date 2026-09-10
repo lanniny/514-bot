@@ -8,7 +8,7 @@ test("Bot is canonical and old experience URLs retain their Conversation, Run an
   const target = { conversationId: "c-1", runId: "r-1", tab: "results" };
   assert.equal(botWorkspaceRoute(), "#bot");
   assert.equal(botWorkspaceRoute({ tab: "conversation" }), "#bot");
-  for (const prefix of ["#bot", "#/bot", "#experience", "#/experience"]) {
+  for (const prefix of ["#bot", "#/bot", "#experience", "#/experience", "#workbench", "#/workbench"]) {
     assert.deepEqual(readBotWorkspaceRoute(`${prefix}?conversation=c-1&run=r-1&tab=results`), target);
   }
   assert.equal(botWorkspaceRoute(target), "#bot?conversation=c-1&run=r-1&tab=results");
@@ -23,10 +23,10 @@ test("route input is bounded and never carries auth fields into a copied Bot URL
 });
 
 test("background Bot sync relinquishes location before another destination's hashchange runs", async () => {
-  for (const hash of ["#config/providers", "#config/hooks", "#workbench", "#run=r", "#bot/automations/example", "#config?member=x&conversation=c"]) {
+  for (const hash of ["#config/providers", "#config/hooks", "#run=r", "#bot/automations/example", "#config?member=x&conversation=c"]) {
     assert.equal(ownsBotWorkspaceHash(hash), false, hash);
   }
-  for (const hash of ["", "#bot", "#experience?conversation=c", "#conversation=c&run=r", "#run=r&conversation=c"]) {
+  for (const hash of ["", "#bot", "#experience?conversation=c", "#workbench", "#workbench?conversation=c", "#conversation=c&run=r", "#run=r&conversation=c"]) {
     assert.equal(ownsBotWorkspaceHash(hash), true, hash);
   }
   const app = await readFile(new URL("../public/app.js", import.meta.url), "utf8");
@@ -39,6 +39,7 @@ test("canonical Bot work routes bypass legacy top-level Run parsing", async () =
   const parse = new Function("location", `${section}; return conversationDeepLinkFromHash;`)({ hash: "" });
   assert.equal(parse("#bot?conversation=c&run=r&tab=results"), null);
   assert.equal(parse("#experience?conversation=c&run=r&tab=results"), null);
+  assert.equal(parse("#workbench?conversation=c&run=r&tab=results"), null);
   assert.equal(parse("#bot/automations/example?run=r"), null);
   assert.equal(parse("#run=r").runId, "r");
   assert.equal(parse("#conversation=c").conversationId, "c");

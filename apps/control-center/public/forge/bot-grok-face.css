@@ -761,6 +761,124 @@ html.is-bot-grok-face #view-bot .bot-roster-footer .bot-icon-button {
   }
 }
 
+html.is-bot-grok-face #view-bot .bot-conversation {
+  position: relative;
+}
+
+html.is-bot-grok-face #view-bot .bot-active-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 4px 10px;
+}
+
+html.is-bot-grok-face #view-bot .bot-active-run {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+html.is-bot-grok-face #view-bot .bot-active-run strong {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+html.is-bot-grok-face #view-bot .bot-active-run span {
+  color: var(--bot-muted, color-mix(in srgb, var(--bot-ink) 62%, transparent));
+  font-size: var(--text-xs, 0.75rem);
+}
+
+html.is-bot-grok-face #view-bot .bot-active-run.is-current,
+html.is-bot-grok-face #view-bot .bot-active-run:hover {
+  background: var(--bot-soft);
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: end;
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-field {
+  display: flex;
+  min-width: 132px;
+  flex: 1 1 132px;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--bot-muted, color-mix(in srgb, var(--bot-ink) 62%, transparent));
+  font-size: var(--text-xs, 0.75rem);
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-field select {
+  min-height: 36px;
+  border: 1px solid var(--bot-line);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--bot-ink);
+  font: inherit;
+}
+
+html.is-bot-grok-face #view-bot .bot-cli-pulse,
+html.is-bot-grok-face #view-bot .bot-workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+html.is-bot-grok-face #view-bot .bot-cli-chip,
+html.is-bot-grok-face #view-bot .team-pulse-chip {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--bot-soft);
+  font-size: var(--text-xs, 0.75rem);
+}
+
+html.is-bot-grok-face #view-bot .bot-pet-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+html.is-bot-grok-face #view-bot .bot-pet-preset,
+html.is-bot-grok-face #view-bot .bot-pet-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 12px 0;
+}
+
+html.is-bot-grok-face #view-bot .bot-pet-preset button {
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--bot-line);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+html.is-bot-grok-face #view-bot .bot-pet-preset button[aria-pressed="true"] {
+  border-color: var(--bot-ink);
+  background: var(--bot-soft);
+}
+
 @media (prefers-reduced-motion: reduce) {
   html.is-bot-grok-face #view-bot .bot-composer-row,
   html.is-bot-grok-face #view-bot .bot-empty-chips button {

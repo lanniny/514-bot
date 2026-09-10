@@ -17,9 +17,10 @@ test("nav-config covers every setView-able chrome view exactly once across group
   }
   // 历史漂移修复：协作台/配置此前只在部分导航出现
   // UI-AUDIT P0-5：自动化与安全诊断提级入主导航，不再做"隐形视图"
-  for (const mustHave of ["bot", "workbench", "team", "channels", "bootstrapper", "office", "overview", "observability", "sessions", "market", "hosts", "config", "automations", "security"]) {
+  for (const mustHave of ["bot", "team", "channels", "bootstrapper", "office", "overview", "observability", "sessions", "market", "hosts", "config", "automations", "security"]) {
     assert.ok(views.includes(mustHave), `unified nav must include ${mustHave}`);
   }
+  assert.ok(!views.includes("workbench"), "retired workbench must not occupy a nav slot");
 });
 
 test("renderNavigation fills all four surfaces with the same unified view order", () => {
@@ -35,7 +36,8 @@ test("renderNavigation fills all four surfaces with the same unified view order"
   assert.ok(rendered.topbar.includes("topnav-divider"), "topbar nav separates groups");
   assert.ok(rendered.settings.includes("settings-rail-item"), "settings rail renders migrated nav items");
   for (const mount of Object.values(mounts)) {
-    assert.match(mount.innerHTML, /data-view="workbench"/);
+    assert.match(mount.innerHTML, /data-view="bot"/);
+    assert.doesNotMatch(mount.innerHTML, /data-view="workbench"/);
     assert.match(mount.innerHTML, /data-view="config"/);
     assert.match(mount.innerHTML, /#lucide-messages-square/);
   }

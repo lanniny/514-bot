@@ -101,7 +101,7 @@ function bootTerminalDrawer() {
   // 角位开关是终端的常驻入口：非协作台时先切回协作台
   globalToggle?.addEventListener("click", () => {
     if (!drawer.closest(".view")?.classList.contains("is-active")) {
-      document.querySelector('.topbar-nav [data-view="workbench"]')?.click();
+      document.querySelector('.topbar-nav [data-view="bot"], [data-view="bot"]')?.click();
     }
     setOpen(!isOpen());
   });
@@ -148,7 +148,7 @@ function bootTerminalDrawer() {
 
   window.addEventListener("forge:open-bottom-terminal", () => {
     if (!drawer.closest(".view")?.classList.contains("is-active")) {
-      document.querySelector('.settings-rail-back[data-view="workbench"], [data-view="workbench"]')?.click();
+      document.querySelector('[data-view="bot"]')?.click();
     }
     setOpen(true);
   });
@@ -218,7 +218,7 @@ function bootMissionControlCollapse() {
   globalMcToggle?.addEventListener("click", () => {
     const workbenchActive = shell.closest(".view")?.classList.contains("is-active");
     if (!workbenchActive) {
-      document.querySelector('.topbar-nav [data-view="workbench"]')?.click();
+      document.querySelector('.topbar-nav [data-view="bot"], [data-view="bot"]')?.click();
     }
     setCollapsed(!shell.classList.contains("mc-collapsed"));
   });

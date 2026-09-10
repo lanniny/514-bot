@@ -395,7 +395,9 @@ test("terminal is a bottom drawer again with no persistent bar", async () => {
   const railCss = await source("public/forge/rail-tools.css");
   assert.match(railCss, /\.terminal-drawer \{[^}]*grid-row: -2 \/ -1;/s);
   assert.match(app, /function openBottomTerminal\(/);
-  assert.match(app, /forge:open-bottom-terminal/);
+  assert.match(app, /function ensureViewTerminal\(/);
+  assert.match(app, /setView\("terminal"\)/);
+  assert.match(chrome, /forge:open-bottom-terminal/);
   assert.match(chrome, /getElementById\("global-terminal-toggle"\)/);
 });
 
