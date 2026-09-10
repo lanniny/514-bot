@@ -125,6 +125,11 @@ test("Grok face CSS keeps 390px composer and chips tappable", async () => {
   assert.match(css, /@media \(max-width: 560px\)/);
   assert.match(css, /min-height: 44px/);
   assert.doesNotMatch(css, /@media \(max-width: (?!560px|820px)\d+px\)/);
+  assert.match(css, /--bot-transcript-width: 720px/);
+  assert.match(css, /\.bot-message-stream > :is\([\s\S]*?width:\s*100%;[\s\S]*?max-width:\s*var\(--bot-transcript-width\)/);
+  assert.match(css, /\.bot-composer-ops-chips/);
+  assert.match(css, /is-roster-collapsed\.is-mobile-conversation \.bot-roster \{[\s\S]*display: none/);
+  assert.doesNotMatch(css, /html\.is-bot-grok-face #view-bot \.workspace-navigation,\s*html\.is-bot-grok-face #view-bot \.workspace-secondary-navigation \{\s*display: flex/);
 });
 
 test("conversation stream keeps human turns visible and folds process closed", async () => {

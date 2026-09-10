@@ -139,6 +139,7 @@ import { createConversationCommands } from "./modules/conversation-commands.js";
 import { createProjectPluginsPanel } from "./modules/project-plugins-panel.js";
 import { createConversationMembersEditor } from "./modules/conversation-members-editor.js";
 import { createMessageWindow, reconcileMessageMarkup } from "./modules/bounded-message-view.js";
+import { botClearEmptyConversation, botNormalizeTranscript } from "./modules/bot-transcript-dom.js";
 import { connectionPresentation } from "./modules/control-connection-state.js";
 // UI-AUDIT P1-6：异步按钮忙态统一处理（防连点 + 失败必恢复 + aria-busy）
 import { runAsyncAction } from "./modules/async-action.js";
@@ -18957,6 +18958,7 @@ function botConversationStoreKey(agentId = botState.agentId) {
 function botSaveMessageStore(agentId = botState.agentId) {
   const stream = byId("bot-message-stream");
   if (!stream || !agentId) return;
+  botNormalizeTranscript(stream);
   const key = botConversationStoreKey(agentId);
   const current = botState.messageStores[key] || {};
   botState.messageStores[key] = {
@@ -18983,6 +18985,7 @@ function botRenderMessageStore(agentId = botState.agentId) {
   const label = groupView ? String(groupView.title || botGroupTitle(groupRun || groupView)) : botMeta(agentId).label;
   if (stored?.html && (stored.historyRunId || null) === expectedRunId) {
     reconcileMessageMarkup(stream, stored.html);
+    botNormalizeTranscript(stream);
   } else {
     reconcileMessageMarkup(stream, botEmptyConversationMarkup(escapeHtml(label), expectedRunId ? "正在读取运行记录" : "还没有消息"));
   }
@@ -19076,6 +19079,7 @@ function botSyncPendingAskCard(run, agentId = botState.agentId) {
   const askKey = `${String(run.id)}:${String(run.pendingAsk.id)}`;
   if (existing?.dataset.runId === String(run.id) && existing?.dataset.askId === String(run.pendingAsk.id)) return;
   existing?.remove();
+  botClearEmptyConversation(stream);
   stream.insertAdjacentHTML("beforeend", markup);
   stream.scrollTop = stream.scrollHeight;
   stream.querySelector("[data-bot-card='question'][data-bot-card-source='run']")?.setAttribute("data-ask-key", askKey);
@@ -19299,6 +19303,7 @@ function botRenderConversationMessages(agentId, run, messages) {
   const previousScroll = stream.scrollTop;
   const atBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight < 80;
   reconcileMessageMarkup(stream, renderedHtml);
+  botNormalizeTranscript(stream);
   stream.setAttribute("aria-label", botState.activeGroupRunId ? `群聊 ${escapeHtml(conversationLabel)}` : `与 ${escapeHtml(conversationLabel)} 的对话`);
   stream.scrollTop = atBottom ? stream.scrollHeight : previousScroll;
   const storeKey = botConversationStoreKey(agentId);
@@ -21011,6 +21016,7 @@ function botAppendUserMessage(text) {
   if (!stream || !text) return null;
   const token = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   botLocalMessages().push({ token, text: String(text), createdAt: new Date().toISOString(), runId: null });
+  botClearEmptyConversation(stream);
   const wrapper = document.createElement("div");
   wrapper.className = "bot-message bot-message-user";
   wrapper.innerHTML = `<div><p class="bot-message-author">LO</p><div class="bot-bubble"></div><time>刚刚</time></div><span class="bot-message-avatar is-operator">${operatorAvatarMarkup({ profile: state.operatorProfile, className: "bot-avatar-media", fallback: '<span class="bot-avatar-initials">LO</span>' })}</span>`;

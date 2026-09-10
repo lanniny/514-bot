@@ -26,6 +26,7 @@
     "qa:bot-collab-dialog": "node scripts/qa-bot-collab-dialog.mjs",
     "qa:bot-grok-parity": "node scripts/qa-bot-grok-parity.mjs",
     "qa:bot-390": "node scripts/qa-bot-390.mjs",
+    "qa:bot-chat-render": "node scripts/qa-bot-chat-render.mjs",
     "qa:permission-approval": "node scripts/qa-permission-approval.mjs",
     "qa:team": "node scripts/qa-team-workspace.mjs",
     "qa:environment": "node scripts/qa-workbench-environment.mjs",

@@ -196,6 +196,7 @@ html.is-bot-grok-face #view-bot {
   --bot-user-bubble-bg: var(--bot-grok-user);
   --bot-user-bubble-ink: var(--bot-grok-ink);
   --workspace-link: var(--bot-grok-ink);
+  --bot-transcript-width: 720px;
   background: var(--bot-grok-canvas);
   color: var(--bot-grok-ink);
 }
@@ -382,12 +383,31 @@ html.is-bot-grok-face #view-bot .bot-conversation-header h2 {
 }
 
 html.is-bot-grok-face #view-bot .bot-message-stream {
+  align-items: center;
   padding: 28px clamp(16px, 5vw, 56px) 16px;
   gap: 22px;
 }
 
+html.is-bot-grok-face #view-bot .bot-message-stream > :is(.bot-message, .bot-activity-group, .live-delta-bubble, .bot-card, .workspace-message-paging) {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--bot-transcript-width);
+  margin-inline: auto;
+  align-self: center;
+}
+
 html.is-bot-grok-face #view-bot .bot-message {
-  max-width: min(720px, 100%);
+  width: 100%;
+  max-width: var(--bot-transcript-width);
+}
+
+html.is-bot-grok-face #view-bot .bot-message-user {
+  align-self: center;
+  justify-content: flex-end;
+}
+
+html.is-bot-grok-face #view-bot .bot-message-stream:has(.bot-message) .bot-message-empty {
+  display: none !important;
 }
 
 html.is-bot-grok-face #view-bot .bot-message-user .bot-bubble {
@@ -397,6 +417,11 @@ html.is-bot-grok-face #view-bot .bot-message-user .bot-bubble {
   border-radius: 18px;
   background: var(--bot-user-bubble-bg);
   box-shadow: none;
+}
+
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-message-user .bot-bubble {
+  background: color-mix(in oklab, var(--bot-grok-user) 82%, var(--bot-grok-raised));
+  box-shadow: 0 8px 22px color-mix(in srgb, black 14%, transparent);
 }
 
 html.is-bot-grok-face #view-bot .bot-message-agent .bot-bubble {
@@ -494,6 +519,8 @@ html.is-bot-grok-face #view-bot .bot-activity-segment {
 }
 
 html.is-bot-grok-face #view-bot .bot-message-empty.bot-empty-hero {
+  width: 100%;
+  max-width: none;
   min-height: min(62vh, 560px);
   justify-content: center;
   gap: 14px;
@@ -657,19 +684,23 @@ html.is-bot-grok-face #view-bot .bot-composer-overflow:not([open]) .bot-composer
   display: none !important;
 }
 
+html.is-bot-grok-face #view-bot .bot-composer-ops-chips,
 html.is-bot-grok-face #view-bot .bot-composer-footer {
-  display: flex !important;
-  flex-wrap: wrap;
-  gap: 8px 10px;
-  min-height: 0;
-  padding: 8px 4px 0;
+  display: none !important;
 }
 
-html.is-bot-grok-face #view-bot .bot-composer-tools {
+html.is-bot-grok-face #view-bot .bot-composer-overflow[open] .bot-composer-tools {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   padding: 4px 2px 0;
+}
+
+html.is-bot-grok-face #view-bot .bot-composer-send-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
 }
 
 html.is-bot-grok-face #view-bot .bot-composer-tools button {
@@ -761,9 +792,14 @@ html.is-bot-grok-face #view-bot .bot-roster-footer .bot-icon-button {
     display: flex;
   }
 
-  html.is-bot-grok-face #view-bot .workspace-navigation,
-  html.is-bot-grok-face #view-bot .workspace-secondary-navigation {
+  html.is-bot-grok-face #view-bot .bot-shell-grid.is-mobile-conversation .bot-roster,
+  html.is-bot-grok-face #view-bot .bot-shell-grid.is-roster-collapsed.is-mobile-conversation .bot-roster {
+    display: none;
+  }
+
+  html.is-bot-grok-face #view-bot .bot-shell-grid.is-mobile-conversation .bot-conversation {
     display: flex;
+    height: 100%;
   }
 
   html.is-bot-grok-face #view-bot .bot-composer {
@@ -946,7 +982,7 @@ html.is-bot-grok-face #view-bot .bot-terminal-drawer {
   background: var(--bot-bg);
 }
 
-html.is-bot-grok-face #view-bot .bot-composer-tools {
+html.is-bot-grok-face #view-bot .bot-composer-overflow[open] .bot-composer-tools {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
