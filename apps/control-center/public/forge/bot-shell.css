@@ -410,7 +410,7 @@ body.team-bg-active .bot-active-run.is-current {
 .bot-message-error strong { color: var(--bot-ink); font-size: var(--text-base); font-weight: 650; }
 .bot-message-error .bot-card-confirm { margin-top: 4px; }
 .bot-message { display: flex; max-width: min(760px, calc(100% - 12px)); gap: 9px; }
-.bot-message-user { align-self: flex-end; justify-content: flex-end; }
+.bot-message-user { align-self: auto; justify-content: flex-end; width: min(760px, calc(100% - 12px)); }
 .bot-message-avatar { width: 26px; height: 26px; font-size: var(--text-xs); }
 .bot-message-avatar { display: inline-grid; overflow: hidden; }
 .bot-message-author { display: block; }

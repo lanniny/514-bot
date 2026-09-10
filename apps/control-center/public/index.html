@@ -515,10 +515,15 @@
                 <details class="bot-composer-overflow" id="bot-composer-overflow">
                   <summary>运行选项</summary>
                   <div class="bot-composer-tools">
+                    <div class="bot-composer-send-fields">
                     <label class="bot-composer-field" for="bot-composer-recipient"><span>直接发送给</span><select id="bot-composer-recipient" aria-label="直接发送给会话成员"><option value="">当前会话成员</option></select></label>
                     <label class="bot-composer-field" for="bot-composer-team"><span>团队</span><select id="bot-composer-team" aria-label="选择会话从属团队"></select></label>
                     <label class="bot-composer-field" for="bot-next-model"><span>模型</span><select id="bot-next-model" aria-label="选择模型"><option value="">跟随运行席位</option></select></label>
                     <label class="bot-composer-field" for="bot-next-effort"><span>Effort</span><select id="bot-next-effort" aria-label="选择推理力度"><option value="">跟随运行席位</option></select></label>
+                    <label class="bot-composer-field" for="workspace-next-permission"><span>权限</span><select id="workspace-next-permission" aria-label="新运行权限"><option value="plan">只读计划</option><option value="review">只读规划</option><option value="build">受控写入</option></select></label>
+                    <label class="bot-composer-field" for="workspace-next-budget"><span>预算</span><select id="workspace-next-budget" aria-label="新运行单轮预算（美元）"><option value="2">$2.00</option><option value="3">$3.00</option><option value="5" selected>$5.00</option><option value="10">$10.00</option><option value="20">$20.00</option><option value="50">$50.00</option></select></label>
+                    </div>
+                    <div class="bot-composer-ops-chips">
                     <button type="button" data-workspace-tab="process">过程</button>
                     <button type="button" data-workspace-tab="results">成果</button>
                     <button type="button" data-bot-workspace-action="git-commit">提交</button>
@@ -528,8 +533,9 @@
                     <button type="button" data-bot-workspace-action="cli">CLI 接续</button>
                     <button type="button" data-bot-action="product-tour">导览</button>
                     <button type="button" data-bot-action="capability-map">能力地图</button>
+                    </div>
                   </div>
-                  <div class="bot-composer-footer"><span class="bot-orchestration-pick" id="bot-orchestration-pick" role="radiogroup" aria-label="编排模式"><button class="bot-orchestration-option is-active" type="button" data-orchestration-pick="pipeline" role="radio" aria-checked="true" title="流水线：单线执行（默认）">流水线</button><button class="bot-orchestration-option" type="button" data-orchestration-pick="social" role="radio" aria-checked="false" title="社会模拟：成员间消息驱动协作">社会模拟</button></span><span id="workspace-permission"></span><select id="workspace-next-permission" aria-label="新运行权限"><option value="plan">只读计划</option><option value="review">只读规划</option><option value="build">受控写入</option></select><label class="workspace-budget-label" for="workspace-next-budget">预算</label><select id="workspace-next-budget" aria-label="新运行单轮预算（美元）"><option value="2">$2.00</option><option value="3">$3.00</option><option value="5" selected>$5.00</option><option value="10">$10.00</option><option value="20">$20.00</option><option value="50">$50.00</option></select><span id="bot-cli-pulse" class="bot-cli-pulse" aria-label="CLI 席位状态"></span><span id="workspace-admission" role="status"></span><span id="workspace-connection" class="workspace-connection" role="status"></span></div>
+                  <div class="bot-composer-footer"><span class="bot-orchestration-pick" id="bot-orchestration-pick" role="radiogroup" aria-label="编排模式"><button class="bot-orchestration-option is-active" type="button" data-orchestration-pick="pipeline" role="radio" aria-checked="true" title="流水线：单线执行（默认）">流水线</button><button class="bot-orchestration-option" type="button" data-orchestration-pick="social" role="radio" aria-checked="false" title="社会模拟：成员间消息驱动协作">社会模拟</button></span><span id="workspace-permission"></span><span id="bot-cli-pulse" class="bot-cli-pulse" aria-label="CLI 席位状态"></span><span id="workspace-admission" role="status"></span><span id="workspace-connection" class="workspace-connection" role="status"></span></div>
                 </details>
               </form>
               <section class="terminal-drawer bot-terminal-drawer" id="bot-terminal-drawer" aria-label="底部终端" hidden>

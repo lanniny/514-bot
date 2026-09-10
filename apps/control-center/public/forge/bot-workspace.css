@@ -71,9 +71,12 @@ html.is-bot-surface #view-bot { border: 0; box-shadow: none; }
 #view-bot #bot-conversation-meta .bot-status-dot { display: inline-block; margin-right: 6px; }
 #view-bot .bot-conversation-heading { flex: 1; min-width: 0; }
 #view-bot .bot-conversation-actions { order: 2; }
-#view-bot .bot-message-stream { flex: 1 1 0; min-height: 0; padding: 24px clamp(16px, 4vw, 48px) 32px; gap: 20px; scrollbar-gutter: stable both-edges; }
-#view-bot .bot-message-stream > :is(.bot-message, .bot-activity-group, .live-delta-bubble) { max-width: var(--workspace-reading-width); margin-inline: auto; }
-#view-bot .bot-message-stream > .bot-message { width: 100%; }
+#view-bot .bot-message-stream { flex: 1 1 0; min-height: 0; padding: 24px clamp(16px, 4vw, 48px) 32px; gap: 20px; scrollbar-gutter: stable both-edges; align-items: center; }
+#view-bot .bot-message-stream > :is(.bot-message, .bot-activity-group, .live-delta-bubble, .bot-card, .workspace-message-paging) { width: min(var(--workspace-reading-width), 100%); max-width: min(var(--workspace-reading-width), 100%); margin-inline: auto; align-self: auto; }
+#view-bot .bot-message-stream > .bot-message { width: min(var(--workspace-reading-width), 100%); }
+#view-bot .bot-message-stream > .bot-message-empty,
+#view-bot .bot-message-stream > .bot-message-error { width: min(var(--workspace-reading-width), 100%); align-self: center; }
+#view-bot .bot-message-stream:has(.bot-message) .bot-message-empty { display: none !important; }
 #view-bot .bot-bubble { overflow-wrap: anywhere; line-height: 1.75; }
 #view-bot .bot-bubble.md-body { grid-template-columns: minmax(0, 1fr); }
 #view-bot .bot-bubble.md-body > * { min-width: 0; }
@@ -123,7 +126,11 @@ body.team-bg-active #view-bot .bot-composer-row { background: transparent; }
 #view-bot .workspace-advanced-mode { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 2px 4px; border: 0; background: transparent; color: var(--bot-muted); font: inherit; font-size: var(--text-xs); cursor: pointer; }
 #view-bot .workspace-advanced-mode:hover { color: var(--workspace-link); }
 #view-bot .workspace-advanced-mode .icon { width: 14px; height: 14px; }
-#view-bot .bot-composer-footer { display: flex !important; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-height: 28px; color: var(--bot-muted); }
+#view-bot .bot-composer-overflow:not([open]) .bot-composer-tools,
+#view-bot .bot-composer-overflow:not([open]) .bot-composer-footer { display: none !important; }
+#view-bot .bot-composer-overflow[open] .bot-composer-footer { display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-height: 28px; color: var(--bot-muted); }
+#view-bot .bot-composer-overflow[open] .bot-composer-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+#view-bot .bot-composer-send-fields { display: flex; flex-wrap: wrap; gap: 8px; flex: 1 1 100%; }
 #workspace-admission { min-width: 160px; flex: 1 1 auto; overflow-wrap: anywhere; max-width: 45%; font-size: var(--text-xs); }
 .workspace-draft-state { display: block; color: var(--bot-yellow); font-size: var(--text-xs); }
 .workspace-draft-state:empty { display: none; }
