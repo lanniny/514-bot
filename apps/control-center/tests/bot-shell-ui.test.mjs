@@ -214,6 +214,8 @@ test("Default Bot face is the Grok-like dark shell without dropping capabilities
   assert.match(face, /--bot-grok-canvas:/);
   assert.match(face, /html\.is-bot-grok-face\[data-theme="light"\]/);
   assert.match(face, /grid-template-columns: var\(--bot-grok-rail\) var\(--bot-grok-roster\) minmax\(0, 1fr\) var\(--bot-ops\)/);
+  assert.match(face, /grid-template-areas: "icons roster conversation ops"/);
+  assert.match(face, /\.bot-shell-grid\.is-ops-collapsed \{/);
   assert.match(face, /\.bot-composer-row \{[\s\S]*border-radius: 28px/);
   assert.match(face, /html\.is-bot-grok-face body\.team-bg-active #view-bot/);
   assert.match(face, /:not\(:has\(body\.team-bg-active\)\) \.atelier-stage/);
@@ -842,7 +844,12 @@ test("Bot keeps Conversation chat stable while collaboration context moves to a 
   assert.doesNotMatch(collaborationCode, /stream\.hidden|composer\.hidden/);
   assert.match(collaborationCode, /panel\.hidden = false/);
   assert.match(collaborationCode, /当前没有执行中的 Run/);
-  assert.match(css, /\.bot-shell-grid \{[\s\S]{0,220}grid-template-columns: 260px minmax\(0, 1fr\) var\(--bot-ops, 248px\);/);
+  assert.match(css, /\.bot-shell-grid \{[\s\S]{0,420}grid-template-columns: 260px minmax\(0, 1fr\) var\(--bot-ops, 248px\);/);
+  assert.match(css, /grid-template-areas: "roster conversation ops"/);
+  assert.match(css, /\.bot-shell-grid\.is-ops-collapsed \{/);
+  assert.match(css, /\.bot-ops-rail-header \{/);
+  assert.match(css, /\.bot-active-run\.is-current \{[\s\S]*inset 2px 0 0/);
+  assert.match(css, /\.bot-agent-row\.is-active \{[\s\S]*inset 2px 0 0/);
   assert.doesNotMatch(css, /\.bot-shell\.is-panel-open \.bot-shell-grid/);
   assert.match(css, /\.bot-agent-panel \{ position: absolute;[\s\S]{0,220}right: 0;[\s\S]{0,220}width: min\(340px/);
 });

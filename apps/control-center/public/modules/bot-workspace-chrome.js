@@ -3,6 +3,9 @@
  * 不渲染工作台 CSS，不把 workbench 当可导航表面。
  */
 import { ACTIVE_RUN_STATES, TERMINAL_RUN_STATES } from "../state.js";
+import { conversationListsRun } from "./conversation-run-ownership.js";
+
+export { conversationListsRun };
 
 export function retireWorkbenchView(view) {
   return view === "workbench" || view === "experience" ? "bot" : view;
@@ -12,13 +15,19 @@ export function isRetiredWorkbenchHash(hash) {
   return /^#\/?workbench(?:[/?]|$)/.test(String(hash || ""));
 }
 
-export function botConversationForRun(conversations = [], runId) {
-  const id = String(runId || "");
+export function botConversationForRun(conversations = [], runId, run = null) {
+  const id = String(runId || run?.id || "");
   if (!id) return null;
-  return conversations.find((item) => (
-    String(item?.activeRunId || "") === id
-    || (Array.isArray(item?.runIds) && item.runIds.map(String).includes(id))
-  )) || null;
+  const items = Array.isArray(conversations) ? conversations : [];
+  if (run?.conversationId) {
+    return items.find((item) => String(item?.id || "") === String(run.conversationId)) || null;
+  }
+  const claimed = items.filter((item) => conversationListsRun(item, id));
+  if (claimed.length === 1) return claimed[0];
+  if (claimed.length > 1) {
+    return claimed.find((item) => String(item?.activeRunId || "") === id) || claimed[0];
+  }
+  return null;
 }
 
 export const BOT_ACTIVE_RUNS_PREVIEW = 6;
