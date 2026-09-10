@@ -5,8 +5,17 @@ import {
   isRetiredWorkbenchHash,
   botConversationForRun,
   listActiveRuns,
+  listFinishedRuns,
+  listRecoverableRuns,
   botActiveRunsMarkup,
+  botActiveRunFiltersMarkup,
+  botActiveRunsToolbarMarkup,
   botRunStatusChip,
+  botRunAgentId,
+  groupActiveRuns,
+  botOpsApprovalsMarkup,
+  botMemberConnectionsMarkup,
+  botHostConnectionsMarkup,
   isWorkbenchViewActive,
   selectOptionsMarkup,
   normalizeComposerPermission,
@@ -31,12 +40,23 @@ test("chrome helpers remap retired workbench and render Bot folds", () => {
   assert.equal(botConversationForRun(conversations, "missing"), null);
 
   const runs = [
-    { id: "r1", status: "running", title: "正在写补丁" },
+    { id: "r1", status: "running", title: "正在写补丁", startAgentId: "codex-technical", updatedAt: "2026-09-10T05:00:00.000Z" },
     { id: "r2", status: "completed", title: "已结束" },
     { id: "r3", status: "interrupted", title: "被打断的长标题".repeat(8) },
   ];
   assert.deepEqual(listActiveRuns(runs).map((run) => run.id), ["r1", "r3"]);
-  const markup = botActiveRunsMarkup(runs, { escapeHtml, selectedRunId: "r1" });
+  assert.deepEqual(listFinishedRuns(runs).map((run) => run.id), ["r2"]);
+  assert.deepEqual(listRecoverableRuns(runs).map((run) => run.id), ["r3"]);
+  assert.equal(botRunAgentId(runs[0]), "codex-technical");
+  const grouped = groupActiveRuns(runs);
+  assert.deepEqual(grouped.groups.map((group) => group.id), ["running", "warning"]);
+
+  const markup = botActiveRunsMarkup(runs, {
+    escapeHtml,
+    selectedRunId: "r1",
+    agentLabel: (id) => id === "codex-technical" ? "烛" : id,
+    formatRelative: () => "3 分钟前",
+  });
   assert.match(markup, /data-bot-active-run="r1"/);
   assert.match(markup, /is-current/);
   assert.match(markup, /data-bot-active-run="r3"/);
@@ -44,9 +64,26 @@ test("chrome helpers remap retired workbench and render Bot folds", () => {
   assert.match(markup, /bot-run-status-chip is-running/);
   assert.match(markup, />进行中</);
   assert.match(markup, />已中断</);
+  assert.match(markup, /bot-active-run-group-title">进行中/);
+  assert.match(markup, /bot-active-run-meta/);
+  assert.match(markup, />烛</);
+  assert.match(markup, />3 分钟前</);
   assert.doesNotMatch(markup, />interrupted</);
   assert.doesNotMatch(markup, />waiting_agent</);
   assert.doesNotMatch(markup, />recovery_required</);
+
+  const filters = botActiveRunFiltersMarkup(runs, { escapeHtml, filter: "running" });
+  assert.match(filters, /data-bot-run-filter="all"/);
+  assert.match(filters, /data-bot-run-filter="running"[^>]*is-active/);
+  assert.match(filters, /data-bot-run-filter="warning"/);
+  const filtered = botActiveRunsMarkup(runs, { escapeHtml, filter: "running" });
+  assert.match(filtered, /data-bot-active-run="r1"/);
+  assert.doesNotMatch(filtered, /data-bot-active-run="r3"/);
+
+  const toolbar = botActiveRunsToolbarMarkup(runs, { escapeHtml });
+  assert.match(toolbar, /data-bot-clear-finished/);
+  assert.match(toolbar, /清理已结束 · 1/);
+  assert.match(toolbar, /需恢复 1 项/);
 
   assert.equal(botRunStatusChip("waiting_agent").label, "等待中");
   assert.equal(botRunStatusChip("recovery_required").label, "需恢复");
@@ -66,6 +103,19 @@ test("chrome helpers remap retired workbench and render Bot folds", () => {
   const expanded = botActiveRunsMarkup(many, { escapeHtml, expanded: true });
   assert.match(expanded, /收起列表/);
   assert.equal([...expanded.matchAll(/data-bot-active-run="/g)].length, 8);
+
+  assert.match(
+    botOpsApprovalsMarkup([{ id: "a1", method: "tool", runId: "r1", status: "pending" }], { escapeHtml }),
+    /data-approval-id="a1"/,
+  );
+  assert.match(
+    botMemberConnectionsMarkup([{ id: "codex-technical", label: "烛", cli: "Codex", tone: "ok" }], { escapeHtml }),
+    /已连接/,
+  );
+  assert.match(
+    botHostConnectionsMarkup([{ id: "h1", name: "书房", user: "lo", host: "192.168.1.8", enabled: true }], { escapeHtml }),
+    /书房/,
+  );
 
   assert.match(
     selectOptionsMarkup([{ value: "plan", label: "只读计划" }], "plan", { escapeHtml }),

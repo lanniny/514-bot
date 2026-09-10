@@ -463,6 +463,7 @@
               <section class="bot-surface-panel bot-roster-scroll is-active" id="bot-surface-chats" role="tabpanel" aria-labelledby="bot-surface-tab-chats">
                 <section class="bot-active-runs" id="bot-active-runs" hidden>
                   <div class="bot-tree-section-title"><strong>正在工作</strong><span id="bot-active-runs-count"></span></div>
+                  <div id="bot-active-runs-toolbar"></div>
                   <div id="bot-active-runs-list"></div>
                 </section>
                 <div class="bot-roster-label" id="bot-roster-label">项目与会话</div>
@@ -476,9 +477,25 @@
                 <div class="bot-contact-list" id="bot-contact-list" role="list" aria-label="通讯录成员"></div>
                 <div class="bot-roster-empty" id="bot-contact-empty" hidden>没有匹配的成员</div>
               </section>
+              <section class="bot-ops-rail" id="bot-ops-rail" aria-label="工作台工具">
+                <div class="bot-tree-section-title"><strong>工具</strong></div>
+                <div class="bot-ops-chips" role="group" aria-label="协作台常用工具">
+                  <button type="button" data-bot-workspace-action="approvals"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-shield-check"></use></svg><span>审批</span><b id="bot-ops-approval-count" hidden></b></button>
+                  <button type="button" data-bot-workspace-action="browser"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-globe"></use></svg><span>浏览器</span></button>
+                  <button type="button" data-bot-workspace-action="git-commit"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-git-branch"></use></svg><span>提交</span></button>
+                  <button type="button" data-bot-workspace-action="git-push"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-upload"></use></svg><span>推送</span></button>
+                  <button type="button" data-bot-workspace-action="terminal"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-terminal"></use></svg><span>终端</span></button>
+                </div>
+                <details class="bot-ops-approvals" id="bot-ops-approvals" hidden>
+                  <summary>待处理审批</summary>
+                  <div id="bot-ops-approvals-list"></div>
+                </details>
+                <div class="bot-tree-section-title"><strong>成员电脑连接</strong><span id="bot-member-connections-count"></span></div>
+                <div id="bot-member-connections" class="bot-member-connections" aria-live="polite"></div>
+              </section>
               <footer class="bot-roster-footer">
                 <button type="button" class="bot-icon-button" data-bot-config-open="local-runtime" title="连接与运行配置" aria-label="连接与运行配置"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-settings"></use></svg></button>
-                <div class="workspace-secondary-navigation"><button type="button" data-workspace-view="terminal"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-terminal"></use></svg><span>终端</span></button><button type="button" data-workspace-view="config"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-settings"></use></svg><span>设置</span></button></div>
+                <div class="workspace-secondary-navigation"><button type="button" data-bot-workspace-action="terminal"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-terminal"></use></svg><span>终端</span></button><button type="button" data-workspace-view="config"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-settings"></use></svg><span>设置</span></button></div>
               </footer>
             </aside>
 
@@ -528,6 +545,18 @@
                   <div class="bot-composer-footer"><span class="bot-orchestration-pick" id="bot-orchestration-pick" role="radiogroup" aria-label="编排模式"><button class="bot-orchestration-option is-active" type="button" data-orchestration-pick="pipeline" role="radio" aria-checked="true" title="流水线：单线执行（默认）">流水线</button><button class="bot-orchestration-option" type="button" data-orchestration-pick="social" role="radio" aria-checked="false" title="社会模拟：成员间消息驱动协作">社会模拟</button></span><span id="workspace-permission"></span><select id="workspace-next-permission" aria-label="新运行权限"><option value="plan">只读计划</option><option value="review">只读规划</option><option value="build">受控写入</option></select><label class="workspace-budget-label" for="workspace-next-budget">预算</label><select id="workspace-next-budget" aria-label="新运行单轮预算（美元）"><option value="2">$2.00</option><option value="3">$3.00</option><option value="5" selected>$5.00</option><option value="10">$10.00</option><option value="20">$20.00</option><option value="50">$50.00</option></select><span id="bot-cli-pulse" class="bot-cli-pulse" aria-label="CLI 席位状态"></span><span id="workspace-admission" role="status"></span><span id="workspace-connection" class="workspace-connection" role="status"></span></div>
                 </details>
               </form>
+              <section class="terminal-drawer bot-terminal-drawer" id="bot-terminal-drawer" aria-label="底部终端" hidden>
+                <div class="terminal-drawer-grip" id="bot-terminal-grip" role="separator" aria-orientation="horizontal" tabindex="0" title="拖动调整终端高度 · 双击复位 · ↑↓ 步进"></div>
+                <header class="terminal-drawer-head">
+                  <span class="terminal-drawer-title">
+                    <svg class="icon lucide" aria-hidden="true"><use href="#lucide-square-terminal"></use></svg>
+                    <strong>底部终端</strong>
+                    <em id="bot-terminal-cwd"></em>
+                  </span>
+                  <button class="terminal-drawer-close" id="bot-terminal-close" type="button" title="关闭底部终端（Ctrl+`）" aria-label="关闭底部终端"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-x"></use></svg></button>
+                </header>
+                <div class="terminal-drawer-body" id="bot-terminal-container"></div>
+              </section>
             </section>
             <dialog class="workspace-members-dialog" id="workspace-members-dialog" aria-labelledby="workspace-members-title">
               <form>

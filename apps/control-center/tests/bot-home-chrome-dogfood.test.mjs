@@ -20,10 +20,10 @@ test("Bot roster has a real scroll container so 项目协作室 is not clipped",
   assert.match(html, /id="bot-roster-label">项目与会话</);
   assert.match(css, /\.bot-roster \{\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;/);
   assert.match(css, /\.bot-roster-scroll \{\n  overflow-x: hidden;\n  overflow-y: auto;/);
-  assert.match(css, /\.bot-active-runs \{[\s\S]*max-height: min\(32vh, 240px\);/);
+  assert.match(css, /\.bot-active-runs \{[\s\S]*max-height: min\(42vh, 360px\);/);
   assert.match(css, /#bot-active-runs-list \{[\s\S]*overflow-y: auto;/);
   assert.match(grok, /html\.is-bot-grok-face #view-bot \.bot-roster-scroll/);
-  assert.match(grok, /html\.is-bot-grok-face #view-bot \.bot-active-runs \{[\s\S]*max-height: min\(32vh, 240px\);/);
+  assert.match(grok, /html\.is-bot-grok-face #view-bot \.bot-active-runs \{[\s\S]*max-height: min\(42vh, 360px\);/);
   assert.doesNotMatch(grok, /@media \(max-width: (?!560px|820px)\d+px\)/);
 });
 
@@ -40,7 +40,12 @@ test("Bot home top icons have destinations after workbench retirement", async ()
   assert.match(html, /id="global-mc-toggle"[^>]+aria-label="打开会话详情"/);
   assert.match(app, /function handleBotHomeTerminalToggle\(/);
   assert.match(app, /function handleBotHomePanelToggle\(/);
-  assert.match(app, /setView\(state\.view === "terminal" \? "bot" : "terminal"\)/);
+  assert.match(app, /botTerminalDock\?\.toggle\?\.\(\)/);
+  assert.doesNotMatch(app, /setView\(state\.view === "terminal" \? "bot" : "terminal"\)/);
+  assert.match(html, /id="bot-terminal-drawer"/);
+  assert.match(html, /id="bot-ops-rail"/);
+  assert.match(html, /data-bot-workspace-action="approvals"/);
+  assert.match(html, /成员电脑连接/);
   assert.match(app, /botSetPanel\(open, byId\("bot-agent-info-button"\)\)/);
   assert.match(app, /writeRosterCollapsed\(collapsed\)/);
   assert.match(app, /applyRosterCollapsed\(collapsed\)/);
