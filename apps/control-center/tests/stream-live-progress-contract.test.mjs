@@ -27,6 +27,8 @@ test("live process rows render from codexActivity started entries", async () => 
   // 等的是人（审批/恢复/问答）时不挂转圈假活
   assertIncludes(mod, 'if (run.status === "waiting_approval" || run.status === "recovery_required" || run.pendingAsk) return ""; // 等的是人：在途 item 已暂停，不挂转圈假活');
   assertIncludes(mod, 'data-stream-key="tail:live-items"');
+  assertIncludes(mod, 'class="bot-live-process"');
+  assertIncludes(mod, 'class="bot-process-toggle">过程');
   assertIncludes(mod, 'lucideIcon("loader-circle", "icon forge-spin", 13)');
   // 行内时长复用秒级走时（tickLiveElapsed），不靠重渲
   assertIncludes(mod, 'data-live-since="${escapeHtml(entry.since)}"');

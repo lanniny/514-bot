@@ -164,6 +164,8 @@ test("Bot and workbench settlement surfaces render the card and keep link target
   assert.match(settlement, /valueProofCardMarkup\(/);
   assert.match(app, /from "\.\/modules\/value-proof-card\.js"/);
   assert.match(app, /function botValueProofStreamMarkup\(/);
+  assert.match(app, /class="bot-proof-fold"/);
+  assert.match(app, /class="bot-proof-summary">详情/);
   assert.match(app, /function openValueProofTarget\(/);
   assert.match(app, /botWorkspace\?\.setTab/);
   assert.match(app, /botWorkspace\.setTab\("results"\)/);

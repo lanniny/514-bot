@@ -212,6 +212,7 @@ test("Default Bot face is the Grok-like dark shell without dropping capabilities
   assert.match(module, /applyBotFacePreference/);
   assert.match(face, /html\.is-bot-grok-face #view-bot \{/);
   assert.match(face, /--bot-grok-canvas:/);
+  assert.match(face, /html\.is-bot-grok-face\[data-theme="light"\]/);
   assert.match(face, /grid-template-columns: var\(--bot-grok-rail\) var\(--bot-grok-roster\) minmax\(0, 1fr\)/);
   assert.match(face, /\.bot-composer-row \{[\s\S]*border-radius: 28px/);
   assert.match(face, /html\.is-bot-grok-face body\.team-bg-active #view-bot/);
@@ -1032,11 +1033,9 @@ test("Bot messages keep coherent Markdown, visible identities, compact activity 
   assert.match(timeline, /function botConversationMessagesMarkup\(messages\)/);
   assert.match(timeline, /function botActivityGroupMarkup\(messages, timelineMarkup = ""\)/);
   assert.match(timeline, /function botActivitySegmentMarkup\(messages\)/);
-  assert.match(timeline, /let activityStarted = false/);
-  assert.match(timeline, /timeline\.push\(botActivitySegmentMarkup\(segment\)\)/);
-  assert.match(timeline, /botActivityGroupMarkup\(activity, timeline\.join\(""\)\)/);
+  assert.match(timeline, /out\.push\(botActivityGroupMarkup\(segment\)\)/);
   assert.match(timeline, /function botActivityPhases\(messages\)/);
-  assert.match(timeline, /<strong>协作过程<\/strong>/);
+  assert.match(timeline, /<strong>思考过程<\/strong>/);
   assert.match(timeline, /processCardMarkup\(message, key\)/);
   assert.match(app, /operatorAvatarMarkup\(\{/);
   assert.match(css, /\.bot-activity-group/);

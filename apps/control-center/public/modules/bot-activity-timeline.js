@@ -107,45 +107,36 @@ export function createBotActivityTimeline({
     const items = messages.filter(Boolean);
     if (!items.length) return timelineMarkup;
     const itemCount = items.reduce((sum, item) => sum + botActivityItemCount(item), 0);
-    const memberCount = new Set(items.map(botActivityAgentId).filter(Boolean)).size;
-    const last = items.at(-1);
-    // 聊天化收纳（2026-09-09）：思考/工具/文件改动等中间过程默认折叠成一行摘要，
-    // 消息流直接呈现最终结果；点开摘要才展开过程时间线（details 原生语义，
+    // 对话默认（2026-09-10）：思考/工具/文件改动等引擎过程收成一行安静控件，
+    // 消息流只呈现人话回合；点开「思考过程」才展开时间线（details 原生语义，
     // reconcileMessageMarkup 对 DETAILS 保留 open 态，流式更新不打断用户展开）。
-    return `<details class="bot-activity-group" data-bot-activity-count="${itemCount}" aria-label="协作过程">
-    <summary class="bot-activity-summary"><span class="bot-activity-icon">${lucideIcon("workflow", "icon lucide")}</span><span><strong>协作过程</strong><small>思考、工具调用与文件改动已收纳——点开核对</small></span><b>${memberCount ? `${memberCount} 位 · ` : ""}${itemCount} 条</b><time>${escapeHtml(formatTime(last?.created_at || last?.timestamp))}</time><svg class="icon lucide bot-activity-group-chevron" aria-hidden="true"><use href="#lucide-chevron-down"></use></svg></summary>
+    return `<details class="bot-activity-group" data-bot-activity-count="${itemCount}" aria-label="思考过程">
+    <summary class="bot-activity-summary"><span class="bot-activity-icon">${lucideIcon("ellipsis", "icon lucide")}</span><span><strong>思考过程</strong></span><b>${itemCount}</b><svg class="icon lucide bot-activity-group-chevron" aria-hidden="true"><use href="#lucide-chevron-down"></use></svg></summary>
     <div class="bot-activity-timeline">${timelineMarkup || botActivitySegmentMarkup(items)}</div>
   </details>`;
   }
 
   function botConversationMessagesMarkup(messages) {
-    const prefix = [];
-    const timeline = [];
-    const activity = [];
+    const out = [];
     let segment = [];
-    let activityStarted = false;
     let previousMessage = null;
     const flushSegment = () => {
       if (!segment.length) return;
-      activity.push(...segment);
-      timeline.push(botActivitySegmentMarkup(segment));
+      out.push(botActivityGroupMarkup(segment));
       segment = [];
-      previousMessage = null;
     };
     for (const message of messages) {
       if (botActivityMessage(message)) {
-        activityStarted = true;
         segment.push(message);
         continue;
       }
       flushSegment();
       const markup = botEventMarkup(message, previousMessage);
-      if (markup) (activityStarted ? timeline : prefix).push(markup);
+      if (markup) out.push(markup);
       previousMessage = message;
     }
     flushSegment();
-    if (activity.length) prefix.push(botActivityGroupMarkup(activity, timeline.join("")));
-    return prefix.join("");
+    return out.join("");
   }
 
   return {

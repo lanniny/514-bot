@@ -254,7 +254,9 @@ export function createRunLiveActivity({
           + `<code class="process-summary-text">${escapeHtml(redact(target))}</code>${since}</div>`;
       })
       .join("");
-    return rows ? `<div class="live-process-rows" data-stream-key="tail:live-items">${rows}</div>` : "";
+    return rows
+      ? `<details class="bot-live-process" data-stream-key="tail:live-items"><summary class="bot-process-toggle">过程</summary><div class="live-process-rows">${rows}</div></details>`
+      : "";
   }
 
   // 本次交互的文件变更累加器（runId → {files: Map(path→{change,add,del}), add, del}）。
