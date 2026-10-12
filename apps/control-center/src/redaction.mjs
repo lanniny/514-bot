@@ -297,6 +297,32 @@ export function sanitizeForPersistence(value, key = "") {
   return sanitizeNode(value, key, new WeakSet(), 0);
 }
 
+/**
+ * 高置信凭据格式层：只按「格式」识别（前缀型 key / PEM / Bearer / Basic / JWT），
+ * 不做赋值型与 URL userinfo 启发式。与 findSecretCandidates 共用同一份
+ * secretPatterns，不另立模式库。
+ *
+ * 为什么需要单独一层（2026-09-18）：findSecretCandidates 的赋值型判据是为
+ * **配置文件**设计的（键名 + 字面值），套到任意源码上误报率过高——实测
+ * `const token = "${process.env.TOKEN}"`（redaction 自己推荐的安全写法）都会
+ * 被判为 secret-like literal。一个会拦掉官方推荐写法的闸门，最终只会被关掉，
+ * 所以：配置类文件走完整判据，源码/文档走本层。
+ */
+export function findHighConfidenceSecrets(content) {
+  const text = String(content);
+  const hits = [];
+  let boundary = findPrivateKeyBoundary(text);
+  while (boundary && boundary.type !== "BEGIN") {
+    boundary = findPrivateKeyBoundary(text, boundary.end);
+  }
+  if (boundary) hits.push("private key material");
+  for (const { name, pattern } of secretPatterns) {
+    const tester = new RegExp(pattern.source, pattern.flags.replace("g", ""));
+    if (tester.test(text)) hits.push(name);
+  }
+  return hits;
+}
+
 export function findSecretCandidates(content) {
   const blockers = new Set();
   let privateBoundary = findPrivateKeyBoundary(content);

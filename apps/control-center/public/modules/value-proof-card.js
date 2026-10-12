@@ -102,11 +102,31 @@ function projectEvidence(settlement) {
 
 function projectDelta(settlement) {
   if (!settlement || typeof settlement !== "object") return null;
-  const count = artifactsOf(settlement).filter((item) => asText(item.kind).toLowerCase() === "delta").length;
-  if (!count) {
+  const cards = artifactsOf(settlement).filter((item) => asText(item.kind).toLowerCase() === "delta");
+  if (!cards.length) {
     return { id: "delta", label: "DELTA", value: "这次没有 DELTA 账本", count: 0, empty: true };
   }
-  return { id: "delta", label: "DELTA", value: `${count} 条收获证明`, count, empty: false };
+  // 有归属数据时说出「谁做了什么」，而不是只报张数。
+  // agent/score 由 run-artifacts 投影带出（handoff 卡无此三项）。
+  const scored = cards.filter((item) => Number.isInteger(item.score));
+  const agents = [...new Set(cards.map((item) => asText(item.agent)).filter(Boolean))];
+  const overturns = scored.filter((item) => item.score === 2).length;
+  if (!scored.length) {
+    // 旧契约（无 agent/score）：不编造，如实退回张数口径
+    return { id: "delta", label: "DELTA", value: `${cards.length} 条收获证明`, count: cards.length, empty: false };
+  }
+  const parts = [`${cards.length} 条收获证明`];
+  if (overturns > 0) parts.push(`${overturns} 次推翻主驾判断`);
+  if (agents.length) parts.push(agents.join(" / "));
+  return {
+    id: "delta",
+    label: "DELTA",
+    value: parts.join(" · "),
+    count: cards.length,
+    overturns,
+    agents,
+    empty: false,
+  };
 }
 
 function projectHandoff(run, settlement) {
@@ -197,9 +217,10 @@ export function valueProofCardMarkup(model, { surface = "bot", variant = "settle
   const cardClass = isBot
     ? `bot-card bot-value-proof-card is-${escapeHtml(variant)}`
     : `value-proof-card is-${escapeHtml(variant)}`;
-  const signals = (model.signals || []).map((signal) => (
-    `<span class="value-proof-chip${signal.empty ? " is-empty" : ""}" data-value-proof-signal="${escapeHtml(signal.id)}"><small>${escapeHtml(signal.label)}</small><b>${escapeHtml(signal.value)}</b></span>`
-  )).join("");
+  const signals = (model.signals || []).map((signal) => {
+    const extraAttr = signal.overturns > 0 ? ' data-has-overturns="true"' : "";
+    return `<span class="value-proof-chip${signal.empty ? " is-empty" : ""}" data-value-proof-signal="${escapeHtml(signal.id)}"${extraAttr}><small>${escapeHtml(signal.label)}</small><b>${escapeHtml(signal.value)}</b></span>`;
+  }).join("");
   const links = (model.links || []).map((link) => (
     `<button class="${isBot ? "bot-text-button" : "text-button"}" type="button" data-value-proof-open="${escapeHtml(link.id)}" data-value-proof-dest="${escapeHtml(link.dest)}" data-run-id="${escapeHtml(model.runId || "")}">${escapeHtml(link.label)}</button>`
   )).join("");

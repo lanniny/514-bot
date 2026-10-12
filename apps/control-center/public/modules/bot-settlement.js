@@ -141,7 +141,10 @@ export function createBotSettlement({
       ? `<button class="bot-text-button" type="button" data-bot-settlement-diff="${escapeHtml(runId)}">查看产物 diff</button>`
       : "";
     const saveSkillAction = isSucceededRun(run) ? saveSkillActionMarkup(runId) : "";
-    const actions = [diffAction, saveSkillAction].filter(Boolean).join("");
+    const distillWorkflowAction = isSucceededRun(run)
+      ? `<button class="bot-text-button" type="button" data-bot-distill-workflow="${escapeHtml(runId)}">沉淀为工作流</button>`
+      : "";
+    const actions = [diffAction, saveSkillAction, distillWorkflowAction].filter(Boolean).join("");
     const valueProof = isSucceededRun(run)
       ? valueProofCardMarkup(projectValueProof({
         run,
@@ -149,12 +152,27 @@ export function createBotSettlement({
         events: eventsForRun(runId),
       }), { surface: "bot", variant: "settlement" })
       : "";
+    const checkpoints = envelope.checkpoints;
+    const checkpointsMarkup = checkpoints && Array.isArray(checkpoints.items) && checkpoints.items.length > 0
+      ? `<div class="bot-settlement-checkpoints"><div class="bot-settlement-section-head"><strong>研究检查点</strong><span>${escapeHtml(checkpoints.latestPhaseLabel || checkpoints.latestPhase || "")} · ${Number(checkpoints.progress || 0)}%</span></div><div class="bot-checkpoint-steps">${checkpoints.items.map((cp) => `<span class="bot-checkpoint-step is-${escapeHtml(cp.status || "completed")}"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-check"></use></svg>${escapeHtml(cp.phaseLabel || cp.phase)}</span>`).join("")}</div></div>`
+      : "";
+    const evidenceMatrix = envelope.evidenceMatrix;
+    const matrixMarkup = evidenceMatrix && Array.isArray(evidenceMatrix.items) && evidenceMatrix.items.length > 0
+      ? `<div class="bot-settlement-evidence-matrix"><div class="bot-settlement-section-head"><strong>结构化证据汇总</strong><span>${Number(evidenceMatrix.verifiedCount || 0)} / ${Number(evidenceMatrix.totalCount || 0)} 已核对</span></div><div class="bot-evidence-chips">${Object.entries(evidenceMatrix.byType || {}).filter(([, count]) => count > 0).map(([type, count]) => `<span class="bot-evidence-chip type-${escapeHtml(type)}"><small>${escapeHtml(type.toUpperCase())}</small><b>${count}</b></span>`).join("")}</div></div>`
+      : "";
+    const deliverable = envelope.deliverable;
+    const deliverableMarkup = deliverable && deliverable.summary
+      ? `<div class="bot-settlement-deliverable"><div class="bot-settlement-section-head"><strong>统一交付成果</strong><span>${escapeHtml(deliverable.title || "")}</span></div><p class="bot-deliverable-summary">${escapeHtml(deliverable.summary)}</p></div>`
+      : "";
     return `<article class="bot-card bot-settlement-card is-dynamic is-${escapeHtml(botSettlementAvailabilityClass(verdict))}" data-bot-card="settlement" data-bot-card-source="settlement" data-run-id="${escapeHtml(runId)}" data-settlement-state="${settlementState}" data-settlement-verdict="${escapeHtml(verdict)}">
     <div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-git-branch"></use></svg></span><div><strong>${heading}</strong><span>run ${escapeHtml(runId)} · ${escapeHtml(verdictLabel)}</span></div><span class="bot-card-state ${verdict === "reviewable" ? "is-complete" : settlementState === "blocked" ? "is-error" : "is-waiting"}">${escapeHtml(verdict)}</span></div>
     ${valueProof}
     <p class="bot-card-copy">${escapeHtml(nextAction)}</p>
     <div class="bot-settlement-meta"><span>${escapeHtml(envelope.isolation || "unknown")}</span>${diffSummary ? `<span>${escapeHtml(diffSummary)}</span>` : ""}<span>自动落地关闭</span></div>
     ${risks.length ? `<ul class="bot-settlement-risks">${risks.map((risk) => `<li>${escapeHtml(redact(String(risk?.reason || risk?.id || "风险未知")).slice(0, 180))}</li>`).join("")}</ul>` : ""}
+    ${checkpointsMarkup}
+    ${matrixMarkup}
+    ${deliverableMarkup}
     <div class="bot-settlement-artifacts"><div class="bot-settlement-section-head"><strong>证据产物</strong><span>${artifacts.length ? `${artifacts.length} 项` : "暂无"}</span></div>${artifacts.length ? `<ul class="bot-artifact-list">${artifacts.map(botSettlementArtifactMarkup).join("")}</ul>` : `<p class="bot-settlement-empty">当前结算没有可显示的 artifact；不会虚构发布状态。</p>`}</div>
     ${actions ? `<div class="bot-card-actions bot-settlement-actions">${actions}</div>` : ""}
   </article>`;

@@ -19,6 +19,18 @@ async function fixture({ teamCatalog = null, knownProviders = KNOWN, knownCoordi
   return { root, store };
 }
 
+test("direct snapshot needs an executable member but no group coordinator; groups remain strict", async (t) => {
+  const { root, store } = await fixture({ knownProviders: ["text-only"], knownCoordinators: [] });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const direct = store.materializeDirect("text-only");
+  assert.deepEqual(direct.members, ["text-only"]);
+  assert.equal(direct.coordinator, "text-only");
+  assert.equal(direct.ephemeral, true);
+  assert.throws(() => store.materializeDirect("unknown"));
+  assert.throws(() => store.materializeEphemeral({ name: "group", members: ["text-only"], coordinator: "text-only" }));
+  assert.ok(!store.list().some((item) => item.id === direct.id));
+});
+
 test("builtin 514cc team is always listed first and is frozen against update and delete", async () => {
   const { root, store } = await fixture();
   try {

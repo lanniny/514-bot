@@ -94,7 +94,10 @@ test("purgeDeleted removes only deletion tombstones with store-level CAS", async
   assert.ok(store.get(hidden.id).hiddenAt, "hidden conversation must not be purged");
 });
 
-test("purgeDeleted preserves tombstones that still own run history", async (t) => {
+test("purgeDeleted without a liveness predicate fails closed on tombstones that own a run", async (t) => {
+  // 这条钉的是**缺判据时的保守口径**，不是"有 run 历史所以保留"——
+  // 2026-10-11 起保留判据只看 run 此刻是否活着（见 conversations-purge-liveness.test.mjs），
+  // run 历史 alone 不再拦清空。名字如实反映它守的东西。
   const dataRoot = await fixture(t);
   const store = await new ConversationStore({ dataRoot }).init();
   const deleted = await store.create({ kind: "direct", title: "Has history", directMemberId: "codex-technical" });
@@ -102,7 +105,7 @@ test("purgeDeleted preserves tombstones that still own run history", async (t) =
   const tombstone = await store.remove(deleted.id, { expectedRevision: deleted.revision + 1 });
   const result = await store.purgeDeleted({ expectedStoreRevision: store.status().revision });
   assert.equal(result.purged, 0);
-  assert.deepEqual(result.skipped, [{ conversationId: deleted.id, reason: "active-run" }]);
+  assert.deepEqual(result.skipped, [{ conversationId: deleted.id, reason: "active-run", runId: "run-audit" }]);
   assert.equal(store.get(deleted.id).deletedAt, tombstone.deletedAt);
 });
 
@@ -227,6 +230,18 @@ test("workspace duplicates require a new directory and do not copy run state", a
   assert.equal(duplicate.sourceConversationId, source.id);
   assert.deepEqual(duplicate.runIds, []);
   assert.equal(duplicate.activeRunId, null);
+
+  const forked = await store.fork(source.id, { title: "Forked Branch" });
+  assert.equal(forked.sourceConversationId, source.id);
+  assert.deepEqual(forked.runIds, ["run-source"]);
+  assert.equal(forked.activeRunId, "run-source");
+
+  await store.attachRun(source.id, "run-second");
+  const forkedPartial = await store.fork(source.id, { upToRunId: "run-source" });
+  assert.deepEqual(forkedPartial.runIds, ["run-source"]);
+  assert.equal(forkedPartial.activeRunId, "run-source");
+
+  await assert.rejects(store.fork(source.id, { upToRunId: "nonexistent" }), { code: "RUN_NOT_FOUND" });
 });
 
 test("archived projects seal conversation and run creation until restored", async (t) => {

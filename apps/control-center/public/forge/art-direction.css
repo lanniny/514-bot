@@ -351,6 +351,7 @@ body.atelier .topbar {
   min-height: clamp(210px, 31vh, 380px);
   place-content: end start;
   padding: clamp(24px, 5vw, 72px);
+  pointer-events: none;
 }
 
 #view-team .team-hero::before {
@@ -364,6 +365,7 @@ body.atelier .topbar {
     inset 0 0 0 32px color-mix(in oklab, var(--forge-copper) 3%, transparent),
     inset 0 0 0 96px color-mix(in oklab, var(--forge-copper) 2%, transparent);
   content: "";
+  pointer-events: none;
 }
 
 #view-team .team-hero-eyebrow,
@@ -431,11 +433,6 @@ body.atelier .topbar {
   backdrop-filter: none;
 }
 
-#view-workbench .run-rail {
-  background:
-    linear-gradient(180deg, color-mix(in oklab, var(--forge-copper) 5%, transparent), transparent 28%),
-    color-mix(in oklab, var(--forge-paper-deep) 72%, transparent);
-}
 
 #view-workbench .conversation-pane,
 #view-workbench .conversation-heading,
@@ -1003,4 +1000,48 @@ body.atelier .topbar {
   font-size: var(--display-xs);
   letter-spacing: var(--tracking-display);
   line-height: 1.15;
+}
+
+/* ============ 活体环境氛围暗膜自适应（Living Ambient & Wallpaper Veil - RareUI 规范） ============
+ * 在开启自定义或预设动态壁纸时，为主内容阅读区注入径向羽化暗膜与微触感，
+ * 确保 7:1 超高对比度，同时保持背景光影透射感。 */
+body.team-bg-active .bot-message-stream,
+body.team-bg-active .conversation-stream {
+  position: relative;
+}
+
+body.team-bg-active .bot-message-stream::before,
+body.team-bg-active .conversation-stream::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    ellipse at 50% 30%,
+    transparent 0%,
+    color-mix(in oklab, var(--background, var(--surface)) 18%, transparent) 70%,
+    color-mix(in oklab, var(--background, var(--surface)) 32%, transparent) 100%
+  );
+  opacity: 0.85;
+}
+
+body.team-bg-active .bot-message-stream > *,
+body.team-bg-active .conversation-stream > * {
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.team-bg-active .bot-message-stream::before,
+  body.team-bg-active .conversation-stream::before {
+    opacity: 1;
+    background: color-mix(in oklab, var(--background, var(--surface)) 28%, transparent);
+  }
+}
+
+:root[data-motion="reduce"] body.team-bg-active .bot-message-stream::before,
+:root[data-motion="reduce"] body.team-bg-active .conversation-stream::before {
+  opacity: 1;
+  background: color-mix(in oklab, var(--background, var(--surface)) 28%, transparent);
 }

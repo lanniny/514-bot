@@ -10,7 +10,14 @@ import { createInterface } from "node:readline";
 import { childProcessEnv, spawnCommand } from "./process-runner.mjs";
 
 const DELTA_LINE = /^__DELTA__:\s*(.+)\s*$/;
-const FIRE_PREFIXES = ["codex-to-", "gemini-to-", "grok-to-"];
+// 外部发火前缀的**真源** = .claude/hooks/handoff-sources.json（与 stop-gate / mirror-gate 同一份）。
+// 历史：此处曾是硬编码 ["codex-to-","gemini-to-","grok-to-"]，Kimi(2026-07-19) 与
+// 衡/antigravity(2026-09-17) 收编后未同步 → 界面上的「距上次真实外部发火」长期偏大
+// （Kimi 的 11 份 handoff 全部漏计）。改成读注册表后，新增席位不必再手改这里。
+//
+// `multi-agent-synthesis` 显式排除：synthesis__ 是主驾自审汇总，算进"外部发火"等于让
+// 这个指标撒谎（自审有余正是体系病灶）。mirror-gate.py 用同一份排除名单，两处口径一致。
+const FIRE_EXCLUDED_SOURCES = new Set(["multi-agent-synthesis"]);
 
 async function* logLines(path) {
   const input = createReadStream(path, { encoding: "utf8" });
@@ -63,6 +70,32 @@ export class ObservabilityService {
     this.aiSharedRoot = aiSharedRoot;
     this.repoRoot = repoRoot;
     this.driftBusy = false;
+    this.firePrefixes = null; // 惰性从注册表读；见 #firePrefixes()
+  }
+
+  /**
+   * 外部发火前缀（排除自审类源）。真源 = .claude/hooks/handoff-sources.json。
+   * 注册表缺失/损坏时返回 []（识别不出任何发火）——**不退回硬编码兜底**：
+   * "识别不出"会让 lastFire 为空、界面如实显示"未知"，比用陈旧列表假装正常更诚实。
+   * 读一次即缓存（注册表在进程生命周期内不变）。
+   */
+  async #firePrefixes() {
+    if (this.firePrefixes) return this.firePrefixes;
+    const prefixes = [];
+    try {
+      const registryPath = join(this.repoRoot, ".claude", "hooks", "handoff-sources.json");
+      const raw = JSON.parse(await readFile(registryPath, "utf8"));
+      for (const item of Array.isArray(raw?.sources) ? raw.sources : []) {
+        if (!item || typeof item !== "object" || FIRE_EXCLUDED_SOURCES.has(item.id)) continue;
+        for (const prefix of Array.isArray(item.prefixes) ? item.prefixes : []) {
+          if (typeof prefix === "string" && prefix) prefixes.push(prefix);
+        }
+      }
+    } catch {
+      // 注册表不可读 → 空表（见上方注释：不兜底）
+    }
+    this.firePrefixes = prefixes;
+    return prefixes;
   }
 
   async routeGate({ days = 7, recent = 40 } = {}) {
@@ -167,14 +200,26 @@ export class ObservabilityService {
     };
   }
 
+  /**
+   * handoff 清单（最近 limit 条）+ 真实总数。
+   *
+   * ⚠️ 为什么把 total 单独带出来：本方法**按设计**截断到 limit，调用方过去只看
+   * `handoffs.length`，于是「前 120 条」被当成「一共 120 份」渲染到协作台英雄统计上
+   * （`public/collab-flow.js` → 「累计 N 份 handoff」）。实测磁盘 182 份而界面显示 120。
+   * 截断本身是对的（有界传输），**把截断值当总数才是错的**。
+   * 返回结构从裸数组改为 { handoffs, total, truncated, limit }，让"被截断"成为
+   * 可判定的数据，而不是要调用方去猜。
+   */
   async handoffs({ limit = 120, strict = false } = {}) {
     const files = await this.#handoffFiles({ strict });
     files.sort((a, b) => b.mtimeMs - a.mtimeMs);
-    return files.slice(0, limit).map((file) => ({
+    const firePrefixes = await this.#firePrefixes();
+    const total = files.length;
+    const handoffs = files.slice(0, limit).map((file) => ({
       name: file.name,
       size: file.size,
       modifiedAt: new Date(file.mtimeMs).toISOString(),
-      direction: FIRE_PREFIXES.some((prefix) => file.name.startsWith(prefix))
+      direction: firePrefixes.some((prefix) => file.name.startsWith(prefix))
         ? "external-fire"
         : file.name.startsWith("claude-to-")
           ? "dispatch"
@@ -182,6 +227,7 @@ export class ObservabilityService {
             ? "synthesis"
             : "other",
     }));
+    return { handoffs, total, truncated: total > handoffs.length, limit };
   }
 
   async handoffContent(name) {
@@ -208,7 +254,7 @@ export class ObservabilityService {
       this.handoffs({ limit: 500 }),
     ]);
     let daysSinceLastFire = null;
-    const lastFire = handoffs.find((item) => item.direction === "external-fire");
+    const lastFire = handoffs.handoffs.find((item) => item.direction === "external-fire");
     if (lastFire) {
       daysSinceLastFire = Math.floor((Date.now() - Date.parse(lastFire.modifiedAt)) / 86_400_000);
     }
@@ -221,7 +267,8 @@ export class ObservabilityService {
         available: routeGate.available,
       },
       delta: { total: delta.total, byScore: delta.byScore },
-      handoffs: { total: handoffs.length, lastFire: lastFire?.name || null, daysSinceLastFire },
+      // total 用真实总数（不再用截断后的 length）；latest 段仍由最近 500 条得出。
+      handoffs: { total: handoffs.total, lastFire: lastFire?.name || null, daysSinceLastFire },
     };
   }
 
@@ -234,7 +281,7 @@ export class ObservabilityService {
       this.deltaLedger({ recent: 5 }),
       this.handoffs({ limit: 500 }),
     ]);
-    const lastFire = handoffs.find((item) => item.direction === "external-fire");
+    const lastFire = handoffs.handoffs.find((item) => item.direction === "external-fire");
     const daysSinceLastFire = lastFire ? Math.floor((Date.now() - Date.parse(lastFire.modifiedAt)) / 86_400_000) : null;
     // numeric 表示至少已有这么多条确认 no；若没有确认 no 但仍有 unknown，则不能假报 0。
     // summoned breakdown 保留完整三态，供体检 agent 判断待对账规模。
@@ -256,7 +303,7 @@ export class ObservabilityService {
         summoned: routeGate.summoned,
       },
       delta: { total: delta.total, byScore: delta.byScore, recent: delta.recent },
-      handoffs: { total: handoffs.length, lastFire: lastFire?.name ?? null, daysSinceLastFire },
+      handoffs: { total: handoffs.total, lastFire: lastFire?.name ?? null, daysSinceLastFire },
     };
   }
 

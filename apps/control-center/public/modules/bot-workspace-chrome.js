@@ -4,6 +4,7 @@
  */
 import { ACTIVE_RUN_STATES, TERMINAL_RUN_STATES } from "../state.js";
 import { conversationListsRun } from "./conversation-run-ownership.js";
+import { COLLAB_STATUS, collabStatusOf, COLLAB_SEMANTICS } from "./collab/collab-status.js";
 
 export { conversationListsRun };
 
@@ -32,29 +33,15 @@ export function botConversationForRun(conversations = [], runId, run = null) {
 
 export const BOT_ACTIVE_RUNS_PREVIEW = 6;
 
-export const BOT_RUN_STATUS_CHIPS = Object.freeze({
-  queued: { label: "排队中", tone: "waiting" },
-  waiting_agent: { label: "等待中", tone: "waiting" },
-  waiting_user: { label: "等待中", tone: "waiting" },
-  waiting_input: { label: "等待中", tone: "waiting" },
-  waiting: { label: "等待中", tone: "waiting" },
-  waiting_approval: { label: "待审批", tone: "attention" },
-  waiting_for_approval: { label: "待审批", tone: "attention" },
-  planning: { label: "规划中", tone: "running" },
-  executing: { label: "进行中", tone: "running" },
-  integrating: { label: "进行中", tone: "running" },
-  verifying: { label: "验证中", tone: "running" },
-  active: { label: "进行中", tone: "running" },
-  running: { label: "进行中", tone: "running" },
-  recovery_required: { label: "需恢复", tone: "error" },
-  interrupted: { label: "已中断", tone: "warning" },
-  succeeded: { label: "已完成", tone: "complete" },
-  complete: { label: "已完成", tone: "complete" },
-  completed: { label: "已完成", tone: "complete" },
-  failed: { label: "失败", tone: "error" },
-  cancelled: { label: "已取消", tone: "muted" },
-  canceled: { label: "已取消", tone: "muted" },
-});
+// 运行 chip 文案 = collab-status 唯一词典的 compact 用语（紧凑列表用语）。
+// 此前 21 条本地映射与 collaboration-process / utils 三套并存且互相矛盾；
+// 现在只保留「词典 → chip 形态」这一层投影，值刻意与历史文案一致以免改变既有观感
+// （tests/bot-workspace-chrome.test.mjs:74/97-99 锁定）。
+export const BOT_RUN_STATUS_CHIPS = Object.freeze(Object.fromEntries(
+  Object.entries(COLLAB_STATUS)
+    .filter(([, view]) => view.layer === "run")
+    .map(([key, view]) => [key, Object.freeze({ label: view.compact, tone: view.chipTone })]),
+));
 
 export const BOT_RUN_STATUS_GROUPS = Object.freeze([
   { id: "attention", label: "待审批", tone: "attention" },
@@ -178,9 +165,22 @@ export function botMemberComputerCount(rows = []) {
   };
 }
 
-export function botRunStatusChip(status) {
-  const key = String(status || "").toLowerCase().replaceAll("-", "_");
-  return BOT_RUN_STATUS_CHIPS[key] || { label: "状态未知", tone: "muted" };
+export function botRunStatusChip(status, { pendingAsk = false } = {}) {
+  const view = collabStatusOf(status, { pendingAsk });
+  return { label: view.compact, tone: view.chipTone };
+}
+
+/**
+ * 运行状态阻塞在谁身上。null = 不表达阻塞归属。
+ * waiting-user（等你动手）与 waiting-peer（等同伴接手）必须可区分——
+ * 二者此前同归 attention，用户无法判断该谁行动。
+ * @returns {{key: string, label: string, icon: string, tone: string}|null}
+ */
+export function botRunSemantic(status, { pendingAsk = false } = {}) {
+  const key = collabStatusOf(status, { pendingAsk }).semantic;
+  if (!key) return null;
+  const view = COLLAB_SEMANTICS[key];
+  return view ? { key, ...view } : null;
 }
 
 export function listActiveRuns(runs = []) {
@@ -292,6 +292,7 @@ export function botActiveRunsMarkup(runs, {
   expanded = false,
   previewLimit = BOT_ACTIVE_RUNS_PREVIEW,
   filter = "all",
+  collapsedGroups = null,
   agentLabel = (id) => id,
   formatRelative = () => "",
 } = {}) {
@@ -302,13 +303,23 @@ export function botActiveRunsMarkup(runs, {
   const visibleIds = new Set(visibleItems.map((run) => String(run.id || "")));
   const hiddenCount = items.length - visibleItems.length;
   const rowOptions = { escapeHtml, selectedRunId, agentLabel, formatRelative };
+  // 分组折叠集合：调用方传 Set 或数组都吃。折叠只藏行、不丢行——展开是即时的，
+  // 不需要重新取一次 runs 快照。
+  const collapsed = collapsedGroups instanceof Set
+    ? collapsedGroups
+    : new Set((Array.isArray(collapsedGroups) ? collapsedGroups : []).map(String).filter(Boolean));
   const grouped = groups
     .map((group) => {
       const rows = group.items.filter((run) => visibleIds.has(String(run.id || "")));
       if (!rows.length) return "";
-      return `<section class="bot-active-run-group" data-bot-run-group="${escapeHtml(group.id)}">
-          <div class="bot-active-run-group-title">${escapeHtml(group.label)}<b>${rows.length}</b></div>
-          ${rows.map((run) => botActiveRunRowMarkup(run, rowOptions)).join("")}
+      const isCollapsed = collapsed.has(group.id);
+      const rowsId = `bot-run-group-rows-${group.id}`;
+      return `<section class="bot-active-run-group${isCollapsed ? " is-collapsed" : ""}" data-bot-run-group="${escapeHtml(group.id)}">
+          <button class="bot-active-run-group-title" type="button" aria-expanded="${isCollapsed ? "false" : "true"}" aria-controls="${rowsId}" data-bot-run-group-toggle="${escapeHtml(group.id)}">
+            <svg class="icon lucide bot-active-run-chevron" aria-hidden="true"><use href="#lucide-chevron-down"></use></svg>
+            <span>${escapeHtml(group.label)}</span><b>${rows.length}</b>
+          </button>
+          <div class="bot-active-run-rows" id="${rowsId}" role="group"${isCollapsed ? " hidden" : ""}>${rows.map((run) => botActiveRunRowMarkup(run, rowOptions)).join("")}</div>
         </section>`;
     })
     .filter(Boolean)
@@ -349,10 +360,98 @@ export function botOpsApprovalsMarkup(approvals = [], { escapeHtml } = {}) {
   }).join("");
 }
 
+/**
+ * 「待我处理」计数：已回答的 ask 不再计入待办。
+ * 面板摘要行与 chip 都用它，避免两处各算一遍算歪。
+ */
+export function botOpsInboxCount(inbox) {
+  const asks = Array.isArray(inbox?.pendingAsks) ? inbox.pendingAsks : [];
+  return asks.filter((ask) => String(ask?.lifecycle || "") !== "answered").length;
+}
+
+/**
+ * 会话协作收件箱（方案 B）的行内渲染。
+ *
+ * 数据来自 GET /api/bots/inbox?conversationId=，该路由复用 collaboration-inbox 的投影
+ * （见 src/bots/inbox.mjs 头注）。这里只做呈现，不加工语义。
+ * 纪律：源降级必须如实显示，不得让 partial/degraded 看起来像完整的 ok。
+ *
+ * @param {object|null} inbox 接口载荷；null = 当前会话没有收件箱（尚未运行 / 会话不存在）
+ * @param {string} [error] 读取失败原因；非空时只呈现失败，绝不拿旧载荷冒充新鲜
+ */
+export function botOpsInboxMarkup(inbox, { escapeHtml, error } = {}) {
+  if (typeof escapeHtml !== "function") return "";
+  const failure = String(error || "").trim();
+  if (failure) {
+    // 读取失败必须自己说出来（同 loadApprovals 的失败纪律）：静默保留旧载荷 = 把陈旧当新鲜。
+    // 不在这里加 role="status"：容器 #bot-ops-inbox-list 已是 aria-live="polite"，
+    // 再嵌一层 live region 会让同一条消息被播报两次（2026-09-11 W4 / 审计 S6）。
+    return `<p class="bot-ops-empty" data-tone="error">收件箱读取失败：${escapeHtml(failure)}</p>`;
+  }
+  if (!inbox) return `<p class="bot-ops-empty">当前会话还没有协作收件箱——发送消息启动运行后这里会出现等你回答的事项</p>`;
+  const asks = Array.isArray(inbox.pendingAsks) ? inbox.pendingAsks : [];
+  const diagnostics = inbox.diagnostics && typeof inbox.diagnostics === "object" ? inbox.diagnostics : {};
+  const issues = Array.isArray(diagnostics.issues) ? diagnostics.issues : [];
+  const degraded = diagnostics.status === "partial" || diagnostics.status === "degraded";
+  // 「看到的不全」要按**真实成因**说，不能一律归给「运行没读全」：
+  // 运行级截断看 runsRead/runsTotal，消息窗口满则来自 INBOX_MESSAGES_TRUNCATED
+  // （messages 先被截断再过滤 pendingAsks，旧 ask 会掉出窗口）。
+  const runsTruncated = diagnostics.runsTruncated === true
+    || Number(diagnostics.runsRead ?? 0) < Number(diagnostics.runsTotal ?? 0);
+  const reasons = [];
+  if (runsTruncated) {
+    reasons.push(`${escapeHtml(String(diagnostics.runsRead ?? 0))}/${escapeHtml(String(diagnostics.runsTotal ?? 0))} 个运行`);
+  }
+  for (const issue of issues.slice(0, 2)) {
+    reasons.push(escapeHtml(String(issue?.message || "部分来源不可读")));
+  }
+  const notice = degraded
+    ? `<p class="bot-ops-inbox-notice" data-tone="warning">仅显示可读部分${reasons.length ? `（${reasons.join("；")}）` : ""}</p>`
+    : "";
+  if (!asks.length) {
+    // 消息窗口满时不得断言「没有待办」——那正是最该被提醒的场景，静默假阴性比不说更糟。
+    const emptyText = issues.some((issue) => issue?.code === "INBOX_MESSAGES_TRUNCATED")
+      ? "当前窗口内没有待你回答的事项（更早的可能未列出）"
+      : "没有需要你回答的协作事项";
+    return `${notice}<p class="bot-ops-empty">${emptyText}</p>`;
+  }
+  const rows = asks.map((ask) => {
+    const from = String(ask?.from || "未知成员");
+    const text = String(ask?.text || "").trim();
+    const runTitle = String(ask?.runTitle || "").trim();
+    const lifecycle = String(ask?.lifecycle || "");
+    const lifecycleLabel = lifecycle === "answered" ? "已回答" : lifecycle === "delivered" ? "待你回答" : "";
+    // 可回答的行必须是**真的可操作**：此前只发了 data-bot-ask-id / data-run-id
+    // 却零消费者，行是死的——用户看到「等你回答」却无从回答（2026-10-09 审计）。
+    // 这里补上按钮语义（role/tabindex/aria-label），点击与键盘由 app.js 的
+    // 委托处理器接（唯一出口：复用 transcript 卡片的作答目标路径）。
+    // 已回答的行**不给**按钮语义——它没有可执行的动作，做成按钮是另一种谎。
+    const actionable = lifecycle !== "answered";
+    const openAttrs = actionable
+      ? ` role="button" tabindex="0" data-bot-ask-open aria-label="${escapeHtml(`${from} 的问题，${lifecycleLabel || "打开作答"}`)}"`
+      : "";
+    return `<article class="bot-ops-ask${actionable ? " is-actionable" : ""}" data-bot-ask-id="${escapeHtml(String(ask?.id || ""))}" data-run-id="${escapeHtml(String(ask?.runId || ""))}"${openAttrs}>
+        <div class="bot-ops-approval-copy">
+          <strong>${escapeHtml(from)} 在等你回答</strong>
+          <span>${escapeHtml(text || "（无正文）")}</span>
+          ${runTitle ? `<small>${escapeHtml(runTitle)}</small>` : ""}
+        </div>
+        ${lifecycleLabel ? `<span class="bot-ops-ask-state" data-state="${escapeHtml(lifecycle)}">${escapeHtml(lifecycleLabel)}</span>` : ""}
+      </article>`;
+  }).join("");
+  return `${notice}<div class="bot-ops-ask-list">${rows}</div>`;
+}
+
 export function botMemberConnectionsMarkup(members = [], { escapeHtml } = {}) {
   if (typeof escapeHtml !== "function") return "";
   const items = Array.isArray(members) ? members : [];
   if (!items.length) return `<p class="bot-ops-empty">还没有可观测的成员席位</p>`;
+  // 零信息态不必列 N 行：全席位同为「没配置主机」时，5 行说的是同一件事
+  // （2026-09-11 截图实测：计数 0/5，下面 5 行文字完全相同）。
+  // 收敛成一行摘要；**任一席位有差异**（有人连上 / 有人断开）才逐行——那才是需要分辨的时候。
+  if (items.every((member) => member?.configured !== true)) {
+    return `<p class="bot-ops-empty">${escapeHtml(String(items.length))} 个席位均未配置主机</p>`;
+  }
   return items.map((member) => {
     const tone = BOT_CONNECTION_TONES[member?.tone] || BOT_CONNECTION_TONES.none;
     const label = String(member?.label || member?.id || "未命名成员");

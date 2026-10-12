@@ -174,7 +174,19 @@
 .skeleton-bar {
   flex: 0 1 auto;
   min-width: 48px;
+  inline-size: 70%;
 }
+
+.skeleton-bar--w38 { inline-size: 38%; }
+.skeleton-bar--w42 { inline-size: 42%; }
+.skeleton-bar--w60 { inline-size: 60%; }
+.skeleton-bar--w70 { inline-size: 70%; }
+.skeleton-bar--w78 { inline-size: 78%; }
+
+.skeleton-bar--table-1 { inline-size: 42%; }
+.skeleton-bar--table-2 { inline-size: 78%; }
+.skeleton-bar--table-3 { inline-size: 60%; }
+.skeleton-bar--table-4 { inline-size: 42%; }
 
 .skeleton-block--avatar {
   flex: 0 0 auto;

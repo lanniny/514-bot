@@ -99,12 +99,23 @@ body.atelier .topbar {
 .topbar-title {
   display: flex !important;
   flex: 1 1 auto;
+  /* 长标题防御：min-width:0 让本 flex 容器可收缩到内容宽以下（styles.css / bot-grok-face.css
+     早已各设一份，此处与截断规则同文件收口，避免三处漂移）。真正的增量在下方——给 strong 补
+     min-width:0 + 省略三件套、给 crumb-group 补整套省略，长视图标题才截断而非把右簇挤出顶栏。 */
+  min-width: 0;
   gap: 7px;
 }
 
 .topbar-crumb-group,
 .topbar-title strong {
   font-size: var(--text-sm);
+  /* flex 子项默认 min-width:auto 会阻止收缩；补 min-width:0 + 省略三件套，
+     长标题（配置页等）才会在此截断，而不是撑开 .topbar-title 把右侧 search/徽标/窗口控制挤出。
+     strong 原本只有 overflow:hidden（styles.css），缺 min-width:0 时 overflow 不触发。 */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topbar-title strong {
@@ -232,15 +243,6 @@ body.atelier .sidebar .nav-item.nav-primary.is-active {
   background: transparent;
 }
 
-/* :not([hidden]) 是命脉——裸 !important 会压过 [hidden]{display:none!important} 的隐藏语义，
-   切走协作台后旧视图仍钉在页面上、新视图拼接到下方（LO 2026-08-11 实机复现）。 */
-#view-workbench:not([hidden]) {
-  display: flex !important;
-  height: 100%;
-  min-height: 0;
-  flex-direction: column;
-  margin: 0;
-}
 
 #view-workbench .page-heading {
   display: none;
@@ -635,18 +637,7 @@ body.atelier .sidebar .nav-item.nav-primary.is-active {
   transition: transform var(--dur-fast) ease-out, opacity var(--dur-instant) ease-out, visibility 0s;
 }
 
-.workbench-shell.mc-collapsed .context-rail,
-.workbench-shell .context-rail[aria-hidden="true"] {
-  transform: translateX(calc(100% + 18px));
-  visibility: hidden;
-  pointer-events: none;
-  opacity: 0;
-  transition: transform var(--dur-fast) ease-in, opacity var(--dur-instant) ease-in, visibility 0s linear var(--dur-fast);
-}
 
-.workbench-shell.mc-collapsed .context-rail > *:not(.mc-expand-strip) {
-  display: initial;
-}
 
 /* Mission Control 右栏是脱离 grid 的浮层抽屉：展开时中栏右缘的 composer 控件
    （发送 / 新任务 / 存为自动化）正好落在浮层下方不可点。与终端抽屉同款让位
@@ -1538,17 +1529,9 @@ body.atelier .sidebar .nav-item.nav-primary.is-active {
   transform: scale(0.92);
 }
 
-/* 状态呼吸点：live/运行中的状态点缓慢呼吸，非循环霓虹 */
-.workbench-shell .status-dot.is-live,
-.workbench-shell .status-dot.is-running {
-  animation: forge-pulse-dot 2.6s var(--ease-out, cubic-bezier(0.4, 0, 0.2, 1)) infinite;
-}
 
 /* Mission Control 抽屉展开时的轻量入场（只在非 reduced-motion） */
 @media (prefers-reduced-motion: no-preference) {
-  .workbench-shell .context-rail:not([aria-hidden="true"]) {
-    animation: forge-fade-zoom var(--dur-slow, 240ms) var(--ease-out, cubic-bezier(0.4, 0, 0.2, 1)) both;
-  }
 
   /* 新消息入场：渲染层只在「本会话首次出现」的 data-stream-key 上打一次 is-entering，
      streaming 期间整段流重写不会重播（JS 按 key 去重）；淡入 + 4px 上浮，不缩放变高行。 */
@@ -1577,8 +1560,6 @@ body.atelier .sidebar .nav-item.nav-primary.is-active {
     transform: none;
   }
 
-  .workbench-shell .status-dot.is-live,
-  .workbench-shell .status-dot.is-running,
   .environment-loading .icon,
   .environment-inline-spinner .icon {
     animation: none !important;

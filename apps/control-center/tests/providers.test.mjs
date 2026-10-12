@@ -1446,7 +1446,7 @@ test("teams providers 校验：键白名单严格（拼写错即拒），非对�
   const teams = await new TeamStore({ dataRoot: join(teamRoot, "d"), knownProviders: () => ["claude-fable"] }).init();
   await assert.rejects(
     () => teams.create({ name: "x", members: ["claude-fable"], providers: { claud: "p1" } }),
-    /must be one of claude\/claude-desktop\/codex\/gemini\/grokbuild\/kimi\/opencode\/openclaw\/hermes/,
+    /must be one of claude\/claude-desktop\/codex\/gemini\/grokbuild\/kimi\/opencode\/openclaw\/hermes\/antigravity/,
   );
   await assert.rejects(() => teams.create({ name: "x", members: ["claude-fable"], providers: ["claude"] }), /must be an object/);
   const ok = await teams.create({ name: "x", members: ["claude-fable"], providers: { claude: " p1 ", codex: "" } });
@@ -2099,7 +2099,7 @@ test("九应用 writer：六类专用 live 配置隔离落盘并可回读认亲"
   for (const app of ["claude-desktop", "grokbuild", "kimi", "opencode", "openclaw", "hermes"]) {
     assert.equal(live[app].matchedProviderId, created.id, `${app} live 未认亲`);
   }
-  assert.deepEqual(Object.keys(store.list().failoverQueue), ["claude", "claude-desktop", "codex", "gemini", "grokbuild", "kimi", "opencode", "openclaw", "hermes"]);
+  assert.deepEqual(Object.keys(store.list().failoverQueue), ["claude", "claude-desktop", "codex", "gemini", "grokbuild", "kimi", "opencode", "openclaw", "hermes", "antigravity"]);
 });
 
 test("kimi writer：default_model 顶层键 + providers/models 双表标记块；用户既有配置不动、切换整块摘换", async (t) => {
@@ -2562,3 +2562,33 @@ test("previewSwitch reveal + rawConfig 补丁：干跑反映手改原文，revea
   assert.ok(authPlain.content.includes("sk-packy-1234567890abcdef")); // reveal 出明文
   assert.equal(store.current.codex, null); // 不落盘不动指针
 });
+
+test("antigravity writer：落盘 ~/.gemini/antigravity-cli/settings.json 与 ~/.gemini/.env 并可回读认亲", async (t) => {
+  const { store, runtimeHome } = await fixture(t);
+  const created = await store.create({
+    name: "Antigravity Provider",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta",
+    apiKey: "AIzaSy-antigravity-key",
+    apps: { antigravity: true },
+    models: { antigravity: { model: "gemini-3.8-pro" } },
+  });
+
+  const result = await store.switchTo("antigravity", created.id);
+  assert.equal(result.app, "antigravity");
+  assert.ok(result.applied.length >= 1);
+
+  const settingsPath = join(runtimeHome, ".gemini", "antigravity-cli", "settings.json");
+  const settings = JSON.parse(await readFile(settingsPath, "utf8"));
+  assert.equal(settings.env?.GEMINI_API_KEY, "AIzaSy-antigravity-key");
+  assert.equal(settings.env?.GOOGLE_GENAI_BASE_URL, "https://generativelanguage.googleapis.com/v1beta");
+  assert.equal(settings.model, "gemini-3.8-pro");
+
+  const envPath = join(runtimeHome, ".gemini", ".env");
+  const envText = await readFile(envPath, "utf8");
+  assert.match(envText, /# >>> 514-forge-antigravity-provider/);
+  assert.match(envText, /GEMINI_API_KEY="AIzaSy-antigravity-key"/);
+
+  const live = await store.liveStatus();
+  assert.equal(live.antigravity.matchedProviderId, created.id);
+});
+

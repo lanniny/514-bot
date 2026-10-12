@@ -80,8 +80,9 @@ Bot 是唯一主界面。本轮先修 P0 聊天渲染，再按模块记账：已
 
 | 状态 | 项 |
 |---|---|
-| 诚实保留 | 成员电脑 `not-provisioned`；computer-update/reset toast「尚未接入」 |
-| 下一波 | 导览/能力地图只在设置；Grok 面 overflow 不再放这两颗芯片（设置仍在）。审计未做全量 `/api`↔UI 对表——需要单独脚本扫 `request("` vs 面板挂载。 |
+| 诚实保留 | 成员电脑 `not-provisioned`；computer-update/reset toast「尚未接入」；`/api/readiness/draft` 写入口仍未排期（api:audit 已知清单如实登记） |
+| ~~下一波~~ ✅ **2026-09-04 v49 已完成** | 全量 `/api`↔UI 对表已落地：`scripts/api-contract-audit.mjs`（人读报告）+ `src/api-contract.mjs`（抽取单一真源）+ `tests/api-contract.test.mjs`（机械门禁）。实测：后端 113 精确路由 + 1 前缀 ↔ 前端 280 调用，orphan/dead 0，KNOWN_UI_LESS 14 条带理由登记。本条为旧描述，勿再造重复脚本。 |
+| 下一波（存量） | 导览/能力地图只在设置；Grok 面 overflow 不再放这两颗芯片（设置仍在）。 |
 
 ## 本轮验证（我跑过，不是“我认为”）
 

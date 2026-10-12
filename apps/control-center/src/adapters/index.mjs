@@ -1,11 +1,14 @@
 import { ClaudeCliAdapter } from "./claude-cli.mjs";
+import { CodeBuddyCliAdapter } from "./codebuddy-cli.mjs";
 import { CodexAppServerAdapter } from "./codex-app-server.mjs";
 import { CodexCliAdapter } from "./codex-cli.mjs";
 import { GeminiCliAdapter } from "./gemini-cli.mjs";
+import { AntigravityCliAdapter } from "./antigravity-cli.mjs";
 import { GrokBuildAdapter } from "./grok-build.mjs";
 import { KimiCliAdapter } from "./kimi-cli.mjs";
 import { OpencodeCliAdapter } from "./opencode-cli.mjs";
 import { PiRpcAdapter } from "./pi-rpc.mjs";
+import { ApiChatAdapter } from "./api-chat.mjs";
 import { ADAPTER_TEMPLATES, createTeamCatalog, resolveAdapterTemplate, resolveProviderBinding } from "./manifest.mjs";
 import { resolve } from "node:path";
 import { assertWithin } from "../paths.mjs";
@@ -59,7 +62,7 @@ function providerBindingDescriptor(profile, adapterTemplate, providerStore) {
     && providerStore?.proxyRuntime?.takeover?.has?.(providerApp),
   );
   const routeMode = resolved.providerId
-    ? (proxyTakeover ? "local-proxy" : "direct-projection")
+    ? (adapterTemplate.providerBindingMode === "direct-api" ? "direct-api" : proxyTakeover ? "local-proxy" : "direct-projection")
     : "adapter-managed";
   return Object.freeze({
     requestedProviderId,
@@ -94,6 +97,7 @@ function bindProvider(adapter, profile, adapterTemplate, providerStore) {
   const requestedProviderId = String(profile.providerId ?? "").trim();
   const getBinding = () => providerBindingDescriptor(profile, adapterTemplate, providerStore);
   attachProviderBindingResolver(adapter, getBinding);
+  if (adapterTemplate.providerBindingMode === "direct-api") return adapter;
   if (!requestedProviderId) return adapter;
   // Provider 状态可能在运行期间恢复或失效；每次 send 动态重解析，避免启动期快照
   // 把 continuation 永久锁在旧的 adapter-managed/bound 语义。
@@ -156,7 +160,7 @@ function bindProvider(adapter, profile, adapterTemplate, providerStore) {
 // 工厂表抽成共享构建器：本机（createAdapters）与远程 run（createRemoteAdapter，v41 波二）
 // 同一张表——remote 注入时给 spawn 型（runProcessImpl）/常驻型（spawnImpl）模板换 SSH 桥实现，
 // adapter 清单不两处漂移。remote = { spawnImpl, runProcessImpl } | null。
-function buildFactoryEntries({ eventStore, cwd, approvalResolver, remote = null }) {
+function buildFactoryEntries({ eventStore, cwd, approvalResolver, providerStore, remote = null }) {
   const injSpawn = (opts) => (remote?.spawnImpl ? { ...opts, spawnImpl: remote.spawnImpl } : opts);
   const injRun = (opts) => (remote?.runProcessImpl ? { ...opts, runProcessImpl: remote.runProcessImpl } : opts);
   // headless 子进程 settings：disableAllHooks 隔离全局 route/stop/mirror-gate（--bare 的替代——保住 OAuth 登录态）
@@ -165,7 +169,15 @@ function buildFactoryEntries({ eventStore, cwd, approvalResolver, remote = null 
     resolve(cwd, "config/control-center/claude-headless-settings.json"),
     "Claude headless settings",
   );
+  // CodeBuddy 同款 hooks 隔离：LO 的 ~/.codebuddy/settings.json 配了 SessionStart/PreToolUse 等钩子，
+  // 席位轮次里再叠一层全局钩子会把外部副作用混进控制面结果——用 disableAllHooks 关在子进程内。
+  const codebuddySettings = assertWithin(
+    cwd,
+    resolve(cwd, "config/control-center/codebuddy-headless-settings.json"),
+    "CodeBuddy headless settings",
+  );
   return [
+    ["api-chat", (profile) => new ApiChatAdapter({ profile, providerStore, eventStore })],
     ["claude-cli", (profile, adapterTemplate) => new ClaudeCliAdapter(injRun({
       command: profile.command,
       model: profile.model,
@@ -202,6 +214,21 @@ function buildFactoryEntries({ eventStore, cwd, approvalResolver, remote = null 
       eventStore,
       cwd,
     }))],
+    ["antigravity-cli", (profile) => new AntigravityCliAdapter(injRun({
+      command: profile.command,
+      model: profile.model,
+      eventStore,
+      cwd,
+    }))],
+    // settingsFile 与 claude 同规则：远程 run 的 CLI 跑在对端，本机路径不可达——如实置 null，
+    // 让远端用其自身配置，而不是把一个不存在的路径写进命令行假装隔离。
+    ["codebuddy-cli", (profile) => new CodeBuddyCliAdapter(injRun({
+      command: profile.command,
+      model: profile.model,
+      settingsFile: remote ? null : codebuddySettings,
+      eventStore,
+      cwd,
+    }))],
     ["grok-build", (profile) => new GrokBuildAdapter(injRun({ command: profile.command, model: profile.model, eventStore, cwd }))],
     ["kimi-cli", (profile) => new KimiCliAdapter(injRun({ command: profile.command, model: profile.model, eventStore, cwd }))],
     ["opencode-cli", (profile) => new OpencodeCliAdapter(injRun({ command: profile.command, model: profile.model, eventStore, cwd }))],
@@ -225,7 +252,7 @@ export function createAdapters({ profiles, eventStore, cwd, approvalResolver, pr
   // 主席位和派生 fallback 共用同一个 adapter Map；实例化前冻结全局键空间，
   // 防止合法 profile id 被后写入的 fallback 静默覆盖。
   assertAdapterKeySpace(profiles);
-  const factoryEntries = buildFactoryEntries({ eventStore, cwd, approvalResolver });
+  const factoryEntries = buildFactoryEntries({ eventStore, cwd, approvalResolver, providerStore });
 
   const duplicateTemplates = duplicates(ADAPTER_TEMPLATES.map((template) => template.id));
   const duplicateFactories = duplicates(factoryEntries.map(([key]) => key));
@@ -273,9 +300,9 @@ export function createAdapters({ profiles, eventStore, cwd, approvalResolver, pr
  */
 export function createRemoteAdapter({ profile, eventStore, cwd, approvalResolver, remote }) {
   const { adapterTemplate } = resolveAdapterTemplate(profile);
-  if (adapterTemplate.factoryKey === "grok-mcp") {
+  if (adapterTemplate.factoryKey === "grok-mcp" || adapterTemplate.factoryKey === "api-chat") {
     throw Object.assign(
-      new Error(`${profile.id} adapter grok-mcp cannot run remotely: its MCP server is a local script path`),
+      new Error(`${profile.id} adapter cannot run through a remote CLI bridge`),
       { code: "REMOTE_ADAPTER_UNSUPPORTED" },
     );
   }

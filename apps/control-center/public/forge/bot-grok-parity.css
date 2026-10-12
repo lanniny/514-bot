@@ -103,8 +103,10 @@
   border: 1px solid color-mix(in srgb, var(--bot-accent) 24%, var(--bot-line));
   border-radius: 8px;
   background: color-mix(in srgb, var(--bot-accent) 6%, var(--bot-panel));
+  box-shadow: var(--glass-inset-glow);
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
 }
-.bot-value-proof-card.is-stream { border-color: color-mix(in srgb, var(--bot-accent) 32%, var(--bot-line-strong)); }
+.bot-value-proof-card.is-stream { border-color: color-mix(in srgb, var(--bot-accent) 32%, var(--bot-line-strong)); box-shadow: var(--glass-inset-glow); }
 .value-proof-head,
 .bot-value-proof-card .bot-card-head { align-items: flex-start; }
 .value-proof-head { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
@@ -128,6 +130,21 @@
   border: 1px solid var(--bot-line);
   border-radius: 6px;
   background: var(--bot-soft);
+  transition: border-color var(--dur-fast);
+}
+.value-proof-chip:hover {
+  border-color: var(--bot-accent);
+}
+.value-proof-chip[data-value-proof-signal="delta"]:not(.is-empty) {
+  border-color: color-mix(in oklab, var(--bot-accent) 36%, var(--bot-line));
+  background: color-mix(in oklab, var(--bot-accent) 8%, var(--bot-soft));
+}
+.value-proof-chip[data-has-overturns="true"] {
+  border-color: color-mix(in oklab, var(--bot-red) 45%, var(--bot-line));
+  background: color-mix(in oklab, var(--bot-red) 8%, var(--bot-soft));
+}
+.value-proof-chip[data-has-overturns="true"] b {
+  color: var(--bot-red);
 }
 .value-proof-chip small {
   color: var(--bot-muted);

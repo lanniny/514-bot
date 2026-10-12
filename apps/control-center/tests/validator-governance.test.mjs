@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createAdapters } from "../src/adapters/index.mjs";
@@ -24,6 +24,8 @@ test("module.yaml passes its schema and all repository truth checks", async () =
     [
       "registry.skills",
       "registry.adapters",
+      "registry.plugin",
+      "registry.customize",
       "registry.models",
       "framework.version",
       "runtime.contracts",
@@ -346,6 +348,42 @@ test("module schema rejects a missing adapter manifest contract", async () => {
   assert.match(result.errors.join("\n"), /adapter_manifest.*required|required.*adapter_manifest/i);
 });
 
+/**
+ * 2026-10-09 删除的五个"零消费者"配置块必须**禁止回流**（烛 R1 致命 1：
+ * 断言本身有效但零测试覆盖——删掉整块断言测试仍全绿，即"无机械承载的规则"，
+ * 正是本轮要消灭的形态出现在修它的补丁里）。
+ *
+ * 这五个字段各有更权威真源（称呼→CLAUDE.md:3 / 语言→rules.md §七 / 项目名→cwd /
+ * 产物目录→rules.md §六 持久化表），故按 intent-without-mechanical-carrier 的正解
+ * 删表 + 断言，而非给它们加消费者。
+ */
+test("module schema rejects the removed zero-consumer config blocks", async () => {
+  const path = resolve(repoRoot, "module.yaml");
+  const base = await readFile(path, "utf8");
+  const removed = ["user_name", "communication_language", "document_output_language", "project_name", "output_folder"];
+  // 基线：当前 module.yaml（已删除这五个）必须通过
+  const baseline = await validateContent({ id: "core.module", path, kind: "yaml" }, base);
+  assert.equal(baseline.valid, true, baseline.errors.join("\n"));
+
+  for (const field of removed) {
+    // 逐字段注入回流：标量、空表、有内容的表三种形态都必须被拒
+    for (const [shape, block] of [
+      ["scalar", `${field}: "回流测试"\n`],
+      ["empty-table", `${field}: {}\n`],
+      ["table", `${field}:\n  prompt: "回流测试"\n  default: "x"\n`],
+    ]) {
+      const content = `${base}\n${block}`;
+      const result = await validateContent({ id: "core.module", path, kind: "yaml" }, content);
+      assert.equal(result.valid, false, `re-adding ${field} as ${shape} must be rejected`);
+      assert.match(
+        result.errors.join("\n"),
+        new RegExp(field),
+        `rejection for ${field} (${shape}) must name the offending field`,
+      );
+    }
+  }
+});
+
 function fixtureModule({ version = "3.5.0", includeBeta = true, adapters = ["foo"] } = {}) {
   return [
     "code: 514cc",
@@ -365,6 +403,7 @@ function fixtureModule({ version = "3.5.0", includeBeta = true, adapters = ["foo
     "    path: .agents/skills/co-review",
     "  - code: codex-reviewer",
     "    path: skills/review/codex-reviewer",
+    "    type: agent",
     "  - code: grok-researcher",
     "    path: skills/research/grok-researcher",
     "dependencies:",
@@ -539,11 +578,33 @@ async function createTruthFixture() {
     ".agents/skills/co-review",
     "skills/review/codex-reviewer",
     "skills/research/grok-researcher",
+    "guardrails",
+    "customize",
   ];
   await Promise.all(directories.map((directory) => mkdir(resolve(root, directory), { recursive: true })));
   await Promise.all([
     writeFile(resolve(root, "skills/alpha/SKILL.md"), "---\nname: alpha\n---\n"),
     writeFile(resolve(root, ".agents/skills/beta/SKILL.md"), "---\nname: beta\n---\n"),
+    writeFile(
+      resolve(root, "skills/review/codex-reviewer/customize.toml"),
+      [
+        "[agent]",
+        'name = "codex-reviewer"',
+        'title = "fixture reviewer"',
+        'principles = ["fixture principle"]',
+        "",
+        "[[agent.menu]]",
+        'code = "SR"',
+        'description = "Standard Review"',
+        "",
+        "[[agent.menu]]",
+        'code = "SC"',
+        'description = "Security Audit"',
+        "",
+      ].join("\n"),
+    ),
+    writeFile(resolve(root, "guardrails/deny-paths.txt"), "nothing\n"),
+    writeFile(resolve(root, "customize/README.md"), "# customize fixture\n"),
     writeFile(resolve(root, "apps/control-center/src/adapters/foo.mjs"), "export class Foo {}\n"),
     writeFile(resolve(root, "apps/control-center/src/adapters/manifest.mjs"), fixtureAdapterManifest()),
     writeFile(
@@ -590,7 +651,20 @@ async function createTruthFixture() {
     ),
     writeFile(resolve(root, "CLAUDE.md"), "## 项目概览\n\n- **当前版本**：**v3.5.0**\n"),
     writeFile(resolve(root, "README.md"), "# fixture\n\nv3.5.0 | 2026-07-17 | fixture\n"),
-    writeFile(resolve(root, ".claude-plugin/plugin.json"), JSON.stringify({ version: "3.5.0" })),
+    writeFile(
+      resolve(root, ".claude-plugin/plugin.json"),
+      JSON.stringify({
+        version: "3.5.0",
+        components: {
+          agents: { "codex-reviewer": { source: "skills/review/codex-reviewer/SKILL.md", customize: "skills/review/codex-reviewer/customize.toml" } },
+          skills: ["skills/review/codex-reviewer/SKILL.md"],
+          guardrails: "guardrails/",
+          customize: "customize/",
+          module_config: "module.yaml",
+          rules: "rules.md",
+        },
+      }),
+    ),
     writeFile(resolve(root, "apps/control-center/package.json"), JSON.stringify({ engines: { node: ">=22.5.0" } })),
     writeFile(resolve(root, ".claude/hooks/handoff-sources.json"), fixtureHandoffRegistry()),
     writeFile(resolve(root, ".claude/hooks/stop-gate.py"), fixtureDeltaHook()),
@@ -631,6 +705,15 @@ test("repository truth checks fail closed on registry and version drift", async 
     resolve(root, "config/control-center/models.json"),
     JSON.stringify({ profiles: [{ id: "unwired-profile" }] }),
   );
+  // plugin.json 声明面漂移：把 skills[0] 指向一个磁盘不存在的路径（复现 2026-08-30
+  // F-073 删目录但 plugin.json 没跟着删、静默漂移 40 天的形态）。
+  await writeFile(
+    resolve(root, ".claude-plugin/plugin.json"),
+    JSON.stringify({
+      version: "3.5.0",
+      components: { skills: ["skills/research/web-intel/SKILL.md"] },
+    }),
+  );
 
   const drifted = await validateRepositoryTruth(root);
   const byId = new Map(drifted.map((result) => [result.id, result]));
@@ -638,10 +721,144 @@ test("repository truth checks fail closed on registry and version drift", async 
   assert.match(byId.get("registry.skills").errors.join("\n"), /missing disk entries.*\.agents\/skills\/beta/);
   assert.equal(byId.get("registry.adapters").valid, false);
   assert.match(byId.get("registry.adapters").errors.join("\n"), /absent from disk.*ghost/);
+  assert.equal(byId.get("registry.plugin").valid, false);
+  assert.match(
+    byId.get("registry.plugin").errors.join("\n"),
+    /plugin\.json components\.skills\[0\] points at a path absent from disk: skills\/research\/web-intel\/SKILL\.md/,
+  );
   assert.equal(byId.get("registry.models").valid, false);
   assert.match(byId.get("registry.models").errors.join("\n"), /unwired-profile.*no fixed adapter binding/);
   assert.equal(byId.get("framework.version").valid, false);
   assert.match(byId.get("framework.version").errors.join("\n"), /module\.yaml declares 3\.4\.3, expected 3\.5\.0/);
+});
+
+test("plugin manifest rejects component paths that escape the repository", async (t) => {
+  const root = await createTruthFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  // 逃逸形态必须逐一被拦，且报"escapes"而非"absent from disk"——
+  // 两者混淆会让守卫看似生效实则放行（烛 R1 致命 2：只测存在性分支 = 逃逸分支无保护）。
+  const cases = [
+    { label: "parent escape", value: "../outside-plugin.json" },
+    // 跨盘符绝对路径：Windows 上 path.relative 跨盘符返回**绝对路径**（既非空也不以 .. 开头），
+    // 只查前两条判据会静默放行。烛 R1 致命 1 实测注入 C:\Windows\win.ini 曾得 valid=true。
+    { label: "cross-drive absolute", value: "C:\\Windows\\win.ini" },
+  ];
+  for (const { label, value } of cases) {
+    await writeFile(
+      resolve(root, ".claude-plugin/plugin.json"),
+      JSON.stringify({ version: "3.5.0", components: { skills: [value] } }),
+    );
+    const truth = await validateRepositoryTruth(root);
+    const pluginResult = truth.find((result) => result.id === "registry.plugin");
+    assert.equal(pluginResult.valid, false, `${label} must fail the plugin manifest check`);
+    assert.match(
+      pluginResult.errors.join("\n"),
+      /escapes the repository/,
+      `${label} must be reported as an escape, not silently passed or misreported`,
+    );
+  }
+});
+
+test("plugin manifest rejects component paths that escape through a link", async (t) => {
+  const root = await createTruthFixture();
+  const outside = await mkdtemp(resolve(appRoot, ".test-governance-outside-"));
+  t.after(async () => {
+    await rm(root, { recursive: true, force: true });
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  // 链接穿透（烛 R2 实测）：纯字符串判据挡不住，因为 access 会**跟随** symlink/junction。
+  // 声明字符串本身完全合法（`linked` 在仓库内），真实路径却在仓库外。
+  await writeFile(resolve(outside, "secret.md"), "outside the repository\n");
+  try {
+    await symlink(outside, resolve(root, "linked"), "junction");
+  } catch (error) {
+    // Windows 上 junction 不需要管理员权限；若本机仍拒绝（EPERM/EEXIST），
+    // 如实跳过而非假装通过——静默 pass 会让这条契约变成假保护。
+    t.diagnostic(`link fixture unavailable on this host: ${error.code}`);
+    return;
+  }
+
+  await writeFile(
+    resolve(root, ".claude-plugin/plugin.json"),
+    JSON.stringify({ version: "3.5.0", components: { skills: ["linked/secret.md"] } }),
+  );
+  const truth = await validateRepositoryTruth(root);
+  const pluginResult = truth.find((result) => result.id === "registry.plugin");
+  assert.equal(pluginResult.valid, false, "a path resolving outside the repo through a link must fail");
+  assert.match(pluginResult.errors.join("\n"), /resolves outside the repository through a link/);
+});
+
+test("customize layers reject read-only overrides, unknown keys, and menu additions", async (t) => {
+  const root = await createTruthFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(resolve(root, "customize/team"), { recursive: true });
+
+  const overridePath = resolve(root, "customize/team/codex-reviewer.toml");
+  const validate = async () => {
+    const truth = await validateRepositoryTruth(root);
+    return truth.find((result) => result.id === "registry.customize");
+  };
+
+  // 基线：合法 override（只改 base 已有的标量 / 替换已有 menu code）必须通过
+  await writeFile(overridePath, '[agent]\nprinciples = ["覆盖后的原则"]\n\n[[agent.menu]]\ncode = "SR"\ndescription = "覆盖后的描述"\n');
+  assert.equal((await validate()).valid, true, "a sparse, in-schema override must pass");
+
+  // 基线 2：**新增** menu code 是合法的（README:17「新键追加」）——
+  // 主驾初版曾据"无删除机制"推出"menu 只能替换不能新增"，烛 R2 判为过严假约束。
+  await writeFile(overridePath, '[[agent.menu]]\ncode = "ZZ"\ndescription = "自定义菜单项"\n');
+  assert.equal((await validate()).valid, true, "appending a new menu code must stay legal (README: new-key append)");
+
+  // 判据 1：只读字段（rules.md §五 明文 agent.name / agent.title 只读）
+  await writeFile(overridePath, '[agent]\nname = "被篡改的名字"\n');
+  let result = await validate();
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join("\n"), /overrides read-only agent\.name/);
+
+  // 判据 2：未知键（agent 层）
+  await writeFile(overridePath, '[agent]\nunknown_field = "x"\n');
+  result = await validate();
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join("\n"), /declares key absent from skills\/review\/codex-reviewer\/customize\.toml: agent\.unknown_field/);
+
+  // 判据 2b：未知键在**更深一层**也必须被抓（烛 R2：只查 agent 一层等于挡一半）。
+  // fixture 的 base 只有 [agent]，故这里用 agent 下的二级表做对照——
+  // 真实场景对应 `[codex] invoke_patern = "typo"` 这类拼错键名。
+  await writeFile(overridePath, '[agent.menu]\ncode = "SR"\n');
+  result = await validate();
+  assert.equal(result.valid, false, "shape mismatch (base menu is an array, override is a table) must fail");
+
+  // 判据 3：同一 override 内 menu code 不得重复
+  await writeFile(overridePath, '[[agent.menu]]\ncode = "SR"\ndescription = "a"\n\n[[agent.menu]]\ncode = "SR"\ndescription = "b"\n');
+  result = await validate();
+  assert.equal(result.valid, false);
+  assert.match(result.errors.join("\n"), /menu has duplicate codes: SR/);
+});
+
+test("personal customize layer uses the .user.toml suffix declared by the README", async (t) => {
+  const root = await createTruthFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(resolve(root, "customize/personal"), { recursive: true });
+
+  const validate = async () => {
+    const truth = await validateRepositoryTruth(root);
+    return truth.find((result) => result.id === "registry.customize");
+  };
+
+  // README:8,56 + personal/.gitignore 的 `*.user.toml` 都规定 personal 层是 `.user.toml`。
+  // 初版一律拼 `${code}.toml`，导致 personal 层**永不校验**——而它正是最没人 review 的
+  // 本地层（烛 R1 实测：照 README 写的违规 override 可完整绕过三条判据）。
+  await writeFile(resolve(root, "customize/personal/codex-reviewer.user.toml"), '[agent]\nname = "绕过尝试"\n');
+  let result = await validate();
+  assert.equal(result.valid, false, "a violating override in customize/personal/*.user.toml must be caught");
+  assert.match(result.errors.join("\n"), /customize\/personal\/codex-reviewer\.user\.toml overrides read-only agent\.name/);
+
+  // 反向：`${code}.toml`（缺 .user 后缀）不是 README 声明的路径，不应被当作 personal 层读取。
+  await rm(resolve(root, "customize/personal/codex-reviewer.user.toml"));
+  await writeFile(resolve(root, "customize/personal/codex-reviewer.toml"), '[agent]\nname = "不该被当 personal 层"\n');
+  result = await validate();
+  assert.equal(result.valid, true, "`${code}.toml` is not the declared personal-layer path and must not be read as one");
 });
 
 test("model wiring ignores comment decoys and reads only the pure manifest", async (t) => {

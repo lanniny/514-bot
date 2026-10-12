@@ -134,7 +134,7 @@ test("tokens.css exposes fluid clamp display scale and editorial typography toke
 test("legacy views retain editorial headings while Bot and configuration use compact headings", async () => {
   const html = await source("public/index.html");
   assert.match(html, /<h1 id="bot-title">工作对话<\/h1>/);
-  assert.match(html, /<h1 id="config-title" tabindex="-1">运行席位<\/h1>/);
+  assert.match(html, /<h1 id="config-title" tabindex="-1">席位与模型<\/h1>/);
   const expectedViewTitles = [
     "overview-title",
     "workbench-title",

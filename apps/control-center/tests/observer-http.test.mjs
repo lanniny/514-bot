@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeConfig } from "../scripts/qa-ui-fixture.mjs";
+import { writeConfig } from "../scripts/retired-workbench-era/qa-ui-fixture.mjs";
 import { spawnTestServer, stopTestServer, waitForUrl } from "./server-fixture.mjs";
 
 test("observers can read masked providers but cannot reveal credentials or write", { timeout: 60_000 }, async (t) => {

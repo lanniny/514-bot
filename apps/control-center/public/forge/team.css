@@ -545,6 +545,17 @@
   text-align: center;
 }
 
+.team-catalog-loading:has(.skeleton) {
+  padding: var(--space-2) var(--space-3);
+  border-style: solid;
+  border-color: var(--border-subtle, var(--border));
+  text-align: start;
+}
+
+.team-catalog-loading .skeleton {
+  padding: 0;
+}
+
 .team-settings-form .coordinator-pick {
   flex: 0 0 auto;
   cursor: pointer;
@@ -675,6 +686,13 @@
 
 #team-router-workbench.team-runtime-block {
   display: grid;
+  /* 隐式列必须显式钳到 minmax(0,1fr)：grid 隐式列默认 auto，其最小尺寸等于内容的
+     min-content。本容器子项含 .cf-route-table-wrap 的 nowrap 表格，min-content 473px
+     会顺着隐式列把本容器的最小尺寸顶到 512px，而窄幅可用宽度只有 321px —— 于是整块
+     溢出 191px 到 .main-content 的 overflow-x:auto 里被静默裁掉（实测 400px 档
+     overflowCount 97→21）。显式 minmax(0,1fr) 后容器可自由收缩，表格改由
+     .cf-route-table-wrap 自己的 overflow-x:auto 滚动，这才是它的设计意图。 */
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   padding: 18px 18px 16px;
   border: 1px solid var(--border);
@@ -1941,14 +1959,20 @@
   border-radius: var(--radius-2xl);
   border: 1px solid var(--border);
   background: var(--card);
-  box-shadow: var(--shadow-sm);
-  transition: transform var(--dur-med) var(--ease-out), box-shadow var(--dur-med) var(--ease-out), border-color var(--dur-med) var(--ease-out);
+  box-shadow: var(--shadow-card-subtle), var(--glass-specular);
+  transition: transform var(--dur-fast) var(--ease-spring-snappy),
+    box-shadow var(--dur-fast) var(--ease-spring-snappy),
+    border-color var(--dur-fast) var(--ease-spring-snappy);
 }
 
 .tp-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md), var(--glass-specular), 0 0 24px -6px color-mix(in oklab, var(--agent-accent) 32%, transparent);
   border-color: color-mix(in oklab, var(--agent-accent) 45%, var(--border));
+}
+
+.tp-card:active {
+  transform: translateY(-1px) scale(0.99);
 }
 
 .tp-card-head {
@@ -1968,6 +1992,14 @@
   border: 1.5px solid var(--agent-accent);
   background: color-mix(in oklab, var(--agent-accent) 12%, transparent);
   color: var(--agent-accent);
+  box-shadow: 0 0 14px -4px color-mix(in oklab, var(--agent-accent) 40%, transparent);
+  transition: transform var(--dur-fast) var(--ease-spring-snappy),
+    box-shadow var(--dur-fast) var(--ease-spring-snappy);
+}
+
+.tp-card:hover .tp-avatar {
+  transform: scale(1.05);
+  box-shadow: 0 0 18px -2px color-mix(in oklab, var(--agent-accent) 60%, transparent);
 }
 
 .tp-avatar-icon { width: 20px; height: 20px; }
@@ -2003,11 +2035,12 @@
   flex: none;
   border-radius: 50%;
   background: var(--muted-foreground);
+  transition: transform var(--dur-fast) var(--ease-spring-snappy);
 }
 
 .tp-dot.is-busy {
   background: var(--success);
-  animation: tp-pulse 1.8s var(--ease-out) infinite;
+  animation: tp-pulse var(--dur-slower) var(--ease-spring-snappy) infinite;
 }
 
 .tp-dot.is-ready { background: var(--success); }
@@ -2016,7 +2049,24 @@
 
 @keyframes tp-pulse {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--success) 45%, transparent); }
-  55% { box-shadow: 0 0 0 5px color-mix(in oklab, var(--success) 0%, transparent); }
+  50% { box-shadow: 0 0 0 6px color-mix(in oklab, var(--success) 0%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tp-card:active,
+  .tp-card:hover .tp-avatar {
+    transform: none !important;
+  }
+  .tp-dot.is-busy {
+    animation: none !important;
+  }
+}
+:root[data-motion="reduce"] .tp-card:active,
+:root[data-motion="reduce"] .tp-card:hover .tp-avatar {
+  transform: none !important;
+}
+:root[data-motion="reduce"] .tp-dot.is-busy {
+  animation: none !important;
 }
 
 .tp-role {
@@ -3329,11 +3379,17 @@ label.team-bg-upload {
    渐变带透明度并沿用 stage 自身的 mask 柔化，不抢正文对比度。 */
 
 body[data-team-bg="aurora"] .atelier-stage::after,
+html[data-team-bg="aurora"] .atelier-stage::after,
 body[data-team-bg="ember"] .atelier-stage::after,
+html[data-team-bg="ember"] .atelier-stage::after,
 body[data-team-bg="tide"] .atelier-stage::after,
+html[data-team-bg="tide"] .atelier-stage::after,
 body[data-team-bg="moss"] .atelier-stage::after,
+html[data-team-bg="moss"] .atelier-stage::after,
 body[data-team-bg="noir"] .atelier-stage::after,
-body.team-bg-custom .atelier-stage::after {
+html[data-team-bg="noir"] .atelier-stage::after,
+body.team-bg-custom .atelier-stage::after,
+html.team-bg-custom .atelier-stage::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -3342,11 +3398,11 @@ body.team-bg-custom .atelier-stage::after {
   background-position: center;
 }
 
-body[data-team-bg="aurora"] .atelier-stage::after { background-image: linear-gradient(135deg, rgba(127,156,245,.55), rgba(185,243,212,.42)); }
-body[data-team-bg="ember"]  .atelier-stage::after { background-image: linear-gradient(135deg, rgba(246,173,123,.52), rgba(192,86,33,.40)); }
-body[data-team-bg="tide"]   .atelier-stage::after { background-image: linear-gradient(135deg, rgba(99,179,237,.52), rgba(40,94,97,.46)); }
-body[data-team-bg="moss"]   .atelier-stage::after { background-image: linear-gradient(135deg, rgba(154,230,180,.48), rgba(39,103,73,.46)); }
-body[data-team-bg="noir"]   .atelier-stage::after { background-image: linear-gradient(160deg, rgba(12,15,22,.88), rgba(4,6,10,.92)); }
+body[data-team-bg="aurora"] .atelier-stage::after, html[data-team-bg="aurora"] .atelier-stage::after { background-image: linear-gradient(135deg, rgba(127,156,245,.55), rgba(185,243,212,.42)); }
+body[data-team-bg="ember"] .atelier-stage::after, html[data-team-bg="ember"] .atelier-stage::after { background-image: linear-gradient(135deg, rgba(246,173,123,.52), rgba(192,86,33,.40)); }
+body[data-team-bg="tide"] .atelier-stage::after, html[data-team-bg="tide"] .atelier-stage::after { background-image: linear-gradient(135deg, rgba(99,179,237,.52), rgba(40,94,97,.46)); }
+body[data-team-bg="moss"] .atelier-stage::after, html[data-team-bg="moss"] .atelier-stage::after { background-image: linear-gradient(135deg, rgba(154,230,180,.48), rgba(39,103,73,.46)); }
+body[data-team-bg="noir"] .atelier-stage::after, html[data-team-bg="noir"] .atelier-stage::after { background-image: linear-gradient(160deg, rgba(12,15,22,.88), rgba(4,6,10,.92)); }
 
 /* 自定义图：经 --team-bg-image 注入同一 ::after 层，渐变垫底保证文字可读 */
 body.team-bg-custom .atelier-stage::after {
@@ -3589,6 +3645,8 @@ body.team-bg-active.atelier .atelier-stage {
     color-mix(in oklab, var(--wall-tint, var(--forge-paper)) 18%, transparent);
   background-size: 72px 72px, 72px 72px, auto, auto;
   opacity: 1;
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
 }
 body.team-bg-active.atelier { background: transparent; }
 body.team-bg-active .app-shell { background: transparent; }
@@ -3705,9 +3763,6 @@ body.team-bg-active #view-workbench .bot-message-user .bot-bubble {
 body.team-bg-active #view-workbench .conv-tabs {
   background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-lo, 42%), transparent);
 }
-body.team-bg-active #view-workbench .conv-tab.is-active {
-  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
-}
 body.team-bg-active #view-workbench .gov-note,
 body.team-bg-active #view-workbench .run-end-note {
   background: color-mix(in srgb, var(--amber) 9%, transparent);
@@ -3723,22 +3778,6 @@ body.team-bg-active #view-workbench .conversation-stream .turn-divider span {
    后代选择器命中。 */
 body.team-bg-active #view-workbench .rail-statusline {
   background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 72%), transparent);
-}
-/* composer 成员条 chips 与「直接发送」目标：--card/--surface-muted 实底 → 内容卡玻璃；
-   选中态在玻璃底上叠品牌色薄纱保识别。 */
-body.team-bg-active #view-workbench .composer-collaborator-chip {
-  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-lo, 42%), transparent);
-}
-body.team-bg-active #view-workbench .member-chip {
-  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-lo, 42%), transparent);
-}
-body.team-bg-active #view-workbench .member-chip.is-active {
-  border-color: var(--forge-agent, var(--primary, var(--rose)));
-  background-color: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-hi, 84%), transparent);
-  background-image: linear-gradient(color-mix(in oklch, var(--forge-agent, var(--primary, var(--rose))) 10%, transparent), color-mix(in oklch, var(--forge-agent, var(--primary, var(--rose))) 10%, transparent));
-}
-body.team-bg-active #view-workbench .conv-tab:hover {
-  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha-lo, 42%), transparent);
 }
 /* 防御兜底：壁纸态消息行不再吃 hover 米灰底（悬停高亮在连续玻璃场上是突兀色块），
    也压掉任何来源未知的行底——消息区只保留内容自身。 */
@@ -3790,6 +3829,16 @@ body.team-bg-active #view-workbench .workbench-shell {
   border: none;
   border-radius: 0;
   box-shadow: none;
+}
+body.team-bg-active .main-content:has(#view-bot.is-active),
+body.team-bg-active.is-bot-surface .main-content,
+html.is-bot-surface body.team-bg-active .main-content {
+  padding: 0 !important;
+}
+body.team-bg-active #view-bot {
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
 }
 body.team-bg-active #view-workbench .conversation-pane,
 body.team-bg-active #view-workbench .run-rail,
@@ -3967,7 +4016,7 @@ body.team-bg-suspended .atelier-stage::after {
    在壁纸态下撤掉不透明实底，改玻璃族透光。无壁纸时规则不匹配、零回归。
    带 .app-shell.is-settings 的门控与 experience-polish 同段规则呼应——这里兜住
    is-settings 之外的普通视图（总览/观测/会话/Bot）。 */
-body.team-bg-active #main-content .view:not(.bot-shell):not(#view-workbench) {
+body.team-bg-active #main-content .view:not(.bot-shell):not(#view-workbench):not(#view-plugins):not(.plugin-center) {
   background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--bg, #f5f6f8))) var(--forge-glass-alpha, 86%), transparent);
   -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
   backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
@@ -3980,9 +4029,85 @@ body.team-bg-active #main-content .view .settings-card {
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  body.team-bg-active #main-content .view:not(.bot-shell):not(#view-workbench) {
+  body.team-bg-active #main-content .view:not(.bot-shell):not(#view-workbench):not(#view-plugins):not(.plugin-center) {
     background: var(--surface);
   }
+}
+
+/* 插件中心视图：移除包含块滤镜，避免 position: fixed 侧栏抽屉与遮罩被截断 */
+body.team-bg-active #view-plugins,
+body.team-bg-active .plugin-center {
+  background: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* 插件中心与抽屉壁纸态玻璃化 */
+body.team-bg-active .plugin-center-heading,
+body.team-bg-active .plugin-entry {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-card-alpha, 78%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(18px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(18px) saturate(150%));
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.18));
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+body.team-bg-active .plugin-drawer-backdrop {
+  background: color-mix(in srgb, rgba(0, 0, 0, 0.45) 80%, transparent);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+body.team-bg-active .plugin-drawer {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface))) var(--forge-reading-alpha, 94%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(20px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(20px) saturate(150%));
+  border-left: 1px solid var(--glass-border, rgba(255, 255, 255, 0.18));
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.28), inset 1px 0 0 rgba(255, 255, 255, 0.16);
+}
+
+body.team-bg-active .plugin-drawer-header,
+body.team-bg-active .plugin-drawer-footer {
+  background: color-mix(in oklab, var(--glass-tint, var(--wall-tint, var(--surface-level-2))) var(--forge-glass-alpha-mid, 92%), transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(16px) saturate(150%));
+  backdrop-filter: var(--forge-glass-filter, blur(16px) saturate(150%));
+  border-color: var(--glass-border, rgba(255, 255, 255, 0.14));
+}
+
+body.team-bg-active .pet-settings-status {
+  background: color-mix(in oklab, var(--glass-tint, var(--surface)) 45%, transparent);
+  border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.14));
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+body.team-bg-active .pet-settings-section {
+  border-bottom-color: var(--glass-border, rgba(255, 255, 255, 0.12));
+}
+
+body.team-bg-active .pet-toggle-row {
+  border-bottom-color: var(--glass-border, rgba(255, 255, 255, 0.12));
+}
+
+body.team-bg-active .pet-preset-control button {
+  background: color-mix(in oklab, var(--glass-tint, var(--surface)) 35%, transparent);
+  border-color: var(--glass-border, rgba(255, 255, 255, 0.16));
+  color: var(--text);
+  transition: all var(--dur-fast) var(--ease-standard);
+}
+
+body.team-bg-active .pet-preset-control button:hover {
+  background: color-mix(in oklab, var(--glass-tint, var(--surface)) 55%, transparent);
+  border-color: var(--border-strong);
+}
+
+body.team-bg-active .pet-preset-control button[aria-pressed="true"] {
+  background: color-mix(in oklab, var(--accent) 18%, var(--surface));
+  border-color: var(--accent-ink);
+  color: var(--text);
+  font-weight: 600;
 }
 
 /* 系统级减弱动态：动效层直接不渲染 */

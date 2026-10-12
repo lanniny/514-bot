@@ -13,11 +13,9 @@
   <img id="pet-left-input" class="pet-input-overlay" alt="" aria-hidden="true" hidden />
   <img id="pet-right-input" class="pet-input-overlay" alt="" aria-hidden="true" hidden />
   <div id="pet-notice"><div id="pet-status" role="status" aria-live="polite">正在配对凭据…</div><button type="button" id="pet-retry" title="重新连接" aria-label="重试" hidden><svg aria-hidden="true"><use href="/lucide-sprite.svg#lucide-refresh-cw"></use></svg></button></div>
-  <div id="pet-toolbar" hidden>
-    <span id="pet-toolbar-label">514 猫</span>
-    <button type="button" id="pet-toggle-interactive" title="退出互动模式" aria-label="退出互动模式"><svg aria-hidden="true"><use href="/lucide-sprite.svg#lucide-log-out"></use></svg></button>
-    <button type="button" id="pet-close" title="收起桌宠" aria-label="收起桌宠"><svg aria-hidden="true"><use href="/lucide-sprite.svg#lucide-x"></use></svg></button>
-  </div>
+  <!-- 不再有顶栏：拖拽靠直接拖模型，退出互动/收起走右键环形菜单。
+       顶栏会在 300×280 的窗口里盖住模型顶部，且与「拖模型」的直觉冲突。 -->
+  <div id="pet-ring" hidden></div>
   <script src="/vendor/pet/live2dcubismcore.min.js"></script>
   <script src="/vendor/pet/pixi.min.js"></script>
   <!-- CSP 禁 unsafe-eval：@pixi/unsafe-eval 自安装补丁，替换 PIXI 内部的 new Function 路径 -->

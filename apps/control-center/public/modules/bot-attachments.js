@@ -180,8 +180,17 @@ export function createBotAttachments({
     });
     if (outcome.saved) toast(`${outcome.saved} 张图片已附加`, "success", 2400);
     if (outcome.claimFailed) toast(`${outcome.claimFailed} 张图片已附加，但存储确认失败`, "warning", 6000);
-    if (outcome.failed) toast(`${outcome.failed} 张图片附加失败，请查看附件状态`, "error", 5000);
-    const rejected = images.length - acceptedFiles.length + outcome.rejected;
+    if (outcome.failed) {
+      const failedUploads = context.uploads.filter((item) => item?.status === "error");
+      const firstError = failedUploads[failedUploads.length - 1]?.error;
+      if (outcome.failed === 1 && firstError) {
+        toast(`图片附加失败：${firstError}`, "error", 5000);
+      } else if (firstError) {
+        toast(`${outcome.failed} 张图片附加失败（${firstError}），请查看附件状态`, "error", 5000);
+      } else {
+        toast(`${outcome.failed} 张图片附加失败，请查看附件状态`, "error", 5000);
+      }
+    }
     if (rejected) toast(`当前对话最多附加 ${MAX_ATTACHMENTS_PER_CONTEXT} 个文件，已跳过 ${rejected} 个`, "warning", 5000);
   }
 

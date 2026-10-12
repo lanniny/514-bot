@@ -5,6 +5,7 @@
  * 端点（全部走 /api/ 统一 Bearer 门）：
  *   GET    /api/bots                       Bot 花名册（profiles + 成员元数据投影）
  *   GET    /api/bots/protocol              协作协议摘要（Grok Bot 对标映射表）
+ *   GET    /api/bots/inbox?conversationId= 会话协作收件箱（复用 collaboration-inbox 投影）
  *   GET/PUT/DELETE /api/bots/<memberId>    Bot profile（job/standingRules/approvalBoundary/skills）
  *   POST   /api/bots/relay/kickoff         群聊 kickoff 派发（@A 做 X；@B 做 Y；单 owner 守卫）
  *   POST   /api/bots/relay/handoff         单点交接（Bot A → Bot B，task 消息 + handoffId）
@@ -21,6 +22,9 @@ import { BotProfileStore } from "./profiles.mjs";
 import { BotRelayService } from "./relay.mjs";
 import { BotRoutineStore, toAutomationSpec } from "./routines.mjs";
 import { BotPrivateSkillStore } from "./private-skills.mjs";
+import { collectBotConversationInbox } from "./inbox.mjs";
+import { BUS_TAIL_LIMITS } from "../bus.mjs";
+import { INBOX_LIMITS } from "../collaboration-inbox.mjs";
 
 const NOT_FOUND_CODES = new Set(["PROFILE_NOT_FOUND", "ROUTINE_NOT_FOUND", "MEMBER_NOT_FOUND", "RELAY_HANDOFF_NOT_FOUND", "PRIVATE_SKILL_NOT_FOUND"]);
 
@@ -42,6 +46,10 @@ async function initServices(ctx) {
     bus: ctx.state.orchestrator.bus,
     resolveHandle: (handleOrId) => profiles.resolveHandle(handleOrId),
     resolveMember,
+    // 2026-09-11 W6：补发 bus.appended 事件。relay 此前直写 bus、不发 SSE——
+    // 右栏收件箱对面板新到的 ask 无从得知（memory「W3 前置已定性」缺口）。
+    // 可选注入 + 服务内 fail-soft，事件失败绝不影响交接主路径。
+    eventStore: ctx.state.eventStore ?? null,
   });
   const routines = await new BotRoutineStore({
     dataRoot: ctx.state.dataRoot,
@@ -96,6 +104,9 @@ export function resetBotsServicesForTest() {
 function httpStatusFor(error) {
   if (error.httpStatus) return error.httpStatus;
   if (NOT_FOUND_CODES.has(error.code)) return 404;
+  // 与 server.mjs 的 statusFor(:1104) 对齐：同一个 code 在两条路径上必须是同一个状态码，
+  // 否则同一份 CONVERSATION_NOT_FOUND 会有 400/404 两种语义（2026-09-11 E2E 实测暴露）。
+  if (error.code === "CONVERSATION_NOT_FOUND") return 404;
   if (error.code === "ROUTINE_BRIDGE_UNAVAILABLE") return 503;
   if (error.code === "RUN_NOT_FOUND") return 404;
   return 400;
@@ -187,6 +198,68 @@ export function registerBotsRoutes(router, ctx) {
         routinesStore: routines.status().state,
       },
     });
+    return true;
+  }));
+
+  // ---- Bot 面协作收件箱（复用 collaboration-inbox 的投影，由调用方声明作用域）----
+  // 为何不用 /api/teams/<id>/inbox：Bot 会话的 run.teamId 是 team-ephemeral-<uuid>，既有团队
+  // 收件箱按 teamId 过滤且校验 team.id === teamId，对 Bot 会话结构性不可用（见 inbox.mjs 头注）。
+  // 必须注册在末尾的泛型 /api/bots/<memberId> 之前，否则会被当成 memberId="inbox" 吞掉。
+  router.get("/api/bots/inbox", guarded(async (_request, response, url) => {
+    if (url.pathname !== "/api/bots/inbox") return false;
+    const conversationId = String(url.searchParams.get("conversationId") ?? "").trim();
+    if (!conversationId) {
+      ctx.json(response, 400, {
+        ok: false,
+        code: "VALIDATION_FAILED",
+        message: "conversationId query parameter is required for the Bot inbox",
+      });
+      return true;
+    }
+    // ConversationStore.get 对不存在的会话是**抛错**而非返回 null（src/conversations.mjs:313）。
+    // 这里显式折叠成 null，让「会话不存在」走本路由自己的 404 语义；
+    // 否则异常会穿透到 httpStatusFor，把缺失会话报成兜底 400（同 code 在 server.mjs:1104 是 404）。
+    // 其它错误照常抛出：只折叠「不存在」，不吞真故障。
+    let conversation = null;
+    try {
+      conversation = ctx.state.conversations?.get?.(conversationId) ?? null;
+    } catch (error) {
+      if (error?.code !== "CONVERSATION_NOT_FOUND") throw error;
+    }
+    if (!conversation) {
+      ctx.json(response, 404, {
+        ok: false,
+        code: "CONVERSATION_NOT_FOUND",
+        message: `conversation ${conversationId} does not exist`,
+      });
+      return true;
+    }
+    const requestedLimit = Number(url.searchParams.get("limit"));
+    const lifecycleByKey = (await ctx.state.inboxLifecycle?.snapshot?.().catch(() => ({}))) ?? {};
+    const inbox = await collectBotConversationInbox({
+      conversation,
+      runs: ctx.state.orchestrator.list(),
+      lifecycleByKey,
+      maxMessages: Number.isSafeInteger(requestedLimit) && requestedLimit > 0
+        ? Math.min(INBOX_LIMITS.maxMessages, requestedLimit)
+        : INBOX_LIMITS.maxMessages,
+      readTail: async (runId, options) => {
+        const tail = await ctx.state.orchestrator.bus.readTail(runId, {
+          maxBytes: BUS_TAIL_LIMITS.defaultMaxBytes,
+          maxMessages: BUS_TAIL_LIMITS.defaultMaxMessages,
+          signal: options?.signal,
+        });
+        // bus 自己的 diagnostics 已含 {status, issues, truncated, parsedMessages}，正是
+        // collectTeamInbox 的 projectDiagnostics 所需，故不再二次加工。
+        // 取舍如实记：mission-control 的 auditBusDiagnostics 是 src/mission-control.mjs:188 的
+        // **export**（不是私有闭包，可 import），它会给「该有 bus 却没有」的 social run 补
+        // BUS_AUDIT_MISSING / BUS_AUDIT_EMPTY_AFTER_MATERIALIZATION 专项诊断。Bot 面恰是 social
+        // run 主场，这里刻意不复用以免与 mission-control 耦合——**代价是这类故障只退化成笼统的
+        // partial，没有专项 issue 文案**。若日后要补，从这里接。
+        return tail;
+      },
+    });
+    ctx.json(response, 200, { ok: true, ...inbox });
     return true;
   }));
 

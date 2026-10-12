@@ -10,7 +10,7 @@ const dir = join(root, "node_modules/lucide/dist/esm/icons");
 const names = [
   "activity", "archive", "arrow-down", "arrow-left", "arrow-right", "arrow-up", "arrow-up-right", "bell", "book-open", "bot", "box", "boxes",
   "brain", "brush", "camera", "chart-column", "check", "chevron-down", "chevron-right", "circle-alert", "circle-check",
-  "circle-dot", "circle-pause", "circle-play", "circle-stop", "clipboard-list", "cloud", "cloud-download", "cloud-upload",
+  "circle-dot", "circle-pause", "circle-play", "circle-stop", "clipboard-list", "clock", "cloud", "cloud-download", "cloud-upload",
   "code", "command", "compass", "copy", "corner-down-left", "cpu", "database", "diamond", "download", "ellipsis", "external-link", "image",
   "eye", "file-input", "file-json", "file-pen-line", "file-plus-2", "file-text", "file-type", "fingerprint", "flame",
   "flask-conical", "folder", "folder-git-2", "folder-open", "gauge",

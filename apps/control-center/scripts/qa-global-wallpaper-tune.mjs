@@ -33,6 +33,7 @@ try {
 
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
   page.on("pageerror", (error) => console.log("[pageerror]", String(error).slice(0, 300)));
 
   await page.goto(`${baseUrl}#token=${token}`, { waitUntil: "commit", timeout: 60000 });
@@ -40,7 +41,8 @@ try {
   await page.waitForTimeout(2500);
 
   // 进入外观面板
-  await page.locator("#account-dock").first().click();
+  await page.evaluate(() => { location.hash = "#config"; });
+await page.waitForFunction(() => document.querySelector("#view-config")?.classList?.contains("is-active") === true, null, { timeout: 15_000 });
   await page.waitForTimeout(500);
   await page.locator('[data-view="appearance"]').first().click();
   await page.waitForTimeout(900);
@@ -97,9 +99,11 @@ try {
       console.log(`[page-resp] ${res.status()} ${res.url()}`);
     }
   });
-  // 直接走服务端 POST（Bearer token 与控制中心握手一致）
+  // 直接走服务端 POST（Bearer token 与控制中心握手一致）。baseUrl 可能带
+  // ?bootstrap= 一次性查询串（隔离实例自举），拼相对路径会产出畸形 URL——
+  // 取 origin 再拼（D-2026-09-28-018）。
   const pngBase64Inline = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
-  const uploadUrl = `${baseUrl}/api/wallpapers/global`;
+  const uploadUrl = `${new URL(baseUrl).origin}/api/wallpapers/global`;
   console.log("POST-URL:", uploadUrl);
   const uploadResp = await fetch(uploadUrl, {
     method: "POST",
@@ -114,12 +118,9 @@ try {
   await page.reload({ waitUntil: "commit" });
   await page.waitForLoadState("domcontentloaded", { timeout: 60000 }).catch(() => {});
   await page.waitForTimeout(2500);
-  // 再进外观面板（reload 后设置可能已开，account-dock 在 panel 之下被遮蔽；直接走 rail 入口）
-  const dock = page.locator("#account-dock").first();
-  if (await dock.isVisible().catch(() => false)) {
-    await dock.click();
-    await page.waitForTimeout(500);
-  }
+  // 再进外观面板（reload 后设置可能已开）：hash 导航幂等直达
+await page.evaluate(() => { location.hash = "#config"; });
+await page.waitForFunction(() => document.querySelector("#view-config")?.classList?.contains("is-active") === true, null, { timeout: 15_000 });
   await page.locator('[data-view="appearance"]').first().click();
   await page.waitForTimeout(900);
   const debug = await page.evaluate(() => {

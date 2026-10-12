@@ -111,7 +111,38 @@ test("strict settlement observability reads fail closed when governance sources 
     await assert.rejects(() => svc.handoffs({ strict: true }), { code: "OBSERVABILITY_HANDOFF_ROOT_UNAVAILABLE" });
     // 普通观测面板仍保留历史宽松语义，不把缺失源变成全局崩溃。
     assert.deepEqual((await svc.deltaLedger()).deltas, []);
-    assert.deepEqual(await svc.handoffs(), []);
+    // handoffs() 返回 { handoffs, total, truncated, limit }：清单为空，且**如实**报 total=0、
+    // 未截断——而不是靠调用方去猜「空数组」是什么意思。
+    assert.deepEqual(await svc.handoffs(), { handoffs: [], total: 0, truncated: false, limit: 120 });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("handoffs reports the true total separately from the bounded window", async () => {
+  // 契约：handoffs() 按 limit 截断是**有意的**（有界传输），但必须把磁盘真实份数
+  // 单独报出来。曾经的缺陷是调用方只拿到裸数组、把「前 120 条」当「一共 120 份」
+  // 渲染到协作台英雄统计上（实测 182 份被报成 120）。
+  const { root, aiShared } = await fixture();
+  try {
+    const names = ["codex-to-claude__a__20260101-0001.md", "claude-to-all__b__20260101-0002.md", "grok-to-claude__c__20260101-0003.md"];
+    for (const name of names) await writeFile(join(aiShared, "handoff", name), "# x\n", "utf8");
+    // 非 .md 不计入
+    await writeFile(join(aiShared, "handoff", "notes.txt"), "x", "utf8");
+    const svc = new ObservabilityService({ aiSharedRoot: aiShared, repoRoot: root });
+
+    const all = await svc.handoffs();
+    assert.equal(all.total, 3, "total 必须是磁盘真实份数，且不含非 .md");
+    assert.equal(all.handoffs.length, 3);
+    assert.equal(all.truncated, false, "未超 limit 时不得谎报截断");
+
+    const capped = await svc.handoffs({ limit: 2 });
+    assert.equal(capped.handoffs.length, 2, "清单按 limit 截断");
+    assert.equal(capped.total, 3, "total 不受 limit 影响——这正是修复点");
+    assert.equal(capped.truncated, true, "被截断必须可判定，不能要调用方去猜");
+    assert.equal(capped.limit, 2);
+    // 截断时留下的是**最新**的（按 mtime 倒序），不是任意两条
+    assert.ok(capped.handoffs.every((h) => names.includes(h.name)));
   } finally {
     await rm(root, { recursive: true, force: true });
   }

@@ -67,6 +67,112 @@ test("manifest rejects executable content, unsupported contributions, prototype 
   for (const patch of [{ script: "run.js" }, { tools: [{ id: "exec", name: "exec", kind: "shell" }] }, { panels: [{ id: "remote", name: "remote", source: "https://example.com" }] }, { settings: [{ id: "constructor", label: "secret", type: "password", default: "" }] }]) assert.throws(() => normalizePluginManifest({ ...base, ...patch }), { code: "PLUGIN_INVALID" });
   assert.throws(() => normalizePluginManifest(JSON.parse('{"__proto__":{}}')), { code: "PLUGIN_INVALID" });
 });
+test("an installed plugin left on an older catalog version is migrated to the current manifest", async (t) => {
+  // 复现 2026-10-02 的真实故障：用户机器上装着 9/8 安装的 desktop-pet，
+  // 其清单里 model.options 只有三种猫模式。后来目录加了 whale，但已装记录的
+  // manifest 是旧的 —— 服务端 validateValue 按**已装清单**校验，选 whale 会被判"选项无效"。
+  // 修法是给目录版本号 +1，让 init() 的 newerVersion 迁移把已装清单换成新目录。
+  const { store, root, projects } = await fixture(t);
+  await store.install({ catalogId: "desktop-pet", expectedRevision: 0 });
+  const path = join(root, "project-plugins.json");
+  const legacy = JSON.parse(await readFile(path, "utf8"));
+  const item = legacy.installed[0];
+  item.manifest.version = "1.2.0";
+  item.manifest.settings.find((field) => field.id === "model").options = ["standard", "keyboard", "gamepad"];
+  item.digest = createHash("sha256").update(JSON.stringify(item.manifest)).digest("hex");
+  await writeFile(path, JSON.stringify(legacy));
+
+  const restored = await new ProjectPluginStore({ dataRoot: root, projects }).init();
+  const snapshot = restored.list("a");
+  const catalogPet = PLUGIN_CATALOG.find((entry) => entry.id === "desktop-pet");
+  assert.ok(catalogPet.settings.find((field) => field.id === "model").options.includes("whale"));
+  assert.equal(snapshot.installed[0].manifest.version, catalogPet.version);
+  assert.ok(
+    snapshot.installed[0].manifest.settings.find((field) => field.id === "model").options.includes("whale"),
+    "migration must refresh the installed manifest so new model options are accepted",
+  );
+  // 迁移后必须能真的存下新模型，否则界面选了也会被打回。
+  await restored.configure({ projectId: "a", pluginId: "desktop-pet", enabled: true, config: { model: "whale" }, expectedRevision: snapshot.revision });
+  assert.equal(restored.list("a").bindings[0].config.model, "whale");
+});
+
+test("desktop-pet configuration is global and survives switching projects", async (t) => {
+  // 复现 2026-10-03 的真实故障：桌宠按项目存 binding，而 activeProjectId 跟着
+  // 「当前可见会话」走 —— 项目 A 配 whale、项目 B 配 standard，用户一切到 B 就
+  // "变回猫"。桌宠是桌面级单窗口，配置必须全局单份。
+  const { store } = await fixture(t);
+  await store.install({ catalogId: "desktop-pet", expectedRevision: 0 });
+  await store.configure({ projectId: "a", pluginId: "desktop-pet", enabled: true, config: { model: "whale" }, expectedRevision: 1 });
+  // 关键：换一个项目查，绑定仍在，且配置一模一样。
+  for (const projectId of ["a", "b"]) {
+    const pet = store.list(projectId).bindings.find((entry) => entry.pluginId === "desktop-pet");
+    assert.ok(pet, `${projectId} 必须能看到全局桌宠绑定`);
+    assert.equal(pet.config.model, "whale");
+    assert.equal(pet.projectId, "@desktop", "桌宠绑定必须落在全局槽，不能挂在某个项目上");
+    assert.equal(store.snapshot(projectId).find((entry) => entry.id === "desktop-pet").config.model, "whale");
+  }
+  // 在另一个项目里改配置 = 改全局那一份（这是有意的：只有一个窗口）。
+  await store.configure({ projectId: "b", pluginId: "desktop-pet", enabled: true, config: { model: "keyboard" }, expectedRevision: 2 });
+  assert.equal(store.list("a").bindings.find((entry) => entry.pluginId === "desktop-pet").config.model, "keyboard");
+  assert.equal(store.list().bindings.filter((entry) => entry.pluginId === "desktop-pet").length, 1, "全局只能有一份桌宠绑定");
+  // 非桌宠插件仍是每项目独立。
+  await store.install({ catalogId: "project-context", expectedRevision: 3 });
+  await store.configure({ projectId: "a", pluginId: "project-context", enabled: true, expectedRevision: 4 });
+  assert.deepEqual(store.list("b").bindings.filter((entry) => entry.pluginId === "project-context"), []);
+});
+
+test("legacy per-project desktop-pet bindings fold into one global binding", async (t) => {
+  const { store, root, projects } = await fixture(t);
+  await store.install({ catalogId: "desktop-pet", expectedRevision: 0 });
+  await store.configure({ projectId: "a", pluginId: "desktop-pet", enabled: true, config: { model: "standard" }, expectedRevision: 1 });
+  await store.configure({ projectId: "b", pluginId: "desktop-pet", enabled: true, config: { model: "whale" }, expectedRevision: 2 });
+  // 手工造出「旧版按项目存」的形态：两条绑定分别挂在 a / b。
+  const path = join(root, "project-plugins.json");
+  const legacy = JSON.parse(await readFile(path, "utf8"));
+  const globalPet = legacy.bindings.find((entry) => entry.pluginId === "desktop-pet");
+  globalPet.projectId = "a";
+  legacy.bindings.push({ ...globalPet, projectId: "b" });
+  await writeFile(path, JSON.stringify(legacy));
+
+  const restored = await new ProjectPluginStore({ dataRoot: root, projects }).init();
+  const pets = restored.list("a").bindings.filter((entry) => entry.pluginId === "desktop-pet");
+  assert.equal(pets.length, 1, "迁移必须把多份按项目的桌宠绑定折叠成一份");
+  assert.equal(pets[0].projectId, "@desktop");
+  // 折叠取末位：b 是最后配置的，whale 应当胜出。
+  assert.equal(pets[0].config.model, "whale");
+  // 迁移必须落盘，否则下次重启又散开。
+  const persisted = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(persisted.bindings.filter((entry) => entry.pluginId === "desktop-pet").length, 1);
+  assert.ok(persisted.revision > legacy.revision, "折叠是一次迁移，revision 必须前进");
+});
+
+test("legacy interactive:false bindings are raised to the new default without touching other settings", async (t) => {
+  // 2026-10-03：互动模式默认值 false → true。已装清单的 default 会随版本迁移刷新，
+  // 但**已保存的 binding.config 是显式值**，configFor 原样保留 —— 老用户会继续
+  // 停在 interactive:false，拖拽/右键/戳一戳全哑。这是默认值语义变更，要跟着抬。
+  const { store, root, projects } = await fixture(t);
+  await store.install({ catalogId: "desktop-pet", expectedRevision: 0 });
+  await store.configure({ projectId: "a", pluginId: "desktop-pet", enabled: true, config: { interactive: false, opacity: 70 }, expectedRevision: 1 });
+  const path = join(root, "project-plugins.json");
+  const legacy = JSON.parse(await readFile(path, "utf8"));
+  const item = legacy.installed[0];
+  // 退回旧版本 + 旧默认值，模拟真实老安装。
+  item.manifest.version = "1.2.1";
+  item.manifest.settings.find((field) => field.id === "interactive").default = false;
+  item.digest = createHash("sha256").update(JSON.stringify(item.manifest)).digest("hex");
+  await writeFile(path, JSON.stringify(legacy));
+
+  const restored = await new ProjectPluginStore({ dataRoot: root, projects }).init();
+  const pet = restored.list("a").bindings.find((entry) => entry.pluginId === "desktop-pet");
+  assert.equal(pet.config.interactive, true, "老配置的 interactive:false 必须被抬到新默认");
+  assert.equal(pet.config.opacity, 70, "只抬默认值语义，其余用户配置不得被动");
+  const persisted = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(persisted.bindings.find((entry) => entry.pluginId === "desktop-pet").config.interactive, true);
+  // 迁移只跑一次：再启一次不应继续动 revision。
+  const again = await new ProjectPluginStore({ dataRoot: root, projects }).init();
+  assert.equal(again.list("a").revision, restored.list("a").revision, "迁移必须幂等");
+});
+
 test("custom imports cannot replace a reserved catalog identity", async (t) => {
   const { store } = await fixture(t);
   const spoofed = structuredClone(PLUGIN_CATALOG.find((item) => item.id === "desktop-pet"));
@@ -89,7 +195,8 @@ test("installed catalog plugins migrate forward with binding defaults and a pers
   const restored = await new ProjectPluginStore({ dataRoot: root, projects }).init();
   const snapshot = restored.list("a");
   assert.equal(snapshot.revision, legacy.revision + 1);
-  assert.equal(snapshot.installed[0].manifest.version, "1.2.0");
+  // 不写死版本号：目录一升版就该跟着走，否则每次加能力都要改测试。
+  assert.equal(snapshot.installed[0].manifest.version, PLUGIN_CATALOG.find((item) => item.id === "desktop-pet").version);
   assert.equal(snapshot.bindings[0].config.model, "standard");
   assert.equal(JSON.parse(await readFile(path, "utf8")).revision, snapshot.revision);
 });

@@ -547,6 +547,10 @@ function expectedMockFailure({ method, path, status, code }) {
   if (method === "POST" && path === `/api/ssh/hosts/${offlineHost.id}/probe`) {
     return status === 503 && code === "QA_HOST_OFFLINE";
   }
+  // 全局壁纸 HEAD 探测在未配置自定义壁纸时返回 404 为设计内合法空态（D-2026-09-28-033）
+  if (method === "HEAD" && path === "/api/wallpapers/global" && status === 404) {
+    return true;
+  }
   return false;
 }
 
@@ -562,6 +566,7 @@ try {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await installMockRoutes(context);
   const page = await context.newPage();
+  await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
   const errors = [];
   const responseDiagnostics = [];
   const expectedResponseFailures = new Set();
@@ -639,8 +644,8 @@ try {
     return Boolean(tab && !tab.hidden);
   });
   await page.locator('[data-config-surface="providers"]').click();
-  const providersTabLabel = await page.locator('[data-config-surface="providers"] strong').textContent();
-  if (providersTabLabel?.trim() !== "连接") throw new Error(`remote providers tab label drifted: ${providersTabLabel}`);
+  const providersTabLabel = await page.locator('[data-config-surface="providers"] :is(span, strong)').first().textContent();
+  if (!providersTabLabel?.trim()?.startsWith("连接")) throw new Error(`remote providers tab label drifted: ${providersTabLabel}`);
   await page.waitForSelector(".config-remote-provider-deck", { timeout: 30_000 });
   await page.waitForFunction(() => document.querySelector("#config-surface-remote")?.textContent?.includes("claude-initial"));
   await page.waitForFunction((projectId) => document.querySelector(`[data-config-project="${projectId}"] .config-host-chip-status`)?.textContent === "在线", project.id);
@@ -665,9 +670,13 @@ try {
     return text.includes("QA Team") && text.includes("mock codex failure");
   });
   const teamResult = await page.locator(".config-remote-result").innerText();
-  if (!teamResult.includes("✓ Claude") || !teamResult.includes("✗ Codex")) throw new Error(`team partial failure missing: ${teamResult}`);
+  const hasClaudeSuccess = teamResult.includes("✓ Claude") || (teamResult.includes("Claude") && teamResult.includes("成功"));
+  const hasCodexFailure = teamResult.includes("✗ Codex") || (teamResult.includes("Codex") && teamResult.includes("失败"));
+  if (!hasClaudeSuccess || !hasCodexFailure) throw new Error(`team partial failure missing: ${teamResult}`);
   report.checks.teamPartialFailure = true;
 
+  await page.locator('[data-config-surface="local-runtime"]').click();
+  await page.waitForSelector(".config-remote-workbench", { timeout: 30_000 });
   for (const tab of ["env", "proxy", "resources", "sync", "accounts"]) {
     await page.locator(`[data-config-remote-workbench-tab="${tab}"]`).click();
     const selected = await page.locator(`[data-config-remote-workbench-tab="${tab}"]`).getAttribute("aria-selected");
@@ -762,16 +771,20 @@ try {
   await page.locator('[data-config-remote-provider-app="claude"]').waitFor({ state: "visible" });
   await page.locator(`[data-config-host="${host.id}"]`).click();
   await page.locator('[data-config-remote-provider-app="codex"]').click();
+  await page.locator('[data-config-surface="local-runtime"]').click();
   await page.locator('[data-config-remote-workbench-tab="resources"]').click();
   await page.locator('[data-config-remote-resource-tab="skills"]').click();
   await page.locator(`[data-config-project="${project.id}"]`).click();
+  await page.locator('[data-config-surface="providers"]').click();
   await page.waitForSelector('[data-config-remote-provider-app="claude"].is-active');
   await page.locator(`[data-config-host="${host.id}"]`).click();
   await page.waitForSelector('[data-config-remote-provider-app="codex"].is-active');
+  await page.locator('[data-config-surface="local-runtime"]').click();
   await page.waitForSelector('[data-config-remote-workbench-tab="resources"].is-active');
   await page.waitForSelector('[data-config-remote-resource-tab="skills"].is-active');
   report.checks.targetStateIsolation = true;
 
+  await page.locator('[data-config-surface="providers"]').click();
   await page.locator(`[data-config-project="${project.id}"]`).click();
   await page.waitForFunction((projectName) => document.querySelector("#config-surface-remote")?.textContent?.includes(projectName), project.name);
   await page.locator('[data-config-remote-provider-app="claude"]').click();

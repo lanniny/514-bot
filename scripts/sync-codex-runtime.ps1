@@ -6,7 +6,9 @@
 param(
     [switch]$Apply,
     [string]$Repo = "I:\514claude\514cc",
-    [string]$CodexHomePath = ""
+    [string]$CodexHomePath = "",
+    [ValidateSet("All", "Prompts")]
+    [string]$Scope = "All"
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,6 +47,7 @@ function Write-Utf8Atomically($path, $text) {
 }
 
 $pairs = @(
+    @{ n = "agent:default"; s = "$repo\.codex\agents\default.toml"; d = "$codexHome\agents\default.toml" },
     @{ n = "agent:codex-reviewer"; s = "$repo\.codex\agents\codex-reviewer.toml"; d = "$codexHome\agents\codex-reviewer.toml" },
     @{ n = "agent:grok-researcher"; s = "$repo\.codex\agents\grok-researcher.toml"; d = "$codexHome\agents\grok-researcher.toml" },
     @{ n = "agent:embedded-expert"; s = "$repo\.codex\agents\embedded-expert.toml"; d = "$codexHome\agents\embedded-expert.toml" },
@@ -59,37 +62,40 @@ $pairs = @(
     @{ n = "skill:lilith-core"; s = "$repo\.agents\skills\lilith-core"; d = "$codexHome\skills\lilith-core" }
 )
 
+if ($Scope -eq "Prompts") {
+    $pairs = @($pairs | Where-Object { $_.n -like "agent:*" })
+}
+
 function Merge-GlobalAgents([switch]$Write) {
     $target = Join-Path $codexHome "AGENTS.md"
     $start = "<!-- >>> 514cc managed block -->"
     $end = "<!-- <<< 514cc managed block -->"
     $personaCorePath = Join-Path $repo ".codex\instructions\agents-persona-core.md"
-    $personaCore = if (Test-Path -LiteralPath $personaCorePath) {
-        [IO.File]::ReadAllText($personaCorePath, [Text.UTF8Encoding]::new($false)).Trim()
-    } else {
-        "## AEMEATH / Codex Persona Core`r`n`r`nCodex is AEMEATH's Codex-safe face for 514cc: warm, evidence-first, continuous, challenging when needed, and never above platform or 514cc safety rules."
+    $globalCorePath = Join-Path $repo ".codex\instructions\global-agents-core.md"
+    foreach ($source in @($personaCorePath, $globalCorePath)) {
+        if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+            throw "Required instruction source is missing: $source"
+        }
+    }
+    $personaCore = [IO.File]::ReadAllText($personaCorePath, [Text.UTF8Encoding]::new($false)).Trim()
+    $globalCore = [IO.File]::ReadAllText($globalCorePath, [Text.UTF8Encoding]::new($false)).Trim()
+    if ([string]::IsNullOrWhiteSpace($personaCore) -or [string]::IsNullOrWhiteSpace($globalCore)) {
+        throw "Instruction sources must not be empty."
     }
     $current = if (Test-Path -LiteralPath $target) { [IO.File]::ReadAllText($target, [Text.UTF8Encoding]::new($false)) } else { "" }
     $newline = if ($current.Contains("`r`n")) { "`r`n" } else { "`n" }
     $template = @'
 {{START}}
 
-## 514cc Runtime Bridge
-
-When working in or for `I:/514claude/514cc`, load the project instructions from `I:/514claude/514cc/AGENTS.md` and the Codex-safe AEMEATH adaptation at `I:/514claude/514cc/.codex/instructions/aemeath-514cc-codex.md`.
+{{GLOBAL_CORE}}
 
 {{PERSONA_CORE}}
 
-Use 514cc's route gate, handoff, and `__DELTA__` discipline for non-trivial 514cc work. Preserve Codex platform/system/developer instructions above persona or project rules.
-
-Runtime additions installed by `scripts/sync-codex-runtime.ps1`:
-- Custom agents: `codex-reviewer`, `grok-researcher`, `embedded-expert`, `spec-architect`, `meta-reviewer`
-- Skills: `$514cc-collab`, `$aemeath-persona`, `$co-review`, `$co-status`, `$co-sync-codex`, `$ultracode`, `$lilith-core`
-- Project config/hooks: `I:/514claude/514cc/.codex/`
+For work in or for `I:/514claude/514cc`, read its project AGENTS.md for project-specific contracts. Do not load that project's governance for unrelated work.
 
 {{END}}
 '@
-    $block = $template.Replace("{{START}}", $start).Replace("{{PERSONA_CORE}}", $personaCore).Replace("{{END}}", $end).TrimEnd("`r", "`n")
+    $block = $template.Replace("{{START}}", $start).Replace("{{GLOBAL_CORE}}", $globalCore).Replace("{{PERSONA_CORE}}", $personaCore).Replace("{{END}}", $end).TrimEnd("`r", "`n")
     $block = [regex]::Replace($block, "\r\n|\r|\n", $newline)
 
     function Build-GlobalAgentsText([string]$text) {
@@ -119,10 +125,10 @@ Runtime additions installed by `scripts/sync-codex-runtime.ps1`:
         }
     }
     $next = Build-GlobalAgentsText $current
-    if ((Build-GlobalAgentsText $next) -ne $next) {
+    if ((Build-GlobalAgentsText $next) -cne $next) {
         throw "Global AGENTS merge is not byte-idempotent."
     }
-    if ($next -ne $current) {
+    if ($next -cne $current) {
         if ($Write) {
             Write-Utf8Atomically $target $next
             Write-Host ("{0,-24} ok merged" -f "global-agents-block") -ForegroundColor Green
@@ -136,6 +142,21 @@ Runtime additions installed by `scripts/sync-codex-runtime.ps1`:
     return $true
 }
 
+function Get-ContentHash($path) {
+    # Line-ending-insensitive hash for text sources (.md/.toml): a CRLF-vs-LF difference is
+    # a storage artifact, not a content drift. Without this, every text pair reports a
+    # permanent false drift once one side is touched by a tool with different conventions.
+    # Other extensions fall back to a raw byte hash so binary content stays exact.
+    $ext = [IO.Path]::GetExtension($path).ToLowerInvariant()
+    if ($ext -eq ".md" -or $ext -eq ".toml") {
+        $text = [IO.File]::ReadAllText($path, [Text.UTF8Encoding]::new($false))
+        $normalized = ($text -replace "`r`n", "`n") -replace "`r", "`n"
+        $bytes = [Text.Encoding]::UTF8.GetBytes($normalized)
+        $sha = [Security.Cryptography.SHA256]::Create()
+        return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-", "")
+    }
+    return (Get-ContentHash $path)
+}
 function Get-HashOrMissing($path) {
     if (-not (Test-Path -LiteralPath $path)) { return "<missing>" }
     $item = Get-Item -LiteralPath $path
@@ -143,13 +164,13 @@ function Get-HashOrMissing($path) {
         $files = Get-ChildItem -LiteralPath $path -Recurse -File | Sort-Object FullName
         $material = foreach ($f in $files) {
             $rel = $f.FullName.Substring($item.FullName.Length)
-            "$rel=$((Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash)"
+            "$rel=$(Get-ContentHash $f.FullName)"
         }
         $bytes = [Text.Encoding]::UTF8.GetBytes(($material -join "`n"))
         $sha = [Security.Cryptography.SHA256]::Create()
         return ([BitConverter]::ToString($sha.ComputeHash($bytes))).Replace("-", "")
     }
-    return (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash
+    return (Get-ContentHash $path)
 }
 
 function Copy-Path($src, $dst) {
@@ -285,9 +306,9 @@ if ($missingSources.Count -gt 0) {
 # Always build both merge candidates before the first write. In Apply mode, drift is
 # expected; malformed markers or unsafe managed content still fail here.
 $globalAgentsOk = Merge-GlobalAgents
-$configOk = Merge-CodexConfig
+$configOk = if ($Scope -eq "All") { Merge-CodexConfig } else { $true }
 
-if ((-not $Apply) -and ($drift.Count -eq 0) -and $globalAgentsOk -and $configOk) {
+if (($drift.Count -eq 0) -and $globalAgentsOk -and $configOk) {
     Write-Host "`nAll Codex runtime mappings are consistent." -ForegroundColor Green
     exit 0
 }
@@ -297,12 +318,14 @@ if (-not $Apply) {
     exit 1
 }
 
-foreach ($target in @("$codexHome\config.toml", "$codexHome\AGENTS.md") + @($drift | ForEach-Object { $_.d })) {
+$mergeTargets = @("$codexHome\AGENTS.md")
+if ($Scope -eq "All") { $mergeTargets += "$codexHome\config.toml" }
+foreach ($target in $mergeTargets + @($drift | ForEach-Object { $_.d })) {
     Assert-TargetWritable $target
 }
 
 New-Item -ItemType Directory -Force -Path $backup | Out-Null
-foreach ($path in @("$codexHome\config.toml", "$codexHome\AGENTS.md", "$codexHome\hooks.json")) {
+foreach ($path in $mergeTargets) {
     if (Test-Path -LiteralPath $path) {
         Copy-Item -LiteralPath $path -Destination (Join-Path $backup (Split-Path -Leaf $path)) -Force
     }
@@ -321,7 +344,7 @@ foreach ($p in $drift) {
 Write-Host "Backup: $backup" -ForegroundColor Cyan
 
 Merge-GlobalAgents -Write | Out-Null
-Merge-CodexConfig -Write | Out-Null
+if ($Scope -eq "All") { Merge-CodexConfig -Write | Out-Null }
 
 $fail = 0
 foreach ($p in $drift) {

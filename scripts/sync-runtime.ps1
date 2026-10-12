@@ -1,4 +1,4 @@
-# sync-runtime.ps1 — 514cc 双地落一键同步（D-2026-05-23-002 拖欠 3 年的债，2026-06-11 兑现）
+﻿# sync-runtime.ps1 — 514cc 双地落一键同步（D-2026-05-23-002 拖欠 3 年的债，2026-06-11 兑现）
 #
 # 方向：仓库源 → 运行时（单向，源是唯一真相）
 # 用法：
@@ -42,7 +42,10 @@ $pairs = @(
     @{n = "co-research";    s = "$repo\skills\research\grok-researcher\SKILL.md";        d = "$home_\.claude\commands\co-research.md" },
     # -- 状态栏 + 人格皮肤 --
     @{n = "ccline-theme";   s = "$repo\statusline\514cc.toml";                           d = "$home_\.claude\ccline\themes\514cc.toml" },
-    @{n = "output-style";   s = "$repo\output-styles\aemeath-meta-butler.md";            d = "$home_\.claude\output-styles\aemeath-meta-butler.md" }
+    @{n = "output-style";   s = "$repo\output-styles\aemeath-meta-butler.md";            d = "$home_\.claude\output-styles\aemeath-meta-butler.md" },
+    # roxy-migurdia 2026-10-09 补入：此前 514cc/CLAUDE.md 双地落表列了这对，但 sync 对表漏登记，
+    # 靠手工同步维持 diff=0——无哨兵守，改一处即静默漂移。
+    @{n = "output-style:roxy"; s = "$repo\output-styles\roxy-migurdia.md";               d = "$home_\.claude\output-styles\roxy-migurdia.md" }
 )
 
 $drift = @()

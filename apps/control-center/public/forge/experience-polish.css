@@ -45,35 +45,8 @@ body.atelier .topbar,
  * Welcome: sit on the reading column, point at the composer
  * -------------------------------------------------------------------------- */
 
-#view-workbench .conversation-stream .welcome-state[data-stream-key="empty:welcome"] {
-  display: grid;
-  align-self: start;
-  justify-self: stretch;
-  width: 100%;
-  max-width: var(--codex-reading-width, 780px);
-  margin: 14vh auto 0;
-  padding: 0 0 0 14px;
-  border: 0;
-  border-left: 2px solid var(--primary);
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-}
 
-#view-workbench .welcome-state[data-stream-key="empty:welcome"] .welcome-hero {
-  font-family: var(--sans);
-  font-size: var(--text-xl);
-  font-weight: 650;
-  letter-spacing: -0.02em;
-}
 
-#view-workbench .welcome-state[data-stream-key="empty:welcome"] .welcome-sub {
-  display: block;
-  max-width: 46ch;
-  color: var(--text-muted);
-  font-size: var(--text-xs);
-  line-height: 1.6;
-}
 
 /* --------------------------------------------------------------------------
  * One chrome: breadcrumb owns the title; page heroes step aside
@@ -423,8 +396,11 @@ body.atelier .sidebar .runtime-indicator span {
    全局导航在桌面端只剩 Ctrl+K 一个入口（名为「视图」的菜单里也没有视图），是
    最大可用性缺陷。现改为：汉堡（.topbar .mobile-menu-button）全尺寸可见作为
    全局导航抽屉的触发钮；侧栏仅在抽屉关闭态隐藏（nav-open 时由 codex-desktop
-   的 fixed + translateX(0) 滑出）；背板交还 [hidden] 语义。bot 表面仍由
-   bot-shell.css 以 !important 单独全隐（无 chrome 聊天面，视图入口走菜单）。 */
+   的 fixed + translateX(0) 滑出）；背板交还 [hidden] 语义。
+   2026-09-28 勘误：此处原文还写着「bot 表面仍由 bot-shell.css 以 !important 单独
+   全隐」——**该规则已不存在**（bot-shell.css 中零条 mobile-menu-button 规则，
+   bot-grok-face.css 仅剩 :hover）。即 Bot 面的汉堡同样可见，与"全尺寸可见"一致；
+   不再为 bot 面单开隐藏例外。 */
 .statusbar-connection,
 .sidebar-footer,
 .mobile-nav,
@@ -2404,54 +2380,16 @@ html[data-density="comfortable"] .conversation-stream .message-row {
     transition: transform var(--dur-fast) ease-out;
   }
 
-  .workbench-shell.is-rail-open .run-rail {
-    transform: translateX(0);
-  }
 
-  .workbench-shell.is-rail-open::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: 70;
-    background: rgba(18, 18, 17, 0.22);
-  }
 }
 
 @media (max-width: 560px) {
-  #view-workbench .welcome-state[data-stream-key="empty:welcome"] {
-    margin-top: 8vh;
-  }
 
-  #view-workbench .welcome-state[data-stream-key="empty:welcome"] .welcome-hero {
-    font-size: var(--text-lg);
-  }
 
-  #view-workbench .welcome-state[data-stream-key="empty:welcome"] .welcome-sub {
-    font-size: var(--text-xs);
-  }
 }
 
-/* 右栏浮层左缘拉伸缝：旧 grid 拖柄碰不到 overlay 宽 */
-.workbench-shell .context-rail > .forge-splitter-handle.is-overlay-left {
-  position: absolute;
-  z-index: 6;
-  top: 8px;
-  bottom: 8px;
-  left: 0;
-  display: block;
-  width: 10px;
-  flex: none;
-  cursor: col-resize;
-}
 
-.workbench-shell.mc-collapsed .context-rail > .forge-splitter-handle.is-overlay-left,
-.workbench-shell .context-rail[aria-hidden="true"] > .forge-splitter-handle.is-overlay-left {
-  display: none;
-}
 
-.forge-splitting .workbench-shell .context-rail {
-  transition: none;
-}
 
 /* 壁纸态下，工作台视图容器本体透化（壁纸此刻经 .view 透出，不再依赖 stage 直接底色）。
    工作台内部各 pane 的玻璃透出已由 team.css 门控，这里只处理最外层 .view 的实底。 */

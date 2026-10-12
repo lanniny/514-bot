@@ -129,19 +129,18 @@ function skeletonRow(variant, columns) {
   if (variant === "table") {
     let cells = "";
     for (let index = 0; index < columns; index += 1) {
-      const width = index === 0 ? "42%" : `${Math.max(28, 96 - index * 18)}%`;
-      cells += `<span class="skeleton-bar" style="inline-size:${width}"></span>`;
+      cells += `<span class="skeleton-bar skeleton-bar--table-${index + 1}"></span>`;
     }
     return `<div class="skeleton-row">${cells}</div>`;
   }
   if (variant === "card") {
     return `<div class="skeleton-row skeleton-row--card">`
       + `<span class="skeleton-block skeleton-block--avatar"></span>`
-      + `<span class="skeleton-lines"><span class="skeleton-bar" style="inline-size:60%"></span><span class="skeleton-bar" style="inline-size:38%"></span></span>`
+      + `<span class="skeleton-lines"><span class="skeleton-bar skeleton-bar--w60"></span><span class="skeleton-bar skeleton-bar--w38"></span></span>`
       + `</div>`;
   }
   return `<div class="skeleton-row skeleton-row--list">`
-    + `<span class="skeleton-bar" style="inline-size:${Math.max(34, 88 - columns * 6)}%"></span>`
+    + `<span class="skeleton-bar skeleton-bar--w70"></span>`
     + `</div>`;
 }
 

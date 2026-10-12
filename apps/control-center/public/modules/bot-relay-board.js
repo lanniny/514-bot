@@ -7,14 +7,7 @@
  */
 
 import { fetchRelayBoard, postRelayAck } from "./bot-collab-api.js";
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
-}
+import { escapeHtml } from "../utils.js";
 
 function shortTime(ts) {
   const parsed = Date.parse(String(ts ?? ""));

@@ -15,7 +15,7 @@
 
 import { apiReady, getAccessToken, request } from "../api.js";
 import { PET_DEFAULTS, PET_MODELS, petRatio, clampDockPosition } from "../pet/pet-settings.js";
-import { createPetChannel } from "../pet/pet-channel.js";
+import { createPetChannel, createPetCommandChannel } from "../pet/pet-channel.js";
 
 const SETTINGS_KEY = "514cc.pet.settings";
 const HANDOFF_KEY = "514cc-pet-handoff";
@@ -36,7 +36,8 @@ function readSettings() {
       modelMirror: parsed.modelMirror === true || parsed["model-mirror"] === true,
       pointerMirror: parsed.pointerMirror === true || parsed["pointer-mirror"] === true,
       randomExpression: parsed.randomExpression === true || parsed["random-expression"] === true,
-      interactive: parsed.interactive === true,
+      // 默认开：关掉 = 桌宠穿透，收不到任何鼠标事件。老配置里没这个键时按默认开走。
+      interactive: parsed.interactive !== false,
       opacity: petRatio(parsed.opacity, 0.3, 1),
       scale: petRatio(parsed.scale, 0.6, 1.8),
       dockPosition: Number.isFinite(parsed.dockPosition?.x) && Number.isFinite(parsed.dockPosition?.y) ? parsed.dockPosition : null,
@@ -58,6 +59,7 @@ function writeSettings() {
 
 let settings = readSettings();
 let channel = null;
+let commandChannel = null;
 let webDockElement = null;
 let overlayQueue = Promise.resolve();
 let overlayMutating = false;
@@ -65,6 +67,7 @@ let ready = false;
 let petPluginInstalled = false;
 let petPluginBound = false;
 let petPluginGateReady = false;
+let pluginRevision = 0;
 let activePluginProjectId = "";
 let pluginGateGeneration = 0;
 let previewSettings = null;
@@ -132,12 +135,101 @@ function syncWebDockPresentation() {
 
 function broadcastConfig() {
   const current = effectiveSettings();
-  channel?.postMessage({ type: "pet-config", config: { ...current } });
+  // revision 一并下发：环形快捷栏改模型时要带 expectedRevision 做 CAS，
+  // 否则服务端会以 PLUGIN_REVISION_MISMATCH 拒掉。
+  channel?.postMessage({ type: "pet-config", config: { ...current }, revision: pluginRevision });
+  // 透明度变化要同步到原生窗口（整窗，不只是绘制内容）。
+  if (isDesktopShell) {
+    void tauriInvoke("set_pet_overlay_opacity", { opacity: current.opacity })?.catch?.(() => {});
+  }
   if (webDockElement && !webDockElement.hidden) {
     webDockElement.style.setProperty("--pet-dock-scale", String(current.scale));
     webDockElement.style.setProperty("--pet-dock-opacity", String(current.opacity));
     webDockElement.dataset.interactive = String(current.interactive);
     positionDock();
+  }
+}
+
+// ---- 桌宠反向指令：环形快捷栏里改模型 ----
+//
+// 为什么走服务端：模型是**持久配置**，真源是插件台账（bindings），不是 localStorage。
+// 只改本地会被下一次 `514cc:plugin-changed` 用台账旧值盖回去。所以：
+//   1. 乐观更新本地 settings（界面立刻有反应）
+//   2. POST /api/plugins/configure 写台账（真源）
+//   3. 派发事件让插件面板重拉快照，把 revision 对齐
+// 表情与动作是**一次性演出**，没有「当前表情」这种持久状态，桌宠页本地处理即可，不在此列。
+let petCommandBusy = false;
+
+async function handlePetCommand(message) {
+  if (message?.action !== "set-model") return;
+  if (!petPluginInstalled || !petPluginBound) return;
+  const model = String(message.model || "");
+  if (!Object.hasOwn(PET_MODELS, model)) return;
+  const revision = Number(message.revision);
+  if (!Number.isSafeInteger(revision) || petCommandBusy) return;
+  petCommandBusy = true;
+  try {
+    settings.model = model;
+    writeSettings();
+    broadcastConfig();
+    await request("/api/plugins/configure", {
+      method: "POST",
+      body: {
+        projectId: activePluginProjectId,
+        pluginId: "desktop-pet",
+        enabled: true,
+        config: { ...bindingConfigForServer(), model },
+        expectedRevision: revision,
+      },
+    });
+    commandChannel?.postMessage({ type: "pet-command-result", action: "set-model", ok: true, model });
+    window.dispatchEvent(new CustomEvent("514cc:pet-command-applied"));
+  } catch (error) {
+    commandChannel?.postMessage({ type: "pet-command-result", action: "set-model", ok: false, reason: String(error?.code || error?.message || "failed") });
+  } finally {
+    petCommandBusy = false;
+  }
+}
+
+/** 把本地 settings 还原成服务端 manifest 认得的 config 形态（百分比 / 连字符键）。 */
+function bindingConfigForServer() {
+  return {
+    enabled: settings.enabled,
+    "max-fps": settings.maxFps,
+    "model-mirror": settings.modelMirror,
+    "pointer-mirror": settings.pointerMirror,
+    "random-expression": settings.randomExpression,
+    interactive: settings.interactive,
+    opacity: Math.round(settings.opacity * 100),
+    scale: Math.round(settings.scale * 100),
+    "web-dock": settings.webDock,
+    "mouse-tracking": settings.mouseTracking,
+    "lightning-combo": settings.lightningCombo,
+    sound: settings.sound,
+  };
+}
+
+/**
+ * 退出互动要落台账（同 handlePetCommand 的纪律：持久配置真源在服务端）。
+ * 失败不打扰用户 —— 本地已经是穿透态了，最坏情况是下次快照把它抬回互动，
+ * 那时用户再点一次「穿透」即可；装饰性功能不该弹错误。
+ */
+async function persistInteractiveOff() {
+  if (!petPluginInstalled || !petPluginBound) return;
+  try {
+    await request("/api/plugins/configure", {
+      method: "POST",
+      body: {
+        projectId: activePluginProjectId,
+        pluginId: "desktop-pet",
+        enabled: true,
+        config: { ...bindingConfigForServer(), interactive: false },
+        expectedRevision: pluginRevision,
+      },
+    });
+    window.dispatchEvent(new CustomEvent("514cc:pet-command-applied"));
+  } catch (error) {
+    console.warn("[pet] persist interactive-off failed", error);
   }
 }
 
@@ -155,11 +247,19 @@ function ensureChannel() {
       writeSettings();
       syncPetState();
     } else if (data.type === "pet-request" && data.request === "interactive-off") {
+      // 顶栏移除后这是**唯一**的退出互动入口（环形菜单的「穿透」扇区），
+      // 所以不能只改本地 —— 必须落台账，否则下次快照会把 interactive 抬回 true，
+      // 用户会看到「穿透了又自己变回互动」。与环形菜单的 set-model 同一条纪律：
+      // 持久配置的真源是服务端 bindings。
       settings.interactive = false;
       writeSettings();
       broadcastConfig();
+      void persistInteractiveOff();
     }
   };
+  if (commandChannel) return;
+  commandChannel = createPetCommandChannel(() => webDockElement?.querySelector("iframe")?.contentWindow, window, isDesktopShell);
+  commandChannel.onmessage = (event) => { void handlePetCommand(event?.data); };
 }
 
 async function openOverlay() {
@@ -170,6 +270,9 @@ async function openOverlay() {
   } catch {}
   try {
     await tauriInvoke("set_pet_overlay", { visible: true, scale: current.scale });
+    // 整窗透明度必须由主窗口下发：桌宠页的 body opacity 只影响绘制内容，
+    // 透明窗口未绘制的区域照样挡鼠标 —— 视觉上"看不见"，行为上仍然挡着桌面。
+    await tauriInvoke("set_pet_overlay_opacity", { opacity: current.opacity })?.catch?.(() => {});
     showError();
   } catch (error) {
     console.warn("[pet] overlay open failed", error);
@@ -498,11 +601,12 @@ function adoptPluginSnapshot(snapshot, projectId) {
   const normalizedProjectId = String(projectId || "");
   activePluginProjectId = normalizedProjectId;
   petPluginInstalled = snapshot?.installed?.some((entry) => entry.id === "desktop-pet") === true;
-  const binding = normalizedProjectId
-    ? snapshot?.bindings?.find((entry) => entry.pluginId === "desktop-pet" && entry.projectId === normalizedProjectId)
-    : null;
+  // 桌宠的绑定是**全局单份**（服务端存在 "@desktop" 槽），不随当前项目变。
+  // 按 projectId 精确匹配会让「切到没配过桌宠的项目」时找不到绑定 → 桌宠被关掉。
+  const binding = snapshot?.bindings?.find((entry) => entry.pluginId === "desktop-pet") || null;
   petPluginBound = petPluginInstalled && binding?.enabled === true;
   petPluginGateReady = true;
+  if (Number.isSafeInteger(snapshot?.revision)) pluginRevision = snapshot.revision;
   if (petPluginBound) applyBindingConfig(binding.config, true);
   else {
     syncPetState();
@@ -559,6 +663,11 @@ window.addEventListener("514cc:plugin-changed", (event) => {
       applyBindingConfig(payload.config, payload.enabled === true);
     }
   }
+});
+
+// 环形快捷栏改了模型：让插件面板重拉快照，把 revision 对齐（否则下一次改会被 CAS 拒）。
+window.addEventListener("514cc:pet-command-applied", () => {
+  window.dispatchEvent(new CustomEvent("514cc:plugin-refresh-request", { detail: { projectId: activePluginProjectId } }));
 });
 
 // 监听插件快照全量加载事件

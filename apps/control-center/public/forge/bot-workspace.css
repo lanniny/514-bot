@@ -102,41 +102,112 @@ html.is-bot-surface #view-bot { border: 0; box-shadow: none; }
 #view-bot [hidden] { display: none !important; }
 #view-bot .bot-composer { flex: 0 0 auto; position: sticky; bottom: 0; z-index: 5; width: 100%; max-width: none; margin: 0; border: 0; border-top: 1px solid var(--bot-line); border-radius: 0; padding: 10px 32px 14px; background: var(--bot-bg); box-shadow: none; }
 /* 壁纸态输入栏同样走玻璃（bot-shell.css 的 .bot-composer 玻璃规则会被本文件的 ID 选择器压住，这里以更高优先级恢复） */
-body.team-bg-active #view-bot .bot-composer { background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) calc(var(--forge-glass-alpha, 86%) + 6%), transparent); -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%)); backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%)); }
+body.team-bg-active #view-bot .bot-composer { background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) calc(var(--forge-glass-alpha, 86%) + 6%), transparent); -webkit-backdrop-filter: var(--forge-glass-filter, blur(16px) saturate(150%)); backdrop-filter: var(--forge-glass-filter, blur(16px) saturate(150%)); border-top-color: color-mix(in oklab, var(--bot-line, oklch(1 0 0 / 20%)) 70%, transparent); }
 #view-bot .bot-composer:focus-within { box-shadow: none; }
 #view-bot .bot-composer > * { max-width: var(--workspace-reading-width); margin-inline: auto; }
-#view-bot .bot-composer-context { display: flex; align-items: center; gap: 6px; min-height: 28px; margin-bottom: 6px; }
-#view-bot .bot-composer-context strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#view-bot .bot-context-state { flex-shrink: 0; }
-#view-bot .bot-composer-context .workspace-advanced-mode { margin-left: 4px; flex-shrink: 0; }
+
+/* 顶部上下文微胶囊 */
+#view-bot .bot-composer-context { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; width: fit-content; margin: 0 auto 8px; padding: 3px 12px; border-radius: 999px; background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) 88%, transparent); border: 1px solid color-mix(in oklab, var(--bot-line) 75%, transparent); -webkit-backdrop-filter: var(--forge-glass-filter, blur(16px) saturate(160%)); backdrop-filter: var(--forge-glass-filter, blur(16px) saturate(160%)); box-shadow: var(--shadow-sm), var(--glass-specular); font-size: var(--text-xs); }
+body.team-bg-active #view-bot .bot-composer-context { background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) 90%, transparent); border-color: color-mix(in oklab, var(--bot-line) 85%, transparent); box-shadow: 0 2px 10px oklch(0 0 0 / 12%), var(--glass-specular); }
+#view-bot .bot-composer-context .bot-context-label { color: var(--bot-muted); font-weight: 500; font-size: var(--text-xs); }
+#view-bot .bot-composer-context strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--bot-ink); font-weight: 650; font-size: var(--text-xs); letter-spacing: -0.01em; }
+#view-bot .bot-context-state { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: var(--text-xs); font-weight: 500; background: color-mix(in srgb, var(--bot-accent) 12%, transparent); color: var(--bot-accent); border: 1px solid color-mix(in srgb, var(--bot-accent) 25%, transparent); flex-shrink: 0; }
+#view-bot .bot-composer-context .workspace-advanced-mode { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--bot-line); background: color-mix(in srgb, var(--bot-ink) 5%, transparent); color: var(--bot-muted); font: inherit; font-size: var(--text-xs); cursor: pointer; margin-left: 4px; flex-shrink: 0; transition: all var(--dur-fast) var(--ease-spring-snappy); }
+#view-bot .bot-composer-context .workspace-advanced-mode:hover { color: var(--bot-ink); background: color-mix(in srgb, var(--bot-accent) 12%, transparent); border-color: color-mix(in srgb, var(--bot-accent) 30%, transparent); }
+#view-bot .workspace-advanced-mode .icon { width: 13px; height: 13px; }
+
 /* 恢复确认按钮：与工作台恢复条同语义，显式确认后下一次发送携带 acknowledgeRecovery */
-#bot-recovery-ack { flex-shrink: 0; min-height: 26px; padding: 2px 10px; border: 1px solid color-mix(in srgb, var(--bot-yellow, #e8590c) 55%, transparent); border-radius: 20px; background: color-mix(in srgb, var(--bot-yellow, #e8590c) 12%, transparent); color: var(--bot-ink); font-size: var(--text-xs); cursor: pointer; }
-#bot-recovery-ack:hover:enabled { border-color: color-mix(in srgb, var(--bot-yellow, #e8590c) 80%, transparent); }
+#bot-recovery-ack { flex-shrink: 0; min-height: 26px; padding: 2px 10px; border: 1px solid color-mix(in srgb, var(--bot-yellow, oklch(0.68 0.16 48)) 55%, transparent); border-radius: 20px; background: color-mix(in srgb, var(--bot-yellow, oklch(0.68 0.16 48)) 12%, transparent); color: var(--bot-ink); font-size: var(--text-xs); cursor: pointer; }
+#bot-recovery-ack:hover:enabled { border-color: color-mix(in srgb, var(--bot-yellow, oklch(0.68 0.16 48)) 80%, transparent); }
 #bot-recovery-ack:disabled { opacity: .75; cursor: default; }
-#view-bot .bot-composer-row { border: 1px solid var(--bot-line-strong); border-radius: 8px; padding: 12px 10px; background: var(--bot-sidebar); align-items: flex-end; gap: 10px; }
-body.team-bg-active #view-bot .bot-composer-row { background: transparent; }
-#view-bot .bot-composer-row:focus-within { border-color: var(--bot-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--bot-accent) 12%, transparent); }
-#view-bot .bot-composer textarea { max-height: 160px; min-height: 44px; }
-#view-bot .bot-composer textarea { padding: 6px 2px; line-height: 1.6; }
-#view-bot .bot-composer :is(.bot-attach-button, .bot-send-button) { width: 32px; height: 32px; border-radius: 6px; margin-bottom: 3px; }
-#view-bot .bot-attach-button { background: transparent; border-color: transparent; }
-#view-bot .bot-send-button { background: var(--bot-accent); color: var(--bot-accent-ink); }
-#view-bot .bot-send-button:disabled { opacity: 1; background: var(--bot-line); color: var(--bot-muted); }
+
+/* Bot 面只保留顶部恢复条作为决策入口；旧输入区锚点留在 DOM 供兼容测试与旧脚本识别，
+   但不能再参与布局，否则会在输入坞下方重复占位。 */
+#view-bot #bot-recovery-ack { display: none !important; }
+
+/* 恢复条是一次决策提示，不应成为中央内容墙。它与阅读列同宽、低内边距，
+   技术详情继续默认折叠，消息区保留可读高度。 */
+#view-bot .recovery-bar {
+  width: min(var(--workspace-reading-width), calc(100% - 24px));
+  margin: 4px auto 6px;
+  padding: 8px 12px;
+  border-color: color-mix(in srgb, var(--bot-yellow, var(--amber)) 58%, var(--bot-line));
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--bot-panel) 88%, var(--bot-yellow, var(--amber)) 12%);
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--bot-yellow, var(--amber)) 12%, transparent);
+}
+#view-bot .recovery-bar-content { gap: 4px; }
+#view-bot .recovery-bar-heading { gap: 7px; }
+#view-bot .recovery-bar-heading > .icon { width: 15px; height: 15px; }
+#view-bot .recovery-bar-heading strong { font-size: var(--text-xs); }
+#view-bot .recovery-bar-heading span { line-height: 1.4; }
+#view-bot .recovery-technical-details { margin-top: 1px; }
+#view-bot .recovery-bar-actions { gap: 6px; }
+#view-bot .recovery-bar-actions .button { min-height: 28px; padding: 3px 10px; }
+
+/* 输入坞主容器 */
+#view-bot .bot-composer-row { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border: 1px solid var(--bot-line-strong); border-radius: 999px; background: color-mix(in oklab, var(--glass-tint, var(--bot-sidebar)) var(--forge-reading-alpha, 94%), transparent); -webkit-backdrop-filter: var(--forge-glass-filter, blur(16px) saturate(160%)); backdrop-filter: var(--forge-glass-filter, blur(16px) saturate(160%)); box-shadow: var(--shadow-sm), var(--glass-specular); transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out); }
+body.team-bg-active #view-bot .bot-composer-row { background: color-mix(in oklab, var(--glass-tint, var(--bot-sidebar)) var(--forge-reading-alpha, 94%), transparent); border-color: color-mix(in oklab, var(--bot-line, oklch(1 0 0 / 22%)) 80%, transparent); }
+#view-bot .bot-composer-row:focus-within { border-color: var(--bot-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bot-accent) 18%, transparent), var(--glass-specular); }
+#view-bot .bot-composer textarea { display: block; flex: 1; width: auto; min-width: 0; min-height: 28px; max-height: 140px; padding: 4px 6px; border: 0; outline: 0; background: transparent; color: var(--bot-ink); font-size: var(--text-base); line-height: 1.45; resize: none; }
+#view-bot .bot-composer :is(.bot-attach-button, .bot-send-button) { width: 34px; height: 34px; border-radius: 50%; margin-bottom: 0; }
+#view-bot .bot-attach-button { display: grid; place-items: center; min-width: 34px; margin: 0; border: none; border-radius: 50%; background: transparent; color: var(--bot-muted); cursor: pointer; transition: color var(--dur-fast) ease, background-color var(--dur-fast) ease, transform var(--dur-fast) var(--ease-spring-snappy); flex-shrink: 0; }
+#view-bot .bot-attach-button:hover { color: var(--bot-ink); background: color-mix(in srgb, var(--bot-ink) 8%, transparent); transform: scale(1.08); }
+#view-bot .bot-attach-button .icon { width: 16px; height: 16px; }
+
+/* 属性与席位药丸 */
+#view-bot .bot-composer-seat { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--bot-line); background: color-mix(in srgb, var(--bot-panel) 80%, transparent); color: var(--bot-muted); font: inherit; font-size: var(--text-xs); font-weight: 500; cursor: pointer; transition: all var(--dur-fast) var(--ease-spring-snappy); flex-shrink: 0; }
+#view-bot .bot-composer-seat:hover { color: var(--bot-ink); border-color: var(--bot-line-strong); background: var(--bot-panel); transform: translateY(-1px); }
+#view-bot .bot-composer-seat .icon { width: 14px; height: 14px; }
+
+/* 更多/运行选项展开按钮 */
+#view-bot .bot-composer-more { display: grid; place-items: center; width: 30px; height: 30px; min-width: 30px; margin: 0; border: 1px solid var(--bot-line); border-radius: 50%; background: color-mix(in srgb, var(--bot-panel) 80%, transparent); color: var(--bot-muted); cursor: pointer; transition: transform var(--dur-med) var(--ease-spring-snappy), color var(--dur-fast) ease, background-color var(--dur-fast) ease, border-color var(--dur-fast) ease; flex-shrink: 0; }
+#view-bot .bot-composer-more:hover { color: var(--bot-ink); border-color: var(--bot-line-strong); background: var(--bot-panel); }
+#view-bot .bot-composer-more[aria-expanded="true"] { color: var(--bot-ink); background: var(--bot-panel); border-color: var(--bot-line-strong); transform: rotate(90deg); }
+#view-bot .bot-composer-more .icon { width: 15px; height: 15px; }
+
+/* 发送按钮 */
+#view-bot .bot-send-button { display: grid; place-items: center; min-width: 34px; margin: 0; border: none; border-radius: 50% !important; background: var(--bot-accent); color: var(--bot-accent-ink, white); box-shadow: 0 2px 8px color-mix(in srgb, var(--bot-accent) 35%, transparent), inset 0 1px 0 0 oklch(1 0 0 / 30%); cursor: pointer; transition: transform var(--dur-fast) var(--ease-spring-snappy), box-shadow var(--dur-fast) var(--ease-spring-snappy), background-color var(--dur-fast) var(--ease-spring-snappy); flex-shrink: 0; }
+#view-bot .bot-send-button:hover:not(:disabled) { transform: translateY(-1.5px) scale(1.06); box-shadow: 0 4px 14px color-mix(in srgb, var(--bot-accent) 45%, transparent), inset 0 1px 0 0 oklch(1 0 0 / 40%); }
+#view-bot .bot-send-button:disabled { opacity: 0.65; background: var(--bot-line); color: var(--bot-muted); box-shadow: none; cursor: not-allowed; transform: none; }
+#view-bot .bot-send-button .icon { width: 16px; height: 16px; }
+
 #view-bot .bot-orchestration-pick { flex-wrap: wrap; }
-#view-bot .workspace-advanced-mode { display: inline-flex; align-items: center; gap: 4px; min-height: 28px; padding: 2px 4px; border: 0; background: transparent; color: var(--bot-muted); font: inherit; font-size: var(--text-xs); cursor: pointer; }
-#view-bot .workspace-advanced-mode:hover { color: var(--workspace-link); }
-#view-bot .workspace-advanced-mode .icon { width: 14px; height: 14px; }
+
+/* 抽屉与参数控件 */
+#view-bot .bot-composer-overflow { width: 100%; margin-top: 6px; }
+#view-bot .bot-composer-overflow > summary { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px; font-size: var(--text-xs); font-weight: 500; color: var(--bot-muted); cursor: pointer; user-select: none; transition: color var(--dur-fast) ease, background-color var(--dur-fast) ease; }
+#view-bot .bot-composer-overflow > summary:hover { color: var(--bot-ink); background: color-mix(in srgb, var(--bot-ink) 6%, transparent); }
 #view-bot .bot-composer-overflow:not([open]) .bot-composer-tools,
 #view-bot .bot-composer-overflow:not([open]) .bot-composer-footer { display: none !important; }
-#view-bot .bot-composer-overflow[open] .bot-composer-footer { display: flex; justify-content: flex-start; align-items: center; flex-wrap: wrap; gap: 6px 12px; min-height: 28px; color: var(--bot-muted); }
-#view-bot .bot-composer-overflow[open] .bot-composer-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
-#view-bot .bot-composer-send-fields { display: flex; flex-wrap: wrap; gap: 8px; flex: 1 1 100%; }
+#view-bot .bot-composer-overflow[open] .bot-composer-tools { display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; margin-top: 6px; border-radius: 16px; background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) calc(var(--forge-glass-alpha, 86%) + 4%), transparent); border: 1px solid color-mix(in oklab, var(--bot-line) 70%, transparent); -webkit-backdrop-filter: var(--forge-glass-filter, blur(16px) saturate(160%)); backdrop-filter: var(--forge-glass-filter, blur(16px) saturate(160%)); box-shadow: var(--shadow-sm), var(--glass-specular); }
+#view-bot .bot-composer-send-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px 12px; width: 100%; }
+@media (max-width: 560px) {
+  #view-bot .bot-composer-send-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 10px; }
+}
+
+#view-bot .bot-composer-field { display: flex; flex-direction: column; gap: 5px; min-width: 0; color: var(--bot-ink); font-weight: 550; font-size: var(--text-xs); }
+#view-bot .bot-composer-field select { width: 100%; min-height: 32px; height: 32px; padding: 0 10px; border: 1px solid var(--bot-line); border-radius: 8px; background-color: color-mix(in srgb, var(--bot-panel) 80%, transparent); color: var(--bot-ink); font: inherit; font-size: var(--text-xs); text-overflow: ellipsis; white-space: nowrap; cursor: pointer; outline: none; transition: border-color var(--dur-med) ease, background-color var(--dur-med) ease, box-shadow var(--dur-med) ease; }
+#view-bot .bot-composer-field select:hover:not(:disabled) { border-color: var(--bot-line-strong); background-color: var(--bot-panel); }
+#view-bot .bot-composer-field select:focus { border-color: var(--bot-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--bot-accent) 20%, transparent); }
+#view-bot .bot-composer-field-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; width: 100%; }
+#view-bot .bot-model-header-actions { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; }
+#view-bot .bot-model-status { font-size: var(--text-xs); color: var(--bot-muted); }
+#view-bot .bot-refresh-models-btn { display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 1px solid var(--bot-line); border-radius: 50%; background: color-mix(in srgb, var(--bot-panel) 80%, transparent); color: var(--bot-muted); cursor: pointer; transition: color var(--dur-fast) ease, border-color var(--dur-fast) ease, transform var(--dur-fast) var(--ease-spring-snappy); }
+#view-bot .bot-refresh-models-btn:hover { color: var(--bot-ink); border-color: var(--bot-line-strong); transform: rotate(45deg); }
+#view-bot .bot-refresh-models-btn .icon { width: 11px; height: 11px; }
+
+#view-bot .bot-composer-ops-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-top: 8px; border-top: 1px solid color-mix(in srgb, var(--bot-line) 40%, transparent); }
+#view-bot .bot-composer-ops-chips button { display: inline-flex; align-items: center; justify-content: center; min-height: 26px; padding: 0 10px; border: 1px solid var(--bot-line); border-radius: 999px; background: color-mix(in srgb, var(--bot-panel) 70%, transparent); color: var(--bot-muted); font: inherit; font-size: var(--text-xs); cursor: pointer; transition: all var(--dur-fast) var(--ease-spring-snappy); white-space: nowrap; }
+#view-bot .bot-composer-ops-chips button:hover { color: var(--bot-ink); background: var(--bot-panel); border-color: var(--bot-line-strong); transform: translateY(-1px); }
+#view-bot .bot-composer-ops-chips button:active { transform: translateY(0); }
+
+#view-bot .bot-composer-overflow[open] .bot-composer-footer { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-height: 28px; padding: 8px 14px; margin-top: 6px; border-radius: 12px; background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) calc(var(--forge-glass-alpha, 86%) + 2%), transparent); border: 1px solid color-mix(in oklab, var(--bot-line) 60%, transparent); font-size: var(--text-xs); color: var(--bot-muted); }
 #workspace-admission { min-width: 160px; flex: 1 1 auto; overflow-wrap: anywhere; max-width: 45%; font-size: var(--text-xs); }
 .workspace-draft-state { display: block; color: var(--bot-yellow); font-size: var(--text-xs); }
 .workspace-draft-state:empty { display: none; }
 #workspace-next-permission, #workspace-next-budget { width: auto; min-width: 0; min-height: 28px; padding: 2px 6px; color: var(--bot-ink); background: var(--bot-panel); border: 1px solid var(--bot-line); border-radius: 6px; font-size: var(--text-xs); }
 #workspace-next-permission:hover:enabled, #workspace-next-budget:hover:enabled { border-color: var(--bot-line-strong); }
-.workspace-budget-label { font-size: var(--text-xs); color: var(--bot-muted); }
 #view-bot .bot-message-stream { scrollbar-width: thin; }
 #view-bot .bot-message-user .bot-bubble { border-radius: 6px; }
 #view-bot .bot-message-agent .bot-bubble { border-radius: 0; box-shadow: none; }
@@ -149,7 +220,7 @@ body.team-bg-active #view-bot .bot-composer-row { background: transparent; }
 #view-bot:has(#bot-surface-tab-contacts[aria-selected="true"]) #bot-new-member-button { display: inline-grid; }
 #view-bot:has(#bot-surface-tab-contacts[aria-selected="true"]) #bot-new-group-button { display: none; }
 #view-bot:has(#bot-surface-tab-contacts[aria-selected="true"]) .workspace-filter-menu { display: none; }
-#view-bot :is(.bot-icon-button, .bot-send-button, .bot-attach-button) { transform: none !important; }
+#view-bot :is(.bot-icon-button) { transform: none; }
 #view-bot :focus-visible { outline: 2px solid var(--workspace-link); outline-offset: 2px; }
 #view-bot .bot-tree-conversation { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; grid-template-rows: auto auto; align-content: center; column-gap: 10px; row-gap: 4px; min-height: 68px; padding: 10px; border-radius: 6px; border-color: transparent; }
 #view-bot .bot-tree-conversation > .bot-agent-avatar { grid-column: 1; grid-row: 1 / 3; }
@@ -206,7 +277,6 @@ body.team-bg-active #view-bot .bot-composer-row { background: transparent; }
 .workspace-view-bar button { border-radius: 0; border-bottom: 2px solid transparent; min-width: 56px; }
 .workspace-view-bar [aria-selected="true"] { border-bottom-color: var(--workspace-link); color: var(--workspace-link); }
 .workspace-view-bar select { width: 180px; min-width: 0; max-width: 45%; min-height: 28px; padding: 4px 8px; border: 1px solid var(--bot-line); border-radius: 5px; background: var(--bot-bg); color: var(--bot-muted); font-size: var(--text-xs); }
-.workspace-responsibility-bar { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px 12px; padding: 8px 22px; font-size: var(--text-xs); color: var(--bot-muted); }
 .workspace-members-entry { display: inline-flex; align-items: center; gap: 6px; margin: 0; padding: 6px 10px; min-height: 34px; color: var(--bot-muted); border: 1px solid var(--bot-line); border-radius: 6px; background: var(--bot-panel); font-size: var(--text-xs); white-space: nowrap; }
 .workspace-members-entry:hover { color: var(--workspace-link); background: var(--bot-soft); }
 .workspace-members-entry .icon { width: 16px; height: 16px; }
@@ -215,6 +285,38 @@ body.team-bg-active #view-bot .bot-composer-row { background: transparent; }
 .workspace-members-dialog header, .workspace-members-dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .workspace-members-dialog h2 { margin: 0; min-width: 0; overflow-wrap: anywhere; font-size: var(--text-lg); }
 .workspace-members-dialog p { color: var(--bot-muted); font-size: var(--text-sm); }
+/* 「开始一段新对话」：此前零样式，裸 UA 对话框（标签/下拉/输入挤一行、系统灰按钮）。
+   纵向表单卡：标题+关闭 → 说明 → 字段组（标签在上、控件满宽）→ 状态 → 主次按钮 → 次级入口。 */
+.assistant-start-dialog { width: min(460px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); padding: 0; border: 1px solid color-mix(in oklab, var(--bot-line) 80%, transparent); border-radius: 18px; background: var(--bot-panel); color: var(--bot-ink); box-shadow: 0 24px 64px rgba(0, 0, 0, .18), 0 2px 8px rgba(0, 0, 0, .06); overflow: auto; }
+.assistant-start-dialog::backdrop { background: color-mix(in srgb, black 32%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.assistant-start-dialog[open] { animation: assistant-start-in var(--dur-med) var(--ease-out); }
+@keyframes assistant-start-in { from { opacity: 0; transform: translateY(8px) scale(.98); } }
+@media (prefers-reduced-motion: reduce) { .assistant-start-dialog[open] { animation: none; } }
+.assistant-start-dialog form { display: grid; gap: 6px; padding: 22px 24px 20px; }
+.assistant-start-dialog header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.assistant-start-dialog h2 { margin: 0; font-size: var(--text-lg); font-weight: 650; }
+.assistant-start-dialog #assistant-start-description { margin: 0 0 12px; color: var(--bot-muted); font-size: var(--text-sm); line-height: 1.55; }
+.assistant-start-dialog label { margin-top: 6px; color: var(--bot-ink); font-size: var(--text-xs); font-weight: 600; }
+.assistant-start-dialog label span { margin-left: 4px; color: var(--bot-muted); font-weight: 400; }
+.assistant-start-dialog :is(select, input) { box-sizing: border-box; width: 100%; min-height: 40px; padding: 0 12px; border: 1px solid var(--bot-line-strong, var(--bot-line)); border-radius: 10px; background: var(--bot-input, var(--bot-sidebar, var(--bot-panel))); color: var(--bot-ink); font: inherit; font-size: var(--text-sm); transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease; }
+.assistant-start-dialog :is(select, input):focus-visible { outline: none; border-color: var(--bot-accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bot-accent) 18%, transparent); }
+.assistant-start-cwd-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.assistant-start-cwd-row .secondary-button { min-height: 40px; padding: 0 14px; }
+.assistant-start-dialog [data-assistant-status] { margin: 4px 0 0; color: var(--bot-muted); font-size: var(--text-xs); line-height: 1.5; }
+.assistant-start-dialog [data-assistant-status]:empty { display: none; }
+.assistant-start-dialog footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.assistant-start-dialog :is(.primary-button, .secondary-button) { min-height: 36px; padding: 0 16px; border-radius: 10px; font: inherit; font-size: var(--text-sm); font-weight: 600; cursor: pointer; transition: background-color var(--dur-fast) ease, border-color var(--dur-fast) ease, filter var(--dur-fast) ease; }
+/* Grok 皮下 --bot-accent = 墨色（暗色即白）而 accent-ink 恒白 → 白底白字；与发送键同用 send 色对 */
+.assistant-start-dialog .primary-button { border: 1px solid var(--bot-grok-send, var(--bot-accent)); background: var(--bot-grok-send, var(--bot-accent)); color: var(--bot-grok-send-ink, var(--bot-accent-ink)); }
+.assistant-start-dialog .primary-button:hover:not(:disabled) { filter: brightness(1.06); }
+.assistant-start-dialog .secondary-button { border: 1px solid var(--bot-line); background: transparent; color: var(--bot-ink); }
+.assistant-start-dialog .secondary-button:hover:not(:disabled) { background: color-mix(in oklab, var(--bot-ink) 6%, transparent); }
+.assistant-start-dialog :is(.primary-button, .secondary-button):disabled { cursor: not-allowed; border-color: var(--bot-line); background: transparent; color: var(--bot-muted); filter: none; }
+.assistant-start-dialog :is(.primary-button, .secondary-button, .assistant-start-alternatives button):focus-visible { outline: 2px solid var(--bot-accent); outline-offset: 2px; }
+.assistant-start-dialog [data-assistant-inspect] { justify-self: start; margin-top: 6px; }
+.assistant-start-alternatives { display: flex; justify-content: center; gap: 4px; margin-top: 14px; padding-top: 12px; border-top: 1px solid color-mix(in oklab, var(--bot-line) 60%, transparent); }
+.assistant-start-alternatives button { min-height: 30px; padding: 0 10px; border: 0; border-radius: 8px; background: transparent; color: var(--bot-muted); font: inherit; font-size: var(--text-xs); cursor: pointer; }
+.assistant-start-alternatives button:hover { background: color-mix(in oklab, var(--bot-ink) 6%, transparent); color: var(--bot-ink); }
 .workspace-members-list { display: grid; gap: 8px; margin: 16px 0; max-height: 45dvh; overflow: auto; }
 .workspace-members-list label { display: flex; align-items: center; gap: 10px; padding: 8px; min-height: 40px; border-bottom: 1px solid var(--bot-line); }
 .workspace-history-notice { margin: 0; padding: 6px 22px; background: var(--bot-soft); color: var(--workspace-link); font-size: var(--text-xs); }
@@ -223,14 +325,11 @@ body.team-bg-active #view-bot .bot-composer-row { background: transparent; }
 .workspace-history-row #workspace-current-state { padding-right: 24px; white-space: nowrap; }
 .workspace-insights { flex: 1 1 0; min-height: 0; overflow: auto; padding: 20px 24px; }
 .workspace-attention { flex: 0 1 auto; max-height: 30dvh; overflow: auto; border-top: 1px solid var(--bot-line); padding: 8px 22px; }
-.workspace-attention .bot-card { margin: 0 0 8px; }
+.workspace-attention .bot-card { max-width: var(--workspace-reading-width); margin: 0 auto 8px; }
 .workspace-insights-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
 .workspace-insights-heading h3 { margin: 0; font-size: var(--text-lg); }
 .workspace-insights-heading span, .workspace-empty { color: var(--bot-muted); font-size: var(--text-sm); }
 .workspace-insights h4 { margin: 24px 0 10px; font-size: var(--text-base); }
-.workspace-role-list { display: flex; flex-wrap: wrap; gap: 14px 24px; border-bottom: 1px solid var(--bot-line); padding-bottom: 16px; }
-.workspace-role { display: flex; align-items: center; gap: 8px; }
-.workspace-role small { display: block; margin-top: 2px; color: var(--bot-muted); }
 .workspace-connection { margin-left: auto !important; color: var(--bot-muted); font-size: var(--text-xs); white-space: nowrap; }
 .workspace-connection::before { content: ""; display: inline-block; width: 6px; height: 6px; margin-right: 6px; border-radius: 50%; background: var(--bot-green); vertical-align: middle; }
 .workspace-connection[data-tone="error"]::before { background: var(--bot-red); }
@@ -269,7 +368,7 @@ body.team-bg-active #view-bot .bot-composer-row { background: transparent; }
   .workspace-view-bar nav { gap: 0; }
   .workspace-view-bar select { width: 150px; }
   .workspace-view-bar button { min-width: 50px; min-height: 44px; }
-  .workspace-responsibility-bar, .workspace-history-notice { padding: 6px 12px; }
+  .workspace-history-notice { padding: 6px 12px; }
   #view-bot .bot-composer-context { font-size: var(--text-xs); }
   #workspace-responsibility { display: none; }
   .workspace-project-bar strong { max-width: 55%; }
@@ -291,4 +390,60 @@ body.team-bg-active #view-bot .bot-composer-row { background: transparent; }
   #view-bot .bot-conversation-heading { flex-basis: min(160px, 42vw); min-width: 0; }
   #view-bot .bot-conversation-actions { flex-wrap: wrap; justify-content: flex-end; }
   #view-bot .bot-member-seat-entry span { display: none; }
+}
+
+/* D-2026-09-28-024：恢复条已迁到流上方（注意力提示在对话顶部，移动端不再被 sticky composer
+   吞掉下半——实测 overlap 306px→0 于桌面/平板）。但 390×844 下条子天然 378px 高
+   （标题 + 失败原因 + resume 提示 + 动作），而 composer 之上只有 ~189px 可用，仍差一半。
+   窄屏收窄条子并让动作行钉在自身底部：内容可内部滚动，**「确认恢复并继续」永远在视线内**
+   ——用户要的是能确认，不是一次看完全部原因（原因本就在 <details> 里可展开）。 */
+@media (max-width: 560px) {
+  #view-bot .recovery-bar { max-height: 21dvh; overflow-y: auto; overscroll-behavior: contain; }
+  #view-bot .recovery-bar-actions { position: sticky; bottom: 0; background: var(--bot-bg); padding-block: 4px; }
+}
+
+/* 恢复条默认只表达决策，不把英文 provider 错误、原生命令和复制动作铺在首屏。 */
+#view-bot .recovery-technical-details {
+  min-width: 0;
+  margin-top: 1px;
+}
+
+#view-bot .recovery-technical-details > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 2px;
+  color: var(--bot-muted);
+  font-size: var(--text-xs);
+  cursor: pointer;
+  list-style: none;
+}
+
+#view-bot .recovery-technical-details > summary::-webkit-details-marker,
+#view-bot .recovery-technical-details > summary::marker { display: none; }
+
+#view-bot .recovery-technical-details > summary::before {
+  content: ">";
+  color: var(--bot-accent);
+  transition: transform var(--dur-fast) ease;
+}
+
+#view-bot .recovery-technical-details[open] > summary::before { transform: rotate(90deg); }
+#view-bot .recovery-technical-details > summary:hover,
+#view-bot .recovery-technical-details > summary:focus-visible { color: var(--bot-ink); }
+#view-bot .recovery-technical-details > summary:focus-visible { outline: 2px solid var(--bot-accent); outline-offset: 2px; border-radius: 4px; }
+#view-bot .recovery-technical-details > summary span { color: var(--bot-muted); font-family: var(--mono); }
+
+#view-bot .recovery-technical-body {
+  display: grid;
+  gap: 8px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--bot-line) 70%, transparent);
+}
+
+#view-bot .recovery-technical-body .resume-hints {
+  margin-top: 0;
+  padding-top: 8px;
 }

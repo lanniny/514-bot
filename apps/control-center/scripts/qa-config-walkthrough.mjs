@@ -32,7 +32,33 @@ try {
   const page = await context.newPage();
   page.on("pageerror", (error) => diagnostics.push({ kind: "pageerror", text: error.message }));
   page.on("console", (message) => {
-    if (message.type() === "error") diagnostics.push({ kind: "console", text: message.text().slice(0, 200) });
+    if (message.type() !== "error") return;
+    // D-2026-09-28-033：壁纸对账的 HEAD 探测在无自定义壁纸时 404，是设计内预期响应
+    // （D-019 已定性，qa-bot-p0 / qa-bot-collab-dialog 均已豁免，本条漏了）。
+    // location.url 指向 /api/wallpapers/global 即为此类，不计入诊断。
+    if (message.location()?.url?.includes("/api/wallpapers/global")) return;
+    // D-2026-09-28-033：原采集只留 message.text()——"Failed to load resource: 404" 这种
+    // 文案不带 URL，等于抓到了症状却查不出病因。补上 location.url（发起该日志的脚本/资源）。
+    const location = message.location();
+    const path = location?.url ? new URL(location.url).pathname : "";
+    diagnostics.push({ kind: "console", text: message.text().slice(0, 200), source: path });
+  });
+  // D-2026-09-28-033：404 的 URL 属于**响应**，console 事件的 location 指向控制台上的脚本
+  // 而非失败资源本身。再挂一个 response 收集器，把 ≥400 的响应 URL 一并带走。
+  page.on("response", (response) => {
+    if (response.status() < 400) return;
+    const path = new URL(response.url()).pathname;
+    if (path === "/api/wallpapers/global") return; // 壁纸对账 HEAD 探测，无自定义壁纸时 404 是设计内
+    // D-2026-09-28-033：text 用「<status> <statusText>」格式，与 console 侧同构，让 :120 的
+    // 既存过滤器 `/501 \(Not Implemented\)/` 能照常豁免远程门闸的 501；path/method 另存字段，
+    // 供 404/5xx 这类**非预期**状态定位病因（此前只留 console 文案，查不出是哪个 URL）。
+    diagnostics.push({
+      kind: "response",
+      text: `${response.status()} (${response.statusText()})`,
+      method: response.request().method(),
+      path,
+      status: response.status(),
+    });
   });
 
   await page.goto(entryUrl, { waitUntil: "domcontentloaded" });

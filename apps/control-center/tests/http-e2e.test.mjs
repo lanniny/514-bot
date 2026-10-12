@@ -288,8 +288,19 @@ test("aborting real run-history sockets cancels the shared scan and restores res
   const cancelled = await Promise.all(pending);
   assert.ok(cancelled.every((result) => result?.name === "AbortError"));
 
-  const recovered = await fetch(`${origin}/api/runs/${runId}/events`, { headers });
-  assert.equal(recovered.status, 200, "disconnect cancellation must release every same-run lease");
+  // lease 释放是异步链（abort → socket close → 扫描循环退出 → release 双闸）；
+  // 客户端 abort 事件不保证服务端已走完，全量并发下立刻重发会撞上窗口期假红。
+  // 有界轮询等恢复：真泄漏（永不释放）在上界内仍然红，守卫价值不丢。
+  let recovered = null;
+  for (let attempt = 0; attempt < 30 && !recovered; attempt += 1) {
+    const response = await fetch(`${origin}/api/runs/${runId}/events`, { headers });
+    if (response.status === 200) recovered = response;
+    else {
+      await response.arrayBuffer();
+      await new Promise((resolveTimer) => setTimeout(resolveTimer, 100));
+    }
+  }
+  assert.ok(recovered, "disconnect cancellation must release every same-run lease");
   const recoveredEvents = (await recovered.text()).split("\n").filter(Boolean).map((line) => JSON.parse(line));
   assert.deepEqual(recoveredEvents.map((event) => event.sequence), [1]);
 });
@@ -609,7 +620,10 @@ test("loopback API enforces bearer auth and supports the operator workflow", { t
 
   const printedUrl = await waitForUrl(child);
   const url = new URL(printedUrl);
-  const bootstrapNonce = new URLSearchParams(url.hash.slice(1)).get("bootstrap");
+  // server.mjs 现用 query 形态 `/?bootstrap=`（WebView2 丢 fragment 的防御，09-11 波）；
+  // 前端 api.js 同步为 fragment 优先 + query 回落，此处两形态都收。
+  const bootstrapParams = url.hash ? new URLSearchParams(url.hash.slice(1)) : url.searchParams;
+  const bootstrapNonce = bootstrapParams.get("bootstrap");
   assert.match(bootstrapNonce ?? "", /^[A-Za-z0-9_-]{40,}$/);
   assert.equal(printedUrl.includes(token), false, "persistent bearer must not be printed in the startup URL");
   const origin = url.origin;

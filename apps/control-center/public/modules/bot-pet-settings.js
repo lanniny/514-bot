@@ -2,6 +2,7 @@
  * bot-pet-settings.js — Bot 设置里的桌宠页。复用插件 configure API，不经过协作台。
  */
 import { PET_DEFAULTS, PET_MODELS, PET_PRESETS, matchPetPreset } from "../pet/pet-settings.js";
+import { escapeHtml } from "../utils.js";
 
 function writeMarkup(node, html) {
   if (!node) return;
@@ -10,14 +11,6 @@ function writeMarkup(node, html) {
   const holder = document.createElement("div");
   holder.insertAdjacentHTML("afterbegin", html);
   node.append(...holder.childNodes);
-}
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }
 
 export function petConfigFromBinding(binding) {

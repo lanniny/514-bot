@@ -9,10 +9,26 @@
 /* ============ 一、侧栏隐藏与栅格重写（桌面 ≥821px，移动端抽屉行为不变） ============ */
 @media (min-width: 821px) {
   /* 注意优先级战场：product-shell.css 用 html body.atelier .app-shell:not(.nav-open) #sidebar
-   * (ID+3类) 强制 display:flex !important——同级选择器 + 更晚加载才能压过，两种 nav 态都覆盖。 */
-  html body.atelier .app-shell:not(.nav-open) #sidebar,
-  html body.atelier .app-shell.nav-open #sidebar {
+   * (ID+3类) 强制 display:flex !important——同级选择器 + 更晚加载才能压过。
+   * D-2026-09-28-032：原写法把 :not(.nav-open) 与 .nav-open **两种态都** display:none，
+   * 于是汉堡点开的抽屉也被藏了——按钮可见但点了没用（比不可见更糟）。
+   * 改为只藏收起态；展开态让抽屉按 codex-desktop 的 fixed + translateX(0) 滑出成覆盖层，
+   * 与 experience-polish.css:399 记的「侧栏仅在抽屉关闭态隐藏，nav-open 时滑出」一致。 */
+  html body.atelier .app-shell:not(.nav-open) #sidebar {
     display: none !important;
+  }
+  html body.atelier .app-shell.nav-open #sidebar {
+    display: flex !important;
+    position: fixed !important;
+    inset: 0 auto 0 0 !important;
+    z-index: 60 !important;
+    width: 260px !important;
+    height: 100dvh !important;
+    transform: none !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    box-shadow: var(--shadow-lg, 0 8px 32px rgb(0 0 0 / 18%)) !important;
   }
 
   html body.atelier .app-shell {
@@ -21,6 +37,16 @@
       "topbar"
       "main"
       "statusbar" !important;
+  }
+
+  /* D-2026-09-28-032：本媒体查询把 #sidebar 收掉后，桌面端的全局导航载体就只剩汉堡了
+     ——但 product-shell.css:679（同断点、更早加载）用 !important 把它也藏了，bot-shell.css:1295
+     又藏了 .topbar-nav / .mobile-nav。四者叠加 = Bot 面桌面宽度下**全局导航零入口**，
+     只剩 Ctrl+K（不可发现）。这正是 2026-08-30 PM 走查明确定性为「最大可用性缺陷」
+     并修好的那个问题，后来被三个互相覆盖的 CSS 文件回归了。
+     同级选择器 + 更晚加载（本文件在 product-shell 之后）压过它，把汉堡放回来。 */
+  html body.atelier .topbar .mobile-menu-button {
+    display: inline-flex !important;
   }
 
   /* 设置表面：设置轨升为唯一左栏（承载迁移后的全部功能导航 + 配置目的地） */
@@ -311,6 +337,77 @@ html body.atelier .app-shell:has(#view-bot.is-active) .settings-dock {
   opacity: 1;
 }
 
+/* 消息尾栏：时间戳 + 操作按钮同一行、紧贴气泡；按钮悬停/键盘聚焦才浮现（聊天软件式降噪）。
+   用户消息尾栏右对齐（随 .bot-message-user > div 的 flex-end 列）。 */
+#view-bot .bot-message-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  margin-top: 4px;
+}
+
+#view-bot .bot-message-footer time {
+  margin-top: 0;
+}
+
+#view-bot .bot-message-user .bot-message-footer {
+  flex-direction: row-reverse;
+}
+
+#view-bot .bot-message-actions {
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--dur-med) ease;
+}
+
+#view-bot .bot-message:hover .bot-message-actions,
+#view-bot .bot-message:focus-within .bot-message-actions {
+  opacity: 1;
+}
+
+#view-bot .bot-message-action-btn {
+  display: inline-grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--bot-muted);
+  cursor: pointer;
+  transition: background-color var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+
+#view-bot .bot-message-action-btn:hover {
+  background: color-mix(in oklab, var(--bot-ink, #2b2620) 8%, transparent);
+  color: var(--bot-ink);
+}
+
+#view-bot .bot-message-action-btn:focus-visible {
+  outline: 2px solid var(--bot-accent, var(--primary));
+  outline-offset: 1px;
+}
+
+#view-bot .bot-message-action-btn .icon {
+  width: 14px;
+  height: 14px;
+}
+
+/* 触屏无悬停：操作常驻但降为低调色，免得够不着 */
+@media (hover: none) {
+  #view-bot .bot-message-actions {
+    opacity: .7;
+  }
+
+  #view-bot .bot-message-action-btn {
+    width: 36px;
+    height: 36px;
+  }
+}
+
 /* 头像：环形微描边 + 悬停轻放大，身份更立体 */
 .bot-message-avatar {
   border-radius: 50%;
@@ -333,6 +430,8 @@ details.bot-activity-group > summary.bot-activity-summary {
   cursor: pointer;
   list-style: none;
   border-radius: 10px;
+  min-height: 40px;
+  flex-shrink: 0;
   transition: background-color var(--dur-med) ease, border-color var(--dur-med) ease, box-shadow var(--dur-med) ease;
 }
 
@@ -413,6 +512,18 @@ body.team-bg-active #view-bot details.bot-activity-group {
   box-shadow: 0 1px 2px rgba(33, 29, 24, .05), 0 4px 14px rgba(33, 29, 24, .06);
 }
 
+body.team-bg-active #view-bot details.bot-activity-group[open] {
+  min-height: 44px;
+}
+
+html.is-bot-grok-face body.team-bg-active #view-bot details.bot-activity-group:not([open]) {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 body.team-bg-active #view-bot details.bot-activity-group > summary.bot-activity-summary:hover {
   border-color: transparent;
   background: color-mix(in oklab, var(--bot-ink, #2b2620) 5%, transparent);
@@ -421,6 +532,37 @@ body.team-bg-active #view-bot details.bot-activity-group > summary.bot-activity-
 
 body.team-bg-active #view-bot details.bot-activity-group > .bot-activity-timeline {
   border-left-color: color-mix(in oklab, var(--bot-line, rgba(33, 29, 24, .12)) 80%, transparent);
+}
+
+/* W18：展开的内层回合卡（.bot-activity-segment）跟随外层玻璃语法——
+   低一档的染色（比外层卡更透）+ 无阴影，读作"外层卡里的分层"而不是旧灰盒。
+   旧材质（不透明 panel/soft 混合 + 冷蓝阴影 rgba(20,40,80)）在壁纸上与玻璃外卡打架。
+   **特异性必须压过皮肤层**（bot-grok-face.css 最后加载，同特异性 transparent 会赢）：
+   用 html 前缀抬一级。 */
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-activity-segment {
+  border: 1px solid color-mix(in oklab, var(--bot-line, rgba(33, 29, 24, .12)) 55%, transparent);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) 62%, transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(10px) saturate(140%));
+  backdrop-filter: var(--forge-glass-filter, blur(10px) saturate(140%));
+  box-shadow: none;
+}
+html.is-bot-grok-face body.team-bg-active #view-bot .bot-activity-segment > summary:hover {
+  background: color-mix(in oklab, var(--bot-ink) 4%, transparent);
+}
+body.team-bg-active #view-bot .bot-activity-segment {
+  border: 1px solid color-mix(in oklab, var(--bot-line, rgba(33, 29, 24, .12)) 55%, transparent);
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--glass-tint, var(--bot-panel)) 62%, transparent);
+  -webkit-backdrop-filter: var(--forge-glass-filter, blur(10px) saturate(140%));
+  backdrop-filter: var(--forge-glass-filter, blur(10px) saturate(140%));
+  box-shadow: none;
+}
+body.team-bg-active #view-bot .bot-activity-segment > summary:hover {
+  background: color-mix(in oklab, var(--bot-ink) 4%, transparent);
+}
+body.team-bg-active #view-bot .bot-activity-body {
+  border-top-color: color-mix(in oklab, var(--bot-line, rgba(33, 29, 24, .12)) 55%, transparent);
 }
 
 /* 流式增量气泡：88% 固定染色 → 高档玻璃令牌，流式阅读同样清晰 */
@@ -442,4 +584,122 @@ body.team-bg-active #view-bot .bot-composer-row {
   background: color-mix(in oklab, var(--glass-tint, var(--bot-sidebar)) var(--forge-reading-alpha, 94%), transparent);
   -webkit-backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
   backdrop-filter: var(--forge-glass-filter, blur(14px) saturate(150%));
+}
+
+/* ============ 三、顶层工作台与导航架构（Wave 5 - Raycast / Vercel 范式） ============ */
+
+/* 1. 顶部全局导航栏：毛玻璃景深与 1px 镜面内切发丝线 */
+html body.atelier .topbar {
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklab, var(--surface) 88%, transparent);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+  box-shadow: var(--shadow-sm), var(--glass-specular);
+  transition: background-color var(--dur-med) var(--ease-out),
+    border-color var(--dur-med) var(--ease-out),
+    box-shadow var(--dur-med) var(--ease-out);
+}
+
+/* 2. 命令触发器（CmdK Trigger）弹簧物理微交互 */
+html body.atelier .topbar .command-trigger {
+  border-radius: var(--radius-lg, 9px);
+  background: color-mix(in oklab, var(--surface-muted) 75%, transparent);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card-subtle), var(--glass-specular);
+  transition: transform var(--dur-fast) var(--ease-spring-snappy),
+    border-color var(--dur-fast) var(--ease-spring-snappy),
+    box-shadow var(--dur-fast) var(--ease-spring-snappy);
+}
+
+html body.atelier .topbar .command-trigger:hover {
+  transform: translateY(-0.5px);
+  border-color: color-mix(in oklab, var(--primary) 35%, var(--border));
+  box-shadow: var(--shadow-sm), var(--glass-specular);
+}
+
+html body.atelier .topbar .command-trigger:active {
+  transform: scale(0.97);
+}
+
+/* 3. 顶栏运行状态胶囊与心跳呼吸微指示器（Health Pulse Pill） */
+html body.atelier .topbar .connection-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: var(--text-xs);
+  font-weight: 550;
+  border: 1px solid var(--border);
+  background: color-mix(in oklab, var(--surface) 65%, transparent);
+  transition: all var(--dur-fast) var(--ease-spring-snappy);
+}
+
+html body.atelier .topbar .connection-badge.is-ok {
+  border-color: color-mix(in oklab, var(--success) 35%, var(--border));
+  color: color-mix(in oklab, var(--success) 90%, var(--foreground));
+  box-shadow: 0 0 10px -2px color-mix(in oklab, var(--success) 22%, transparent);
+}
+
+html body.atelier .topbar .connection-badge.is-ok::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+  animation: forge-thinking-breathe var(--dur-slow) var(--ease-spring-snappy) infinite;
+}
+
+html body.atelier .topbar .connection-badge.is-warning {
+  border-color: color-mix(in oklab, var(--warning) 35%, var(--border));
+  color: color-mix(in oklab, var(--warning) 90%, var(--foreground));
+  box-shadow: 0 0 10px -2px color-mix(in oklab, var(--warning) 22%, transparent);
+}
+
+html body.atelier .topbar .connection-badge.is-error {
+  border-color: color-mix(in oklab, var(--danger) 35%, var(--border));
+  color: color-mix(in oklab, var(--danger) 90%, var(--foreground));
+  box-shadow: 0 0 10px -2px color-mix(in oklab, var(--danger) 22%, transparent);
+}
+
+/* 4. 导航项目弹簧触感与滑动高亮微交互 */
+html body.atelier .sidebar .nav-item,
+html body.atelier .app-shell.is-settings .settings-rail-item {
+  transition: transform var(--dur-fast) var(--ease-spring-snappy),
+    background-color var(--dur-fast) var(--ease-spring-snappy),
+    color var(--dur-fast) var(--ease-spring-snappy),
+    box-shadow var(--dur-fast) var(--ease-spring-snappy);
+}
+
+html body.atelier .sidebar .nav-item:active,
+html body.atelier .app-shell.is-settings .settings-rail-item:active {
+  transform: scale(0.97);
+}
+
+html body.atelier .sidebar .nav-item.is-active,
+html body.atelier .app-shell.is-settings .settings-rail-item.is-active {
+  box-shadow: var(--shadow-card-subtle), var(--glass-specular);
+}
+
+/* 5. 减弱动态偏好降级 */
+@media (prefers-reduced-motion: reduce) {
+  html body.atelier .topbar .command-trigger:active,
+  html body.atelier .sidebar .nav-item:active,
+  html body.atelier .app-shell.is-settings .settings-rail-item:active {
+    transform: none !important;
+  }
+  html body.atelier .topbar .connection-badge.is-ok::before {
+    animation: none !important;
+  }
+}
+
+:root[data-motion="reduce"] html body.atelier .topbar .command-trigger:active,
+:root[data-motion="reduce"] html body.atelier .sidebar .nav-item:active,
+:root[data-motion="reduce"] html body.atelier .app-shell.is-settings .settings-rail-item:active {
+  transform: none !important;
+}
+:root[data-motion="reduce"] html body.atelier .topbar .connection-badge.is-ok::before {
+  animation: none !important;
 }

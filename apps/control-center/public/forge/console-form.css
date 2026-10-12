@@ -133,11 +133,6 @@
   text-overflow: ellipsis;
 }
 
-#view-workbench .conversation-heading .icon-button,
-#view-workbench .conversation-heading .account-heading-chip {
-  width: 26px;
-  height: 26px;
-}
 
 /* ==========================================================================
  * 时间线：居中阅读栏 + 行距收紧
@@ -693,14 +688,6 @@
  * 标题后随「📁 项目 🌿 分支 …」，右侧「更改 +N −N」——全部发丝边胶囊 + mono 小字
  * ========================================================================== */
 
-#view-workbench .conversation-chips {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-}
 
 .conv-chip {
   display: inline-flex;
@@ -746,10 +733,6 @@ button.conv-chip:hover {
   opacity: 0.7;
 }
 
-#view-workbench .conversation-overflow {
-  flex: 0 0 auto;
-  margin-left: 2px;
-}
 
 /* 更改 pill：顶栏右侧的产物 diff 总览（参考「更改 +20399 −1997」） */
 #changes-pill {
@@ -1168,17 +1151,7 @@ button.conv-chip:hover {
   -webkit-line-clamp: unset;
 }
 
-/* chips 与溢出菜单随行（可压到只剩 … 按钮，container overflow 裁剪内部 chip）；
-   参与 CLI 行（极少显示）才换行 */
-#view-workbench .conversation-chips {
-  flex: 0 1 auto;
-  min-width: 26px;
-}
 
-#view-workbench .conversation-agents:not([hidden]) {
-  flex-basis: 100%;
-  margin-top: 4px;
-}
 
 /* 步骤 pill 收紧：文本只剩「本次步骤 X/Y」，上限收窄（audit 段在 tooltip） */
 #view-workbench #conversation-meta {
@@ -1193,9 +1166,6 @@ button.conv-chip:hover {
     flex-wrap: nowrap;
   }
 
-  #view-workbench .conversation-heading .conversation-agents {
-    display: none;
-  }
 }
 
 /* ── 控制台形态 · 第七轮：窗口框与 topbar 合一（Codex 式 slim 横带） ──────────────────
@@ -1560,9 +1530,6 @@ body.atelier .topbar {
   border-top-left-radius: 0;
 }
 
-.workbench-shell.rail-collapsed > .forge-splitter-handle.is-left {
-  display: none;
-}
 
 /* Bot 工作面的最终视觉所有权在 bot-shell.css；这里不再撤下 514cc chrome。 */
 

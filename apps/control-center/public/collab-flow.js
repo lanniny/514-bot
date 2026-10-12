@@ -21,6 +21,7 @@ import { lucideIcon } from "./lucide.js";
 import { state } from "./state.js";
 import { buildTeamPanelData, teamAgentCardHtml, agentBrandKey, applyLoadMeters, runsForTeam } from "./team-panel.js";
 import { mountTeamStarmap } from "./hero-starmap.js";
+import { escapeHtml } from "./utils.js";
 
 let teamStarmap = null;
 
@@ -109,6 +110,12 @@ export async function refreshCollabFlow({ teamId = selectedTeamId() } = {}) {
     components: [],
     delta: delta.status === "fulfilled" ? delta.value : null,
     handoffs: handoffs.status === "fulfilled" ? unwrapList(handoffs.value, "handoffs") : [],
+    // 端点把「最近 limit 条」与「磁盘真实总数」分开下发；这里两个都留着，
+    // 否则英雄统计会把截断后的条数当成总数报出去（实测 182 被报成 120）。
+    handoffsTotal: handoffs.status === "fulfilled" && Number.isInteger(handoffs.value?.total)
+      ? handoffs.value.total
+      : null,
+    handoffsTruncated: handoffs.status === "fulfilled" && handoffs.value?.truncated === true,
     routegate: routegate.status === "fulfilled" ? routegate.value : null,
     failed: settled.filter((r) => r.status === "rejected").length,
   };
@@ -227,6 +234,13 @@ function renderHero(root, data, panel, team) {
   const attentionStat = buildAttentionHeroStat(data.attention);
   const todayStart = new Date().setHours(0, 0, 0, 0);
   const handoffsToday = data.handoffs.filter((h) => Date.parse(h?.modifiedAt || 0) >= todayStart).length;
+  // 截断时「今日」只数得到已载入的那一窗，是**下界**不是全量；标 + 号而不是假报精确值。
+  const todayLabel = data.handoffsTruncated ? `${handoffsToday}+` : handoffsToday;
+  const handoffSub = Number.isInteger(data.handoffsTotal)
+    ? (data.handoffsTruncated
+        ? `累计 ${data.handoffsTotal} 份（本页仅载入最近 ${data.handoffs.length} 条）`
+        : `累计 ${data.handoffsTotal} 份 handoff`)
+    : `${data.handoffs.length} 份 handoff`;
   const byScore = data.delta?.byScore || {};
   const scored = (byScore[0] || 0) + (byScore[1] || 0) + (byScore[2] || 0);
   const avgDelta = scored ? (((byScore[1] || 0) + 2 * (byScore[2] || 0)) / scored).toFixed(2) : "—";
@@ -234,7 +248,7 @@ function renderHero(root, data, panel, team) {
   const stats = [
     { icon: "users", value: agents.length, label: "协作席位", sub: escapeHtml(team.name || "未选择团队") },
     { icon: "activity", value: attentionStat.value, label: "执行中席位", sub: attentionStat.sub },
-    { icon: "send", value: handoffsToday, label: "全局今日交接", sub: `累计 ${data.handoffs.length} 份 handoff` },
+    { icon: "send", value: todayLabel, label: "全局今日交接", sub: handoffSub },
     { icon: "zap", value: avgDelta, label: "全局平均 DELTA", sub: `共 ${data.delta?.total ?? 0} 条账本` },
   ];
 
@@ -749,6 +763,4 @@ function truncate(s, len) {
   return s.length > len ? s.slice(0, len) + "…" : s;
 }
 
-function escapeHtml(s) {
-  return String(s ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-}
+// escapeHtml 统一来自 ./utils.js（本文件此前自带副本，且未转义单引号，与规范不一致）

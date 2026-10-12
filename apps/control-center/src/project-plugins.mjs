@@ -5,6 +5,17 @@ import { join } from "node:path";
 const SCHEMA = "514cc.project-plugins/v1";
 const MANIFEST = "514cc.plugin/v1";
 const MAX_BYTES = 2 * 1024 * 1024;
+/** 桌宠是桌面级单窗口，它的配置按「全局单份」存，不随项目走。 */
+const PET_PLUGIN_ID = "desktop-pet";
+/**
+ * 全局绑定用的伪项目键。
+ *
+ * 为什么桌宠必须全局：窗口只有一个，而 `activeProjectId` 跟着**当前可见会话**走
+ * （app.js:18653）。按项目存会导致「切个会话桌宠就换模型」—— 2026-10-03 实测：
+ * 项目 test 绑 whale、项目 项目优化 绑 standard，用户一进「项目优化」就"变回猫"。
+ * 所以桌宠的 binding 收敛成一份，与项目无关；其余插件仍是每项目一份。
+ */
+const PET_SCOPE = "@desktop";
 const idPattern = /^[a-z][a-z0-9-]{0,63}$/;
 const fail = (message, code = "PLUGIN_INVALID", httpStatus = 400) => { throw Object.assign(new Error(message), { code, httpStatus }); };
 const clone = (value) => structuredClone(value);
@@ -84,16 +95,18 @@ export const PLUGIN_CATALOG = [
     schema: MANIFEST,
     id: "desktop-pet",
     name: "桌宠伴侣",
-    version: "1.2.0",
+    version: "1.2.2",
     description: "桌面透明悬浮猫窗与工作台看板伴侣，随 Bot 任务进度与键盘打字起舞，陪伴协同编码。",
     settings: [
       { id: "enabled", label: "启用桌宠伴侣", type: "boolean", default: true },
-      { id: "model", label: "模型模式", type: "select", options: ["standard", "keyboard", "gamepad"], default: "standard" },
+      { id: "model", label: "模型模式", type: "select", options: ["standard", "keyboard", "gamepad", "whale"], default: "standard" },
       { id: "max-fps", label: "最大帧率", type: "select", options: ["30", "60", "120"], default: "60" },
       { id: "model-mirror", label: "模型镜像", type: "boolean", default: false },
       { id: "pointer-mirror", label: "指针镜像", type: "boolean", default: false },
       { id: "random-expression", label: "随机表情", type: "boolean", default: false },
-      { id: "interactive", label: "互动模式 (可拖拽与戳一戳)", type: "boolean", default: false },
+      // 默认开启：关掉等于整个桌宠收不到鼠标事件（穿透），拖拽/右键/戳一戳全哑。
+      // 想让它别挡着桌面，用环形菜单的「穿透」扇区临时切换，而不是把这个默认值调回去。
+      { id: "interactive", label: "互动模式 (可拖拽与戳一戳)", type: "boolean", default: true },
       { id: "opacity", label: "不透明度 (%)", type: "number", default: 100 },
       { id: "scale", label: "大小缩放 (%)", type: "number", default: 100 },
       { id: "web-dock", label: "Web 模式内嵌浮窗", type: "boolean", default: true },
@@ -150,7 +163,34 @@ export class ProjectPluginStore {
         seen.add(key);
         return { projectId, pluginId: item.id, enabled: binding.enabled, config: configFor(item.manifest, binding.config) };
       });
-      this.#data = { schema: SCHEMA, revision: data.revision + Number(migrated), installed, bindings };
+      // 桌宠：每项目一份 → 全局单份（2026-10-03 收敛）。
+      // 折叠规则取**末位** —— configure 是 filter+push，数组末位就是最近一次配置的那个；
+      // 若末位是关的而前面有开的，取最后一条 enabled 的，保留用户的启用意图。
+      const petBindings = bindings.filter((entry) => entry.pluginId === PET_PLUGIN_ID);
+      if (petBindings.length > 1) {
+        const winner = [...petBindings].reverse().find((entry) => entry.enabled) || petBindings[petBindings.length - 1];
+        winner.projectId = PET_SCOPE;
+        migrated = true;
+      } else if (petBindings.length === 1 && petBindings[0].projectId !== PET_SCOPE) {
+        petBindings[0].projectId = PET_SCOPE;
+        migrated = true;
+      }
+      // 互动模式默认值由 false 改 true（2026-10-03）。已装清单的 default 随版本迁移刷新，
+      // 但**已保存的 binding.config 是显式值**，configFor 会原样保留 —— 也就是说老用户的
+      // 配置仍然停在 interactive:false，拖拽/右键/戳一戳继续全哑。
+      // 这是默认值语义变更（不是用户改的），所以跟着版本迁移一起抬起来。
+      //
+      // 幂等判据用**清单自身的 default**，不用版本号：只要已装清单已经声明 default:true，
+      // 说明这轮或之前已经迁过，不再重复动用户配置。这样即使版本号回退也不会重复抬。
+      const petManifest = installed.find((entry) => entry.id === PET_PLUGIN_ID)?.manifest;
+      const interactiveDefault = petManifest?.settings.find((field) => field.id === "interactive")?.default;
+      if (interactiveDefault === true) {
+        for (const entry of petBindings) {
+          if (entry.config.interactive === false) { entry.config.interactive = true; migrated = true; }
+        }
+      }
+      const finalBindings = bindings.filter((entry) => entry.pluginId !== PET_PLUGIN_ID || entry.projectId === PET_SCOPE);
+      this.#data = { schema: SCHEMA, revision: data.revision + Number(migrated), installed, bindings: finalBindings };
       if (migrated) {
         const temp = join(this.root, `.project-plugins.${randomUUID()}.tmp`);
         let file;
@@ -174,7 +214,14 @@ export class ProjectPluginStore {
   list(projectId = null) {
     this.#ready();
     if (projectId) this.#project(projectId);
-    return clone({ revision: this.#data.revision, catalog: PLUGIN_CATALOG, installed: this.#data.installed, bindings: projectId ? this.#data.bindings.filter((item) => item.projectId === projectId) : [] });
+    // 桌宠的绑定在全局槽（PET_SCOPE），与项目无关：任何项目、乃至「没有项目」的
+    // 全局会话，查快照都要把它带回来 —— 否则前端 pet-bridge 会因为找不到绑定
+    // 而把桌宠关掉（切到全局会话/没配过的项目时「桌宠消失」）。
+    const bindings = this.#data.bindings.filter((item) => (
+      (item.pluginId === PET_PLUGIN_ID && item.projectId === PET_SCOPE)
+      || (projectId && item.projectId === projectId)
+    ));
+    return clone({ revision: this.#data.revision, catalog: PLUGIN_CATALOG, installed: this.#data.installed, bindings });
   }
   #mutate(expectedRevision, change) {
     const operation = this.#queue.then(async () => {
@@ -222,14 +269,16 @@ export class ProjectPluginStore {
   }
   configure({ projectId, pluginId, enabled, config, expectedRevision }) {
     return this.#mutate(expectedRevision, (next) => {
+      // 桌宠写全局槽：只要求项目存在且未归档（作为「当前在哪个项目操作」的合法性检查），
+      // 但落盘时统一改写为 PET_SCOPE，于是切项目不再改变桌宠配置。
       this.#project(projectId, enabled !== false);
       const item = next.installed.find((entry) => entry.id === pluginId);
       if (!item) fail("插件未安装", "PLUGIN_NOT_FOUND", 404);
       if (typeof enabled !== "boolean") fail("缺少启停状态");
       const normalizedConfig = configFor(item.manifest, config);
-      if (pluginId === "desktop-pet" && Object.hasOwn(normalizedConfig, "enabled")) normalizedConfig.enabled = enabled;
-      const binding = { projectId, pluginId, enabled, config: normalizedConfig };
-      next.bindings = next.bindings.filter((entry) => entry.projectId !== projectId || entry.pluginId !== pluginId);
+      if (pluginId === PET_PLUGIN_ID && Object.hasOwn(normalizedConfig, "enabled")) normalizedConfig.enabled = enabled;
+      const binding = { projectId: pluginId === PET_PLUGIN_ID ? PET_SCOPE : projectId, pluginId, enabled, config: normalizedConfig };
+      next.bindings = next.bindings.filter((entry) => entry.projectId !== binding.projectId || entry.pluginId !== pluginId);
       next.bindings.push(binding);
     });
   }
@@ -237,16 +286,21 @@ export class ProjectPluginStore {
     this.#ready();
     if (!projectId) return [];
     this.#project(projectId);
-    return clone(this.#data.bindings.filter((item) => item.projectId === projectId && item.enabled).map((binding) => {
-      const item = this.#data.installed.find((entry) => entry.id === binding.pluginId);
-      return { id: item.id, name: item.manifest.name, version: item.manifest.version, digest: item.digest, config: binding.config, tools: item.manifest.tools, workflows: item.manifest.workflows.map(({ id, name }) => ({ id, name })), panels: item.manifest.panels };
-    }));
+    return clone(this.#data.bindings
+      .filter((item) => item.enabled && (item.projectId === projectId || (item.pluginId === PET_PLUGIN_ID && item.projectId === PET_SCOPE)))
+      .map((binding) => {
+        const item = this.#data.installed.find((entry) => entry.id === binding.pluginId);
+        return { id: item.id, name: item.manifest.name, version: item.manifest.version, digest: item.digest, config: binding.config, tools: item.manifest.tools, workflows: item.manifest.workflows.map(({ id, name }) => ({ id, name })), panels: item.manifest.panels };
+      }));
   }
   execute({ projectId, pluginId, contributionId, type }, { runs = [] } = {}) {
     this.#ready();
     const project = this.#project(projectId, true);
     const item = this.#data.installed.find((entry) => entry.id === pluginId);
-    const binding = this.#data.bindings.find((entry) => entry.projectId === projectId && entry.pluginId === pluginId && entry.enabled);
+    // 桌宠的绑定在全局槽；其余插件仍按项目找。找不到就回落到项目键，
+    // 让「还没配过桌宠」时报 PLUGIN_DISABLED 而不是静默拿错配置。
+    const scope = pluginId === PET_PLUGIN_ID ? PET_SCOPE : projectId;
+    const binding = this.#data.bindings.find((entry) => entry.projectId === scope && entry.pluginId === pluginId && entry.enabled);
     if (!item || !binding) fail("插件未在当前项目启用", "PLUGIN_DISABLED", 409);
     if (!["tools", "workflows", "panels"].includes(type)) fail("扩展类型无效");
     const contribution = item.manifest[type].find((entry) => entry.id === contributionId);
@@ -268,7 +322,7 @@ export class ProjectPluginStore {
           enabledPlugins: this.snapshot(projectId).map((plugin) => ({ name: plugin.name, version: plugin.version })),
           pet: pluginId === "desktop-pet" ? {
             enabled: binding.config.enabled ?? true,
-            interactive: binding.config.interactive ?? false,
+            interactive: binding.config.interactive ?? true,
             opacity: binding.config.opacity ?? 100,
             scale: binding.config.scale ?? 100,
             web_dock: binding.config["web-dock"] ?? true,

@@ -117,7 +117,7 @@ export function encodeBody(entry, encoding) {
  * @param {string} options.publicRoot
  * @param {object} [options.securityHeaders] 每个响应都要带的安全头
  */
-export function createStaticServer({ publicRoot, securityHeaders = {} } = {}) {
+export function createStaticServer({ publicRoot, securityHeaders = {}, transformIndexHtml = null } = {}) {
   if (!publicRoot) throw new Error("createStaticServer: publicRoot is required");
   /** file → { etag, mtimeMs, size, body, encodings: Map<string, Buffer> } */
   const cache = new Map();
@@ -155,15 +155,35 @@ export function createStaticServer({ publicRoot, securityHeaders = {} } = {}) {
     // 子目录资产（/forge/*、/modules/*、/vendor/*）走白名单，顶层资产走显式路由表
     const file = STATIC_ROUTES[pathname] ?? resolvePublicAsset(pathname);
     if (!file) return false;
-    const entry = await loadStaticEntry(file);
+    let entry = await loadStaticEntry(file);
     if (!entry) return false;
+    if (file === "index.html" && typeof transformIndexHtml === "function") {
+      try {
+        const rawText = entry.body.toString("utf8");
+        const transformedText = await transformIndexHtml(rawText, request);
+        if (typeof transformedText === "string" && transformedText !== rawText) {
+          const transformedBuf = Buffer.from(transformedText, "utf8");
+          entry = {
+            etag: `W/"${createHash("sha1").update(transformedBuf).digest("base64url").slice(0, 16)}"`,
+            mtimeMs: entry.mtimeMs,
+            size: transformedBuf.length,
+            body: transformedBuf,
+            encodings: new Map(),
+          };
+        }
+      } catch {}
+    }
     const type = contentTypeFor(file);
     const headers = {
       ...securityHeaders,
       "content-type": type,
       etag: entry.etag,
-      // HTML 每次重验（视图壳可能变）；静态资产 60s 内可复用，之后带 ETag 重验
-      "cache-control": extname(file) === ".html" ? "no-cache" : `public, max-age=${STATIC_MAX_AGE_SECONDS}, must-revalidate`,
+      // HTML 每次重验（视图壳可能变）；css/js/mjs 同样立即重验——本应用开发期热改样式/脚本，
+      // 60s max-age 会让 webview 在重载后仍按旧样式渲染，表现为「改了没生效」（W18 实测）。
+      // ETag 仍在：未变化的请求 304，本地代价可忽略。其余资产保留短 max-age。
+      "cache-control": ["html", "css", "js", "mjs"].includes(extname(file).slice(1))
+        ? "no-cache"
+        : `public, max-age=${STATIC_MAX_AGE_SECONDS}, must-revalidate`,
       vary: "Accept-Encoding",
     };
     // Only the companion document is embeddable, and only by this exact origin.

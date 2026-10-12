@@ -92,6 +92,7 @@ const { chromium } = await import("playwright");
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await context.newPage();
+await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
 page.on("pageerror", (err) => console.log("[pageerror]", err.message));
 
 await page.goto(`${baseUrl}/#token=${token}`, { waitUntil: "domcontentloaded", timeout: 60000 });
@@ -145,7 +146,8 @@ await page.screenshot({ path: workbenchShot });
 console.log("WORKBENCH:", fmt(await inspectShellGlass()));
 
 // 2) 设置 · 外观（account-dock 打开设置，settings-rail 切 appearance）
-await page.locator("#account-dock").click({ timeout: 10_000 });
+await page.evaluate(() => { location.hash = "#config"; });
+await page.waitForFunction(() => document.querySelector("#view-config")?.classList?.contains("is-active") === true, null, { timeout: 15_000 });
 await page.waitForTimeout(600);
 await page.locator('.settings-rail-item[data-view="appearance"]').click({ timeout: 10_000 });
 await page.waitForTimeout(900);

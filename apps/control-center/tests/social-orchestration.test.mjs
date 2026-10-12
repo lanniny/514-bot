@@ -2753,7 +2753,7 @@ test("parseCodexCatalog maps codex debug models JSON (slug/display_name/reasonin
     ],
   });
   const result = parseCodexCatalog(raw);
-  assert.deepEqual(result.models, [{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol", defaultReasoning: "low" }]);
+  assert.deepEqual(result.models, [{ id: "gpt-5.6-sol", label: "GPT-5.6-Sol", defaultReasoning: "low", effortLevels: ["low", "medium", "high", "xhigh", "max", "ultra"] }]);
   assert.deepEqual(result.effortLevels, ["low", "medium", "high", "xhigh", "max", "ultra"]);
   assert.equal(result.defaultModel, "gpt-5.6-sol");
 });

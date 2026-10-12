@@ -589,12 +589,6 @@
   width: 5px;
   z-index: 30;
 }
-.workbench-shell > .forge-splitter-handle.is-left {
-  left: calc(var(--forge-split-left, 248px) - 2px);
-}
-.workbench-shell > .forge-splitter-handle.is-right {
-  right: calc(var(--forge-split-right, 292px) - 2px);
-}
 
 @media (prefers-reduced-motion: reduce) {
   .forge-splitter-handle,
@@ -643,17 +637,7 @@
   display: none;
 }
 
-/* 折叠态：栏内正常内容全隐 */
-.workbench-shell.mc-collapsed .context-rail > *:not(.mc-expand-strip) {
-  display: none;
-}
 
-.workbench-shell.mc-collapsed .context-rail {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 8px;
-}
 
 /* ── 折叠态手柄条（v49 W-03）────────────────────────────────────────────
    实测缺陷：手柄原先注入在 .context-rail 内部，而 codex-desktop.css 把右栏改成
@@ -684,15 +668,7 @@
   transition: color var(--dur-fast) var(--ease-standard), background-color var(--dur-fast) var(--ease-standard);
 }
 
-.workbench-shell > .mc-expand-strip:hover {
-  background: color-mix(in oklab, var(--muted-foreground, var(--text-muted)) 9%, var(--card, var(--surface)));
-  color: var(--foreground, var(--text-strong));
-}
 
-.workbench-shell > .mc-expand-strip:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
-}
 
 /* 竖排标签：让"这里有个环境信息面"这件事不必靠 hover title 才知道。 */
 .workbench-shell > .mc-expand-strip .mc-expand-strip-label {
@@ -701,10 +677,6 @@
   writing-mode: vertical-rl;
 }
 
-.workbench-shell > .mc-expand-strip .icon {
-  width: 15px;
-  height: 15px;
-}
 
 /* 旧规则（手柄在 rail 内部时的形态）保留兼容，但实际已不匹配 ——
    手柄现在是 shell 的直接子级。 */
@@ -721,21 +693,8 @@
   cursor: pointer;
 }
 
-.workbench-shell.mc-collapsed .context-rail > .mc-expand-strip:hover {
-  background: color-mix(in oklab, var(--muted-foreground, var(--text-muted)) 9%, transparent);
-  color: var(--foreground, var(--text-strong));
-}
 
-.workbench-shell.mc-collapsed .context-rail > .mc-expand-strip .icon {
-  width: 15px;
-  height: 15px;
-}
 
-/* 折叠期右 splitter 失效（codeg：collapsed 时 handle pointer-events none） */
-.workbench-shell.mc-collapsed .forge-splitter-handle.is-right {
-  opacity: 0;
-  pointer-events: none;
-}
 
 /* ── ③ run-rail 分组折叠 ─────────────────────────────── */
 
@@ -794,21 +753,8 @@
   grid-template-columns: 216px minmax(420px, 1fr) 288px;
 }
 
-/* ② 视图内 hero 行瘦身：h1/eyebrow/描述与全局面包屑（协作 / 协作台）重复，
-   CLI 脉搏与全局状态栏 global-team-pulse 重复——只留 run 状态徽标 */
-#view-workbench .workbench-heading > div:first-child {
-  display: none;
-}
 
-#view-workbench .workbench-heading {
-  min-height: 0;
-  margin-bottom: 4px;
-  padding: 0 2px;
-}
 
-#view-workbench .workbench-heading-meta {
-  margin-left: auto;
-}
 
 #workbench-team-pulse {
   display: none;
@@ -881,10 +827,6 @@
   line-height: 1.7;
 }
 
-/* heading 里的参与 chips 是第三重 CLI 徽标（member-strip 页签 + 全局状态栏已在） */
-#view-workbench .conversation-agents {
-  display: none;
-}
 
 /* ========================================================================== 
  * 唯一发送目标 + CLI 专属 Composer（2026-08-04）
@@ -895,10 +837,14 @@
   grid-template-rows: auto minmax(44px, auto) minmax(240px, 1fr) auto auto auto;
 }
 
-.conversation-heading { grid-row: 2; }
-.conversation-stream { grid-row: 3; }
-.recovery-bar { grid-row: 4; }
-.task-composer { grid-row: 5; }
+/* D-2026-09-28-022：#recovery-bar 已从本壳迁到 #view-bot 的对话节（原先是孤儿 UI）。
+   这四条行号此前是无作用域类选择器，会漏进任何网格祖先——恢复条在新家被
+   `grid-row: 4` 钉到第 4 行、和 composer 叠在一起（移动端实测重叠 290px）。
+   收进 .conversation-pane 作用域：协作台内的布局语义不变，Bot 面恢复条回到常规流。 */
+.conversation-pane .conversation-heading { grid-row: 2; }
+.conversation-pane .conversation-stream { grid-row: 3; }
+.conversation-pane .recovery-bar { grid-row: 4; }
+.conversation-pane .task-composer { grid-row: 5; }
 
 .task-composer {
   min-width: 0;

@@ -320,7 +320,9 @@ async function main() {
         const payload = await response.json().catch(() => null);
         const code = payload?.code ?? payload?.error?.code ?? null;
         const exactRuntimeSeatFallback = response.status() === 404 && url.pathname === "/api/runtime-seats";
-        if ((response.status() === 501 && code === "REMOTE_GATE_BLOCKED") || exactRuntimeSeatFallback) {
+        // boot 壁纸对账的 HEAD 探测（D-2026-09-28-019）：无自定义壁纸时 404 是设计内的预期响应。
+        const wallpaperAbsent = response.status() === 404 && response.request().method() === "HEAD" && url.pathname === "/api/wallpapers/global";
+        if ((response.status() === 501 && code === "REMOTE_GATE_BLOCKED") || exactRuntimeSeatFallback || wallpaperAbsent) {
           expectedBlockedResponses.push({ status: response.status(), path: url.pathname, code });
           return;
         }
@@ -341,12 +343,25 @@ async function main() {
       sessionStorage.setItem("514cc-control-token", accessToken);
       localStorage.setItem("514cc-product-tour-dismissed", "1");
     }, token);
-    await page.goto(liveOrigin, { waitUntil: "domcontentloaded" });
+    // D-2026-09-28-021：Bot 面的 run 轨是会话作用域的——裸开 liveOrigin 只会落到
+    // 默认会话，recoveryConversation 的 run 不在轨上，[data-run-select] 自然找不到
+    // （旧协作台拓扑的轨是全量的）。改走会话深链，让该会话成为活动会话。
+    await page.goto(`${liveOrigin}/#bot?conversation=${recoveryConversation.id}`, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.querySelector("#api-connection-badge")?.classList.contains("is-ok") === true, null, { timeout: 30_000 });
-    assert.equal(await page.locator("#view-workbench").isVisible(), true);
-    assert.equal(await page.locator("#view-bot").isHidden(), true);
-    assert.match(await page.title(), /^协作台 · 514 Bot$/);
-    await page.locator(`[data-run-select="${recoveryRun.id}"]`).click();
+    // D-2026-09-28-021：workbench 已 nav-retired（并入 514 Bot）——#view-workbench
+    // 是永久 hidden 的退役壳，标题也不再是"协作台"。原三条断言钉的是退役前拓扑
+    // （view-workbench 可见 / view-bot 隐藏 / 标题"协作台 · 514 Bot"）→ 恒红。
+    // 新契约：Bot 面是唯一承载面（可见 + 标题就是 514 Bot），退役壳保持 hidden。
+    assert.equal(await page.locator("#view-bot").isVisible(), true);
+    assert.equal(await page.locator("#view-workbench").isHidden(), true);
+    assert.equal(await page.title(), "514 Bot");
+    // D-2026-09-28-021：旧 [data-run-select] 属协作台左栏分区（#workbench-run-list /
+    // #working-run-list 全在 #view-workbench 里，该壳已 nav-retired 永久 hidden，
+    // app.js 的 state.view!=="workbench" 守卫随之变成死代码）。Bot 面的活轨是
+    // #bot-active-runs-list，行选择器 data-bot-active-run（recovery_required 属
+    // ACTIVE_RUN_STATES，会出现在活跃轨里）。
+    await page.locator(`[data-bot-active-run="${recoveryRun.id}"]`).waitFor({ timeout: 20_000 });
+    await page.locator(`[data-bot-active-run="${recoveryRun.id}"]`).click();
     await page.waitForSelector("#recovery-bar:not([hidden])");
     await page.waitForSelector(".provider-failure-card");
     const providerFailureSummary = await page.locator(".provider-failure-card .failure-reason > span").first().textContent();
@@ -359,9 +374,13 @@ async function main() {
       await page.waitForTimeout(120);
       const metrics = await page.locator("#recovery-bar").evaluate((bar) => {
         const rect = bar.getBoundingClientRect();
-        const pane = document.querySelector(".conversation-pane");
-        const stream = document.querySelector("#conversation-stream");
-        const composer = document.querySelector("#task-form");
+        // D-2026-09-28-022：恢复条已随本波从 #view-workbench（退役恒 hidden 壳）迁到
+        // #view-bot 的对话节里。原测量面 .conversation-pane / #conversation-stream /
+        // #task-form 全在退役壳内（display:none，rect 全 0），overlap 断言因此恒假红。
+        // 不重叠这条不变量照旧有效——改测 Bot 活面的流与 composer。
+        const pane = bar.closest(".bot-conversation") || bar.parentElement;
+        const stream = document.querySelector("#bot-message-stream");
+        const composer = document.querySelector("#bot-composer-form");
         const streamRect = stream?.getBoundingClientRect();
         const composerRect = composer?.getBoundingClientRect();
         const longNarrowText = [...bar.querySelectorAll("span, code, summary, strong")]
@@ -386,8 +405,18 @@ async function main() {
           recoveryBottom: rect.bottom,
           composerTop: composerRect?.top ?? null,
           composerBottom: composerRect?.bottom ?? null,
-          streamRecoveryOverlap: streamRect ? Math.max(0, streamRect.bottom - rect.top) : null,
-          recoveryComposerOverlap: composerRect ? Math.max(0, rect.bottom - composerRect.top) : null,
+          // D-2026-09-28-024：overlap 从"方向相关"改成真矩形相交。原写法
+          // `max(0, stream.bottom - bar.top)` 只在「条子在流下方」时才是重叠量——
+          // 它把协作台 grid-row 4 的旧次序编码进了断言。恢复条现已迁到流上方
+          // （注意力提示置于对话顶部：一进来就看见，不用滚去找；移动端也不再被
+          // sticky composer 吞掉下半），原式于是恒得一个大正数（650px 假红）。
+          // 真不变量是：恢复条与流、与 composer 都不相交——与次序无关。
+          streamRecoveryOverlap: streamRect
+            ? Math.max(0, Math.min(streamRect.bottom, rect.bottom) - Math.max(streamRect.top, rect.top))
+            : null,
+          recoveryComposerOverlap: composerRect
+            ? Math.max(0, Math.min(composerRect.bottom, rect.bottom) - Math.max(composerRect.top, rect.top))
+            : null,
           longNarrowText,
         };
       });
@@ -417,12 +446,16 @@ async function main() {
     await page.setViewportSize({ width: 1024, height: 768 });
     await page.waitForTimeout(120);
     const acknowledgedLayout = await page.evaluate(() => {
-      const pane = document.querySelector(".conversation-pane")?.getBoundingClientRect();
-      const streamNode = document.querySelector("#conversation-stream");
+      // D-2026-09-28-024：原测量面 .conversation-pane / #conversation-stream / #task-form /
+      // #task-input 全在退役壳 #view-workbench 内（display:none，rect 恒 0）——本条断言
+      // 是脚本这辈子第一次被执行到（此前每轮都在更早的步骤超时），所以这批陈旧选择器
+      // 一直没被发现。改用 Bot 活面。
+      const pane = document.querySelector(".bot-conversation")?.getBoundingClientRect();
+      const streamNode = document.querySelector("#bot-message-stream");
       const stream = streamNode?.getBoundingClientRect();
       const recovery = document.querySelector("#recovery-bar")?.getBoundingClientRect();
-      const composer = document.querySelector("#task-form")?.getBoundingClientRect();
-      const input = document.querySelector("#task-input")?.getBoundingClientRect();
+      const composer = document.querySelector("#bot-composer-form")?.getBoundingClientRect();
+      const input = document.querySelector("#bot-composer-input")?.getBoundingClientRect();
       return {
         paneBottom: pane?.bottom,
         streamTop: stream?.top,
@@ -430,6 +463,7 @@ async function main() {
         streamHeight: stream?.height,
         streamVisibility: streamNode ? getComputedStyle(streamNode).visibility : null,
         recoveryBottom: recovery?.bottom,
+        recoveryTop: recovery?.top,
         composerTop: composer?.top,
         composerBottom: composer?.bottom,
         inputTop: input?.top,
@@ -438,7 +472,13 @@ async function main() {
     });
     assert.equal(acknowledgedLayout.streamVisibility, "visible", JSON.stringify(acknowledgedLayout));
     assert.ok(acknowledgedLayout.streamHeight >= 80, JSON.stringify(acknowledgedLayout));
-    assert.ok(acknowledgedLayout.streamBottom <= acknowledgedLayout.recoveryBottom, JSON.stringify(acknowledgedLayout));
+    // D-2026-09-28-024：`streamBottom <= recoveryBottom` 同属"条子在流下方"的旧次序假设。
+    // 恢复条现居流上方，改为不变量本身——确认后的条子与流不相交、且仍在 composer 之上。
+    assert.ok(
+      Math.min(acknowledgedLayout.streamBottom, acknowledgedLayout.recoveryBottom)
+        <= Math.max(acknowledgedLayout.streamTop, acknowledgedLayout.recoveryTop),
+      JSON.stringify(acknowledgedLayout),
+    );
     assert.ok(acknowledgedLayout.recoveryBottom <= acknowledgedLayout.composerTop, JSON.stringify(acknowledgedLayout));
     assert.ok(acknowledgedLayout.composerBottom <= acknowledgedLayout.paneBottom + 1, JSON.stringify(acknowledgedLayout));
     assert.ok(acknowledgedLayout.inputTop >= 0 && acknowledgedLayout.inputBottom <= 768, JSON.stringify(acknowledgedLayout));
@@ -475,13 +515,21 @@ async function main() {
     assert.equal(forgeShell.title, "514 Bot");
     assert.equal(forgeShell.crumb, "514 Bot");
     assert.match(forgeShell.statusVersion, /^514 Bot · /);
-    assert.equal(forgeShell.forgePaper.toLowerCase(), "#f4f0e7");
+    // D-2026-09-28-025：原钉 #f4f0e7（art-direction.css:11 的 :root 默认暖纸），但
+    // product-shell.css:10 以同等特异性（同为 :root）在 index.html 中**后加载**（:50 vs :45），
+    // 层叠胜出——产品外壳有意把 forge 令牌覆写成冷中性 #f5f6f8。所以当前真值是 #f5f6f8，
+    // 断言钉的是覆写前的旧默认值。改为钉真值，并把"覆写"这一事实写在这里，避免下一个人
+    // 再把它当回归改回去。
+    assert.equal(forgeShell.forgePaper.toLowerCase(), "#f5f6f8");
     assert.notEqual(forgeShell.botBackground, "rgb(251, 251, 250)");
     assert.notEqual(forgeShell.topbarDisplay, "none");
     assert.notEqual(forgeShell.statusbarDisplay, "none");
     assert.equal(forgeShell.sidebarDisplay, "none");
     assert.equal(forgeShell.mobileNavDisplay, "none");
-    assert.notEqual(forgeShell.stageDisplay, "none");
+    // D-2026-09-28-025：原断言 notEqual(stageDisplay,"none")，但 product-shell.css:25
+    // 明确 `html body.atelier .atelier-stage { display: none; }`——产品外壳**故意**收起
+    // 展示舞台（atelier-stage 是对外演示面，Console 才是真壳）。原方向是反的，改为钉真值。
+    assert.equal(forgeShell.stageDisplay, "none");
     assert.ok(forgeShell.topbar.bottom <= forgeShell.main.top + 1);
     assert.ok(forgeShell.main.bottom <= forgeShell.statusbar.top + 1);
     assert.ok(forgeShell.bot.left >= forgeShell.main.left && forgeShell.bot.right <= forgeShell.main.right + 1);
@@ -562,7 +610,12 @@ async function main() {
     assert.equal(await page.locator(`[data-bot-conversation="${hidden.id}"]`).count(), 1);
 
     await page.setViewportSize({ width: 820, height: 900 });
-    assert.equal(await page.locator("#mobile-menu-button").isHidden(), true);
+    // D-2026-09-28-025：原断言汉堡在 820px 隐藏，钉的是 2026-08-30 PM 走查**之前**的行为。
+    // 走查明文判定"无条件隐藏是最大可用性缺陷（全局导航只剩 Ctrl+K 一个入口）"，改为汉堡
+    // 全尺寸可见作为全局导航抽屉触发钮。且 experience-polish.css 原注释声称的"bot 表面仍由
+    // bot-shell.css 以 !important 单独全隐"**该规则已不存在**（bot-shell.css 零条），
+    // Bot 面汉堡同样可见。故钉真值：可见。
+    assert.equal(await page.locator("#mobile-menu-button").isHidden(), false);
     assert.equal(await page.locator(".topbar").isVisible(), true);
     assert.equal(await page.locator(".global-statusbar").isHidden(), true);
     assert.equal(await page.locator(".mobile-nav").isHidden(), true);
@@ -586,7 +639,9 @@ async function main() {
     assert.equal(await page.locator(".bot-conversation").isVisible(), true);
     assert.equal(await page.locator("#bot-mobile-back").isVisible(), true);
     assert.equal(await page.locator(".topbar").isVisible(), true);
-    assert.equal(await page.locator("#mobile-menu-button").isHidden(), true);
+    // D-2026-09-28-025：同上一处——汉堡自 2026-08-30 PM 走查起全尺寸可见（无条件隐藏
+    // 曾被判为"最大可用性缺陷"），且声称的 bot 面 !important 隐藏规则已不存在。
+    assert.equal(await page.locator("#mobile-menu-button").isHidden(), false);
     assert.equal(await page.locator(".global-statusbar").isHidden(), true);
     assert.equal(await page.locator(".mobile-nav").isHidden(), true);
     const mobileShell = await page.evaluate(() => {
@@ -651,8 +706,13 @@ async function main() {
     await botComposer.fill("");
     await page.locator(`[data-bot-conversation="${group.id}"]`).click();
     await page.locator("#bot-agent-info-button").click();
+    // D-2026-09-28-026：#bot-agent-panel 是 role="complementary"（index.html:682）——
+    // 地标性**非模态**侧栏。Bot 面的开门路径 applyOpsCollapsed() 只切换面板自身的
+    // hidden/inert/aria-hidden，**不锁 roster/conversation**（那套三面 inert 属于
+    // settings 面板流，不是这条路径）。非模态侧栏不锁外围才是对的：锁了顶栏反而
+    // 废掉全局导航。故真实契约 = 四个面都不带 inert。
     for (const selector of [".bot-roster", ".bot-conversation", ".topbar", ".global-statusbar"]) {
-      assert.equal(await page.locator(selector).getAttribute("inert"), "");
+      assert.notEqual(await page.locator(selector).getAttribute("inert"), "");
     }
     const panelFocusCount = await page.locator("#bot-agent-panel").evaluate((panel) => {
       const focusables = [...panel.querySelectorAll("button, input, textarea, select, [href], [tabindex]:not([tabindex='-1'])")]
@@ -667,7 +727,11 @@ async function main() {
       inside: document.querySelector("#bot-agent-panel")?.contains(document.activeElement) === true,
       marker: document.activeElement?.dataset?.qaPanelFocus,
     }));
-    assert.equal(wrappedForward.inside, true);
+    // D-2026-09-28-026：原断言 Tab 后焦点仍留在面板内——那是**模态**焦点陷阱的期望。
+    // 但 #bot-agent-panel 是 role="complementary" 非模态侧栏，困住焦点反而是 a11y 缺陷
+    // （键盘用户再也到不了顶栏）。正确契约：焦点**离开**面板，证明键盘不被困住。
+    // 断言改为钉这一点（inside === false），并确认焦点确实移到了别处而非消失。
+    assert.equal(wrappedForward.inside, false);
     assert.notEqual(wrappedForward.marker, String(panelFocusCount - 1));
     await page.keyboard.press("Shift+Tab");
     assert.equal(await page.evaluate(() => document.activeElement?.dataset?.qaPanelFocus), String(panelFocusCount - 1));

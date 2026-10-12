@@ -34,6 +34,36 @@ function cleanId(value) {
   return /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(id) ? id : "";
 }
 
+export function runtimeSeatProviderModelFacts(provider, template = {}, seat = {}) {
+  if (!provider) return { provider: null, defaultModel: "", options: [] };
+  const seen = new Map();
+  const add = (id, label = id) => {
+    if (typeof id !== "string" && typeof id !== "number") return;
+    const value = String(id).trim();
+    if (value && !seen.has(value)) seen.set(value, String(label || value));
+  };
+  for (const row of provider.meta?.modelCatalog || []) add(row?.model || row?.id, row?.displayName || row?.label);
+  const appIds = template.providerApp ? [template.providerApp] : Object.keys(provider.models || {});
+  let defaultModel = "";
+  const isFable = seat?.id === "claude-fable" || seat?.role === "primary-coordinator" || String(seat?.id || "").toLowerCase().includes("fable");
+  for (const appId of appIds) {
+    const appModels = provider.models?.[appId];
+    if (!appModels || typeof appModels !== "object") continue;
+    const fableDefault = isFable && String(appModels.fableModel ?? "").trim();
+    const appDefault = fableDefault || String(appModels.model ?? "").trim();
+    if (!defaultModel && appDefault) defaultModel = appDefault;
+    for (const [key, value] of Object.entries(appModels)) {
+      if (!/model$/i.test(key) || /modelname$/i.test(key)) continue;
+      add(value);
+    }
+  }
+  return {
+    provider,
+    defaultModel,
+    options: [...seen].map(([id, label]) => ({ id, label })),
+  };
+}
+
 export function createRuntimeSeatManager({
   state,
   request,
@@ -77,6 +107,7 @@ export function createRuntimeSeatManager({
   const templateById = (id) => templates().find((item) => item.id === id) || null;
   const seatById = (id) => seats().find((item) => item.id === id) || null;
   const runtimeById = (id) => runtimeProfiles().find((item) => item.id === id) || null;
+  const providerById = (id) => getProviders().find((item) => item.id === id) || null;
 
   function seatView(seat) {
     if (!seat) return null;
@@ -93,6 +124,9 @@ export function createRuntimeSeatManager({
     if (value.startsWith("opencode")) return "opencode";
     if (value.startsWith("gemini")) return "gemini";
     if (value.startsWith("pi")) return "pi";
+    // codebuddy 有意归 other：官方无 sprite 徽标、forge/team.css 也没有 --agent-codebuddy 色令牌，
+    // 单开一个品牌 key 只会让 --agent-accent 落空（图标与配色双双变空）。与 cli-env.mjs 的
+    // brand:null 同源——不臆造官方标识，统一走通用 glyph + other 强调色。
     return "other";
   }
 
@@ -173,7 +207,8 @@ export function createRuntimeSeatManager({
     const select = byId("runtime-seat-provider-select");
     const scope = byId("runtime-seat-provider-scope");
     if (!select || !scope) return;
-    if (!template?.providerApp) {
+    const directApi = template?.providerBindingMode === "direct-api";
+    if (!template?.providerApp && !directApi) {
       select.innerHTML = '<option value="">不使用 ProviderStore 连接</option>';
       select.value = "";
       select.disabled = true;
@@ -185,15 +220,35 @@ export function createRuntimeSeatManager({
       scope.className = "runtime-seat-scope-note is-neutral";
       return;
     }
-    const compatible = getProviders().filter((provider) => provider.apps?.[template.providerApp] === true);
+    const compatible = getProviders().filter((provider) => directApi || provider.apps?.[template.providerApp] === true);
     const knownSelected = compatible.some((provider) => provider.id === selectedId);
+    const activeProviderId = !directApi && template?.providerApp
+      ? (state.runtimeSeatsData?.providerCurrent?.[template.providerApp] || state.providersData?.current?.[template.providerApp] || "")
+      : "";
+    const activeProvider = activeProviderId ? providerById(activeProviderId) : null;
+    const live = !directApi && template?.providerApp ? state.providersData?.live?.[template.providerApp] : null;
+    const liveName = live?.baseUrl
+      ? (() => { try { return new URL(live.baseUrl).hostname; } catch { return String(live.baseUrl); } })()
+      : (live?.model ? String(live.model) : "");
+    const defaultOptionLabel = directApi
+      ? "请选择 Chat Completions 兼容连接"
+      : activeProvider
+        ? `跟随该应用当前连接（当前：${activeProvider.name || activeProvider.id}）`
+        : liveName
+          ? `跟随该应用当前连接（当前活跃：${liveName}）`
+          : "跟随该应用当前连接";
     select.innerHTML = [
-      '<option value="">跟随该应用当前连接</option>',
+      `<option value="">${escapeHtml(defaultOptionLabel)}</option>`,
       ...compatible.map((provider) => `<option value="${escapeHtml(provider.id)}">${escapeHtml(provider.name || provider.id)}</option>`),
       selectedId && !knownSelected ? `<option value="${escapeHtml(selectedId)}" disabled>${escapeHtml(selectedId)}（不可用）</option>` : "",
     ].join("");
     select.value = selectedId || "";
     select.disabled = busy;
+    if (directApi) {
+      scope.textContent = "直连选中的模型服务，不切换 CLI 配置。仅支持文本；模型 ID 必填。";
+      scope.className = "runtime-seat-scope-note is-neutral";
+      return;
+    }
     // Provider 绑定降级（服务端 manifest 语义直通）：当前环境解析不到绑定的连接时明示，
     // 席位按 Adapter 管理继续运行，引导用户重选或回到跟随应用连接。
     const degraded = selectedId && draft?.id ? runtimeById(draft.id)?.providerDegraded : null;
@@ -238,7 +293,21 @@ export function createRuntimeSeatManager({
   async function refreshProviderBalance() {
     const el = byId("runtime-seat-provider-balance");
     if (!el) return;
-    const providerId = byId("runtime-seat-provider-select")?.value || "";
+    if (templateById(byId("runtime-seat-adapter-select")?.value)?.providerBindingMode === "direct-api") {
+      el.hidden = false;
+      el.className = "runtime-seat-scope-note is-neutral";
+      el.textContent = "回答完成后按服务回执记录用量；费用未知时不会显示为零。";
+      return;
+    }
+    let providerId = byId("runtime-seat-provider-select")?.value || "";
+    if (!providerId) {
+      const template = templateById(byId("runtime-seat-adapter-select")?.value);
+      if (template?.providerApp) {
+        providerId = state.runtimeSeatsData?.providerCurrent?.[template.providerApp]
+          || state.providersData?.current?.[template.providerApp]
+          || "";
+      }
+    }
     if (!providerId) {
       el.hidden = true;
       el.textContent = "";
@@ -266,14 +335,75 @@ export function createRuntimeSeatManager({
     return '<span class="chip is-on" title="能力不参与准入或路由评分">默认全能力</span><span class="subtle">特殊通道只由带原因的显式路由规则限制</span>';
   }
 
-  function modelOptionsFor(template, seat = {}) {
+  function providerModelFacts(template, providerId, seat = {}) {
+    let provider = providerById(providerId);
+    let isFollowGlobal = false;
+    if (!provider && !providerId && template?.providerApp) {
+      const activeProviderId = state.runtimeSeatsData?.providerCurrent?.[template.providerApp]
+        || state.providersData?.current?.[template.providerApp]
+        || "";
+      if (activeProviderId) {
+        provider = providerById(activeProviderId);
+        if (provider) isFollowGlobal = true;
+      }
+      if (!provider) {
+        const live = state.providersData?.live?.[template.providerApp];
+        if (live && (live.baseUrl || (Array.isArray(live.models) && live.models.length) || live.model || live.fableModel)) {
+          const liveName = live.baseUrl
+            ? (() => { try { return new URL(live.baseUrl).hostname; } catch { return String(live.baseUrl); } })()
+            : "本地活跃连接";
+          provider = {
+            id: `live-${template.providerApp}`,
+            name: `当前活跃连接（${liveName}）`,
+            baseUrl: live.baseUrl || "",
+            models: {
+              [template.providerApp]: {
+                model: live.model || "",
+                fableModel: live.fableModel || "",
+              },
+            },
+            meta: {
+              modelCatalog: (live.models || []).map((id) => ({ id, model: id, label: id })),
+            },
+          };
+          isFollowGlobal = true;
+        }
+      }
+    }
+    const facts = runtimeSeatProviderModelFacts(provider, template, seat);
+    return { ...facts, isFollowGlobal };
+  }
+
+  function modelOptionsFor(template, seat = {}, providerId = "") {
     const seen = new Map();
-    // runtimeProfiles 是可执行投影，不保证携带 modelOptions；配置席位才是编辑目录真源。
+    // 1. 动态探测的上游模型（来自 ModelDiscovery /api/agents/models 或自动化目录）优先置顶
+    const seatId = seat?.id || "";
+    const dynamic = (seatId && state.discoveredAgentModels?.[seatId])
+      || (seatId && state.automationModelCatalogs?.[seatId])
+      || null;
+    if (dynamic?.models?.length) {
+      for (const m of dynamic.models) {
+        const id = String(m?.id ?? "").trim();
+        if (id && !seen.has(id)) seen.set(id, String(m?.label || id));
+      }
+    }
+    // 2. 当前连接（含活动 live 连接）中声明的模型目录与映射
+    for (const option of providerModelFacts(template, providerId, seat).options) {
+      const cleanId = String(option.id || "").replace(/\[1m\]$/i, "").trim();
+      if (cleanId && !seen.has(cleanId)) seen.set(cleanId, option.label ? String(option.label).replace(/\[1m\]$/i, "").trim() : cleanId);
+      if (option.id && !seen.has(option.id)) seen.set(option.id, option.label);
+    }
+    // 3. runtimeProfiles 与静态席位目录兜底
     const profiles = [seat, ...seats(), ...runtimeProfiles()].filter((profile) => profile?.adapter === template?.id);
     for (const profile of profiles) {
       for (const option of profile?.modelOptions || []) {
         const id = String(option?.id ?? "").trim();
-        if (id && !seen.has(id)) seen.set(id, String(option?.label || id));
+        if (id && !seen.has(id)) {
+          seen.set(id, String(option?.label || id));
+        } else if (!id && option?.label) {
+          const parsed = String(option.label).replace(/（默认）|\(默认\)|\(default\)/gi, "").trim();
+          if (parsed && !seen.has(parsed)) seen.set(parsed, String(option.label));
+        }
       }
       const model = String(profile?.model || "").trim();
       if (model && !seen.has(model)) seen.set(model, model);
@@ -303,6 +433,7 @@ export function createRuntimeSeatManager({
     const effort = byId("runtime-seat-effort-input");
     const effortScope = byId("runtime-seat-effort-scope");
     const permission = byId("runtime-seat-permission-select");
+    const useProviderModel = byId("runtime-seat-use-provider-model");
     if (!template || !command || !model || !effort || !permission) return;
 
     commandHelp.textContent = template.commandHelp || "填写单个可执行文件名或完整路径，不包含参数。";
@@ -310,17 +441,53 @@ export function createRuntimeSeatManager({
     command.placeholder = template.defaultCommand || "由 Adapter 管理";
 
     const modelSupported = template.modelMode !== "none";
-    const knownModels = modelOptionsFor(template, seat);
-    modelList.innerHTML = knownModels
-      .map((option) => `<option value="${escapeHtml(option.id)}">${escapeHtml(option.label)}</option>`)
-      .join("");
+    const fetchModelsButton = byId("runtime-seat-fetch-models-button");
+    if (fetchModelsButton) fetchModelsButton.hidden = !modelSupported;
+    const providerId = byId("runtime-seat-provider-select")?.value || seat.providerId || "";
+    const providerFacts = providerModelFacts(template, providerId, seat);
+    const knownModels = modelOptionsFor(template, seat, providerId);
+    modelList.replaceChildren(document.createRange().createContextualFragment(
+      knownModels.map((option) => `<option value="${escapeHtml(option.id)}">${escapeHtml(option.label)}</option>`).join("")
+    ));
     if (!modelSupported && clearUnsupported) model.value = "";
-    model.placeholder = modelSupported ? "留空 = 跟随 CLI / Provider 默认" : "此 Adapter 不支持模型覆盖";
-    modelScope.textContent = modelSupported
-      ? knownModels.length
-        ? `${knownModels.length} 个已知模型；也可填写 Provider 允许的模型 ID。`
-        : "暂无已验证目录；保存席位后由 CLI 动态发现，仍可填写 Provider 模型 ID。"
-      : "当前执行协议没有模型覆盖入口。";
+    model.placeholder = template.providerBindingMode === "direct-api" ? "填写该连接允许的模型 ID（必填）"
+      : modelSupported
+        ? (providerFacts.defaultModel ? `留空 = 跟随连接默认 (${providerFacts.defaultModel})` : "留空 = 跟随 CLI / Provider 默认")
+        : "此 Adapter 不支持模型覆盖";
+    if (useProviderModel) {
+      const canAdopt = modelSupported && providerFacts.defaultModel && model.value !== providerFacts.defaultModel;
+      useProviderModel.hidden = !canAdopt;
+      useProviderModel.dataset.model = canAdopt ? providerFacts.defaultModel : "";
+      useProviderModel.title = canAdopt ? `使用 ${providerFacts.defaultModel}` : "";
+      useProviderModel.textContent = canAdopt ? `使用默认 (${providerFacts.defaultModel})` : "使用连接默认";
+    }
+    modelScope.textContent = !modelSupported
+      ? "当前执行协议没有模型覆盖入口。"
+      : providerFacts.provider
+        ? providerFacts.defaultModel
+          ? `${providerFacts.isFollowGlobal ? "当前跟随连接" : "连接"}「${providerFacts.provider.name || providerFacts.provider.id}」默认 ${providerFacts.defaultModel}；${knownModels.length} 个可选模型，留空则跟随连接。`
+          : `${providerFacts.isFollowGlobal ? "当前跟随连接" : "连接"}「${providerFacts.provider.name || providerFacts.provider.id}」未设置默认模型；${knownModels.length ? `${knownModels.length} 个已知模型可选` : "可直接填写模型 ID"}。`
+        : knownModels.length
+          ? `${knownModels.length} 个已知模型；也可填写连接允许的模型 ID。`
+          : "选择连接后可读取它的默认模型与模型目录，也可直接填写模型 ID。";
+
+    const quickChips = byId("runtime-seat-model-quick-chips");
+    if (quickChips) {
+      const topModels = modelSupported ? knownModels.filter((item) => item.id).slice(0, 8) : [];
+      if (topModels.length > 0) {
+        const curModel = model.value.trim();
+        quickChips.replaceChildren(document.createRange().createContextualFragment(
+          topModels.map((item) => {
+            const active = curModel === item.id;
+            return `<button class="runtime-seat-model-chip${active ? " is-active" : ""}" type="button" data-model-chip="${escapeHtml(item.id)}" title="${escapeHtml(item.label || item.id)}"><span class="runtime-seat-model-chip-text">${escapeHtml(item.label || item.id)}</span></button>`;
+          }).join("")
+        ));
+        quickChips.hidden = false;
+      } else {
+        quickChips.replaceChildren();
+        quickChips.hidden = true;
+      }
+    }
 
     const effortSupported = template.effortMode !== "none";
     const effortLevels = effortOptionsFor(template, seat);
@@ -459,9 +626,9 @@ export function createRuntimeSeatManager({
     const brandLogo = typeof cliIconMarkup === "function" ? cliIconMarkup(brand, "runtime-seat-logo runtime-seat-logo-inline") : "";
     root.innerHTML = `<div><span>执行后端</span><strong data-brand="${escapeHtml(brand)}">${brandLogo}${escapeHtml(template.label || template.id)}</strong></div>
       <div><span>传输</span><strong>${escapeHtml(template.transport || "未声明")}</strong></div>
-      <div><span>Provider 作用域</span><strong>${escapeHtml(template.providerApp ? `${template.providerApp} · 应用级` : "CLI / 环境 / Adapter")}</strong></div>
+      <div><span>Provider 作用域</span><strong>${escapeHtml(template.providerBindingMode === "direct-api" ? "显式模型连接" : template.providerApp ? `${template.providerApp} · 应用级` : "CLI / 环境 / Adapter")}</strong></div>
       <div><span>模型 / effort</span><strong>${escapeHtml(`${template.modelMode} / ${template.effortMode}`)}</strong></div>
-      <div><span>工作目录</span><strong>${escapeHtml(template.cwdMode === "per-turn" ? "逐轮可切换" : "进程启动时固定")}</strong></div>
+      <div><span>工作目录</span><strong>${escapeHtml(template.cwdMode === "none" ? "无本地文件访问" : template.cwdMode === "per-turn" ? "逐轮可切换" : "进程启动时固定")}</strong></div>
       <div><span>主脑协议</span><strong>${template.coordinatorCapable ? "支持" : "不支持"}</strong></div>
       <p>${escapeHtml(template.description || "已注册执行协议")}</p>
       ${(template.controlNotes || []).map((note) => `<p>${escapeHtml(note)}</p>`).join("")}
@@ -481,6 +648,8 @@ export function createRuntimeSeatManager({
     const command = byId("runtime-seat-command-input");
     command.required = template?.requiresCommand === true;
     command.disabled = busy || template?.commandMode === "none";
+    const enableConnection = byId("runtime-seat-provider-enable");
+    if (enableConnection) enableConnection.hidden = template?.providerBindingMode === "direct-api";
     byId("runtime-seat-model-input").disabled = busy || template?.modelMode === "none";
     byId("runtime-seat-effort-input").disabled = busy || template?.effortMode === "none";
     byId("runtime-seat-permission-select").disabled = busy;
@@ -502,7 +671,7 @@ export function createRuntimeSeatManager({
     }
     syncMetricOutputs();
     byId("runtime-seat-capabilities-wall").innerHTML = capabilityMarkup();
-    if (!preserveProvider || !template.providerApp) byId("runtime-seat-provider-select").value = "";
+    if (!preserveProvider || (!template.providerApp && template.providerBindingMode !== "direct-api")) byId("runtime-seat-provider-select").value = "";
     if (!preserveCapabilities) {
       draft.model = null;
       draft.defaultEffort = null;
@@ -515,10 +684,10 @@ export function createRuntimeSeatManager({
     if (!byId("runtime-seat-command-input").value.trim() || !preserveCapabilities) {
       byId("runtime-seat-command-input").value = template.defaultCommand || "";
     }
+    providerOptions(template, preserveProvider ? draft?.providerId || "" : "");
     renderExecutionControls(template, draft, { clearUnsupported: !preserveCapabilities });
     renderTemplateDetails(template, draft);
     syncNativeSettingsPanel(template);
-    providerOptions(template, preserveProvider ? draft?.providerId || "" : "");
     applyFieldLocks();
     notifyConnectionContext();
   }
@@ -558,6 +727,7 @@ export function createRuntimeSeatManager({
       .map((role) => `<option value="${escapeHtml(role)}"></option>`).join("");
     byId("runtime-seat-command-input").value = seat.command || "";
     byId("runtime-seat-model-input").value = seat.model || "";
+    providerOptions(template, seat.providerId || "");
     renderExecutionControls(template, seat);
     byId("runtime-seat-enabled-input").checked = seat.enabled !== false;
     byId("runtime-seat-coordinator-input").checked = seat.coordinatorEligible !== false && template?.coordinatorCapable === true;
@@ -566,7 +736,6 @@ export function createRuntimeSeatManager({
     byId("runtime-seat-cost-input").value = String(seat.costTier ?? template?.routingDefaults?.costTier ?? 3);
     syncMetricOutputs();
     byId("runtime-seat-capabilities-wall").innerHTML = capabilityMarkup();
-    providerOptions(template, seat.providerId || "");
     void refreshProviderBalance();
     notifyConnectionContext();
     renderTemplateDetails(template, live ? { ...seat, ...live } : seat);
@@ -646,10 +815,14 @@ export function createRuntimeSeatManager({
       description: byId("runtime-seat-description-input").value.trim(),
       systemPrompt: byId("runtime-seat-system-prompt-input").value.trim(),
       provider: template?.defaultProvider || base.provider || "custom",
-      providerId: template?.providerApp ? byId("runtime-seat-provider-select").value || null : null,
+      providerId: template?.providerApp || template?.providerBindingMode === "direct-api" ? byId("runtime-seat-provider-select").value || null : null,
       adapter: template?.id || "",
       command: byId("runtime-seat-command-input").value.trim() || null,
-      model: byId("runtime-seat-model-input").value.trim() || null,
+      model: (() => {
+        const raw = byId("runtime-seat-model-input").value.trim();
+        const cleaned = raw.replace(/\s*[（(][^）)]*[）)]\s*$/g, "").trim();
+        return cleaned || null;
+      })(),
       defaultEffort: byId("runtime-seat-effort-input").value.trim() || null,
       defaultPermissionMode: byId("runtime-seat-permission-select").value,
       capabilities: ["*"],
@@ -700,6 +873,7 @@ export function createRuntimeSeatManager({
     if (!payload.role) return "席位职责不能为空";
     if (!payload.adapter) return "请选择 Adapter";
     const template = templateById(payload.adapter);
+    if (template?.providerBindingMode === "direct-api" && (!payload.providerId || !payload.model)) return "文本聊天需要选择连接并填写模型 ID";
     if (template?.requiresCommand && !payload.command) return "该 Adapter 需要执行命令";
     if (payload.command && template?.commandMode === "executable-only"
       && /\s/.test(payload.command) && !/^(?:[A-Za-z]:[\\/]|\\\\|\/)/.test(payload.command)) {
@@ -896,8 +1070,26 @@ export function createRuntimeSeatManager({
     return true;
   }
 
+  function selectProvider(providerId, { adoptDefaultModel = false } = {}) {
+    const select = byId("runtime-seat-provider-select");
+    const model = byId("runtime-seat-model-input");
+    if (!draft || !select || select.disabled) return false;
+    const option = [...select.options].find((candidate) => candidate.value === providerId && !candidate.disabled);
+    if (!option) return false;
+    select.value = providerId;
+    draft.providerId = providerId;
+    const template = templateById(byId("runtime-seat-adapter-select")?.value || draft.adapter);
+    const defaultModel = providerModelFacts(template, providerId).defaultModel;
+    if (adoptDefaultModel && model && !model.value.trim() && defaultModel) model.value = defaultModel;
+    renderExecutionControls(template, { ...draft, model: model?.value || "" });
+    void refreshProviderBalance();
+    notifyConnectionContext();
+    markDirty();
+    return true;
+  }
+
   function setMode(mode, { focus = true } = {}) {
-    const next = mode === "sources" ? "sources" : "seats";
+    const next = mode === "sources" || mode === "connections" ? mode : "seats";
     state.runtimeWorkspaceMode = next;
     document.querySelectorAll("[data-runtime-workspace-mode]").forEach((button) => {
       const active = button.dataset.runtimeWorkspaceMode === next;
@@ -905,8 +1097,12 @@ export function createRuntimeSeatManager({
       button.setAttribute("aria-selected", String(active));
       button.tabIndex = active ? 0 : -1;
     });
-    byId("runtime-seat-workspace").hidden = next !== "seats";
-    byId("runtime-raw-source-workspace").hidden = next !== "sources";
+    const seatWorkspace = byId("runtime-seat-workspace");
+    const connectionWorkspace = byId("config-surface-providers");
+    const sourceWorkspace = byId("runtime-raw-source-workspace");
+    if (seatWorkspace) seatWorkspace.hidden = next !== "seats";
+    if (connectionWorkspace) connectionWorkspace.hidden = next !== "connections";
+    if (sourceWorkspace) sourceWorkspace.hidden = next !== "sources";
     onModeChanged?.(next);
     if (next === "seats") void load();
     if (focus) byId(`runtime-workspace-${next}-tab`)?.focus({ preventScroll: true });
@@ -915,7 +1111,9 @@ export function createRuntimeSeatManager({
   function syncProviders() {
     if (!draft || !byId("runtime-seat-provider-select")) return;
     const selected = byId("runtime-seat-provider-select").value || draft.providerId || "";
-    providerOptions(templateById(byId("runtime-seat-adapter-select").value), selected);
+    const template = templateById(byId("runtime-seat-adapter-select")?.value);
+    providerOptions(template, selected);
+    renderExecutionControls(template, draft);
   }
 
   function init() {
@@ -969,8 +1167,74 @@ export function createRuntimeSeatManager({
       const agent = nativeSettingsAgentFor(template);
       if (agent) void loadNativeSettings(agent);
     });
+    byId("runtime-seat-fetch-models-button")?.addEventListener("click", async () => {
+      const button = byId("runtime-seat-fetch-models-button");
+      if (busy || !draft) return;
+      const originalText = button.textContent;
+      button.disabled = true;
+      button.textContent = "获取中…";
+      try {
+        const agentId = draft.id;
+        const catalog = await request(`/api/agents/models?agent=${encodeURIComponent(agentId)}&fresh=1`);
+        if (catalog?.models?.length) {
+          state.discoveredAgentModels ??= {};
+          state.discoveredAgentModels[agentId] = catalog;
+          const template = templateById(byId("runtime-seat-adapter-select")?.value || draft.adapter);
+          renderExecutionControls(template, draft);
+          if (typeof toast === "function") {
+            const providerInfo = catalog.providerName ? `（${catalog.providerName}）` : "";
+            toast(`已获取 ${catalog.models.length} 个上游模型${providerInfo}`, "success");
+          }
+        } else if (typeof toast === "function") {
+          toast("上游未返回有效模型列表", "warning");
+        }
+      } catch (error) {
+        if (typeof toast === "function") toast(`获取模型失败：${error.message}`, "error");
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+    });
+    byId("runtime-seat-use-provider-model")?.addEventListener("click", () => {
+      const button = byId("runtime-seat-use-provider-model");
+      const model = byId("runtime-seat-model-input");
+      if (!button?.dataset.model || !model) return;
+      model.value = button.dataset.model;
+      markDirty();
+      renderExecutionControls(templateById(byId("runtime-seat-adapter-select")?.value), {
+        ...draft,
+        model: model.value,
+      });
+      model.focus({ preventScroll: true });
+    });
+    byId("runtime-seat-model-quick-chips")?.addEventListener("click", (event) => {
+      const chip = event.target.closest("[data-model-chip]");
+      const model = byId("runtime-seat-model-input");
+      if (!chip || !model) return;
+      const targetModel = chip.dataset.modelChip;
+      model.value = targetModel;
+      markDirty();
+      byId("runtime-seat-model-quick-chips")?.querySelectorAll("[data-model-chip]").forEach((btn) => {
+        btn.classList.toggle("is-active", btn.dataset.modelChip === targetModel);
+      });
+      const useProviderModel = byId("runtime-seat-use-provider-model");
+      if (useProviderModel?.dataset?.model) {
+        useProviderModel.hidden = targetModel === useProviderModel.dataset.model;
+      }
+      model.focus({ preventScroll: true });
+    });
     byId("runtime-seat-form")?.addEventListener("input", (event) => {
       if (["runtime-seat-quality-input", "runtime-seat-speed-input"].includes(event.target.id)) syncMetricOutputs();
+      if (event.target.id === "runtime-seat-model-input") {
+        const val = event.target.value.trim();
+        byId("runtime-seat-model-quick-chips")?.querySelectorAll("[data-model-chip]").forEach((btn) => {
+          btn.classList.toggle("is-active", btn.dataset.modelChip === val);
+        });
+        const useProviderModel = byId("runtime-seat-use-provider-model");
+        if (useProviderModel?.dataset?.model) {
+          useProviderModel.hidden = val === useProviderModel.dataset.model;
+        }
+      }
       markDirty();
     });
     byId("runtime-seat-form")?.addEventListener("change", (event) => {
@@ -982,6 +1246,11 @@ export function createRuntimeSeatManager({
         setTemplate(event.target.value, { preserveCapabilities: false, preserveProvider: false, previousTemplate });
       }
       if (event.target.id === "runtime-seat-provider-select") {
+        draft.providerId = event.target.value || null;
+        renderExecutionControls(templateById(byId("runtime-seat-adapter-select").value), {
+          ...draft,
+          model: byId("runtime-seat-model-input")?.value || "",
+        });
         void refreshProviderBalance();
         notifyConnectionContext();
       }
@@ -1008,6 +1277,7 @@ export function createRuntimeSeatManager({
     load,
     focus,
     create,
+    selectProvider,
     setMode,
     syncProviders,
     renderList,
@@ -1015,6 +1285,8 @@ export function createRuntimeSeatManager({
     refreshNativeSettings,
     connectionApp,
     discard,
+    providerModelFacts,
+    modelOptionsFor,
     isDirty: () => dirty,
     isBusy: () => busy,
   };

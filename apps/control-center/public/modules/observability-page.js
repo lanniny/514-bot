@@ -33,6 +33,7 @@ export function createObservabilityPage({
       state.obsRouteGate = routeGate;
       state.obsDelta = delta;
       state.obsHandoffs = handoffs.handoffs ?? [];
+      state.obsHandoffsTotal = Number.isInteger(handoffs.total) ? handoffs.total : null;
       state.obsOps = ops;
       state.obsWorktrees = worktrees ?? null;
     } catch (error) {
@@ -204,7 +205,9 @@ export function createObservabilityPage({
       </tr>`,
       )
       .join("") || `<tr><td colspan="4">暂无 handoff</td></tr>`;
-    elements["obs-handoff-meta"].textContent = `${state.obsHandoffs.length} 个交接件 · 点击行查看内容`;
+    elements["obs-handoff-meta"].textContent = state.obsHandoffsTotal !== null && state.obsHandoffsTotal > state.obsHandoffs.length
+      ? `${state.obsHandoffsTotal} 个交接件（本页列出最近 ${state.obsHandoffs.length} 个）· 点击行查看内容`
+      : `${state.obsHandoffs.length} 个交接件 · 点击行查看内容`;
     renderObservabilityWorktrees();
     renderOpsMetrics(state.obsOps);
   }

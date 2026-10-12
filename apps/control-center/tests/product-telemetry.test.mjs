@@ -340,12 +340,14 @@ test("端到端：埋点四端点经 HTTP 可用且写入独立文件", async ()
     const headers = { authorization, "content-type": "application/json" };
 
     // 1) record：白名单字段进，敏感字段被挡在结构之外
+    // 0ba3b76 退休协作台后 workbench 不再是注册视图（REGISTERED_VIEWS=NAV_ITEMS 键），
+    // 端到端样例改用现役视图 bot；白名单语义（prompt 被挡）不变。
     const recordRes = await fetch(`${origin}/api/telemetry/record`, {
       method: "POST",
       headers,
       body: JSON.stringify({
         type: "usage.view",
-        fields: { view: "workbench", prompt: "E2E_SENTINEL_PROMPT" },
+        fields: { view: "bot", prompt: "E2E_SENTINEL_PROMPT" },
       }),
     });
     assert.equal(recordRes.status, 200);
@@ -363,17 +365,17 @@ test("端到端：埋点四端点经 HTTP 可用且写入独立文件", async ()
     // 3) summary：聚合可读
     const summary = await (await fetch(`${origin}/api/telemetry/summary`, { headers })).json();
     assert.equal(summary.schema, "514cc.product-telemetry.summary/v1");
-    assert.equal(summary.byView.workbench, 1);
+    assert.equal(summary.byView.bot, 1);
     assert.equal(summary.trustedDelegationRate, null);
-    assert.ok(summary.usedViews.includes("workbench"));
-    assert.ok(summary.unusedViews.includes("bot"), "未访问的注册视图必须出现在 unusedViews");
-    assert.ok(!summary.unusedViews.includes("workbench"));
+    assert.ok(summary.usedViews.includes("bot"));
+    assert.ok(summary.unusedViews.includes("team"), "未访问的注册视图必须出现在 unusedViews");
+    assert.ok(!summary.unusedViews.includes("bot"));
     assert.ok(summary.unusedCapabilities.includes(PRODUCT_ACTION_IDS.kickoffSend));
 
     // 4) 落盘文件独立于 events.jsonl，且不含敏感输入
     const telemetryPath = join(dataRoot, "product-telemetry.jsonl");
     const raw = await readFile(telemetryPath, "utf8");
-    assert.ok(raw.includes("workbench"));
+    assert.ok(raw.includes("bot"));
     assert.ok(!raw.includes("E2E_SENTINEL_PROMPT"), "敏感字段不得落盘");
     const mainEvents = await readFile(join(dataRoot, "events.jsonl"), "utf8").catch(() => "");
     assert.ok(!mainEvents.includes("usage.view"), "埋点不得混入 Run 事件流");

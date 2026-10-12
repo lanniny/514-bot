@@ -24,10 +24,11 @@ test("configuration topology fuses providers, capabilities and sources into one 
   assert.doesNotMatch(stateSource, /^\s*capabilities:\s*"能力图谱"/m);
   assert.match(stateSource, /config:\s*"配置图谱"/);
 
-  for (const surface of ["providers", "local-runtime", "capabilities", "hooks", "sources"]) {
+  for (const surface of ["local-runtime", "capabilities", "hooks", "sources"]) {
     assert.match(html, new RegExp(`role="tab"[^>]+aria-controls="config-surface-${surface}"[^>]+data-config-surface="${surface}"`));
     assert.match(html, new RegExp(`id="config-surface-${surface}"[^>]+data-config-surface-panel="${surface}"[^>]+role="tabpanel"`));
   }
+  assert.match(html, /id="config-topology-providers"[^>]+aria-controls="config-surface-remote"[^>]+data-config-surface="providers"[^>]+hidden/);
   assert.match(html, /id="settings-destinations"[^>]+role="tablist"/);
   assert.match(html, /id="config-surface-capabilities"[\s\S]+id="cap-skills-body"[\s\S]+id="cap-mcp-body"/);
   for (const id of [
@@ -59,11 +60,10 @@ test("configuration topology fuses providers, capabilities and sources into one 
   assert.doesNotMatch(html, /<tbody id="cap-mcp-body"/, "MCP 已改为卡片网格，不再是表格 tbody");
   assert.match(html, /id="runtime-connection-deck"[\s\S]+id="provider-columns"/);
   assert.match(html, /id="config-surface-local-runtime"[\s\S]+id="ccswitch-workbench"/);
-  assert.match(
-    html.slice(html.indexOf('id="config-surface-providers"'), html.indexOf('id="config-surface-local-runtime"')),
-    /id="provider-columns"/,
-    "connections own the providers surface",
-  );
+  const sourcesSurface = html.slice(html.indexOf('id="config-surface-sources"'), html.indexOf('id="config-surface-remote"'));
+  assert.match(sourcesSurface, /id="runtime-workspace-connections-tab"[^>]+aria-controls="config-surface-providers"/);
+  assert.match(sourcesSurface, /id="config-surface-providers"[\s\S]+id="provider-columns"/, "connections belong to the unified seat workspace");
+  assert.doesNotMatch(html, /id="config-surface-providers"[^>]+data-config-surface-panel="providers"/);
   assert.doesNotMatch(html.slice(html.indexOf('id="runtime-seat-component"'), html.indexOf('id="runtime-raw-source-workspace"')), /provider-columns|runtime-connection-deck/);
   assert.match(html, /href="\.\/forge\/runtime-workbench\.css"/);
   assert.match(html, /id="config-surface-sources"[\s\S]+class="config-shell"/);
@@ -92,14 +92,17 @@ test("configuration topology fuses providers, capabilities and sources into one 
   assert.doesNotMatch(html, /能力包络|Routing Envelope/);
   assert.match(seatManagerSource, /capabilities:\s*\["\*"\]/);
   assert.doesNotMatch(seatManagerSource, /capabilityEnvelope|runtime-seat-capabilities-wall"\)\.querySelectorAll/);
-  assert.doesNotMatch(html, /id="config-topology-providers"[^>]+hidden/);
+  assert.match(html, /id="config-topology-providers"[^>]+hidden/);
   // UI-AUDIT P0-6：散写灰字已换成规范空态（单一真源 modules/placeholders.js），id 保留以稳住 e2e 选择器
   assert.doesNotMatch(appSource, /id: "provider-unlocked-empty"/, "connection management does not require an open seat editor");
   assert.match(seatManagerSource, /function connectionApp\(/);
   assert.match(html, /id="runtime-connection-deck"/);
   assert.match(stateSource, /configSurface:\s*"sources"/);
   assert.match(html, /data-runtime-workspace-mode="seats"/);
+  assert.match(html, /data-runtime-workspace-mode="connections"/);
   assert.match(html, /data-runtime-workspace-mode="sources"/);
+  assert.match(appSource, /const localProviderAlias = !remoteTarget && next === "providers"/);
+  assert.match(appSource, /providerNode\.hidden = !remoteTarget/);
 
   assert.match(appSource, /if \(path === "capabilities"\)/);
   assert.match(appSource, /configRouteHash\(state\.configSurface/);
@@ -190,6 +193,8 @@ test("configuration topology fuses providers, capabilities and sources into one 
   assert.match(seatManagerSource, /method: updating \? "PUT" : "POST"/);
   assert.match(seatManagerSource, /async function canDiscard\(\)/);
   assert.match(seatManagerSource, /provider\.apps\?\.\[template\.providerApp\] === true/);
+  assert.match(seatManagerSource, /function providerModelFacts\(/);
+  assert.match(seatManagerSource, /selectProvider/);
   assert.match(seatManagerSource, /template\?\.coordinatorCapable !== true/);
   assert.match(seatManagerSource, /let loadPromise = null/);
   assert.match(seatManagerSource, /const result = await loadPromise/);
@@ -268,7 +273,7 @@ test("configuration topology fuses providers, capabilities and sources into one 
   assert.match(remoteQaSource, /await stopQaServer\(\)/);
   assert.doesNotMatch(css, /#view-capabilities/);
 
-  assert.match(html, /data-config-surface="providers"[\s\S]{0,220}<span>连接档案<\/span>/);
+  assert.match(html, /data-runtime-workspace-mode="connections"[\s\S]{0,220}连接档案/);
   assert.doesNotMatch(html, /模型设置/);
   assert.match(html, /id="provider-query"/);
   assert.match(html, /id="provider-spine"[^>]+aria-label="关系脊柱"/);

@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnTestServer, stopTestServer, waitForUrl } from "./server-fixture.mjs";
+import { PROVIDER_APPS } from "../src/providers.mjs";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 
@@ -36,7 +37,8 @@ test("CC-Switch HTTP E2E：领域资源、掩码深链、备份和代理生命�
   const domain = await api(origin, token, "/api/ccswitch/domain");
   assert.equal(domain.response.status, 200);
   assert.equal(domain.payload.state.storeStatus.state, "missing");
-  assert.equal(Object.keys(domain.payload.configPaths).length, 9);
+  // 期望从 PROVIDER_APPS 推导：app 清单是活文档，硬编码数字每次新增 CLI 都会腐坏
+  assert.equal(Object.keys(domain.payload.configPaths).length, PROVIDER_APPS.length);
 
   const createdPrompt = await api(origin, token, "/api/ccswitch/domain/prompts", {
     method: "POST",

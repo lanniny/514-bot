@@ -15,7 +15,7 @@
  * ── 为什么是源码级断言 ──
  * `app.js` 是浏览器侧单文件，无法在 node 里 import 其内部函数（与
  * `approval-tool-permission-card.test.mjs` / `approval-broad-permission-block.test.mjs`
- * 同法）。运行时行为由 `scripts/qa-ui.mjs --suite=layout` 的 inspectTypographyFloor
+ * 同法）。运行时行为由 `scripts/retired-workbench-era/qa-ui.mjs --suite=layout` 的 inspectTypographyFloor
  * 实测把守 —— calc() 的运行值静态扫描算不出来，两层缺一不可。
  *
  * 每组都配元验收：篡改源码后断言必须变红，否则它是恒真的（拿表验表）。
@@ -33,7 +33,7 @@ const polish = read("public/forge/experience-polish.css");
 const tokens = read("public/forge/tokens.css");
 const motion = read("public/forge/motion.css");
 const lint = read("scripts/ui-lint.mjs");
-const qaUi = read("scripts/qa-ui.mjs");
+const qaUi = read("scripts/retired-workbench-era/qa-ui.mjs");
 const baseline = JSON.parse(read("scripts/ui-baseline.json"));
 const html = read("public/index.html");
 const app = read("public/app.js");
@@ -365,15 +365,15 @@ test("配置页 h1 收敛回全局 UI 档（46px 编辑大字在操作面换不�
   assert.ok(Number(max) <= 26, `h1 上限 ${max}px 超过全局 UI 档 26px`);
 });
 
-test("副标题在配置页收起（它逐字就是下方五个 tab 的枚举）", () => {
-  // 「席位、连接、能力、钩子与本机运行时」= config-topology 的五个 tab 文本。
+test("副标题在配置页收起（它逐字就是下方配置导航的枚举）", () => {
+  // 本机将席位、连接与模型收进一个入口；远端连接仍保留兼容页签。
   // 同一份信息付两次首屏；且 art-direction 原先在 ≤720px 已经 display:none，
   // 本轮只是把同一判断扩到全宽度。
   const rule = configHeadingRule(" > div:first-child > p:last-of-type");
   assert.match(rule, /display:\s*none;/, "副标题又占回首屏了");
   // 2026-09-09 设置轨纵向化：tab 文本容器统一为 span/strong 混排（本机运行时是 strong），
-  // 断言标签存在即可、不绑定具体元素；tab 文案为 运行席位/连接档案/能力/钩子/本机运行时。
-  for (const tab of ["运行席位", "能力", "钩子", "本机运行时", "连接档案"]) {
+  // 断言标签存在即可、不绑定具体元素；连接档案同时存在于席位子工作区与远端兼容页签。
+  for (const tab of ["席位与模型", "能力", "钩子", "本机运行时", "连接档案"]) {
     assert.match(html, new RegExp(`<(?:span|strong)>${tab}</(?:span|strong)>`), `config-topology 少了 ${tab} tab —— 副标题的冗余前提不再成立`);
   }
 });

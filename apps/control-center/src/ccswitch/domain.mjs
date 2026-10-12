@@ -142,7 +142,9 @@ function normalizeState(raw) {
     base.prompts[app] = raw.prompts?.[app] && typeof raw.prompts[app] === "object" && !Array.isArray(raw.prompts[app]) ? raw.prompts[app] : {};
     base.currentProfile[app] = typeof raw.currentProfile?.[app] === "string" ? raw.currentProfile[app] : null;
     const configured = raw.settings?.configDirs?.[app];
-    base.settings.configDirs[app] = typeof configured === "string" && configured ? configured : null;
+    // 旧状态可能存着手改/旧版本写入的相对路径（新写入有 setConfigDir 校验，旧的不检查）。
+    // 相对路径会让后续写入落到进程 cwd——normalize 时统一按绝对路径校验，非法值回退默认。
+    base.settings.configDirs[app] = typeof configured === "string" && configured && isAbsolute(configured) ? configured : null;
   }
   for (const key of ["mcps", "skills", "profiles", "envBackups"]) {
     if (raw[key] && typeof raw[key] === "object" && !Array.isArray(raw[key])) base[key] = raw[key];
@@ -581,11 +583,18 @@ export class CcSwitchDomainService {
       kimi: join(this.runtimeHome, ".kimi-code"),
       opencode: join(this.runtimeHome, ".config", "opencode"),
       openclaw: join(this.runtimeHome, ".openclaw"),
+      // antigravity 的真实载体复用 gemini 之家（providers.mjs:2987 / 3717-3720 实证：
+      // ~/.gemini/antigravity-cli/settings.json）；此前误设 ~/.antigravity 是孤立猜测。
+      antigravity: join(this.runtimeHome, ".gemini", "antigravity-cli"),
       hermes: process.platform === "win32" && this.runtimeHome === homedir() && process.env.LOCALAPPDATA
         ? join(process.env.LOCALAPPDATA, "hermes")
         : join(this.runtimeHome, ".hermes"),
     };
-    return defaults[app];
+    const resolved = defaults[app];
+    // fail-closed：新 app 进 PROVIDER_APPS 但漏配默认目录时，这里必须炸出可读错误，
+    // 而不是放 undefined 出去让 join() 抛 "path argument must be of type string"。
+    if (!resolved) fail(`no config directory mapping for app: ${app}`, "VALIDATION_FAILED");
+    return resolved;
   }
 
   configPaths() {
@@ -606,7 +615,7 @@ export class CcSwitchDomainService {
 
   #promptPath(app) {
     cleanApp(app, PROMPT_APPS);
-    const names = { claude: "CLAUDE.md", codex: "AGENTS.md", gemini: "GEMINI.md", grokbuild: "AGENTS.md", opencode: "AGENTS.md", openclaw: "AGENTS.md", hermes: "AGENTS.md" };
+    const names = { claude: "CLAUDE.md", codex: "AGENTS.md", gemini: "GEMINI.md", grokbuild: "AGENTS.md", opencode: "AGENTS.md", openclaw: "AGENTS.md", hermes: "AGENTS.md", antigravity: "GEMINI.md" };
     return join(this.#configDir(app), names[app]);
   }
 
@@ -914,6 +923,9 @@ export class CcSwitchDomainService {
       opencode: join(this.#configDir(app), "opencode.json"),
       openclaw: join(this.#configDir(app), "openclaw.json"),
       hermes: join(this.#configDir(app), "config.yaml"),
+      // antigravity 与 gemini 同载体（settings.json 的 mcpServers 键）——
+      // 此前缺键让 prompts()/mcps() 对 antigravity 走 join(dir, undefined) 崩。
+      antigravity: join(this.#configDir(app), "settings.json"),
     };
     return paths[app];
   }

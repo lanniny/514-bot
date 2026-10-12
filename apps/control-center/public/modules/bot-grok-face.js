@@ -72,7 +72,10 @@ export function readOpsCollapsed() {
     /* fall through to viewport default */
   }
   try {
-    return globalThis.matchMedia?.("(max-width: 820px)")?.matches === true;
+    // 821–1100px 右栏是覆盖层（盖在会话内容上）：默认收起，别让首访第一屏
+    // 被面板盖住（市场化旅程 QA 实测：覆盖层默认展开时就绪卡动作点不到）。
+    // 显式开合过的用户仍以 localStorage 为准，此回退只管没表态过的新访客。
+    return globalThis.matchMedia?.("(max-width: 1100px)")?.matches === true;
   } catch {
     return false;
   }
@@ -135,6 +138,11 @@ function toggleComposerOverflow(force) {
 }
 
 function handleRail(action, button) {
+  if (action === "workbench") {
+    const jump = document.querySelector('[data-view-jump="overview"], [data-view="overview"], [data-workspace-view="overview"]');
+    if (jump) jump.click();
+    return;
+  }
   if (action === "new") {
     document.getElementById("bot-new-group-button")?.click();
     return;

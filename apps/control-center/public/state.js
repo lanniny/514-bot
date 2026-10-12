@@ -121,6 +121,10 @@ export const state = {
   customMacros: [], // W3.11 用户宏（/api/macros；palette 出项 + 原生命令兜底展开）
   bootstrap: {},
   health: null,
+  // 首次就绪清单由 /api/readiness 提供；null=未读取，避免首屏把未知误当完成。
+  readiness: null,
+  readinessLoading: false,
+  readinessError: null,
   components: [...DEFAULT_COMPONENTS],
   sources: [],
   sourceFilter: "",
@@ -242,6 +246,9 @@ export const state = {
   obsRouteGate: null,
   obsDelta: null,
   obsHandoffs: [],
+  // 磁盘上 handoff 的真实份数（端点回执的 total）。obsHandoffs 只是最近 limit 条，
+  // 拿它的 length 当总数会少报（实测 182 报成 120）。
+  obsHandoffsTotal: null,
   obsSummary: null,
   obsOps: null,
   obsDrift: null,

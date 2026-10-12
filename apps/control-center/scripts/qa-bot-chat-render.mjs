@@ -105,10 +105,12 @@ async function main() {
       USERPROFILE: fakeHome,
     },
   });
-    const browser = await chromium.launch({
-      executablePath: process.env.CHROME_PATH || "/usr/local/bin/google-chrome",
-      args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
-    });
+  // 便携性：默认用 Playwright 自带 chromium（原硬编码 /usr/local/bin/google-chrome，
+  // Linux 开发机路径，Windows 上必崩）。CHROME_PATH 可显式覆盖。
+  const browser = await chromium.launch({
+    ...(process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {}),
+    args: ["--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage"],
+  });
   try {
     const bootstrapUrl = await waitForUrl(child);
     const origin = new URL(bootstrapUrl).origin;

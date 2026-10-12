@@ -27,6 +27,7 @@ export function reconcileMessageMarkup(root, markup) {
   const keyFor = (node, index) => node.nodeType !== 1 ? `text:${index}` : (node.hasAttribute("data-ask-id") ? `ask:${node.getAttribute("data-run-id")}:${node.getAttribute("data-ask-id")}` : "")
     || node.getAttribute("data-approval-id") || node.getAttribute("data-bot-event-key") || node.getAttribute("data-stream-key")
     || node.getAttribute("data-bot-conversation") || node.getAttribute("data-bot-project-node") || node.getAttribute("data-bot-tree-section")
+    || (node.tagName === "SUMMARY" ? `summary:${node.className || ""}` : "")
     || node.id || `${node.tagName}:${node.getAttribute("class") || ""}:${index}`;
   function reconcile(parent, freshParent) {
     const current = new Map([...parent.childNodes].map((node, index) => [keyFor(node, index), node]));
@@ -53,7 +54,12 @@ export function reconcileMessageMarkup(root, markup) {
       if (node !== cursor) parent.insertBefore(node, cursor);
       cursor = node.nextSibling;
     }
-    for (const node of current.values()) node.remove();
+    for (const node of current.values()) {
+      if (parent.tagName === "DETAILS" && node.tagName === "SUMMARY" && !freshParent.querySelector(":scope > summary")) {
+        continue;
+      }
+      node.remove();
+    }
   }
   reconcile(root, fragment);
   root.__messageMarkup = markup;

@@ -38,7 +38,10 @@ test("workbench is retired as a navigable primary surface and remaps onto Bot", 
   assert.match(html, /data-view-jump="bot"/);
   assert.match(html, /id="bot-active-runs"/);
   assert.match(html, /id="bot-ops-rail"/);
-  assert.match(html, /data-bot-workspace-action="files"/);
+  // W11 右栏页签化后，files 入口从 workspace-action chip 收进页签条（bot-ops-rail 的 tablist），
+  // 能力本体未丢：断言盯新入口（页签 + 面板），不盯已合并的旧 chip。
+  assert.match(html, /data-bot-rail-tab="files"/);
+  assert.match(html, /id="bot-ops-files"/);
   assert.match(html, /id="bot-terminal-drawer"/);
   assert.match(html, /bot-roster-scroll/);
   assert.match(app, /function handleBotHomeTerminalToggle\(/);
@@ -59,5 +62,5 @@ test("workbench is retired as a navigable primary surface and remaps onto Bot", 
   assert.match(app, /function openBotForRun\(/);
   assert.match(app, /mountBotPetSettings/);
   assert.doesNotMatch(app, /setView\("workbench"/);
-  assert.doesNotMatch(css, /@media \(max-width: (?!560px|820px)\d+px\)/);
+  assert.doesNotMatch(css, /@media \(max-width: (?!560px|820px|1100px)\d+px\)/);
 });

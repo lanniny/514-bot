@@ -67,6 +67,9 @@ export function synthesizeRunSettlement({
   artifacts = [],
   diffSummary = null,
   evidenceSource = null,
+  checkpoints = [],
+  evidenceMatrix = null,
+  deliverable = null,
   now = () => new Date().toISOString(),
 } = {}) {
   const runId = asText(run?.id, "") || null;
@@ -162,6 +165,12 @@ export function synthesizeRunSettlement({
     availability: asText(item?.availability, "unavailable"),
     endpoint: item?.endpoint || null,
     published: false,
+    // DELTA 归属三件套（handoff 卡为 null）：投影必须显式透传，否则下游
+    // value-proof-card 只能数卡数、渲染不出「谁推翻了主驾」（v48 P-02）。
+    // 这里**必须列出**而不是整体展开 item —— 白名单本身就是"哪些字段可以出境"的契约。
+    agent: item?.agent ? asText(item.agent, "") || null : null,
+    score: Number.isInteger(item?.score) ? item.score : null,
+    evidence: item?.evidence ? asText(item.evidence, "") || null : null,
   }));
 
   return {
@@ -194,6 +203,31 @@ export function synthesizeRunSettlement({
       worktreeCommit: "blocked-detached",
     },
     artifacts: artifactCards,
+    checkpoints: Array.isArray(checkpoints) && checkpoints.length > 0
+      ? {
+          total: checkpoints.length,
+          latestPhase: checkpoints[checkpoints.length - 1]?.phase || null,
+          latestPhaseLabel: checkpoints[checkpoints.length - 1]?.phaseLabel || null,
+          progress: checkpoints[checkpoints.length - 1]?.progress || 0,
+          items: checkpoints.slice(0, 10),
+        }
+      : null,
+    evidenceMatrix: evidenceMatrix && typeof evidenceMatrix === "object"
+      ? {
+          totalCount: evidenceMatrix.metrics?.totalCount || 0,
+          verifiedCount: evidenceMatrix.metrics?.verifiedCount || 0,
+          byType: evidenceMatrix.metrics?.byType || {},
+          items: Array.isArray(evidenceMatrix.items) ? evidenceMatrix.items.slice(0, 16) : [],
+        }
+      : null,
+    deliverable: deliverable && typeof deliverable === "object"
+      ? {
+          title: deliverable.title,
+          status: deliverable.status,
+          summary: deliverable.summary,
+          nextActions: deliverable.nextActions,
+        }
+      : null,
     recovery,
     risks,
     nextAction: nextActionFor(verdict, risks, { dirty }),
@@ -207,6 +241,9 @@ export async function collectRunSettlement({
   handoffs = [],
   deltas = [],
   evidenceSource = null,
+  checkpoints = [],
+  evidenceMatrix = null,
+  deliverable = null,
   asOfSequence = null,
   worktreeDigest = null,
   summarizeDiff = summarizeRunDiff,
@@ -230,6 +267,9 @@ export async function collectRunSettlement({
     artifacts: cards,
     diffSummary,
     evidenceSource,
+    checkpoints,
+    evidenceMatrix,
+    deliverable,
     now,
   });
 }

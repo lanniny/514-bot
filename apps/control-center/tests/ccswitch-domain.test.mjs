@@ -464,3 +464,22 @@ test("损坏领域存储冻结写入，不覆盖原字节", async (t) => {
   await assert.rejects(() => blocked.upsertPrompt("claude", { name: "No", content: "write" }), (error) => error.httpStatus === 503);
   assert.equal(await readFile(path, "utf8"), "{broken");
 });
+
+// 烛 v1 评审补：PROVIDER_APPS 新增 app 时，三张路径映射表（configDir / prompt / mcp）
+// 必须同步覆盖——antigravity 进清单时漏配导致 join(dir, undefined) 崩过。集合断言防再腐。
+test("every provider app resolves config, prompt and mcp paths without undefined", async (t) => {
+  const { domain } = await fixture(t);
+  const apps = Object.keys(domain.configPaths());
+  assert.ok(apps.length >= 10, `PROVIDER_APPS 应覆盖至少 10 个 app，实际 ${apps.length}`);
+  for (const app of apps) {
+    assert.equal(typeof domain.configPaths()[app], "string", `${app} configDir 未解析成字符串`);
+  }
+  // PROMPT_APPS = PROVIDER_APPS 去掉 claude-desktop 与 kimi；空 home 下读取返回 [] 即为通
+  const promptApps = apps.filter((app) => !["claude-desktop", "kimi"].includes(app));
+  for (const app of promptApps) {
+    assert.deepEqual(domain.prompts(app), [], `${app} prompts 投影异常`);
+  }
+  for (const app of apps) {
+    assert.deepEqual(domain.mcps(app), [], `${app} mcps 投影异常`);
+  }
+});

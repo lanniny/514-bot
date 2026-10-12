@@ -368,6 +368,12 @@ export function createMemberLibrary({
       "runtime-coordinator-disabled": "运行席位未开放主脑资格",
       "profile-disabled": "运行席位已停用",
       "command-not-configured": "运行席位缺少执行命令",
+      "API_PROVIDER_REQUIRED": "请为文本席位选择连接",
+      "API_PROVIDER_MISSING": "绑定的模型连接不可用",
+      "API_KEY_REQUIRED": "模型连接尚未配置 API Key",
+      "API_MODEL_REQUIRED": "请为文本席位填写模型 ID",
+      "API_PROTOCOL_UNSUPPORTED": "该连接不支持 Chat Completions",
+      "API_ENDPOINT_INVALID": "模型连接地址无效",
       "runtime-profile-missing": "绑定的运行席位不存在",
       "runtime-profile-ineligible": "运行席位当前不可执行",
     };

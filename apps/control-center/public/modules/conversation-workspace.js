@@ -79,7 +79,7 @@ export function createConversationWorkspace({ root, input, getSnapshot, openConv
   } });
   const permissions = new Map();
   const budgets = new Map();
-  const BUDGET_OPTIONS = ["2", "3", "5", "10", "20", "50"];
+  const BUDGET_OPTIONS = ["2", "3", "5", "10", "20", "50", "unlimited"];
   const DEFAULT_BUDGET = "5";
   let inputOwner = "";
   let applying = 0;
@@ -204,7 +204,9 @@ export function createConversationWorkspace({ root, input, getSnapshot, openConv
       budgetSelect.disabled = Boolean(running || current.readOnly);
       const stored = budgets.get(view.conversationId) || DEFAULT_BUDGET;
       budgetSelect.value = BUDGET_OPTIONS.includes(stored) ? stored : DEFAULT_BUDGET;
-      budgetSelect.title = `新运行单轮预算：$${budgetSelect.value}.00（social 协作必须有限，全局默认无限时用此值兜底）`;
+      budgetSelect.title = budgetSelect.value === "unlimited"
+        ? "新运行单轮预算：无限（不按美元止损，social 协作将自动兜底）"
+        : `新运行单轮预算：$${budgetSelect.value}.00（social 协作必须有限，全局默认无限时用此值兜底）`;
     }
     const connection = connectionPresentation(data.connection);
     const connectionDetail = Object.values(connection).map((item) => item.label).join(" / ");
@@ -279,8 +281,12 @@ export function createConversationWorkspace({ root, input, getSnapshot, openConv
   });
   doc.getElementById("workspace-next-budget")?.addEventListener("change", (event) => {
     const value = String(event.target.value || "").trim();
-    budgets.set(getSnapshot().activeConversationId, BUDGET_OPTIONS.includes(value) ? value : DEFAULT_BUDGET);
+    const resolved = BUDGET_OPTIONS.includes(value) ? value : DEFAULT_BUDGET;
+    budgets.set(getSnapshot().activeConversationId, resolved);
     if (budgets.size > 50) budgets.delete(budgets.keys().next().value);
+    event.target.title = resolved === "unlimited"
+      ? "新运行单轮预算：无限（不按美元止损，social 协作将自动兜底）"
+      : `新运行单轮预算：$${resolved}.00（social 协作必须有限，全局默认无限时用此值兜底）`;
   });
   root.addEventListener("click", (event) => {
     const tab = event.target.closest("[data-workspace-tab]");

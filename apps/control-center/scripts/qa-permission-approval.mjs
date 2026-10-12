@@ -91,6 +91,7 @@ try {
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await context.newPage();
+  await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
   page.on("console", (message) => { if (message.type() === "error") report.consoleErrors.push(message.text()); });
   page.on("pageerror", (error) => report.pageErrors.push(error.message));
   page.on("response", (response) => {
@@ -117,8 +118,15 @@ try {
   await inspectViewport(page, "390x844");
   await page.screenshot({ path: join(outputDir, "permission-approval-390x844.png"), fullPage: true, animations: "disabled" });
 
-  const blockingConsoleErrors = report.consoleErrors.filter((message) => !/status of 501 \(Not Implemented\)/.test(message));
-  const blockingResponseErrors = report.responseErrors.filter((message) => !/ 501$/.test(message));
+  // D-2026-09-28-033 / D-019：全局壁纸 HEAD 探测在未配置自定义壁纸时返回 404 为设计内合法空态
+  const blockingConsoleErrors = report.consoleErrors.filter((message) =>
+    !/status of 501 \(Not Implemented\)/.test(message) &&
+    !/status of 404 \(Not Found\)/.test(message)
+  );
+  const blockingResponseErrors = report.responseErrors.filter((message) =>
+    !/ 501$/.test(message) &&
+    message !== "HEAD /api/wallpapers/global 404"
+  );
   assert.deepEqual(report.pageErrors, [], "page errors");
   assert.deepEqual(blockingConsoleErrors, [], "console errors");
   assert.deepEqual(blockingResponseErrors, [], "unexpected HTTP errors");

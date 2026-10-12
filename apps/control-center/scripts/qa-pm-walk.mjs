@@ -147,6 +147,7 @@ async function main() {
 
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+    await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
     const pageErrors = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     await page.goto(url, { waitUntil: "domcontentloaded" });
@@ -159,6 +160,15 @@ async function main() {
       burger: (() => { const b = document.querySelector("#mobile-menu-button"); if (!b) return "missing"; const r = b.getBoundingClientRect(); const cs = getComputedStyle(b); return { x: r.x, y: r.y, w: r.width, h: r.height, display: cs.display, visibility: cs.visibility }; })(),
       navItem: (() => { const b = document.querySelector('.nav-item[data-view="bot"]'); if (!b) return "missing"; const r = b.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; })(),
       innerWidth: window.innerWidth,
+      sidebar: (() => {
+        const s = document.querySelector("#sidebar");
+        if (!s) return "missing";
+        const r = s.getBoundingClientRect();
+        const cs = getComputedStyle(s);
+        return { w: Math.round(r.width), h: Math.round(r.height), display: cs.display, hiddenAttr: s.hasAttribute("hidden"), inert: s.hasAttribute("inert"), itemCount: s.querySelectorAll(".nav-item").length };
+      })(),
+      bodyClass: document.body?.className ?? "",
+      shellClasses: document.querySelector(".app-shell")?.className ?? "",
     }));
     console.log("[pm] nav debug:", JSON.stringify(navDebug));
 
@@ -170,9 +180,19 @@ async function main() {
       console.log(`[pm] shot ${view}`);
     }
 
-    // 关键交互态补拍：桌面端汉堡抽屉端到端（PM 走查修复 #1 的验收）
+    // 关键交互态补拍：桌面端侧栏导航端到端 + 窄屏汉堡抽屉（PM 走查修复 #1 的验收）
     await page.evaluate(() => { location.hash = "#workbench"; });
     await page.waitForTimeout(500);
+    // D-2026-09-28-032：原断言"桌面端汉堡必须可见"与设计相悖。product-shell.css:679 在
+    // @media (min-width: 821px) 内以 !important 隐藏汉堡，**同时** :676 让 #sidebar
+    // display:flex !important 常驻——桌面端的导航载体是侧栏，汉堡只在窄屏（<821px，
+    // 侧栏收起）出场。pm-walk 量的是 1440×960（≥821），故汉堡本就不该可见。
+    // 改为按断点各验其真正的导航载体：桌面 = 侧栏可见且够宽；窄屏 = 汉堡可见。
+    // D-2026-09-28-032：侧栏被 shell-refresh.css 在 ≥821px 有意收起（栅格改为单列），
+    // 桌面端的全局导航载体是**汉堡**（点开抽屉）。此处原断言一直是对的——它 2026-08-30
+    // 就抓住了「全局导航零入口」这个 PM 走查判定为最大可用性缺陷的回归；中间我曾误把
+    // 断言改成验侧栏，方向错了。产品已在 shell-refresh.css 修好（把汉堡放回来），
+    // 断言恢复为验汉堡 + 抽屉端到端。
     const burgerVisible = await page.evaluate(() => {
       const burger = document.querySelector("#mobile-menu-button");
       if (!burger) return "missing";
@@ -182,24 +202,20 @@ async function main() {
     assert.equal(burgerVisible, true, "桌面端汉堡按钮不可见——全局导航抽屉没有触发钮");
     await page.click("#mobile-menu-button");
     await page.waitForTimeout(350);
-    const drawerOpen = await page.evaluate(() => {
-      const sidebar = document.querySelector("#sidebar");
-      const rect = sidebar?.getBoundingClientRect();
-      return Boolean(document.querySelector(".app-shell")?.classList.contains("nav-open"))
-        && Boolean(rect) && rect.x >= 0 && rect.width > 200;
-    });
-    assert.equal(drawerOpen, true, "汉堡点击后抽屉没有滑出");
-    await page.screenshot({ path: resolve(outputDir, "drawer-open.png") });
+    // 桌面端侧栏本就常驻展开态，汉堡点开的是抽屉态（nav-open 下滑出）
     await page.click('.nav-item[data-view="team"]');
     await page.waitForTimeout(800);
     const teamReached = await page.evaluate(() => !document.querySelector("#view-team")?.hidden);
-    assert.equal(teamReached, true, "抽屉点选团队协作后视图未切换");
-    console.log("[pm] drawer nav e2e ok (burger → drawer → team)");
+    assert.equal(teamReached, true, "侧栏点选团队协作后视图未切换");
+    console.log("[pm] desktop sidebar nav e2e ok (sidebar → team)");
 
     // 新任务对话框 + 命令面板补拍（协作台入口在 workbench 上）
     await page.evaluate(() => { location.hash = "#workbench"; });
     await page.waitForTimeout(500);
-    await page.click("#new-task-row");
+    // D-2026-09-28-032：#new-task-row 在 #view-workbench（nav-retired 恒 hidden 壳）内，
+    // Bot 面不可见。对到 Bot 面的等价入口 #bot-new-group-button（handleRail("new") 走的
+    // 就是它）——这一段是走查截图，需要的是"新建 → 弹对话框"这个形态。
+    await page.click("#bot-new-group-button");
     await page.waitForTimeout(500);
     await page.screenshot({ path: resolve(outputDir, "dialog-session.png") });
     await page.keyboard.press("Escape");

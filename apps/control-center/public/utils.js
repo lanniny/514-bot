@@ -5,8 +5,22 @@
  * v4.0 app.js 组件化第一步：把 9000 行巨石按职责拆分。
  */
 
+import { collabStatusOf } from "./modules/collab/collab-status.js";
+
 // ─── HTML 转义 ───────────────────────────────────────────────
 
+/**
+ * HTML 转义（全站唯一实现）。
+ *
+ * 注意：public/markdown.js 另有一份同名实现，且**刻意保持内联**——它的注释写明
+ * 「安全边界不依赖外部实现，改动别处不破渲染」。那份属于 Markdown 渲染器的封闭安全边界，
+ * 不要为了"去重"把它并到这里。本文件收敛的是其余 8 处纯重复副本
+ * （artifact-card / bot-pet-settings / bot-relay-board / bot-routines-panel /
+ * delta-timeline / collab-flow / project-bootstrapper / team-panel）。
+ *
+ * 收敛时的行为差异（有意）：那 8 份均未转义单引号，本实现转义为 &#039;。
+ * 文本节点与双引号属性中两者渲染一致，收敛后更严格。
+ */
 export function escapeHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -118,16 +132,14 @@ export function statusText(value) {
   return { ok: "正常", warning: "需关注", error: "异常", pending: "检查中", unknown: "未知" }[status];
 }
 
+/**
+ * 运行状态规范用语。文案唯一来源是 modules/collab/collab-status.js——
+ * 本函数此前自带一份映射表，与 bot-workspace-chrome / collaboration-process 互相矛盾
+ * （succeeded 曾同时存在「已完成」「执行结束」；recovery_required 有三种写法）。
+ * 保留 pendingAsk 特判：它是运行时标志位而非状态，把「等待 Agent」升级为「等你回答」。
+ */
 export function runStatusText(value, run = null) {
-  if (run?.pendingAsk && String(value).toLowerCase().replaceAll("-", "_") === "waiting_agent") return "等你回答";
-  const status = String(value ?? "unknown").toLowerCase().replaceAll("-", "_");
-  return {
-    planning: "规划中", waiting_for_approval: "等待审批", waiting_approval: "等待审批",
-    waiting_agent: "等待 Agent", recovery_required: "需人工恢复", queued: "已排队",
-    executing: "执行中", running: "执行中", active: "执行中", integrating: "综合中",
-    verifying: "验证中", complete: "已完成", completed: "已完成", succeeded: "已完成",
-    interrupted: "已中断，可继续", blocked: "已阻塞", failed: "失败", cancelled: "已取消", canceled: "已取消",
-  }[status] ?? "未知";
+  return collabStatusOf(value, { pendingAsk: Boolean(run?.pendingAsk) }).label;
 }
 
 // ─── 数据工具 ────────────────────────────────────────────────

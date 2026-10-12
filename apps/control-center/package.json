@@ -22,11 +22,16 @@
     "sync:ccswitch-ledger": "node scripts/validate-ccswitch-migration.mjs --write",
     "validate:ccswitch": "node scripts/validate-ccswitch-migration.mjs",
     "qa:ui": "node scripts/qa-ui-fixture.mjs",
+    "qa:all": "node scripts/qa-run-all.mjs",
     "qa:bot-p0": "node scripts/qa-bot-p0.mjs",
     "qa:bot-collab-dialog": "node scripts/qa-bot-collab-dialog.mjs",
     "qa:bot-grok-parity": "node scripts/qa-bot-grok-parity.mjs",
     "qa:bot-390": "node scripts/qa-bot-390.mjs",
+    "qa:bot-journey": "node scripts/qa-bot-journey.mjs",
+    "qa:assistant-start": "node scripts/qa-assistant-start.mjs",
+    "qa:api-chat": "node scripts/qa-api-chat.mjs",
     "qa:bot-chat-render": "node scripts/qa-bot-chat-render.mjs",
+    "qa:bot-composer-switch": "node scripts/qa-bot-composer-switch.mjs",
     "qa:permission-approval": "node scripts/qa-permission-approval.mjs",
     "qa:team": "node scripts/qa-team-workspace.mjs",
     "qa:environment": "node scripts/qa-workbench-environment.mjs",
@@ -40,7 +45,11 @@
     "qa:delivery": "node scripts/qa-delivery-manifest.mjs",
     "qa:delivery:desktop": "node scripts/qa-delivery-manifest.mjs --desktop",
     "qa:source": "node scripts/source-inventory.mjs --check-js",
-    "vendor:pptx": "node scripts/repack-pptxgenjs.mjs"
+    "vendor:pptx": "node scripts/repack-pptxgenjs.mjs",
+    "qa:bot-rail-tabs": "node scripts/qa-bot-rail-tabs.mjs",
+    "qa:bot-inbox-panel": "node scripts/qa-bot-inbox-panel.mjs",
+    "codebuddy:auth": "pwsh -NoProfile -File ../../scripts/codebuddy-auth.ps1 -Login",
+    "codebuddy:status": "pwsh -NoProfile -File ../../scripts/codebuddy-auth.ps1 -Status"
   },
   "devDependencies": {
     "lucide": "^0.511.0",
@@ -48,7 +57,9 @@
     "tar-stream": "2.2.0"
   },
   "overrides": {
-    "exceljs": { "uuid": "11.1.1" },
+    "exceljs": {
+      "uuid": "11.1.1"
+    },
     "brace-expansion@1": "1.1.18"
   },
   "dependencies": {

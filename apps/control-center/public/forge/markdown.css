@@ -148,6 +148,7 @@
   border: 1px solid var(--border, transparent);
   border-radius: var(--radius-xl, 14px);
   background: var(--card, var(--surface));
+  box-shadow: var(--shadow-card-subtle), var(--glass-specular);
   overflow: hidden;
 }
 
@@ -218,17 +219,19 @@
   background: transparent;
   color: var(--muted-foreground, var(--text-muted));
   cursor: pointer;
-  transition: background var(--dur-fast, var(--dur-instant)) var(--ease-out, ease),
-    color var(--dur-fast, var(--dur-instant)) var(--ease-out, ease);
+  transition: background var(--dur-fast) var(--ease-spring-snappy),
+    color var(--dur-fast) var(--ease-spring-snappy),
+    transform var(--dur-fast) var(--ease-spring-snappy);
 }
 
 .rich-copy-btn:hover {
   background: var(--card, var(--surface));
   color: var(--foreground, var(--text));
+  transform: scale(1.08);
 }
 
 .rich-copy-btn:active {
-  transform: translateY(1px);
+  transform: scale(0.92);
 }
 
 .rich-copy-btn.is-copied { color: var(--success, #3d9a6d); }
@@ -304,6 +307,7 @@
   border: 1px solid var(--border, transparent);
   border-radius: var(--radius-xl, 14px);
   background: var(--card, var(--surface));
+  box-shadow: var(--shadow-card-subtle), var(--glass-specular);
 }
 
 .md-table,

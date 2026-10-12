@@ -1,0 +1,247 @@
+{
+ "Version": 3,
+ "FileReferences": {
+  "Moc": "c_0120.moc3",
+  "Textures": [
+   "c_0120.2048/texture_00.png",
+   "c_0120.2048/texture_01.png"
+  ],
+  "Physics": "c_0120.physics3.json",
+  "DisplayInfo": "c_0120.cdi3.json",
+  "Expressions": [
+   {
+    "Name": "angry",
+    "File": "expressions/angry.exp3.json"
+   },
+   {
+    "Name": "blank",
+    "File": "expressions/blank.exp3.json"
+   },
+   {
+    "Name": "blush",
+    "File": "expressions/blush.exp3.json"
+   },
+   {
+    "Name": "claw",
+    "File": "expressions/claw.exp3.json"
+   },
+   {
+    "Name": "claw-color",
+    "File": "expressions/claw-color.exp3.json"
+   },
+   {
+    "Name": "cry",
+    "File": "expressions/cry.exp3.json"
+   },
+   {
+    "Name": "dizzy",
+    "File": "expressions/dizzy.exp3.json"
+   },
+   {
+    "Name": "double-peace",
+    "File": "expressions/double-peace.exp3.json"
+   },
+   {
+    "Name": "drool",
+    "File": "expressions/drool.exp3.json"
+   },
+   {
+    "Name": "eraser",
+    "File": "expressions/eraser.exp3.json"
+   },
+   {
+    "Name": "excited",
+    "File": "expressions/excited.exp3.json"
+   },
+   {
+    "Name": "exclamation",
+    "File": "expressions/exclamation.exp3.json"
+   },
+   {
+    "Name": "flower",
+    "File": "expressions/flower.exp3.json"
+   },
+   {
+    "Name": "glasses-oval",
+    "File": "expressions/glasses-oval.exp3.json"
+   },
+   {
+    "Name": "glasses-round",
+    "File": "expressions/glasses-round.exp3.json"
+   },
+   {
+    "Name": "glasses-square",
+    "File": "expressions/glasses-square.exp3.json"
+   },
+   {
+    "Name": "gloomy",
+    "File": "expressions/gloomy.exp3.json"
+   },
+   {
+    "Name": "headband",
+    "File": "expressions/headband.exp3.json"
+   },
+   {
+    "Name": "heart-eyes",
+    "File": "expressions/heart-eyes.exp3.json"
+   },
+   {
+    "Name": "heartbeat",
+    "File": "expressions/heartbeat.exp3.json"
+   },
+   {
+    "Name": "love",
+    "File": "expressions/love.exp3.json"
+   },
+   {
+    "Name": "menu-press",
+    "File": "expressions/menu-press.exp3.json"
+   },
+   {
+    "Name": "omurice",
+    "File": "expressions/omurice.exp3.json"
+   },
+   {
+    "Name": "parfait",
+    "File": "expressions/parfait.exp3.json"
+   },
+   {
+    "Name": "paw-anim",
+    "File": "expressions/paw-anim.exp3.json"
+   },
+   {
+    "Name": "pen",
+    "File": "expressions/pen.exp3.json"
+   },
+   {
+    "Name": "phone-color",
+    "File": "expressions/phone-color.exp3.json"
+   },
+   {
+    "Name": "playful",
+    "File": "expressions/playful.exp3.json"
+   },
+   {
+    "Name": "question",
+    "File": "expressions/question.exp3.json"
+   },
+   {
+    "Name": "sad",
+    "File": "expressions/sad.exp3.json"
+   },
+   {
+    "Name": "side-ponytail",
+    "File": "expressions/side-ponytail.exp3.json"
+   },
+   {
+    "Name": "soul-out",
+    "File": "expressions/soul-out.exp3.json"
+   },
+   {
+    "Name": "squeeze",
+    "File": "expressions/squeeze.exp3.json"
+   },
+   {
+    "Name": "starry",
+    "File": "expressions/starry.exp3.json"
+   },
+   {
+    "Name": "sticker-bow",
+    "File": "expressions/sticker-bow.exp3.json"
+   },
+   {
+    "Name": "sticker-cat",
+    "File": "expressions/sticker-cat.exp3.json"
+   },
+   {
+    "Name": "sticker-rabbit",
+    "File": "expressions/sticker-rabbit.exp3.json"
+   },
+   {
+    "Name": "sunglasses",
+    "File": "expressions/sunglasses.exp3.json"
+   },
+   {
+    "Name": "sweat",
+    "File": "expressions/sweat.exp3.json"
+   },
+   {
+    "Name": "table-dark",
+    "File": "expressions/table-dark.exp3.json"
+   },
+   {
+    "Name": "tongue",
+    "File": "expressions/tongue.exp3.json"
+   },
+   {
+    "Name": "undo",
+    "File": "expressions/undo.exp3.json"
+   },
+   {
+    "Name": "whale",
+    "File": "expressions/whale.exp3.json"
+   },
+   {
+    "Name": "whale-on-table",
+    "File": "expressions/whale-on-table.exp3.json"
+   }
+  ],
+  "Motions": {
+   "Idle": [
+    {
+     "File": "motions/idle.motion3.json",
+     "FadeInTime": 1.0,
+     "FadeOutTime": 1.0
+    }
+   ],
+   "Emote": [
+    {
+     "File": "motions/bubblegum.motion3.json",
+     "FadeInTime": 0.3,
+     "FadeOutTime": 0.3
+    },
+    {
+     "File": "motions/ketchup.motion3.json",
+     "FadeInTime": 0.3,
+     "FadeOutTime": 0.3
+    },
+    {
+     "File": "motions/open-phone.motion3.json",
+     "FadeInTime": 0.3,
+     "FadeOutTime": 0.3
+    },
+    {
+     "File": "motions/selfie.motion3.json",
+     "FadeInTime": 0.3,
+     "FadeOutTime": 0.3
+    },
+    {
+     "File": "motions/selfie-quick.motion3.json",
+     "FadeInTime": 0.3,
+     "FadeOutTime": 0.3
+    },
+    {
+     "File": "motions/spray.motion3.json",
+     "FadeInTime": 0.3,
+     "FadeOutTime": 0.3
+    }
+   ]
+  }
+ },
+ "Groups": [
+  {
+   "Target": "Parameter",
+   "Name": "EyeBlink",
+   "Ids": [
+    "ParamEyeLOpen",
+    "ParamEyeROpen"
+   ]
+  },
+  {
+   "Target": "Parameter",
+   "Name": "LipSync",
+   "Ids": []
+  }
+ ],
+ "HitAreas": []
+}

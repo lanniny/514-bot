@@ -1,27 +1,8 @@
 import { escapeHtml as esc, runStatusText } from "../utils.js";
 import { lucideIcon } from "../lucide.js";
+import { collabStatusOf } from "./collab/collab-status.js";
 
 const PAGE_SIZE = 50;
-const STATES = {
-  queued: ["待执行", "queued", "circle-pause"],
-  pending: ["待执行", "queued", "circle-pause"],
-  running: ["执行中", "running", "loader-circle"],
-  completed: ["执行结束", "complete", "circle-check"],
-  succeeded: ["执行结束", "complete", "circle-check"],
-  failed: ["执行失败", "attention", "circle-alert"],
-  timed_out: ["执行超时", "attention", "circle-alert"],
-  blocked: ["已阻塞", "attention", "circle-alert"],
-  rejected: ["已拒绝", "attention", "circle-alert"],
-  recovery_required: ["待确认恢复", "attention", "circle-alert"],
-  ambiguous: ["提交状态待核对", "attention", "circle-alert"],
-  unsettled: ["执行状态待核对", "attention", "circle-alert"],
-  lost: ["执行失联", "attention", "circle-alert"],
-  waiting_approval: ["等待审批", "attention", "shield"],
-  waiting_for_approval: ["等待审批", "attention", "shield"],
-  cancelled: ["已取消", "inactive", "circle-stop"],
-  skipped: ["未执行", "inactive", "minus"],
-  superseded: ["已被后续执行替代", "inactive", "minus"],
-};
 const KINDS = {
   "pipeline-dispatch": "派工执行", "pipeline-review": "交叉复核",
   "pipeline-rework": "按复核补强", "pipeline-synthesis": "汇总结论",
@@ -29,9 +10,12 @@ const KINDS = {
 };
 const TERMINAL = new Set(["succeeded", "failed", "cancelled"]);
 const list = (value) => Array.isArray(value) ? value.filter((item) => item && typeof item === "object") : [];
+// 状态文案与图标走 collab-status 唯一词典。tone 沿用 process 语义色词汇
+// （queued|running|complete|attention|inactive|unknown），counts.* 按它分桶，键值冻结；
+// 未收录状态的回退仍是「状态未知 / unknown」（tests/collaboration-process.test.mjs:27 锁定）。
 const stateOf = (value) => {
-  const [label, tone, icon] = STATES[value] || ["状态未知", "unknown", "circle-dot"];
-  return { label, tone, icon };
+  const view = collabStatusOf(value);
+  return { label: view.label, tone: view.tone, icon: view.icon };
 };
 
 // A read-only projection of the selected Run, never an execution or acceptance store.
@@ -48,13 +32,17 @@ export function collaborationProcessModel({ conversation = null, run = null, mem
   const projectedTasks = tasks.map((task) => {
     const edge = edgeByMessage.get(task.busMessageId);
     const root = task.kind === "root" || task.id === run?.taskGraph?.rootTaskId;
-    return { ...task, root, owner: label(task.assigneeId), stage: root ? "目标" : KINDS[edge?.kind] || "成员执行", state: executionState(task.status) };
+    // edgeKind 是**结构化**的交接类型（pipeline-review / pipeline-rework / …），
+    // 供消费方按类型判断；stage 只是它的中文文案，文案子串匹配会误伤
+    // （「按复核补强」包含「复核」二字）。渲染层不得再自行解释 state——
+    // 已停止 Run 的残留 running 必须走 state 的投影结果。
+    return { ...task, root, edgeKind: edge?.kind || null, owner: label(task.assigneeId), stage: root ? "目标" : KINDS[edge?.kind] || "成员执行", state: executionState(task.status) };
   });
   const linkedAttempts = new Set(tasks.map((task) => task.attemptId).filter(Boolean));
   const linkedMessages = new Set(tasks.map((task) => task.busMessageId).filter(Boolean));
   const standalone = attempts.filter((attempt) => !linkedAttempts.has(attempt.attemptId) && !(attempt.sourceBusMessageId && linkedMessages.has(attempt.sourceBusMessageId))).map((attempt) => {
     const status = ["prepared", "session_ready", "submitting", "submitted"].includes(attempt.phase) ? "running" : attempt.phase;
-    return { id: `attempt:${attempt.attemptId}`, attemptId: attempt.attemptId, root: false, assigneeId: attempt.agentId, owner: label(attempt.agentId), title: `第 ${attempt.round || "-"} 轮 · ${label(attempt.agentId)}`, stage: "成员执行", status, state: executionState(status) };
+    return { id: `attempt:${attempt.attemptId}`, attemptId: attempt.attemptId, root: false, edgeKind: null, assigneeId: attempt.agentId, owner: label(attempt.agentId), title: `第 ${attempt.round || "-"} 轮 · ${label(attempt.agentId)}`, stage: "成员执行", status, state: executionState(status) };
   });
   projectedTasks.splice(projectedTasks[0]?.root ? 1 : 0, 0, ...standalone);
   const work = projectedTasks.filter((task) => !task.root);
@@ -73,24 +61,39 @@ export function collaborationProcessModel({ conversation = null, run = null, mem
     return { id, label: label(id), snapshot: snapshots.get(id), roles: roles.length ? roles : ["协作成员"], running: ownTasks.filter((task) => task.state.tone === "running").length, total: ownTasks.length };
   });
   const reviewEdges = edges.filter((edge) => edge.kind === "pipeline-review");
+  const reworkEdges = edges.filter((edge) => edge.kind === "pipeline-rework");
   const result = run?.result || {};
   const reviewText = typeof result.critique === "string" ? result.critique : typeof result.independent === "string" ? result.independent : "";
-  const reworked = result.reworked === true || edges.some((edge) => edge.kind === "pipeline-rework" && edge.state === "completed");
+  const reworked = result.reworked === true || reworkEdges.some((edge) => edge.state === "completed");
   const reviewed = Boolean(reviewText.trim()) || reviewEdges.some((edge) => edge.state === "completed");
   const review = { recorded: reviewed, text: reviewText, reworked, reworkText: reworked && typeof result.verified === "string" ? result.verified : "", label: reviewed ? "已有复核记录" : reviewEdges.length ? "复核尚未完成" : "暂无复核记录" };
+  // 复核进度按**结构化交接类型**分桶，不按 stage 中文文案做子串匹配：
+  // 「按复核补强」也含「复核」二字，子串匹配会把补强任务算成复核任务。
+  // 数据源用 edges（有 kind），不用投影后的 tasks（stage 已被翻译成中文）。
+  const reviewProgress = {
+    total: reviewEdges.length,
+    complete: reviewEdges.filter((edge) => edge.state === "completed").length,
+    // 失败/丢失等走同一状态词典判 attention，避免在模型层再维护一份状态名单
+    attention: reviewEdges.filter((edge) => stateOf(edge.state).tone === "attention").length,
+    reworkTotal: reworkEdges.length,
+    reworkComplete: reworkEdges.filter((edge) => edge.state === "completed").length,
+  };
   const method = !run ? "尚未编排" : result.simpleShortCircuit || run.conversationKind === "direct" ? "单席直达" : run.orchestrationMode === "social" ? "按需协作" : run.collaborationMode === "deep" ? "执行、复核与补强" : "执行与复核";
   const incomplete = result.truncated === true || counts.attention > 0 || counts.queued > 0 || counts.running > 0 || counts.unknown > 0;
   const status = !run ? "尚未运行" : run.status === "succeeded" ? incomplete ? "运行结束，仍有未闭环事项" : "运行结束，验收待确认" : runStatusText(run.status, run);
   const attention = run?.pendingAsk ? "等待你的回答" : ["waiting_approval", "waiting_for_approval"].includes(run?.status) ? "等待你的审批" : run?.status === "recovery_required" ? "执行状态待确认恢复" : result.truncated ? "本轮已到执行限制，流程未完整收束" : counts.attention ? `${counts.attention} 项执行需要处理` : "";
   return {
     runId: String(run?.id || ""), title: String(run?.prompt || conversation?.title || "尚未选择工作对话"),
-    method, status, attention, tasks: projectedTasks, counts, members, review,
+    method, status, attention, tasks: projectedTasks, counts, members, review, reviewProgress,
     delegations: edges.map((edge) => ({ ...edge, from: label(edge.fromAgentId), to: label(edge.toAgentId), stage: KINDS[edge.kind] || "成员交接", stateView: executionState(edge.state) })),
     steps: Number.isFinite(run?.interactionStep) ? run.interactionStep : null,
     stepLimit: Number.isFinite(run?.maxStepsPerInteraction ?? run?.maxRounds) ? run.maxStepsPerInteraction ?? run.maxRounds : null,
     depthLimit: run?.socialContract?.delegationDepthLimit ?? run?.delegationDepthLimit ?? null,
     queuedMessages: Array.isArray(run?.pendingSteer) ? run.pendingSteer.length : 0,
     terminal: TERMINAL.has(run?.status),
+    // 运行终态语义：渲染层据此区分「干净收束」与「失败/取消/未闭环」，
+    // 不得只看 counts.attention（那只覆盖任务级注意力，漏掉 truncated 与失败终态）。
+    outcome: !run ? "none" : !TERMINAL.has(run?.status) ? "running" : run.status === "succeeded" ? (result.truncated === true || incomplete ? "incomplete" : "clean") : "failed",
   };
 }
 
@@ -120,7 +123,7 @@ export function collaborationProcessMarkup(model, { tasksPage = 0, delegationsPa
   return `<header class="workspace-insights-heading collaboration-heading" data-stream-key="collaboration-heading"><div><h3>协作过程</h3><span>${esc(model.method)}</span></div><span>${esc(model.status)}</span></header>
     <div class="collaboration-objective" data-stream-key="collaboration-objective"><span>本轮目标</span><p>${esc(model.title)}</p></div>
     ${model.attention ? `<div class="collaboration-attention" data-stream-key="collaboration-attention">${lucideIcon("circle-alert")}<span>${esc(model.attention)}</span></div>` : ""}
-    <dl class="collaboration-counts" data-stream-key="collaboration-counts">${[["执行中", model.counts.running, "running"], ["待执行", model.counts.queued, "queued"], ["执行结束", model.counts.complete, "complete"], ["需处理", model.counts.attention, "attention"]].map(([label, count, tone]) => `<div data-tone="${tone}"><dt>${label}</dt><dd>${count}</dd></div>`).join("")}</dl>
+    <dl class="collaboration-counts" data-stream-key="collaboration-counts">${[["执行中", model.counts.running, "running"], ["待执行", model.counts.queued, "queued"], ["已完成", model.counts.complete, "complete"], ["需处理", model.counts.attention, "attention"]].map(([label, count, tone]) => `<div data-tone="${tone}"><dt>${label}</dt><dd>${count}</dd></div>`).join("")}</dl>
     <div class="collaboration-columns" data-stream-key="collaboration-columns"><div class="collaboration-main">
       <section class="collaboration-section"><header><h4>任务分工</h4><nav class="collaboration-filters" aria-label="任务筛选"><button type="button" data-workspace-task-filter="all" aria-pressed="${filter !== "attention"}">全部</button><button type="button" data-workspace-task-filter="attention" aria-pressed="${filter === "attention"}">需处理</button></nav></header>${taskRows || `<p class="workspace-empty">${filter === "attention" ? "没有需要处理的任务记录" : "暂无执行分工"}</p>`}${paging("tasks", tasks)}</section>
       <section class="collaboration-section"><header><h4>委派与交接</h4><span>${model.delegations.length} 次</span></header>${handoffs ? `<ol class="collaboration-handoffs">${handoffs}</ol>` : '<p class="workspace-empty">尚无成员交接</p>'}${paging("delegations", edges)}</section>

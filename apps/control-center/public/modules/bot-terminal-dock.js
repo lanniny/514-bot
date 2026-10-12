@@ -25,6 +25,9 @@ export function createBotTerminalDock({
   window: win = globalThis.window,
   storage = globalThis.localStorage,
   createPanel,
+  /** W11：抽屉重挂进右栏页签后，"开/关抽屉"升级为"开/关页签"——语义由宿主裁决。
+   *  提供此回调时 Ctrl+` 不再直接 setOpen，改叫宿主（可选；缺省保持旧行为）。 */
+  onToggleRequest,
 } = {}) {
   const drawer = root.getElementById("bot-terminal-drawer");
   const body = root.getElementById("bot-terminal-container");
@@ -145,6 +148,10 @@ export function createBotTerminalDock({
     if (!event.ctrlKey || event.shiftKey || event.altKey || event.key !== "`") return;
     if (!drawer.closest(".view")?.classList.contains("is-active")) return;
     event.preventDefault();
+    if (typeof onToggleRequest === "function") {
+      onToggleRequest();
+      return;
+    }
     setOpen(!isOpen());
   });
 

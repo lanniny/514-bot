@@ -219,6 +219,12 @@
           "markdownDescription": "Enables the is_portable_mode command without any pre-configured scope."
         },
         {
+          "description": "Enables the pet_pointer_inside command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pet-pointer-inside",
+          "markdownDescription": "Enables the pet_pointer_inside command without any pre-configured scope."
+        },
+        {
           "description": "Enables the restart_app command without any pre-configured scope.",
           "type": "string",
           "const": "allow-restart-app",
@@ -235,6 +241,24 @@
           "type": "string",
           "const": "allow-set-pet-overlay",
           "markdownDescription": "Enables the set_pet_overlay command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_pet_overlay_hover command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-pet-overlay-hover",
+          "markdownDescription": "Enables the set_pet_overlay_hover command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_pet_overlay_opacity command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-pet-overlay-opacity",
+          "markdownDescription": "Enables the set_pet_overlay_opacity command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the set_pet_overlay_rect command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-pet-overlay-rect",
+          "markdownDescription": "Enables the set_pet_overlay_rect command without any pre-configured scope."
         },
         {
           "description": "Enables the set_window_theme command without any pre-configured scope.",
@@ -291,6 +315,12 @@
           "markdownDescription": "Denies the is_portable_mode command without any pre-configured scope."
         },
         {
+          "description": "Denies the pet_pointer_inside command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pet-pointer-inside",
+          "markdownDescription": "Denies the pet_pointer_inside command without any pre-configured scope."
+        },
+        {
           "description": "Denies the restart_app command without any pre-configured scope.",
           "type": "string",
           "const": "deny-restart-app",
@@ -307,6 +337,24 @@
           "type": "string",
           "const": "deny-set-pet-overlay",
           "markdownDescription": "Denies the set_pet_overlay command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_pet_overlay_hover command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-pet-overlay-hover",
+          "markdownDescription": "Denies the set_pet_overlay_hover command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_pet_overlay_opacity command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-pet-overlay-opacity",
+          "markdownDescription": "Denies the set_pet_overlay_opacity command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_pet_overlay_rect command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-pet-overlay-rect",
+          "markdownDescription": "Denies the set_pet_overlay_rect command without any pre-configured scope."
         },
         {
           "description": "Denies the set_window_theme command without any pre-configured scope.",

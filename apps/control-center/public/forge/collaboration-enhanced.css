@@ -1,0 +1,266 @@
+/**
+ * collaboration-enhanced.css — 协作过程可见性增强样式
+ *
+ * 为 collaboration-process-enhanced.js 提供的新增样式。
+ *
+ * 两条硬约束（2026-10-02 修正，勿回退）：
+ *  1. **只消费既有令牌，不自造**。颜色/尺度真源是 forge/tokens.css 与
+ *     #view-bot 的 --bot-* 作用域（bot-workspace.css:23-58）。此前本文件引用的
+ *     --forge-glass-bg / --forge-surface-1/2 / --forge-line / --bot-secondary
+ *     在全仓**零定义**，导致玻璃底与描边从未生效。
+ *  2. **不覆盖 collaboration-process.css 的布局**。原版
+ *     `.collaboration-task > summary`（collaboration-process.css:28）是
+ *     `display:grid; grid-template-columns:76px minmax(0,1fr) auto 14px;
+ *     min-height:70px`；本文件此前用 flex 覆盖它，抹掉了阶段列与行高。
+ *     增强只做**加法**：新元素样式 + 展开态高亮。
+ *
+ * 暗色无需单独的 @media 块——全部颜色走 --bot-* 令牌，而该族已在
+ * `[data-theme="dark"] #view-bot`（bot-workspace.css:45）整体翻转。
+ */
+
+/* ══════════════════════════════════════════════════════════════
+   协作流水线时间轴
+   ══════════════════════════════════════════════════════════════ */
+
+.collaboration-timeline {
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  background: var(--bot-soft);
+  border: 1px solid var(--bot-line);
+  border-radius: 8px;
+}
+
+.collaboration-timeline h4 {
+  margin: 0 0 12px;
+  font-size: var(--text-sm);
+  font-weight: 650;
+  color: var(--bot-ink);
+}
+
+.timeline-events {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.timeline-event {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bot-panel);
+  border: 1px solid var(--bot-line);
+  border-radius: 6px;
+  transition: border-color var(--dur-fast), transform var(--dur-fast), box-shadow var(--dur-fast);
+}
+
+.timeline-event:hover {
+  border-color: var(--bot-accent);
+  transform: translateY(-1px);
+  box-shadow: var(--glass-inset-glow);
+}
+
+.timeline-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--bot-muted);
+  background: color-mix(in oklab, var(--bot-muted) 16%, transparent);
+  flex-shrink: 0;
+}
+
+.timeline-event[data-tone="complete"] .timeline-step-index {
+  color: var(--bot-accent);
+  background: color-mix(in oklab, var(--bot-accent) 20%, transparent);
+}
+
+.timeline-event[data-tone="running"] {
+  border-color: var(--workspace-link);
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--workspace-link) 25%, transparent);
+}
+
+.timeline-event[data-tone="running"] .timeline-step-index {
+  color: var(--workspace-link);
+  background: color-mix(in oklab, var(--workspace-link) 20%, transparent);
+  animation: pulse-step 2s infinite ease-in-out;
+}
+
+@keyframes pulse-step {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.12); opacity: 0.85; }
+}
+
+.timeline-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: color-mix(in oklab, var(--bot-muted) 12%, transparent);
+  color: var(--bot-muted);
+}
+
+.timeline-event[data-tone="complete"] .timeline-icon {
+  background: color-mix(in oklab, var(--bot-accent) 16%, transparent);
+  color: var(--bot-accent);
+}
+
+.timeline-event[data-tone="running"] .timeline-icon {
+  background: color-mix(in oklab, var(--workspace-link) 16%, transparent);
+  color: var(--workspace-link);
+}
+
+.timeline-event[data-tone="attention"] .timeline-icon {
+  background: color-mix(in oklab, var(--bot-red) 16%, transparent);
+  color: var(--bot-red);
+}
+
+.timeline-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.timeline-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.timeline-content strong {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--bot-ink);
+}
+
+.timeline-content small {
+  font-size: var(--text-xs);
+  color: var(--bot-muted);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   关键任务高亮（自动展开的任务）
+   —— 加法：不改原版 summary 的 grid，只给展开态加强调边与底色
+   ══════════════════════════════════════════════════════════════ */
+
+.collaboration-task[open] {
+  border-left: 3px solid var(--bot-accent);
+  padding-left: 12px;
+}
+
+.collaboration-task[open][data-tone="attention"] {
+  border-left-color: var(--bot-red);
+  background: color-mix(in oklab, var(--bot-red) 5%, transparent);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   响应式：容器窄时时间轴改纵向
+   —— 用 @container 而非 @media：本块的作用域是 #workspace-insights 的
+   行内尺寸（collaboration-process.css:2 已声明 container-type），
+   视口宽不等于容器宽（右栏 821-1100px 会被压窄）
+   ══════════════════════════════════════════════════════════════ */
+
+@container (max-width: 600px) {
+  .collaboration-timeline {
+    padding: 12px;
+  }
+
+  .timeline-events {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .timeline-event {
+    width: 100%;
+    padding: 6px 10px;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   协作头像与流式交接节点
+   ══════════════════════════════════════════════════════════════ */
+
+.collaboration-mini-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  overflow: hidden;
+  vertical-align: middle;
+  background: var(--bot-soft);
+  flex-shrink: 0;
+}
+
+.collaboration-mini-avatar img,
+.collaboration-mini-avatar svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.collaboration-mini-avatar .bot-avatar-initials {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.collaboration-task-owner {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.collaboration-handoff-flow {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.collaboration-peer {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.collaboration-handoff-arrow {
+  display: inline-flex;
+  align-items: center;
+  color: var(--bot-muted);
+}
+
+.collaboration-handoff-arrow svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   动效降级
+   ══════════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  .timeline-event {
+    transition: none;
+  }
+
+  .timeline-event:hover {
+    transform: none;
+  }
+
+  .timeline-event[data-tone="running"] .timeline-step-index {
+    animation: none;
+  }
+}

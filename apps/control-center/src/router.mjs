@@ -129,6 +129,7 @@ export class ModelRouter {
     const candidates = this.profiles.map((profile) => {
       const providerHealth = health.get(profile.id) || { available: false, status: "unknown", reason: "no probe" };
       const excludedReasons = [];
+      if (profile.adapter === "api-chat" && requestedProvider !== profile.id) excludedReasons.push("text API requires explicit selection");
       if (!profile.enabled) excludedReasons.push("disabled");
       if (allowed && !allowed.has(profile.id)) excludedReasons.push("not a team member");
       if (requestedProvider && profile.id !== requestedProvider) excludedReasons.push("not explicitly requested");
@@ -163,6 +164,7 @@ export class ModelRouter {
           .map((profile) => {
             const providerHealth = health.get(profile.id) || { available: false, status: "unknown", reason: "no probe" };
             const excludedReasons = [];
+            if (profile.adapter === "api-chat") excludedReasons.push("text API does not support independent task execution");
             if (!profile.enabled) excludedReasons.push("disabled");
             if (allowed && !allowed.has(profile.id)) excludedReasons.push("not a team member");
             if (specialAllowed && !specialAllowed.has(profile.id)) excludedReasons.push(`special route: ${rule.reason}`);

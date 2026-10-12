@@ -240,9 +240,8 @@ async function main() {
         reading: style.getPropertyValue("--forge-reading-alpha").trim(),
       };
     });
-    check("user slider takes over the panel alpha (32%)", () => assert.equal(env0.alpha, "32%"));
-    check("reading token keeps the 86% floor under a low slider", () => assert.equal(env0.reading, "86%"));
-
+    await check("user slider takes over the panel alpha (32%)", () => assert.equal(env0.alpha, "32%"));
+    await check("reading token keeps the 86% floor under a low slider", () => assert.equal(env0.reading, "86%"));
     // 打开群会话
     await page.locator("#bot-surface-tab-chats").click();
     const groupRow = page.locator(`[data-bot-conversation="${group.id}"]`);
@@ -287,6 +286,28 @@ async function main() {
     report.checks.push({ name: fixtureInjected ? "agent output fixture injected (no CLI in isolated kernel)" : "natural agent output present", ok: true, skipped: !fixtureInjected });
     await page.waitForTimeout(400);
 
+    // D-2026-09-28-038：协作过程卡必须先**展开**再量。默认面 grok 把收起态的过程组
+    // 有意设为 background: transparent !important（bot-grok-face.css 的
+    // details.bot-activity-group:not([open]) 块，「安静摘要条」设计），阅读卡只在
+    // [open] 态生效（同文件的 :open 块）。原脚本量收起态，拿到 transparent 判红——
+    // 那是设计内的安静态，不是纱幕失效。量之前先翻开，并把收起态原值留档。
+    const collapsedGroupBg = await page.evaluate(() => {
+      const group = document.querySelector("#view-bot details.bot-activity-group");
+      if (!group) return null;
+      const before = getComputedStyle(group).backgroundColor;
+      group.open = true;
+      return before;
+    });
+    if (collapsedGroupBg !== null) {
+      report.checks.push({
+        name: "collapsed process group is the quiet summary (grok face)",
+        ok: true,
+        skipped: false,
+        value: collapsedGroupBg,
+      });
+    }
+    await page.waitForTimeout(250);
+
     // ① 阅读面计算值断言：气泡/输入行 alpha 贴 86% 地板（面板仅 32%），且带磨砂
     const veil = await page.evaluate(() => {
       const read = (selector) => {
@@ -298,35 +319,95 @@ async function main() {
       return {
         panel: read("#view-bot .bot-conversation"),
         agentBubble: read("#view-bot .bot-message-agent .bot-bubble"),
+        // D-2026-09-28-037 诊断载荷：agent 气泡 alpha 一度实测 0.704863，而
+        // shell-refresh.css:419 的阅读卡公式（不透明底 × 86%）只可能产出 0.86。
+        // 差值必然来自「另一条命中的 background 声明」或「根本不是同一个元素」——
+        // 两者用裸 computed style 分不开。故把命中的规则串、元素序号、类名一并带出，
+        // 让下次红在这一层就能定性，不必再重跑一遍复现链路。
+        agentBubbleDebug: (() => {
+          const nodes = [...document.querySelectorAll("#view-bot .bot-message-agent .bot-bubble")];
+          const node = nodes[0];
+          if (!node) return null;
+          const matched = [];
+          const style = getComputedStyle(node);
+          for (const sheet of document.styleSheets) {
+            let rules;
+            try { rules = sheet.cssRules; } catch { continue; }
+            for (const rule of rules) {
+              if (!(rule instanceof CSSStyleRule)) continue;
+              if (!rule.selectorText) continue;
+              let hits = false;
+              try { hits = node.matches(rule.selectorText); } catch { continue; }
+              if (!hits) continue;
+              // D-2026-09-28-037：原先只收 selectorText 含 ".bot-bubble" 的规则——
+              // 那正好把「祖先选择器 / 通配 / 别的属性承载同色」的胜出声明漏在外面，
+              // 而 0.704863 这种既不是 transparent 也不是 0.86 的值只能由它们解释。
+              // 改为收全部命中规则，并只保留真的写了 background 的（其余是噪声）。
+              const bg = rule.style.background || rule.style.backgroundColor || "";
+              const bd = rule.style.backdropFilter || "";
+              if (!bg && !bd) continue;
+              matched.push({
+                selector: rule.selectorText,
+                background: bg || "(none)",
+                sheet: sheet.href ? sheet.href.split("/").pop() : "inline",
+              });
+            }
+          }
+          return {
+            count: nodes.length,
+            classes: node.className,
+            parentClass: node.parentElement?.className ?? "",
+            grokFace: document.documentElement.classList.contains("is-bot-grok-face"),
+            readingToken: document.documentElement.style.getPropertyValue("--forge-reading-alpha").trim(),
+            // 元素上解析后的自定义属性——颜色混入真正的取值来源（:root 上可能是 initial）
+            tokens: {
+              glassTint: style.getPropertyValue("--glass-tint").trim() || "(unset)",
+              botPanel: style.getPropertyValue("--bot-panel").trim() || "(unset)",
+              forgePaper: style.getPropertyValue("--forge-paper").trim() || "(unset)",
+            },
+            matched,
+          };
+        })(),
         userBubble: read("#view-bot .bot-message-user .bot-bubble"),
         header: read("#view-bot .bot-conversation-header"),
         composerRow: read("#view-bot .bot-composer-row"),
         activityGroup: read("#view-bot details.bot-activity-group"),
       };
     });
-    check("agent bubble renders under wallpaper", () => assert.ok(veil.agentBubble, "缺少 agent 气泡"));
-    check("panel still follows the user slider (~32%)", () => {
+    // 原始量测随报告落盘（含 dialog 诊断载荷），红的时候不必重跑就能定性
+    report.measurements = veil;
+
+    // D-2026-09-28-037：以下 check(...) 原先一个都没 await。check() 内部是
+    // Promise.resolve().then(fn).catch(...)，失败即产生**未处理拒绝**——Node 默认
+    // `--unhandled-rejections=throw` 直接杀进程：finally 不执行（隔离服务器泄漏 +
+    // 端口/node 进程残留）、report.json 永不落盘、后续检查一条都不跑。
+    // 表现是"只看到一条 AssertionError 和 Node.js vX.Y.Z 尾行"，红得诚实但付不起代价。
+    // 全部补 await：失败改为抛进 try → finally 收尸 → report.ok=false + exitCode=1。
+    await check("agent bubble renders under wallpaper", () => assert.ok(veil.agentBubble, "缺少 agent 气泡"));
+    await check("panel still follows the user slider (~32%)", () => {
       const a = alphaOf(veil.panel.bg);
       assert.ok(a !== null && a < 0.5, `面板 alpha 应低于 0.5，实际 ${a} (${veil.panel.bg})`);
     });
-    check("agent bubble is a high-alpha reading card (>= 0.8)", () => {
+    await check("agent bubble is a high-alpha reading card (>= 0.8)", () => {
       const a = alphaOf(veil.agentBubble.bg);
-      assert.ok(a !== null && a >= 0.8, `气泡 alpha 应 ≥ 0.8，实际 ${a} (${veil.agentBubble.bg})`);
+      assert.ok(a !== null && a >= 0.8,
+        `气泡 alpha 应 ≥ 0.8，实际 ${a} (${veil.agentBubble.bg})；` +
+        `诊断：matched=${JSON.stringify(veil.agentBubbleDebug?.matched ?? [])}`);
     });
-    check("agent bubble carries the frosted filter", () =>
+    await check("agent bubble carries the frosted filter", () =>
       assert.ok(/blur\(/.test(veil.agentBubble.backdrop), `气泡缺少 backdrop-filter：${veil.agentBubble.backdrop}`));
-    check("composer row is a high-alpha reading card", () => {
+    await check("composer row is a high-alpha reading card", () => {
       const a = alphaOf(veil.composerRow.bg);
       assert.ok(a !== null && a >= 0.8, `输入行 alpha 应 ≥ 0.8，实际 ${a} (${veil.composerRow.bg})`);
     });
-    check("conversation header is a frosted strip above panel alpha", () => {
+    await check("conversation header is a frosted strip above panel alpha", () => {
       const a = alphaOf(veil.header.bg);
       assert.ok(a !== null && a > alphaOf(veil.panel.bg), `头部 alpha 应高于面板，实际 ${a}`);
     });
     if (veil.activityGroup) {
-      check("process group is a high-alpha reading card", () => {
+      await check("process group is a high-alpha reading card", () => {
         const a = alphaOf(veil.activityGroup.bg);
-        assert.ok(a !== null && a >= 0.8, `过程卡 alpha 应 ≥ 0.8，实际 ${a} (${veil.activityGroup.bg})`);
+        assert.ok(a !== null && a >= 0.8, `过程卡(展开态) alpha 应 ≥ 0.8，实际 ${a} (${veil.activityGroup.bg})`);
       });
     } else {
       report.checks.push({ name: "process group veil (no activity this run — covered by contract test)", ok: true, skipped: true });
@@ -335,11 +416,13 @@ async function main() {
     await page.screenshot({ path: resolve(outputDir, "01-veil-low-slider-chat.png") });
     report.screenshots.push("01-veil-low-slider-chat.png");
 
-    // ② 过程卡展开态
+    // ② 过程卡展开态（① 里已翻开，这里只补拍，别再点一次把它收回安静态）
     const activityGroup = page.locator("#bot-message-stream details.bot-activity-group").first();
     if (await activityGroup.count()) {
-      await activityGroup.locator("summary.bot-activity-summary").click();
-      await page.waitForTimeout(400);
+      if (!(await activityGroup.evaluate((node) => node.open))) {
+        await activityGroup.locator("summary.bot-activity-summary").click();
+        await page.waitForTimeout(400);
+      }
       await page.screenshot({ path: resolve(outputDir, "02-veil-process-expanded.png") });
       report.screenshots.push("02-veil-process-expanded.png");
     }

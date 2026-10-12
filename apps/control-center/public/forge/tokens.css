@@ -190,6 +190,13 @@
   --ease-out: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
   --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  /* Transitions.dev & Emil Kowalski 经典物理动效曲线 */
+  --ease-spring-snappy: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring-bounce: cubic-bezier(0.34, 1.4, 0.64, 1);
+  --ease-fluid: cubic-bezier(0.4, 0, 0.2, 1);
+  --shadow-card-subtle: 0 1px 3px 0 rgb(0 0 0 / 0.04), 0 1px 2px -1px rgb(0 0 0 / 0.03);
+  --shadow-floating-dock: 0 20px 40px -12px rgb(0 0 0 / 0.12), 0 0 0 1px var(--glass-border);
+  --glow-thinking-pulse: 0 0 14px -2px color-mix(in oklch, var(--primary) 30%, transparent);
 
   /* —— Awwwards SOTD 先锋排版与瑞士仪表盘标尺 —— */
   --font-editorial: "Songti SC", "Noto Serif SC", "SimSun", serif;
@@ -281,6 +288,9 @@
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.55), 0 4px 6px -4px rgb(0 0 0 / 0.5);
   --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.6), 0 8px 10px -6px rgb(0 0 0 / 0.5);
   --shadow-2xl: 0 25px 50px -12px rgb(0 0 0 / 0.7);
+  --shadow-card-subtle: 0 1px 3px 0 rgb(0 0 0 / 0.25), 0 1px 2px -1px rgb(0 0 0 / 0.2);
+  --shadow-floating-dock: 0 24px 48px -12px rgb(0 0 0 / 0.5), 0 0 0 1px var(--border);
+  --glow-thinking-pulse: 0 0 16px -2px color-mix(in oklch, var(--primary) 40%, transparent);
 }
 
 /* —— Density 档位（UI-AUDIT P1-1）——

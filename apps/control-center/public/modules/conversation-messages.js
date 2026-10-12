@@ -182,7 +182,7 @@ export function createConversationMessages({
     }
     // 无摘要 reasoning 完成态只用于清活跃记账（见 eventAffectsConversation），重建历史同样不落空卡
     if (event.type === "codex.item/completed") {
-      const progress = data.progress;
+      const progress = data.progress || (data.kind ? data : null);
       if (progress && !(progress.kind === "reasoning" && !progress.text)) {
         return freezeConversationMessage({ ...common, kind: "process", author: event.agentId || "Agent", progress });
       }
@@ -202,6 +202,8 @@ export function createConversationMessages({
         kind: "governance",
         tone: governance.toneOf?.(data) ?? governance.tone,
         text: redact(String(text)),
+        // 原始载荷正文：时间线据此识别「把刚说过的回复再复述一遍」的提问旁白（见 bot-activity-timeline）
+        sourceText: typeof data.text === "string" ? redact(data.text) : null,
         ...(errorDetail ? { errorDetail: redact(String(errorDetail)) } : {}),
       });
     }

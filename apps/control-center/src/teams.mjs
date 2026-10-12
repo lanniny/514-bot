@@ -530,6 +530,21 @@ export class TeamStore {
     };
   }
 
+  // A persisted direct Conversation has one execution owner, no group planner.
+  // Only Orchestrator calls this after resolving that Conversation's member.
+  materializeDirect(memberId) {
+    this.#assertWritable();
+    const id = cleanText(memberId, "direct member", NAME_MAX);
+    if (!this.#catalogSets().members.has(id)) catalogFail("direct member has no executable adapter binding");
+    const now = new Date().toISOString();
+    return {
+      id: `team-ephemeral-${randomUUID()}`, builtin: false, ephemeral: true,
+      name: "单助手对话", description: "持久化 Conversation 的单成员执行快照",
+      coordinator: id, members: [id], systemPrompt: "", worldview: "", skills: [], mcp: [], providers: {},
+      appearance: cleanBackground(), createdAt: now, updatedAt: now,
+    };
+  }
+
   update(id, input = {}) {
     return this.#serialize(async () => {
       if (id === BUILTIN_TEAM.id) fail("the builtin 514cc team is frozen and cannot be modified", "FROZEN_BLOCK");

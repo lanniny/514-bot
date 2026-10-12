@@ -1,9 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile as readFileRaw } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
+
+// Windows 工作树是 CRLF：源码断言统一在 LF 上跑。否则依赖 `\n` 紧邻 `{` 的正则
+// （如 .bot-ops-chips 的布局断言）在该环境**永不匹配**——环境依赖的假红会训练人忽略红色。
+// （同目录 bot-rail-contract.test.mjs 的 source() 早已同款处理，2026-09-11 W6 补齐这份。）
+async function readFile(path, encoding) {
+  return (await readFileRaw(path, encoding)).replace(/\r\n/g, "\n");
+}
 
 test("514 Bot is the default and only primary work surface; workbench view stays hidden", async () => {
   const [html, app, state, palette, css, artDirection, nativeChrome] = await Promise.all([
@@ -193,7 +200,7 @@ test("Default Bot face is the Grok-like dark shell without dropping capabilities
   assert.match(html, /forge\/ui-polish\.css[\s\S]*forge\/bot-grok-face\.css/);
   assert.match(html, /class="is-bot-surface is-bot-grok-face"/);
   assert.match(html, /class="bot-icon-rail"/);
-  assert.match(html, /data-bot-rail="new"/);
+  assert.match(html, /id="bot-new-conversation-button"[^>]+data-assistant-start/);
   assert.match(html, /data-bot-rail="chats"/);
   assert.match(html, /id="bot-composer-overflow"/);
   assert.match(html, /id="bot-composer-seat-chip"/);
@@ -206,8 +213,9 @@ test("Default Bot face is the Grok-like dark shell without dropping capabilities
   assert.match(html, /id="bot-private-skill-list"/);
   assert.match(app, /bindBotGrokFace/);
   assert.match(app, /botEmptyConversationMarkup/);
-  assert.match(app, /帮我写/);
-  assert.match(app, /data-bot-suggest/);
+  const assistantStart = await readFile(`${appRoot}/public/modules/assistant-start.js`, "utf8");
+  assert.match(assistantStart, /data-bot-suggest/);
+  assert.match(assistantStart, /解释一个问题/);
   assert.match(theme, /514cc-bot-face/);
   assert.match(module, /applyBotFacePreference/);
   assert.match(face, /html\.is-bot-grok-face #view-bot \{/);
@@ -216,11 +224,11 @@ test("Default Bot face is the Grok-like dark shell without dropping capabilities
   assert.match(face, /grid-template-columns: var\(--bot-grok-rail\) var\(--bot-grok-roster\) minmax\(0, 1fr\) var\(--bot-ops\)/);
   assert.match(face, /grid-template-areas: "icons roster conversation ops"/);
   assert.match(face, /\.bot-shell-grid\.is-ops-collapsed \{/);
-  assert.match(face, /\.bot-composer-row \{[\s\S]*border-radius: 28px/);
+  assert.match(face, /\.bot-composer-row \{[^}]*border-radius: 999px/);
   assert.match(face, /html\.is-bot-grok-face body\.team-bg-active #view-bot/);
   assert.match(face, /:not\(:has\(body\.team-bg-active\)\) \.atelier-stage/);
   assert.match(face, /--forge-glass-filter/);
-  assert.doesNotMatch(face, /html\.is-bot-grok-face body\.team-bg-active[^{]*\{[\s\S]*?backdrop-filter: none/);
+  assert.match(face, /body\.team-bg-active #view-bot \.bot-icon-rail,[^{]*\{[^}]*backdrop-filter: blur/);
   assert.match(face, /@media \(max-width: 560px\)[\s\S]*min-height: 44px/);
   assert.match(face, /@media \(max-width: 820px\)[\s\S]*\.bot-icon-rail \{[\s\S]*display: none/);
 });
@@ -345,7 +353,8 @@ test("Structured Bot cards are runtime-generated and the stream ships no demo co
   assert.doesNotMatch(html, /demo-run-1|ask-demo-1/);
   assert.doesNotMatch(html, /data-bot-card=/);
   assert.match(html, /id="bot-message-stream"[^>]*><\/div>/);
-  assert.match(app, /bot-message-empty/);
+  assert.match(app, /return assistantEmptyMarkup\(hint, title, options\)/);
+  assert.match(await readFile(`${appRoot}/public/modules/assistant-start.js`, "utf8"), /bot-message-empty/);
   // 审批门仍由动态审批卡 + 现有 resolve 契约承担（见专项测试）。
   assert.match(app, /setView\("security"/);
   assert.match(html, /not-provisioned/);
@@ -567,6 +576,22 @@ test("Bot roster channels and composer kickoff follow real sources (Grok parity 
   assert.match(app, /点名 @成员 或直接下达任务/);
 });
 
+test("Bot empty states provide an executable next step and distinguish roster actions", async () => {
+  const [html, app, css] = await Promise.all([
+    readFile(`${appRoot}/public/index.html`, "utf8"),
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/forge/bot-shell.css`, "utf8"),
+  ]);
+  assert.match(html, /class="[^"]*bot-action-project[^"]*"[^>]+id="bot-new-group-button"/);
+  assert.match(html, /class="[^"]*bot-action-member[^"]*"[^>]+id="bot-new-member-button"/);
+  assert.match(html, /lucide-folder-open/);
+  assert.match(html, /lucide-user-round/);
+  assert.match(app, /data-bot-empty-action="new-project"/);
+  assert.match(app, /data-bot-empty-action="new-member"/);
+  assert.match(app, /data-bot-empty-action="clear-search"/);
+  assert.match(css, /\.bot-empty-action/);
+});
+
 test("Bot 390px walkthrough keeps critical surfaces wrapping (Grok parity W6)", async () => {
   const [shell, workspace, parity, face] = await Promise.all([
     readFile(`${appRoot}/public/forge/bot-shell.css`, "utf8"),
@@ -623,13 +648,18 @@ test("Bot render ignores late runs from a non-active conversation for the same a
   );
   assert.match(
     app,
-    /function renderBotRunQueue[\s\S]*?const activeConversation = botActiveConversation\(\)[\s\S]*?const conversationRun = activeConversation \? botConversationRun\(activeConversation\) : null[\s\S]*?new Set\(\(activeConversation\.runIds \|\| \[\]\)\.map\(String\)\.filter\(Boolean\)\)[\s\S]*?const entries = runIds\.map[\s\S]*?selectedRunId/,
+    /function renderBotRunQueue[\s\S]*?const activeConversation = botActiveConversation\(\)[\s\S]*?const conversationRun = activeConversation \? botConversationRun\(activeConversation\) : null[\s\S]*?new Set\(\(activeConversation\.runIds \|\| \[\]\)\.map\(String\)\.filter\(Boolean\)\)[\s\S]*?const entries = runIds[\s\S]*?\.map[\s\S]*?selectedRunId/,
     "the visible run queue and current marker must derive from the active Conversation",
   );
   assert.match(
     app,
     /function botRenderAgent[\s\S]*?const visibleConversation = botActiveConversation\(\)[\s\S]*?const visibleRun = visibleConversation \? botConversationRun\(visibleConversation\) : null[\s\S]*?botState\.runId = groupRun\?\.id[\s\S]*?visibleRun\?\.id[\s\S]*?visibleConversation \? null/,
     "the global Bot run pointer must not fall back to another Conversation for the same member",
+  );
+  assert.match(
+    app,
+    /function botRenderAgent[\s\S]*?syncBotRunState\(\);[\s\S]*?renderRecoveryBar\(visibleRun\);[\s\S]*?renderRunAttentionBar\(visibleRun\);/,
+    "recovery and budget attention bars must follow the active Conversation instead of the previous run",
   );
   assert.match(
     app,
@@ -837,10 +867,13 @@ test("Bot keeps Conversation chat stable while collaboration context moves to a 
   assert.ok(conversationStart >= 0 && conversationEnd > conversationStart && inspectorStart > conversationEnd);
   assert.doesNotMatch(html.slice(conversationStart, conversationEnd), /bot-collab-tabs|bot-run-queue|bot-collab-panel/);
   assert.match(html.slice(inspectorStart), /id="bot-collab-tabs"[\s\S]*id="bot-collab-panel"[\s\S]*id="bot-run-queue"/);
-  assert.match(html.slice(inspectorStart), /id="bot-ops-rail"[\s\S]*id="bot-ops-files"[\s\S]*id="bot-member-connections"/);
+  // 2026-09-11 标签形态：审批/文件两个面板是**标签**，刻意放在三组之后、scroll 的直接子级
+  // （这样「非会话标签只留被选中面板」能用一条兄弟选择器表达）。组内卡片（如成员电脑连接）在前。
+  assert.match(html.slice(inspectorStart), /id="bot-ops-rail"[\s\S]*id="bot-member-connections"[\s\S]*id="bot-ops-files"/);
   assert.match(html.slice(inspectorStart), /id="bot-routine-list"[\s\S]*id="bot-channels-list"/);
   assert.match(html.slice(inspectorStart), /class="bot-inspector-identity"[\s\S]*id="bot-panel-avatar"[\s\S]*id="bot-inspector-status"/);
-  assert.match(html.slice(inspectorStart), /class="bot-inspector-toolbar"[\s\S]*class="bot-ops-chips"[\s\S]*class="bot-inspector-scroll"/);
+  // 2026-09-12 W9 页签化：右栏顶部是页签条（bot-rail-tabs）→ 动作区（toolbar）→ 滚动区
+  assert.match(html.slice(inspectorStart), /class="bot-rail-tabs"[\s\S]*class="bot-inspector-toolbar"[\s\S]*class="bot-inspector-scroll"/);
   assert.doesNotMatch(html, /<aside class="bot-ops-rail"/);
   const collaborationStart = app.indexOf("function botRenderCollaborationWorkspace()");
   const collaborationEnd = app.indexOf("function botActivateCollaborationTab", collaborationStart);
@@ -848,14 +881,17 @@ test("Bot keeps Conversation chat stable while collaboration context moves to a 
   assert.doesNotMatch(collaborationCode, /stream\.hidden|composer\.hidden/);
   assert.match(collaborationCode, /panel\.hidden = false/);
   assert.match(collaborationCode, /当前没有执行中的 Run/);
-  assert.match(css, /\.bot-shell-grid \{[\s\S]{0,420}grid-template-columns: 260px minmax\(0, 1fr\) var\(--bot-ops, 320px\);/);
+  // W9：左右栏宽度可拖拽——两列都走变量（grok 皮肤栅格另有一套，JS 同时写两套）
+  assert.match(css, /\.bot-shell-grid \{[\s\S]{0,420}grid-template-columns: var\(--bot-roster, 260px\) minmax\(0, 1fr\) var\(--bot-ops, 320px\);/);
   assert.match(css, /grid-template-areas: "roster conversation ops"/);
   assert.match(css, /\.bot-shell-grid\.is-ops-collapsed \{/);
   assert.match(css, /\.bot-inspector-ops \{/);
   assert.match(css, /\.bot-inspector-toolbar \{/);
   assert.match(css, /\.bot-inspector-scroll \{/);
   assert.match(css, /\.bot-inspector-card \{/);
-  assert.match(css, /\.bot-ops-chips \{\n  display: grid;\n  grid-template-columns: repeat\(6, minmax\(0, 1fr\)\);/);
+  // 2026-09-12 W9：工具行演进为「可关闭页签条 + Codex 动作行」——页签条横排在顶部。
+  assert.match(css, /\.bot-rail-tabs \{\n  display: flex;\n  flex: 0 0 auto;/);
+  assert.match(css, /\.bot-rail-tab\[aria-selected="true"\]/);
   assert.match(css, /\.bot-agent-panel \{ grid-area: ops; \}/);
   assert.match(css, /\.bot-active-run\.is-current \{[\s\S]*inset 2px 0 0/);
   assert.match(css, /\.bot-agent-row\.is-active \{[\s\S]*inset 2px 0 0/);
@@ -1007,9 +1043,10 @@ test("Bot roster rows carry Grok-style date badge and last-message preview with 
   assert.match(css, /\.bot-conversation-date/);
   // 日期格式助手：当天 HH:mm / 当年 M\/d / 跨年 Y\/M\/d
   assert.match(utils, /export function formatConversationStamp\(value, fallback = ""\)/);
-  // SSE 实时回填：本地增量 + 防抖重渲，不在事件主链发请求
+  // SSE 实时回填：本地增量 + 防抖重渲，不在事件主链发请求。
+  // 2026-09-12 W16：同一分支扩为块——未知 runId（新建 run 先于索引刷新到达）触发会话索引刷新。
   assert.match(app, /function botNoteConversationPreview\(event\)/);
-  assert.match(app, /event\.type === "user\.message" \|\| event\.type === "assistant\.message"\) botNoteConversationPreview\(event\)/);
+  assert.match(app, /event\.type === "user\.message" \|\| event\.type === "assistant\.message"\) \{[\s\S]{0,200}?botNoteConversationPreview\(event\);[\s\S]{0,700}?botReloadConversationsForUnknownRun\(event\.runId\);/);
   // 服务端权威源：ConversationStore 唯一写入通道 + 事件订阅回填（面模块）
   const [store, serverApp, previewSurface] = await Promise.all([
     readFile(`${appRoot}/src/conversations.mjs`, "utf8"),
@@ -1046,7 +1083,10 @@ test("Bot messages keep coherent Markdown, visible identities, compact activity 
     readFile(`${appRoot}/public/modules/bot-activity-timeline.js`, "utf8"),
   ]);
   assert.doesNotMatch(app, /function botSplitBubbleText\(/);
-  assert.match(app, /renderMarkdown\(text, redact\)/);
+  // 锚定 transcript 渲染点本体：app.js:19507 的 renderMarkdown(textWithoutFiles.trim(), redact)。
+  // 曾经放宽成 \w+ 反被烛照出「命中无关调用（content, redact）」的实质放水——
+  // 变量名不钉不行：不钉就锁不住这条渲染路径。.trim() 一并写进正则。
+  assert.match(app, /renderMarkdown\(textWithoutFiles\.trim\(\), redact\)/);
   // Wave B slice 15：bot activity timeline 函数已抽取到 modules/bot-activity-timeline.js
   assert.match(timeline, /function botConversationMessagesMarkup\(messages\)/);
   assert.match(timeline, /function botActivityGroupMarkup\(messages, timelineMarkup = ""\)/);
@@ -1414,6 +1454,11 @@ test("Bot composer can explicitly acknowledge recovery so recovery_required runs
   // 输入栏确认按钮：recovery_required 时显式确认，与工作台恢复条同语义
   assert.match(html, /id="bot-recovery-ack"/);
   assert.match(html, /确认恢复并继续/);
+  // 恢复按钮必须独立于 .bot-composer-context：Grok 聊天面对该条整体 display:none，
+  // 按钮放进去会被连带藏死，recovery_required 会话将没有任何可见解锁入口。
+  const composerContext = html.match(/<div class="bot-composer-context">[\s\S]*?<\/div>/)?.[0] ?? "";
+  assert.ok(composerContext, "bot-composer-context block not found in index.html");
+  assert.doesNotMatch(composerContext, /bot-recovery-ack/);
   assert.match(app, /function syncBotRecoveryAck\(\)/);
   assert.match(app, /byId\("bot-recovery-ack"\)\?\.addEventListener\("click"/);
   // 会话准入透传一次性确认位，提交时消费（与工作台续聊同语义）
@@ -1423,4 +1468,24 @@ test("Bot composer can explicitly acknowledge recovery so recovery_required runs
   assert.match(app, /\.\.\.\(recoveryAck \? \{ acknowledgeRecovery: true \} : \{\}\)/);
   assert.match(app, /if \(recoveryAck\) state\.recoveryAckRunId = null;/);
   assert.match(workspaceCss, /#bot-recovery-ack \{/);
+});
+
+test("direct conversations group by assistant and the new-conversation dialog can bind a folder", async () => {
+  const [html, app, start] = await Promise.all([
+    readFile(`${appRoot}/public/index.html`, "utf8"),
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+    readFile(`${appRoot}/public/modules/assistant-start.js`, "utf8"),
+  ]);
+  // 左栏「直接对话」按助手折叠：分组节点复用项目树的折叠/键盘/持久化通道。
+  assert.match(app, /function botDirectGroupMarkup\(/);
+  assert.ok(app.includes("const key = `direct:${memberId}`"));
+  assert.match(app, /function botDirectGroupMarkup[\s\S]{0,1600}data-bot-project-node="\$\{escapeHtml\(key\)\}"[\s\S]{0,600}data-bot-project-toggle="\$\{escapeHtml\(key\)\}"/);
+  assert.ok(app.includes("botDirectGroupMarkup(memberId, conversations"));
+  // 新对话可选工作文件夹：选了就归入该文件夹的项目（后端「直接对话=全局」不放开）。
+  assert.match(html, /id="assistant-start-cwd"[^>]*data-assistant-cwd/);
+  assert.match(html, /data-assistant-cwd-pick/);
+  assert.match(start, /creation\.createInFolder\(/);
+  assert.match(start, /pickDirectory/);
+  assert.match(app, /createInFolder: async/);
+  assert.match(app, /kind: "workspace_group"[\s\S]{0,200}memberIds: \[memberId\]/);
 });

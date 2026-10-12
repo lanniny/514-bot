@@ -575,6 +575,30 @@ export class ConversationStore {
     });
   }
 
+  async fork(id, input = {}) {
+    const source = this.get(id);
+    assertExpectedRevision(source, input.expectedRevision);
+    const runIds = Array.isArray(source.runIds) ? [...source.runIds] : [];
+    let forkedRunIds = runIds;
+    if (input.upToRunId) {
+      const targetIndex = runIds.indexOf(String(input.upToRunId));
+      if (targetIndex === -1) fail("target run not found in conversation", "RUN_NOT_FOUND");
+      forkedRunIds = runIds.slice(0, targetIndex + 1);
+    }
+    return this.create({
+      kind: source.kind,
+      title: cleanText(input.title || `${source.title} 分支`, "title", 120, { required: true }),
+      directMemberId: source.directMemberId,
+      memberIds: source.memberIds,
+      projectId: source.kind === "workspace_group" && !input.cwd ? source.projectId : null,
+      cwd: source.kind === "workspace_group" ? input.cwd : null,
+      roomRole: source.kind === "workspace_group" ? "task" : "task",
+      sourceConversationId: source.id,
+      runIds: forkedRunIds,
+      activeRunId: forkedRunIds.at(-1) ?? null,
+    });
+  }
+
   async remove(id, { expectedRevision = null } = {}) {
     return this.#serialize(async () => {
       this.#assertAvailable();
@@ -607,15 +631,38 @@ export class ConversationStore {
     });
   }
 
-  async purgeDeleted({ expectedStoreRevision = null } = {}) {
+  /**
+   * 清空已删除会话的墓碑。
+   *
+   * 保留判据只看**此刻仍活着**的 run（LO 2026-10-11 实测病灶）：旧判据是
+   * 「activeRunId 非空 或 runIds 非空」，而 activeRunId 只在 attachRun 时写入、
+   * run 终态后从不清除（见本文件 attachRun），run 文件也可能从未落盘或已被清除。
+   * 拿陈旧字段当保留依据 = 保护鬼魂：实测 6 条已删除会话里 5 条的 activeRunId
+   * 指向不存在的 run 文件，于是「清空已删除」对任何有过 run 的会话永久失效——
+   * 而那几乎是全部真实会话。确认弹窗承诺的「仅清除墓碑 / 保留 Run 事件、审批、产物」
+   * 也从未兑现：run 与会话记录本就相互独立（remove 只打墓碑，编排器不跟着清 run）。
+   *
+   * @param {{expectedStoreRevision?: number|null, isRunLive?: ((runId: string) => boolean)|null}} options
+   *   isRunLive 由服务端注入（它才持有 run 库）。**缺省时按「有 activeRunId 即视为活着」
+   *   的保守口径走**——purge 是永久操作，调用方忘了传判据不该凭空获得更大的删除权。
+   */
+  async purgeDeleted({ expectedStoreRevision = null, isRunLive = null } = {}) {
     return this.#serialize(async () => {
       this.#assertAvailable();
       assertExpectedStoreRevision(this.revision, expectedStoreRevision);
       const deletedItems = [...this.#items.values()].filter((item) => item.deletedAt);
-      const purgeable = deletedItems.filter((item) => !item.activeRunId && item.runIds.length === 0);
+      // 逐条判：这条墓碑挂的 run 现在是否还活着。没有 activeRunId 就无从判断（放行）；
+      // 判据缺失时退回保守口径（视为活着），与修复前行为一致。
+      const blockingRunId = (item) => {
+        const runId = item.activeRunId;
+        if (!runId) return null;
+        if (typeof isRunLive !== "function") return runId;
+        return isRunLive(runId) ? runId : null;
+      };
+      const purgeable = deletedItems.filter((item) => !blockingRunId(item));
       const skipped = deletedItems
         .filter((item) => !purgeable.includes(item))
-        .map((item) => ({ conversationId: item.id, reason: item.activeRunId ? "active-run" : "run-history" }));
+        .map((item) => ({ conversationId: item.id, reason: "active-run", runId: blockingRunId(item) }));
       const deletedIds = purgeable.map((item) => item.id);
       if (!deletedIds.length) {
         return { purged: 0, conversationIds: [], skipped, revision: this.revision };

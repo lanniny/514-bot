@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { access, readdir, readFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { basename, dirname, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { findSecretCandidates } from "./redaction.mjs";
 import { childProcessEnv, spawnCommand } from "./process-runner.mjs";
-import { resolveControlSchemaPath } from "./paths.mjs";
+import { resolveControlSchemaPath, isWithin } from "./paths.mjs";
 
 const MAX_CONFIG_BYTES = 5 * 1024 * 1024;
 const MODULE_SOURCE_ID = "core.module";
@@ -291,11 +291,318 @@ function parsePythonHookCommand(command) {
   return match?.[1] || match?.[2] || match?.[3] || null;
 }
 
+/**
+ * 把声明值解析成"仓库内相对路径"；逃逸仓库返回 null。
+ *
+ * ⚠️ 逃逸判据必须同时覆盖三种形态（烛 R1 致命 1，2026-10-09 实测修正）：
+ *   1. 父级逃逸   `../outside`            → relative 得 `..\outside`
+ *   2. 空相对     target === repoRoot     → relative 得 ""
+ *   3. 跨盘符绝对 `C:\Windows\win.ini`    → relative 得**绝对路径**（Windows 上 relative
+ *      跨盘符无法表达相对关系，直接返回目标绝对路径）——既非空也不以 `..` 开头，
+ *      只查前两条会**静默放行**，随后 `resolve(repoRoot, target)` 丢弃 repoRoot，
+ *      真的去访问仓库外。实测注入 `C:\Windows\win.ini` 曾得 valid=true 零错误。
+ *
+ * 因此第三条判据 `isAbsolute(relativePath)` 不可省——与 `paths.mjs` 的 `isWithin` 同源。
+ */
 function repositoryRelativePath(repoRoot, value) {
   const target = resolve(repoRoot, String(value || ""));
   const relativePath = relative(repoRoot, target);
   if (!relativePath || relativePath === ".." || relativePath.startsWith(`..${sep}`)) return null;
+  if (isAbsolute(relativePath)) return null;
   return normalizeRepoPath(relativePath.split(sep).join("/"));
+}
+
+/**
+ * plugin.json 声明面存在性校验（2026-10-09 补）。
+ *
+ * 背景：`.claude-plugin/plugin.json` 的 `components.{agents,skills}` 是**声明面**——
+ * 它声明"这个 plugin 有哪些组件"。此前它**只被当作版本源读取**（validateVersionSurfaces），
+ * 组件路径零校验，于是 2026-08-30 F-073 删除 skills/research/web-intel 目录后，
+ * plugin.json 仍指着这个不存在的路径，静默漂移了 40 天。
+ *
+ * 判据分两层（缺一不可）：
+ *   1. 每个声明路径**在磁盘上必须存在**（declared → disk）
+ *   2. 每个磁盘 skill **必须被 module.yaml 注册**（disk → module.yaml）
+ * 第 2 条不在这里重做——registry.skills 已在 validateSkillRegistry 做完整集合差；
+ * 本校验只补第 1 条，即"plugin.json 这个消费者自己的视图是否与磁盘一致"。
+ *
+ * 不做的事（避免与 registry.skills 重复造第二份真源）：
+ *   - 不校验 plugin.json 的 skills 列表是否覆盖磁盘全集。实测（2026-10-09）当前
+ *     `components.agents[*].source ∪ components.skills[]` = 5 + 8 = 13 = `skills/` 磁盘全集，
+ *     即**当下二者恰好相等**；但这是"当下成立"而非"契约规定"，把它写成等号会新增一条
+ *     "加 skill 必须同步改 plugin.json"的义务（属产品决策，非本守卫职责）。
+ *     注意口径：等号说的是**并集**（13），单看 `components.skills[]` 只有 8 条——
+ *     5 个命名 Agent 的 source 已覆盖其中 5 个 skill，故 skills[] 只列了余下 8 个。
+ *     磁盘 → 注册表方向的完整性由既有 `registry.skills` 承担，两者互补不重复。
+ */
+async function validatePluginManifest(repoRoot) {
+  const manifestPath = resolve(repoRoot, ".claude-plugin", "plugin.json");
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+  } catch (error) {
+    return repositoryResult("registry.plugin", [`cannot parse .claude-plugin/plugin.json: ${error.message}`]);
+  }
+  const errors = [];
+  const components = manifest?.components;
+  // components 整体缺席 = 极简 manifest（无组件声明），按空视图通过；
+  // 只有"声明了 components 但形状/路径不对"才算错——避免把无组件清单误判为漂移。
+  if (components === undefined) return repositoryResult("registry.plugin", []);
+  if (!components || typeof components !== "object" || Array.isArray(components)) {
+    return repositoryResult("registry.plugin", ["plugin.json components must be an object"]);
+  }
+
+  const declared = [];
+  const agents = components.agents;
+  if (agents !== undefined) {
+    if (!agents || typeof agents !== "object" || Array.isArray(agents)) {
+      errors.push("plugin.json components.agents must be an object");
+    } else {
+      for (const [code, entry] of Object.entries(agents)) {
+        for (const field of ["source", "customize"]) {
+          const value = entry?.[field];
+          if (value === undefined) continue;
+          if (typeof value !== "string" || !value.trim()) {
+            errors.push(`plugin.json components.agents.${code}.${field} must be a non-empty string`);
+            continue;
+          }
+          declared.push({ label: `agents.${code}.${field}`, path: value });
+        }
+      }
+    }
+  }
+  if (components.skills !== undefined) {
+    if (!Array.isArray(components.skills)) {
+      errors.push("plugin.json components.skills must be an array");
+    } else {
+      for (const [index, value] of components.skills.entries()) {
+        if (typeof value !== "string" || !value.trim()) {
+          errors.push(`plugin.json components.skills[${index}] must be a non-empty string`);
+          continue;
+        }
+        declared.push({ label: `skills[${index}]`, path: value });
+      }
+    }
+  }
+  for (const field of ["guardrails", "customize", "module_config", "rules"]) {
+    const value = components[field];
+    if (value === undefined) continue;
+    if (typeof value !== "string" || !value.trim()) {
+      errors.push(`plugin.json components.${field} must be a non-empty string`);
+      continue;
+    }
+    declared.push({ label: field, path: value });
+  }
+
+  // 逐条存在性（用 access 而非 stat 文件类型判断：plugin.json 的路径既有文件也有目录）
+  //
+  // ⚠️ 纯字符串判据挡不住**链接穿透**（烛 R2 实测，2026-10-09 补）：
+  //   `repositoryRelativePath` 只做 resolve 归一化、不碰磁盘，而 `access` 会**跟随**
+  //   symlink/junction。于是"仓内 junction → 仓外目录"这种声明字符串完全合法，
+  //   却真的把校验引到仓库外。实测：声明 `linked` 或 `linked/secret.md`
+  //   （linked 是仓内 junction 指向仓外）→ valid=true 零错误。
+  //   补 if 也挡不住——必须在 access 之后对**真实路径**再做一次边界判定。
+  //   本仓库已有同款先例：config-manager.mjs 的 SYMLINK_REJECTED、workspace-explorer 拒 links。
+  const realRepoRoot = await realpath(repoRoot);
+  for (const entry of declared) {
+    const relativePath = repositoryRelativePath(repoRoot, entry.path);
+    if (!relativePath) {
+      errors.push(`plugin.json components.${entry.label} escapes the repository: ${entry.path}`);
+      continue;
+    }
+    const target = resolve(repoRoot, relativePath);
+    try {
+      await access(target);
+    } catch {
+      errors.push(`plugin.json components.${entry.label} points at a path absent from disk: ${relativePath}`);
+      continue;
+    }
+    let realTarget;
+    try {
+      realTarget = await realpath(target);
+    } catch {
+      errors.push(`plugin.json components.${entry.label} cannot be resolved on disk: ${relativePath}`);
+      continue;
+    }
+    if (!isWithin(realRepoRoot, realTarget)) {
+      errors.push(
+        `plugin.json components.${entry.label} resolves outside the repository through a link: ${relativePath}`,
+      );
+    }
+  }
+  if (declared.length === 0) errors.push("plugin.json declares no component paths to verify");
+  return repositoryResult("registry.plugin", errors);
+}
+
+/**
+ * 三层定制化（customize.toml）的**机械承载**（2026-10-09 补，缺口 C）。
+ *
+ * 背景：`rules.md §五` + `customize/README.md` 详述了三层 override 与 4 条合并规则，
+ * 5 个 SKILL.md 都写着"解析 customize.toml 三层合并"。但在本轮之前**全仓零实现**——
+ * 没有任何 mjs/py/ps1 做这个 merge，`customize/team/` 目录根本不存在，
+ * `customize/personal/` 只有一个 `.gitignore`，全仓**零个 override 实例**。
+ * 即：一份读起来像护栏的声明，40+ 天无消费者（与 plugin.json 死引用同一形态）。
+ *
+ * 本函数落地的是**可机械判定的那一半**——合并结果的结构正确性。判据不写死"必须有
+ * 哪些键"（那会腐烂），而是**从磁盘真值派生**：
+ *   · 合并三层 → 结果形状必须与 base（skill 内 customize.toml）一致
+ *   · base 里的 `name` / `title` 只读 → override 改了必须报错（rules §五 明文）
+ *   · `menu` 的替换语义 → code 不得重复、不得新增 base 没有的 code（README 的"无删除机制"
+ *     + "按 code 匹配替换"两条合起来的机械推论）
+ *
+ * 明确**不做**的事（诚实边界）：不执行合并去驱动 agent 运行时行为——那需要 LLM 侧
+ * 消费合并结果，属"LLM 现读"路径（SKILL.md 的 Step 1 已如此声明）。本校验只保证
+ * "三层文件本身是自洽的"，不假装验证了"运行时真的用了它"。
+ *
+ * **真仓库当前是空跑**（烛 R2 实测）：5 个 agent skill、5 份 base、**0 个 override 实例**
+ * → 内层循环迭代 0 次。本校验的有效性由 `tests/validator-governance.test.mjs` 的
+ * fixture 保证（含突变验收），不靠真仓库有实例。**如实标注，不把"空跑全绿"当成"验证过了"。**
+ */
+const CUSTOMIZE_READONLY_FIELDS = Object.freeze(["name", "title"]);
+/**
+ * 三层 override 的层定义：`dir` 目录 + `suffix` 文件名后缀。
+ *
+ * ⚠️ personal 层的后缀是 `.user.toml`（`customize/README.md:8,56` + `personal/.gitignore`
+ * 的 `*.user.toml` 都这么写）。初版一律拼 `${code}.toml`，导致 **personal 层永不校验**——
+ * 而 personal 正是 `.gitignore` 的本地层、最没人 review 的一层。烛 R1 实测：
+ * 同一份含 `agent.name` 违规的 override，写成 `codex-reviewer.user.toml` → valid=true
+ * （未捕获），写成 `codex-reviewer.toml` → 才捕获。**照 README 写就绕过全部判据。**
+ * 反向隐患同样实测确认：`codex-reviewer.toml` **不在** `.gitignore` 规则内，会意外入库。
+ */
+const CUSTOMIZE_LAYERS = Object.freeze([
+  { dir: "team", suffix: ".toml" },
+  { dir: "personal", suffix: ".user.toml" },
+]);
+
+/**
+ * 用 Python 标准库 tomllib 解析 TOML（与 validateContent 的 `toml` 分支同一通道）。
+ *
+ * 为什么不手写解析器：初版手搓了一个"极简 TOML 子集"解析器，**在第一份真实文件上就
+ * 撞墙**——`codex-reviewer/customize.toml` 的多行字符串（`"""` 跨行）触发
+ * "unsupported line (agent)"，5 个 agent skill 全部解析失败。这正是不复用既有能力的
+ * 代价（同 R1/R2 的教训）。仓库已有 `python -X utf8 -c "import tomllib"` 通道
+ * （validateContent:169），直接复用，零新依赖、零方言风险。
+ */
+async function parseTomlDocument(content, label) {
+  const program = "import json,sys,tomllib; print(json.dumps(tomllib.loads(sys.stdin.read()),ensure_ascii=False))";
+  const result = await runPythonProgram(program, content, { parser: "python-toml" });
+  if (!result.ok) throw new Error(`${label}: ${result.error}`);
+  try {
+    return JSON.parse(result.stdout);
+  } catch (error) {
+    throw new Error(`${label}: Python TOML parser returned invalid JSON: ${error.message}`);
+  }
+}
+
+async function readCustomizeLayer(repoRoot, relativePath, errors) {
+  let text;
+  try {
+    text = await readFile(resolve(repoRoot, relativePath), "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return null;
+    errors.push(`${relativePath} unreadable: ${error.message}`);
+    return null;
+  }
+  try {
+    return await parseTomlDocument(text, relativePath);
+  } catch (error) {
+    errors.push(`${relativePath} parse failed: ${error.message}`);
+    return null;
+  }
+}
+
+/**
+ * 递归比对 override 与 base 的键形状，返回错误列表（空 = 形状合法）。
+ *
+ * 覆盖三层 override 的全部键路径（不止 agent 一层）——烛 R2 实测：只查一层时
+ * `[codex] invoke_patern = "typo"`、`[review_defaults] stricness` 这类**拼错键名**
+ * 会静默通过。拼错键名 = override 写了个没人读的键，正是稀疏 override 最典型的
+ * 静默失效形态（写的人以为生效了）。
+ *
+ * 语义边界：
+ *   · base 是**标量**而 override 是表 → 报错（类型不兼容）
+ *   · base 是**表**而 override 是标量 → 报错
+ *   · base 是**数组**（含表数组）→ 只做"表数组元素的 code/id 不得重复"检查，
+ *     不要求元素形状一致（README：数组=追加 / 有 code 的表数组=匹配替换+追加）
+ *   · override 出现 base 没有的键 → 报错（README 的"无删除机制"只约束"不能删 base 条目"，
+ *     不等于"可以随意新增未知键"；未知键必然是拼错或该进 base）
+ */
+function compareOverrideShape(layerPath, basePath, base, override, path = []) {
+  const errors = [];
+  if (!override || typeof override !== "object" || Array.isArray(override)) {
+    if (path.length) errors.push(`${layerPath} ${path.join(".")} must be a table`);
+    return errors;
+  }
+  for (const [key, value] of Object.entries(override)) {
+    const keyPath = [...path, key];
+    if (!Object.hasOwn(base, key)) {
+      errors.push(`${layerPath} declares key absent from ${basePath}: ${keyPath.join(".")}`);
+      continue;
+    }
+    const baseValue = base[key];
+    const overrideIsTable = value && typeof value === "object" && !Array.isArray(value);
+    const baseIsTable = baseValue && typeof baseValue === "object" && !Array.isArray(baseValue);
+    if (overrideIsTable !== baseIsTable) {
+      errors.push(
+        `${layerPath} ${keyPath.join(".")} shape mismatch: override is ${overrideIsTable ? "table" : "scalar/array"}, base is ${baseIsTable ? "table" : "scalar/array"}`,
+      );
+      continue;
+    }
+    if (overrideIsTable) {
+      errors.push(...compareOverrideShape(layerPath, basePath, baseValue, value, keyPath));
+      continue;
+    }
+    if (Array.isArray(value) && value.every((item) => item && typeof item === "object" && !Array.isArray(item))) {
+      const codes = value.map((item) => item?.code ?? item?.id).filter((code) => code !== undefined);
+      const duplicated = duplicateValues(codes.map(String));
+      if (duplicated.length) {
+        errors.push(`${layerPath} ${keyPath.join(".")} has duplicate code/id entries: ${duplicated.join(", ")}`);
+      }
+    }
+  }
+  return errors;
+}
+
+async function validateCustomizeLayers(repoRoot, moduleDocument) {
+  const errors = [];
+  const skillEntries = (Array.isArray(moduleDocument?.skills) ? moduleDocument.skills : [])
+    .filter((skill) => skill?.path && String(skill.type || "") === "agent");
+
+  for (const skill of skillEntries) {
+    const basePath = `${skill.path}/customize.toml`;
+    const base = await readCustomizeLayer(repoRoot, basePath, errors);
+    if (!base) continue; // agent skill 无 customize.toml → 由 registry.skills 管，不在此报错
+
+    for (const layer of CUSTOMIZE_LAYERS) {
+      const layerPath = `customize/${layer.dir}/${skill.code}${layer.suffix}`;
+      const override = await readCustomizeLayer(repoRoot, layerPath, errors);
+      if (!override) continue;
+
+      // 判据 1：只读字段（rules §五 明文：agent.name / agent.title 只读）
+      for (const field of CUSTOMIZE_READONLY_FIELDS) {
+        if (override?.agent && Object.hasOwn(override.agent, field)) {
+          errors.push(`${layerPath} overrides read-only agent.${field} (rules.md §五: read-only)`);
+        }
+      }
+
+      // 判据 2：override 只能出现在 base 已有的键路径上（稀疏 override 纪律）。
+      // 逐层递归比对，不只查顶层与 agent 一层——烛 R2 实测：`[codex] invoke_patern = "typo"`
+      // 与 `[review_defaults] stricness` 这种**键名拼错**在只查一层时会静默通过，
+      // 而拼错正是稀疏 override 最典型的静默失效形态。
+      errors.push(...compareOverrideShape(layerPath, basePath, base, override));
+
+      // 判据 3：menu 内 code 不得重复。
+      // ⚠️ 此处**只查重复，不查"是否新增 code"**——烛 R2 纠正了主驾的过度推论：
+      // `customize/README.md:17` 明文「有 code/id 键的表数组 = 按键匹配替换，**新键追加**」。
+      // "新键追加"管的是"遇到 base 没有的条目怎么办"，"无删除机制"管的是"不能删 base 条目"，
+      // 二者不矛盾。主驾初版据"无删除"推出"menu 只能替换不能新增"，属**过严的假约束**
+      // （会把合法的"给 agent 加一个自定义菜单项"误判为违规），已删除该判据。
+      const overrideCodes = (override.agent?.menu || []).map((item) => item?.code).filter(Boolean);
+      const duplicated = duplicateValues(overrideCodes);
+      if (duplicated.length) errors.push(`${layerPath} menu has duplicate codes: ${duplicated.join(", ")}`);
+    }
+  }
+  return repositoryResult("registry.customize", errors);
 }
 
 async function collectSkillDirectories(repoRoot) {
@@ -724,6 +1031,27 @@ async function validateRuntimeContracts(repoRoot, moduleDocument) {
   }
   if (packageEngine !== nodeContract) {
     errors.push(`apps/control-center/package.json engines.node declares ${packageEngine || "missing"}, expected ${nodeContract || "module dependency"}`);
+  }
+
+  // Python 可用性：validateContent / parseYamlDocument / parseTomlDocument 全部经
+  // `python -X utf8 -c` 通道。Python 缺失时这些校验会以**"文件坏了"的面目**失败
+  // （烛 R2：`parseTomlDocument` 把环境问题渲染成 `parse failed`），误导排查方向。
+  // 故在 runtime.contracts 里显式探一次，把"环境缺 Python"与"配置真的坏了"分开记账。
+  const pythonContract = String(moduleDocument?.dependencies?.python || "");
+  const pythonProbe = await runPythonProgram("import sys; print(sys.version_info[0], sys.version_info[1])", "", {
+    parser: "python-probe",
+    timeoutMs: 10_000,
+  });
+  if (!pythonProbe.ok) {
+    errors.push(
+      `python is unavailable but is a declared runtime dependency (${pythonContract || "module.yaml dependencies.python"}): ${pythonProbe.error || "probe failed"}`,
+    );
+  } else {
+    const [major, minor] = String(pythonProbe.stdout).trim().split(/\s+/).map(Number);
+    const required = pythonContract.match(/^>=(\d+)\.(\d+)$/);
+    if (required && (major < Number(required[1]) || (major === Number(required[1]) && minor < Number(required[2])))) {
+      errors.push(`python ${major}.${minor} is below the declared contract ${pythonContract}`);
+    }
   }
 
   const kimiDependency = String(moduleDocument?.dependencies?.["kimi-code-cli"] || "");
@@ -1190,6 +1518,8 @@ export async function validateRepositoryTruth(repoRoot) {
   const validators = [
     ["registry.skills", () => validateSkillRegistry(repoRoot, moduleDocument)],
     ["registry.adapters", () => validateAdapterRegistry(repoRoot, moduleDocument)],
+    ["registry.plugin", () => validatePluginManifest(repoRoot)],
+    ["registry.customize", () => validateCustomizeLayers(repoRoot, moduleDocument)],
     ["registry.models", () => validateModelWiring(repoRoot)],
     ["framework.version", () => validateVersionSurfaces(repoRoot, moduleDocument)],
     ["runtime.contracts", () => validateRuntimeContracts(repoRoot, moduleDocument)],

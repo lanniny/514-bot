@@ -22,5 +22,15 @@
       "entry": "bongo-gamepad/cat.model3.json",
       "input": ["gamepad"]
     }
+  ],
+  "genericModels": [
+    {
+      "id": "whale",
+      "name": "DS鲸鱼娘",
+      "entry": "whale/c_0120.model3.json",
+      "source": "DS鲸鱼娘.zip (c_0120)",
+      "license": "CC BY-NC-SA 4.0",
+      "note": "非 BongoCat 素材；与上游无关，不带 input 能力，写参走 pet-models/whale.js 的通用分支。"
+    }
   ]
 }

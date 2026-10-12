@@ -23,6 +23,7 @@ import { TeamStore } from "./teams.mjs";
 import { TeamMemberStore } from "./team-members.mjs";
 import { ConversationStore } from "./conversations.mjs";
 import { ConversationContextStore } from "./conversation-contexts.mjs";
+import { AssistantMemoryStore } from "./assistant-memory.mjs";
 import { ProjectRegistry } from "./projects.mjs";
 import { ProjectPluginStore } from "./project-plugins.mjs";
 import { ProviderStore } from "./providers.mjs";
@@ -177,7 +178,7 @@ function createRuntimeComponents({ models, routing, permissions, eventStore, rep
   // Provider 绑定降级（席位引用的连接当前环境解析不到）：席位按 Adapter 管理继续运行，
   // 同时留下显眼痕迹——控制台 + 事件流（catalog 条目另有 providerDegraded 供 UI 展示）。
   const onProviderDegraded = (info) => {
-    console.error(`[control-plane] runtime seat ${info.runtimeProfileId} provider binding degraded: ${info.providerId} (${info.reason}) — running adapter-managed`);
+    console.error(`[control-plane] runtime seat ${info.runtimeProfileId} provider binding unavailable: ${info.providerId} (${info.reason})`);
     eventStore?.emit?.(
       "control.provider_binding_degraded",
       info,
@@ -298,12 +299,17 @@ export async function createControlCenter(options = {}) {
   const projectPlugins = await new ProjectPluginStore({ dataRoot, projects }).init();
   conversations = await new ConversationStore({ dataRoot, projects }).init();
   conversationContexts = await new ConversationContextStore({ dataRoot }).init();
+  // A5 长期记忆：必须在 Orchestrator 之前创建——派发时要在**准入校验之前**取到记忆块，
+  // 所以它走构造注入（而非 server.mjs 事后挂 state），否则 orchestrator 拿不到。
+  // 注意 AssistantMemoryStore.init() 不返回 this（与 ProjectRegistry 那些不同），不能链式写。
+  const assistantMemory = new AssistantMemoryStore({ dataRoot });
+  await assistantMemory.init();
   // cc-switch 迁移：统一供应商档案（baseUrl+apiKey 一处录入，按 app 投影 live 配置）；
   // runtimeHome 默认 homedir()，测试/隔离环境走 CONTROL_CENTER_RUNTIME_HOME
   const ccswitchProxy = await new CcSwitchProxyService({ dataRoot, providerStore, eventStore }).init();
   const ccswitchAuth = await new CcSwitchAuthService({ dataRoot }).init();
   const ccswitchDomain = await new CcSwitchDomainService({ dataRoot, providerStore, eventStore, authService: ccswitchAuth }).init();
-  const modelDiscovery = new ModelDiscovery({ profiles: models.profiles });
+  const modelDiscovery = new ModelDiscovery({ profiles: models.profiles, providerStore });
   // T4：外部 CLI 配置变更感知（~/.grok/config.toml 等）。watch 事件驱动，经既有
   // eventStore → /api/events SSE 管道推送 capability.changed；payload 只带键名与哈希，
   // 配置文件内容/密钥永不进事件流。清单路径复用 ProviderStore.liveConfigTargets()。
@@ -358,6 +364,7 @@ export async function createControlCenter(options = {}) {
     remoteRunner: createRemoteRunner({ getService: getSshService, gates: remoteGates }),
     macroStore,
     projectPlugins,
+    assistantMemory,
   }).init();
   let generation = 1;
   let closed = false;
@@ -471,6 +478,7 @@ export async function createControlCenter(options = {}) {
     projects,
     conversations,
     conversationContexts,
+    assistantMemory,
     get teamCatalog() { return teamMembers.list(); },
     get runtimeCatalog() { return runtimeCatalogRef.current; },
     models: runtime.models,
@@ -706,6 +714,7 @@ export async function createControlCenter(options = {}) {
           ["approvalBroker.denyAll", () => approvalBroker.denyAll()],
           ["orchestrator.close", () => orchestrator.close({ deadlineMs: resourceDeadline })],
           ["conversationContexts.close", () => conversationContexts.close()],
+          ["assistantMemory.close", () => assistantMemory.close()],
           ["conversations.close", () => conversations.close()],
           ["projects.close", () => projects.close()],
           // 埋点 store 先于主 eventStore 关闭：它是附属度量面，任何关闭异常都不应
