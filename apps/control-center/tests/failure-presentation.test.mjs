@@ -14,10 +14,16 @@ test("Cloudflare 524 becomes a bounded user summary with the original detail ret
     kind: "origin-timeout",
     status: 524,
     title: "上游响应超时",
-    summary: "服务已建立连接，但未在代理等待窗口内返回完整响应。请查看当前运行状态后再决定是否继续。",
+    // D-2026-09-28-022：措辞改为直说"提交状态仍不明确"。524 的真实语义是代理建了连
+    // 但没拿到完整响应——服务端这一轮收没收到、commit 没 commit，调用方无从确认。
+    // 原措辞"当前原生轮已结束，可稍后显式重试"暗示了"没送达"，盲信它会诱导重复提交。
+    summary: "服务已建立连接，但未在代理等待窗口内返回完整响应。提交状态仍不明确——请查看当前运行状态后再决定是否继续。",
     detail: CLOUDFLARE_524,
   });
   assert.ok(!result.summary.includes("developers.cloudflare.com"));
+  // 诚实性不变式：超时类摘要必须显式承认状态未确认，不能给出"已结束/可放心重试"的暗示
+  assert.match(result.summary, /提交状态仍不明确/);
+  assert.doesNotMatch(result.summary, /可稍后显式重试/);
 });
 
 test("API errors with trailing provider text still use the structured JSON payload", () => {

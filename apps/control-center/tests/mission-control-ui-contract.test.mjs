@@ -216,7 +216,7 @@ test("Mission Control rejects stale protocols, malformed routes and cross-run sn
 });
 
 test("Mission Control Playwright gate covers ownership, all tab keys and target viewports", async () => {
-  const qaSource = await readFile(`${appRoot}/scripts/qa-ui.mjs`, "utf8");
+  const qaSource = await readFile(`${appRoot}/scripts/retired-workbench-era/qa-ui.mjs`, "utf8");
 
   assert.match(qaSource, /async function inspectMissionControl\(/);
   assert.match(qaSource, /suite === "mission" \|\| suite === "all"/);
@@ -274,4 +274,55 @@ test("same-run topology invalidation aborts the old request and rejects a late c
   const result = await fresh;
   assert.equal(result.messages[0].id, "fresh");
   assert.equal(topology.socialTopologyCache.get(runId).messages[0].id, "fresh");
+});
+
+test("topology renderers tolerate missing mount points instead of throwing on the Bot path", async () => {
+  // D-2026-09-28 安全序列②：workbench-topology 三处裸 innerHTML 直写补存在性守卫。
+  // commitMarkup 自带 !element 短路（app.js:461），裸直写没有——挂载点缺席时
+  // （DOM 瘦身/迁移后的形态）Bot 事件链不得被 TypeError 打断。
+  const moduleSource = await readFile(`${appRoot}/public/modules/workbench-topology.js`, "utf8");
+  assert.match(moduleSource, /const target = elements\["route-decision"\];\s*\n\s*if \(!target\) return;/,
+    "route-decision 直写缺存在性守卫");
+  assert.match(moduleSource, /const eventList = elements\["workbench-event-list"\];\s*\n\s*if \(!eventList\) return;/,
+    "workbench-event-list 直写缺存在性守卫");
+
+  const { createWorkbenchTopology } = await import("../public/modules/workbench-topology.js");
+  const stubBase = {
+    request: async () => ({}),
+    state: { selectedRunId: null, events: [] },
+    selectedRun: () => null,
+    commitMarkup: () => {},
+    agentLabel: (id) => id, AGENT_SHORT: {}, agentSlug: (id) => id,
+    agentCli: () => "", cliIconMarkup: () => "",
+    historyEventsForRun: () => [], eventTracksEvent: () => false,
+    runReplayScrubber: { mount: () => {}, update: () => Promise.resolve() },
+  };
+
+  const originalDocument = globalThis.document;
+  globalThis.document = { querySelector: () => null }; // renderWorkbenchEvents 探 data-replay-mount
+  try {
+    // 挂载点全部缺席：渲染调用必须静默降级，不得抛错（含带 route 数据的分支）
+    const bare = createWorkbenchTopology({ ...stubBase, elements: {} });
+    bare.renderRouteDecision(null);
+    bare.renderRouteDecision({ primary: { name: "claude" }, reasons: ["团队首选"] });
+    bare.renderWorkbenchEvents();
+
+    // 快乐路径不回归：挂载点在时两处都必须照常写入
+    const writes = {};
+    const sink = (key) => ({ set innerHTML(value) { writes[key] = value; } });
+    const live = createWorkbenchTopology({
+      ...stubBase,
+      elements: {
+        "route-decision": sink("route-decision"),
+        "workbench-event-list": sink("workbench-event-list"),
+        "session-topology": {},
+      },
+    });
+    live.renderRouteDecision(null);
+    live.renderWorkbenchEvents();
+    assert.ok(String(writes["route-decision"]).includes("尚未路由"), "挂载点在时 route-decision 必须照常写入");
+    assert.ok(String(writes["workbench-event-list"]).includes("等待事件"), "挂载点在时 event-list 必须照常写入");
+  } finally {
+    globalThis.document = originalDocument;
+  }
 });

@@ -5,6 +5,7 @@
  */
 import { lucideIcon } from "./lucide.js";
 import { memberAvatarMarkup, officialCliIconMarkup } from "./modules/avatars.js";
+import { escapeHtml } from "./utils.js";
 
 const ACTIVE_RUN_STATES = new Set([
   "queued", "planning", "running", "waiting_agent", "executing", "integrating", "verifying", "active",
@@ -464,9 +465,7 @@ function renderTopology(agents) {
 
 // ─── 工具函数 ────────────────────────────────────────────────
 
-function escapeHtml(s) {
-  return String(s ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-}
+// escapeHtml 统一来自 ./utils.js（本文件此前自带副本，且未转义单引号，与规范不一致）
 
 function truncate(s, len) {
   s = String(s ?? "");

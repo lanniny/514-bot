@@ -24,6 +24,7 @@ try {
 
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1512, height: 945 } });
+  await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
   const errs = [];
   const installPosts = [];
   page.on("console", (m) => { if (m.type() === "error" && !m.text().includes("501")) errs.push(m.text().slice(0, 200)); });
@@ -32,7 +33,10 @@ try {
 
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#api-connection-badge.is-ok", { timeout: 20_000 });
-  await page.locator('.topbar-nav [data-view="config"]').click();
+  // bot 面顶栏导航被 !important 隐藏（bot 表面无 chrome 设计）——走 hash 导航，
+// 不依赖被藏按钮的可见性（与 qa-bot-journey 同款）。
+await page.evaluate(() => { location.hash = "#config"; });
+await page.waitForFunction(() => document.querySelector("#view-config")?.classList?.contains("is-active") === true, null, { timeout: 15_000 });
   await page.locator('[data-config-surface="local-runtime"]').click();
   const root = page.locator("#ccswitch-workbench");
   await root.waitFor({ state: "visible" });

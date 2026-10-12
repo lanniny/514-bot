@@ -60,6 +60,43 @@
   }
 }
 
+/* Transitions.dev & Emil Kowalski 经典物理弹簧升起 */
+@keyframes forge-spring-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* BeautifulUI & beUI AI 思考呼吸脉冲发光 */
+@keyframes forge-thinking-breathe {
+  0%,
+  100% {
+    opacity: 0.65;
+    transform: scale(0.92);
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 30%, transparent);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+    box-shadow: var(--glow-thinking-pulse);
+  }
+}
+
+/* 流式加载与代码块的高级轻扫扫光 */
+@keyframes forge-sheen-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
+}
+
 /* Angle sweep for conic-gradient loaders (needs @property, else static). */
 @keyframes forge-conic-spin {
   to {
@@ -140,6 +177,30 @@
   transform: translateY(0) scale(0.98);
 }
 
+/* Emil Kowalski 物理弹簧微交互：hover 上浮，active 回弹 */
+.forge-spring-press {
+  transition: transform var(--dur-fast) var(--ease-spring-snappy),
+    box-shadow var(--dur-fast) var(--ease-spring-snappy);
+}
+
+.forge-spring-press:hover {
+  transform: translateY(-1.5px);
+}
+
+.forge-spring-press:active {
+  transform: translateY(0.5px) scale(0.97);
+}
+
+/* BeautifulUI 思考状态指示灯呼吸动画 */
+.forge-thinking-dot {
+  animation: forge-thinking-breathe 2s var(--ease-spring-snappy) infinite;
+}
+
+/* 消息与卡片流体弹簧入场 */
+.forge-spring-enter {
+  animation: forge-spring-up var(--dur-base) var(--ease-spring-snappy) both;
+}
+
 /* Status dot pulse (pair with a round element, e.g. .status-dot). */
 .forge-pulse-dot {
   animation: forge-pulse-dot 1.6s var(--ease-out) infinite;
@@ -191,6 +252,36 @@
   animation-delay: calc(var(--stagger-i, 0) * 24ms);
 }
 
+/* 容器级阶梯编排：对子元素按序注入阶梯延迟 */
+.forge-stagger-container > *:nth-child(1) { --stagger-i: 1; }
+.forge-stagger-container > *:nth-child(2) { --stagger-i: 2; }
+.forge-stagger-container > *:nth-child(3) { --stagger-i: 3; }
+.forge-stagger-container > *:nth-child(4) { --stagger-i: 4; }
+.forge-stagger-container > *:nth-child(5) { --stagger-i: 5; }
+.forge-stagger-container > *:nth-child(6) { --stagger-i: 6; }
+.forge-stagger-container > *:nth-child(7) { --stagger-i: 7; }
+.forge-stagger-container > *:nth-child(8) { --stagger-i: 8; }
+.forge-stagger-container > * {
+  animation: forge-fade-rise var(--dur-med) var(--ease-out) both;
+  animation-delay: calc(var(--stagger-i, 0) * 24ms);
+}
+
+/* Transitions.dev 推荐：CSS Grid 0fr -> 1fr 纯 CSS 物理折叠展开容器 */
+.forge-accordion-grid {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-base) var(--ease-spring-snappy);
+}
+
+.forge-accordion-grid.is-expanded,
+.forge-accordion-grid[open] {
+  grid-template-rows: 1fr;
+}
+
+.forge-accordion-inner {
+  overflow: hidden;
+}
+
 /* 滚动驱动渐进揭示（Progressive Scroll Reveal）：挂载在 .main-content 滚动流内 */
 @supports (animation-timeline: scroll()) {
   .forge-reveal-scroll {
@@ -219,23 +310,35 @@
   .forge-press-scale,
   .forge-lift,
   .forge-spring-interactive,
+  .forge-spring-press,
+  .forge-thinking-dot,
+  .forge-spring-enter,
   .forge-pulse-dot,
   .forge-conic-spin,
   .forge-spin,
   .forge-stagger-item,
+  .forge-stagger-container > *,
+  .forge-accordion-grid,
   .forge-reveal-scroll,
   .forge-magnetic {
     animation: none !important;
     transition: none !important;
   }
 
+  .forge-accordion-grid {
+    grid-template-rows: 1fr !important;
+  }
+
   .forge-enter,
-  .forge-magnetic {
+  .forge-magnetic,
+  .forge-spring-enter {
     opacity: 1;
     transform: none;
   }
 
-  .forge-press:active {
+  .forge-press:active,
+  .forge-spring-press:active,
+  .forge-spring-press:hover {
     transform: none;
   }
 
@@ -255,15 +358,21 @@
 :root[data-motion="reduce"] .forge-press-scale,
 :root[data-motion="reduce"] .forge-lift,
 :root[data-motion="reduce"] .forge-spring-interactive,
+:root[data-motion="reduce"] .forge-spring-press,
+:root[data-motion="reduce"] .forge-thinking-dot,
+:root[data-motion="reduce"] .forge-spring-enter,
 :root[data-motion="reduce"] .forge-pulse-dot,
 :root[data-motion="reduce"] .forge-conic-spin,
 :root[data-motion="reduce"] .forge-spin,
 :root[data-motion="reduce"] .forge-stagger-item,
+:root[data-motion="reduce"] .forge-stagger-container > *,
+:root[data-motion="reduce"] .forge-accordion-grid,
 :root[data-motion="reduce"] .forge-reveal-scroll,
 :root[data-motion="reduce"] .forge-magnetic {
   animation: none !important;
   transition: none !important;
   transform: none !important;
+  grid-template-rows: 1fr !important;
 }
 
 

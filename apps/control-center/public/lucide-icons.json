@@ -1,5 +1,5 @@
 {
-  "count": 143,
+  "count": 144,
   "icons": [
     "activity",
     "archive",
@@ -27,6 +27,7 @@
     "circle-play",
     "circle-stop",
     "clipboard-list",
+    "clock",
     "cloud",
     "cloud-download",
     "cloud-upload",

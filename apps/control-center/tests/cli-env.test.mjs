@@ -7,6 +7,7 @@ const ALL_LATEST = Object.freeze({
   "@anthropic-ai/claude-code": "2.1.220",
   "@openai/codex": "0.55.0",
   "@google/gemini-cli": "0.53.1",
+  "@google/antigravity-cli": "1.0.0",
   "@xai-official/grok": "0.2.118",
   "@moonshot-ai/kimi-code": "1.4.0",
   "@earendil-works/pi-coding-agent": "0.20.2",
@@ -41,6 +42,11 @@ function createMocks({ installed = {}, latest = ALL_LATEST, fetchFail = false, i
         || (command === "bash" && spec.includes("x.ai/cli/install.sh"))) {
         installed.grok = { version: ALL_LATEST["@xai-official/grok"] };
         return { code: 0, signal: null, stdout: "Grok installed", stderr: "" };
+      }
+      if ((command === "powershell.exe" && spec.includes("antigravity.google/cli/install.ps1"))
+        || (command === "bash" && spec.includes("antigravity.google/cli/install.sh"))) {
+        installed.agy = { version: ALL_LATEST["@google/antigravity-cli"] };
+        return { code: 0, signal: null, stdout: "Antigravity installed", stderr: "" };
       }
       if (command === "bash" && spec.includes("cursor.com/install")) {
         installed["cursor-agent"] = { version: CURSOR_LATEST };
@@ -86,18 +92,19 @@ const makeService = (mocks, extra = {}) => createCliEnvironmentService({
 
 const toolById = (tools, id) => tools.find((tool) => tool.id === id);
 
-test("snapshot 覆盖全部 11 个 CLI，缺失二进制如实报 not-installed 且仍给出最新版", async () => {
+test("snapshot 覆盖全部 12 个 CLI，缺失二进制如实报 not-installed 且仍给出最新版", async () => {
   const mocks = createMocks();
   const service = makeService(mocks);
   const { tools, platform, generatedAt } = await service.snapshot({ refresh: true });
 
-  assert.equal(tools.length, 11);
+  assert.equal(tools.length, 12);
   assert.ok(tools.every((tool) => tool.status === "not-installed"));
   assert.ok(tools.every((tool) => tool.currentVersion === null));
   assert.ok(tools.every((tool) => tool.upgradeAvailable === false));
   assert.equal(toolById(tools, "claude").latestVersion, "2.1.220");
   assert.equal(toolById(tools, "cursor").latestVersion, CURSOR_LATEST, "script 版本源从官方安装脚本内嵌标记解析");
   assert.equal(toolById(tools, "codebuddy").latestVersion, "2.132.0");
+  assert.equal(toolById(tools, "antigravity").latestVersion, "1.0.0");
   assert.equal(platform, process.platform);
   assert.ok(generatedAt);
 });
@@ -290,9 +297,9 @@ test("compareVersions 展示级比较语义", () => {
   assert.ok(compareVersions("1.4.0-rc.1", "1.4.0") === 0, "预发布段不参与大小判定");
 });
 
-test("installSpec 与 CLI_TOOLS 契约：11 项固定清单，Grok 走官方安装器，其余 npm 工具统一 @latest", () => {
-  assert.equal(CLI_TOOLS.length, 11);
-  assert.deepEqual(CLI_TOOLS.map((tool) => tool.id), ["claude", "codex", "gemini", "grok", "kimi", "pi", "opencode", "openclaw", "hermes", "cursor", "codebuddy"]);
+test("installSpec 与 CLI_TOOLS 契约：12 项固定清单，Grok/Antigravity 走官方安装器，其余 npm 工具统一 @latest", () => {
+  assert.equal(CLI_TOOLS.length, 12);
+  assert.deepEqual(CLI_TOOLS.map((tool) => tool.id), ["claude", "codex", "gemini", "antigravity", "grok", "kimi", "pi", "opencode", "openclaw", "hermes", "cursor", "codebuddy"]);
   for (const tool of CLI_TOOLS) {
     const spec = installSpec(tool, "linux");
     if (tool.id === "grok") {
@@ -300,6 +307,14 @@ test("installSpec 与 CLI_TOOLS 契约：11 项固定清单，Grok 走官方安�
         command: "bash",
         args: ["-c", "curl -fsSL https://x.ai/cli/install.sh | bash"],
         display: "curl -fsSL https://x.ai/cli/install.sh | bash",
+      });
+      continue;
+    }
+    if (tool.id === "antigravity") {
+      assert.deepEqual(spec, {
+        command: "bash",
+        args: ["-c", "curl -fsSL https://antigravity.google/cli/install.sh | bash"],
+        display: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
       });
       continue;
     }

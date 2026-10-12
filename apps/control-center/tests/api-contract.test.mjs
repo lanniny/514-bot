@@ -68,7 +68,16 @@ test("KNOWN_UI_LESS 每条都写了理由，且只应变短", () => {
   }
   // 上界断言：名单是死能力账本不是豁免券。要加新条目请先确认真的不该接 UI，
   // 并把这个数字一起改 —— 让"名单变长"成为一次显式决定。
-  assert.ok(entries.length <= 6, `KNOWN_UI_LESS 涨到 ${entries.length} 条了，死能力在累积`);
+  //
+  // 2026-09-18 显式决定：6 → 15。原因不是新增豁免，而是**修正了抽取器口径**——
+  // 旧口径把 public/api.js 自己也当调用面（"在常量表里写一行"即算前端有调用），
+  // dead-endpoint 长期恒空。修正后一次性暴露出 9 条真实存在的无 UI 端点。
+  // 其中 4 条是**欠账**（真该接 UI，接线后这里要跟着收紧）：
+  //   /api/readiness、/api/readiness/draft（就绪卡未接线）
+  //   /api/agents/native-settings（席位原生配置只有渲染骨架）
+  //   /api/assistant/memories（A5 记忆管理面板未排期）
+  // 其余 5 条属刻意不做 UI 或由服务端/脚本消费。
+  assert.ok(entries.length <= 15, `KNOWN_UI_LESS 涨到 ${entries.length} 条了，死能力在累积`);
 });
 
 test("规模合理性：抽取器没有退化成扫不到东西", () => {

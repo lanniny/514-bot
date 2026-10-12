@@ -60,8 +60,11 @@ async function main() {
   let browser = null;
   try {
     const bootstrapUrl = await waitForUrl(server);
-    // bootstrapUrl 带 #fragment 与尾部斜杠；双斜杠路径会被 URL 解析器当成协议相对引用
-    const base = bootstrapUrl.split("#")[0].replace(/\/+$/, "");
+    // bootstrapUrl 形如 http://127.0.0.1:PORT/?bootstrap=<token>——带的是 query string，
+    // 不是 fragment。只 split("#") 会把 ?bootstrap= 留在 base 里，拼出的
+    // `${base}/api/projects` 被 URL 解析器整段吞成 search（真实路径退化成 "/"）→ 404。
+    // 只取 origin：token 走 Authorization 头，base 必须干净。
+    const base = new URL(bootstrapUrl).origin;
     const api = async (path, method = "GET", body) => {
       const response = await fetch(`${base}${path}`, {
         method,
@@ -78,6 +81,7 @@ async function main() {
     browser = await chromium.launch();
     const context = await browser.newContext({ viewport: { width: 320, height: 300 } });
     const page = await context.newPage();
+    await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
     page.on("response", (response) => {
       responses.push({ url: response.url(), status: response.status() });
     });
@@ -157,6 +161,55 @@ async function main() {
     if (celebrateState !== "celebrate") problems.push(`expected celebrate state, got ${celebrateState}`);
     await page.screenshot({ path: resolve(outputDir, "pet-celebrate.png") });
 
+    // 环形快捷栏（右键弹出）。穿透模式下窗口收不到鼠标事件，所以先在 qa 通道里
+    // 把 interactive 打开 —— 与真实路径同一个 applyConfig，不是测试专用开关。
+    await page.evaluate(() => window.__petTest.applyConfig({ interactive: true }));
+    await page.waitForTimeout(200);
+    await page.mouse.click(160, 150, { button: "right" });
+    const ringVisible = await page.locator("#pet-ring:not([hidden])").count();
+    if (ringVisible !== 1) problems.push("右键未弹出环形快捷栏");
+    // 一级必须有 5 个扇区，且每个都真的被定位（少一档就会叠在圆心）。
+    const sectorCount = await page.locator("#pet-ring .pet-ring-item").count();
+    if (sectorCount !== 5) problems.push(`一级扇区数应为 5，实得 ${sectorCount}`);
+    const placed = await page.evaluate(() => {
+      const stage = document.querySelector("#pet-ring");
+      const stageBox = stage.getBoundingClientRect();
+      const center = { x: stageBox.left + stageBox.width / 2, y: stageBox.top + stageBox.height / 2 };
+      return [...document.querySelectorAll("#pet-ring .pet-ring-item")].map((node) => {
+        const box = node.getBoundingClientRect();
+        const dx = box.left + box.width / 2 - center.x;
+        const dy = box.top + box.height / 2 - center.y;
+        return { dist: Math.hypot(dx, dy), w: box.width, h: box.height };
+      });
+    });
+    // 未定位的扇区 dist≈0（叠在圆心）；定位成功的应当离圆心约一个环半径。
+    const collapsed = placed.filter((item) => item.dist < 20);
+    if (collapsed.length) problems.push(`${collapsed.length} 个扇区没被定位（叠在圆心），CSS 角度表有缺口`);
+    const offscreen = placed.filter((item) => item.dist > 150);
+    if (offscreen.length) problems.push(`${offscreen.length} 个扇区超出窗口（dist>150）`);
+    const zeroSized = placed.filter((item) => item.w < 10 || item.h < 10);
+    if (zeroSized.length) problems.push(`${zeroSized.length} 个扇区尺寸塌陷`);
+    await page.screenshot({ path: resolve(outputDir, "pet-ring-open.png") });
+
+    // 二级：点「模型」应展开模型列表（4 项），并出现返回按钮。
+    await page.locator("#pet-ring .pet-ring-item").first().click();
+    await page.waitForTimeout(120);
+    const subCount = await page.locator("#pet-ring .pet-ring-item").count();
+    if (subCount !== 4) problems.push(`模型二级列表应为 4 项，实得 ${subCount}`);
+    if (await page.locator("#pet-ring .pet-ring-back:not([hidden])").count() !== 1) problems.push("二级页缺少返回按钮");
+    await page.screenshot({ path: resolve(outputDir, "pet-ring-submenu.png") });
+    await page.locator("#pet-ring .pet-ring-back").click();
+    await page.waitForTimeout(120);
+    // Esc 收起
+    await page.keyboard.press("Escape");
+    if (await page.locator("#pet-ring:not([hidden])").count() !== 0) problems.push("Esc 未能收起环形菜单");
+    // 环收起后不得残留吃掉指针的层（否则拖拽/戳一戳全废）。
+    const ringHidden = await page.evaluate(() => {
+      const node = document.querySelector("#pet-ring");
+      return node.hidden || getComputedStyle(node).display === "none";
+    });
+    if (!ringHidden) problems.push("环收起后容器仍在拦截指针");
+
     // The main surface must fail closed until the desktop-pet package is installed.
     const mainPage = await page.context().newPage();
     mainPage.on("response", (response) => responses.push({ url: response.url(), status: response.status() }));
@@ -166,10 +219,19 @@ async function main() {
     await mainPage.goto(bootstrapUrl, { waitUntil: "domcontentloaded" });
     await mainPage.waitForTimeout(500);
     assert.equal(await mainPage.locator("#pet-web-dock").count(), 0, "an uninstalled pet plugin must not start from localStorage alone");
-    assert.equal(await mainPage.locator("#bot-settings-tab-pet").count(), 0, "pet settings must not remain in Bot settings");
+    // 契约修正（D-2026-09-28-021）：原断言 count()===0 钉的是"卸载即删 DOM"——这个形状
+    // 从未实现过（#bot-settings-tab-pet 是 index.html 静态壳），故恒红。真实契约是：
+    // 页签保持可达（用户能发现插件），面板默认收起，挂载后如实报"资源包尚未安装"
+    // （bot-pet-settings.js petFormMarkup 的 installed:false 分支，单测另外钉死）。
+    assert.equal(await mainPage.locator("#bot-settings-tab-pet").count(), 1, "pet settings tab must stay reachable so users can discover the plugin");
+    assert.equal(await mainPage.locator("#bot-settings-pet").evaluate((node) => node.hidden), true, "pet panel stays collapsed until its tab is chosen");
 
     await mainPage.setViewportSize({ width: 1280, height: 800 });
-    await mainPage.locator('#sidebar [data-view="plugins"]').click();
+    // D-2026-09-28-021：Bot 面（默认 face）下 #sidebar 侧航不可见，点它必超时——
+    // 与 T3 hash-nav 集群同一根因。改走 hash 路由（plugins 是 VIEW_TITLES 白名单视图），
+    // 并等视图真正激活再点页签。
+    await mainPage.evaluate(() => { location.hash = "#plugins"; });
+    await mainPage.waitForFunction(() => document.querySelector("#view-plugins")?.classList.contains("is-active") === true, null, { timeout: 20_000 });
     await mainPage.locator('[data-plugin-tab="catalog"]').click();
     const catalogPet = mainPage.locator('[data-plugin-id="desktop-pet"]');
     await catalogPet.getByRole("button", { name: "查看详情", exact: true }).click();
@@ -192,7 +254,7 @@ async function main() {
     await installedPet.getByRole("button", { name: "查看与配置", exact: true }).click();
     await drawer.locator('input[name="enabled"]').check();
     await drawer.locator('input[name="interactive"]').check();
-    for (const [model, asset] of [["keyboard", "bongo-keyboard/demomodel2.moc3"], ["gamepad", "bongo-gamepad/demomodel3.moc3"], ["standard", "bongo-standard/demomodel.moc3"]]) {
+    for (const [model, asset] of [["keyboard", "bongo-keyboard/demomodel2.moc3"], ["gamepad", "bongo-gamepad/demomodel3.moc3"], ["whale", "pet-models/whale/c_0120.moc3"], ["standard", "bongo-standard/demomodel.moc3"]]) {
       const loaded = mainPage.waitForResponse((response) => response.url().includes(asset) && response.status() === 200);
       await drawer.getByLabel("模型模式").selectOption(model);
       await loaded;
@@ -221,8 +283,18 @@ async function main() {
       drawer.getByRole("button", { name: "保存并应用", exact: true }).click(),
     ]);
     await mainPage.locator("[data-drawer-done]").click();
+    // 桌宠配置是**全局单份**（2026-10-03 收敛）：切项目不再改变桌宠，
+    // 这正是用户报的「切个会话就变回猫」的根因所在。
+    // 不写死模型名 —— 断言的是**跨项目不变**这个不变量本身。
+    const modelBeforeSwitch = await mainPage.evaluate(() => JSON.parse(localStorage.getItem("514cc.pet.settings")).model);
     await mainPage.locator("[data-plugin-project]").selectOption(otherProject.projectId);
-    await mainPage.waitForFunction(() => !document.querySelector("#pet-web-dock"));
+    await mainPage.locator("#pet-web-dock-frame").waitFor({ timeout: 10_000 });
+    const dockAfterSwitch = await mainPage.locator("#pet-web-dock").count();
+    if (dockAfterSwitch !== 1) problems.push(`切换项目后桌宠消失了（count=${dockAfterSwitch}）`);
+    const modelAfterSwitch = await mainPage.evaluate(() => JSON.parse(localStorage.getItem("514cc.pet.settings")).model);
+    if (modelAfterSwitch !== modelBeforeSwitch) {
+      problems.push(`切换项目后模型从 ${modelBeforeSwitch} 变成了 ${modelAfterSwitch}，全局配置没生效`);
+    }
     await mainPage.locator("[data-plugin-project]").selectOption(pluginProject.projectId);
     await mainPage.locator("#pet-web-dock-frame").waitFor();
     await mainPage.setViewportSize({ width: 1280, height: 800 });
@@ -241,7 +313,10 @@ async function main() {
     assert.ok(afterKey.x < afterDrag.x, "keyboard move must move the dock");
     await mainPage.reload({ waitUntil: "domcontentloaded" });
     await mainPage.waitForTimeout(500);
-    assert.equal(await mainPage.locator("#pet-web-dock").count(), 0, "unknown project after reload must keep the pet closed");
+    // 桌宠是全局配置：reload 后即使没选项目也应恢复（全局会话同样能拿到绑定）。
+    // 旧断言「未知项目必须保持关闭」随全局化失效 —— 现在桌宠跟项目无关。
+    const dockAfterReload = await mainPage.locator("#pet-web-dock").count();
+    if (dockAfterReload !== 1) problems.push(`reload 后桌宠未恢复（count=${dockAfterReload}）`);
     await mainPage.locator("[data-plugin-project]").selectOption(pluginProject.projectId);
     await mainPage.locator("#pet-web-dock-frame").waitFor();
     const restored = await mainPage.locator("#pet-web-dock").boundingBox();
@@ -250,7 +325,8 @@ async function main() {
     await frame.locator('body[data-pet-state="ready"]').waitFor({ timeout: 30_000 });
     await mainPage.screenshot({ path: resolve(outputDir, "pet-workbench-desktop.png") });
 
-    await mainPage.locator('#sidebar [data-view="plugins"]').click();
+    await mainPage.evaluate(() => { location.hash = "#plugins"; });
+    await mainPage.waitForFunction(() => document.querySelector("#view-plugins")?.classList.contains("is-active") === true, null, { timeout: 20_000 });
     await mainPage.locator("[data-plugin-project]").selectOption(pluginProject.projectId);
     await mainPage.locator('[data-plugin-id="desktop-pet"]').getByRole("button", { name: "查看与配置", exact: true }).click();
     await drawer.locator('input[name="web-dock"]').uncheck();
@@ -329,6 +405,8 @@ async function main() {
       window.BroadcastChannel = undefined;
       sessionStorage.setItem("514cc-control-token", token);
       localStorage.setItem("514cc.pet.settings", JSON.stringify({ enabled: true, interactive: true }));
+      // 首跑导览对话框会盖住整页拦截 pointer 事件（D-2026-09-28-018 同类）
+      try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {}
     }, TOKEN);
     const fallback = await fallbackContext.newPage();
     let rejectStream = false;
@@ -338,7 +416,11 @@ async function main() {
       return route.continue();
     });
     await fallback.goto(base, { waitUntil: "domcontentloaded" });
-    await fallback.locator('#sidebar [data-view="plugins"]').click();
+    // 先等连接徽章就绪再改 hash：应用启动时会写回自己的 hash（#bot），
+    // 提前设的 #plugins 会被覆盖掉——此前两个页面能过是竞态侥幸赢了。
+    await fallback.waitForFunction(() => document.querySelector("#api-connection-badge")?.classList.contains("is-ok") === true, null, { timeout: 30_000 });
+    await fallback.evaluate(() => { location.hash = "#plugins"; });
+    await fallback.waitForFunction(() => document.querySelector("#view-plugins")?.classList.contains("is-active") === true, null, { timeout: 20_000 });
     await fallback.locator("[data-plugin-project]").selectOption(pluginProject.projectId);
     const fallbackFrame = fallback.frameLocator("#pet-web-dock-frame");
     await fallbackFrame.locator('body[data-pet-state="ready"]').waitFor({ timeout: 30_000 });

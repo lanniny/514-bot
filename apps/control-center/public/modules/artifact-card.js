@@ -9,20 +9,13 @@
  * - handoff 内容渲染前剥离 Markdown 标记并截断——预览不是全文，全文看文件。
  */
 
+import { escapeHtml } from "../utils.js";
+
 const DELTA_PATH = "/api/observability/delta";
 const HANDOFFS_PATH = "/api/observability/handoffs";
 const RECORD_PATH = "/api/release-record";
 const HANDOFF_PREVIEW_CHARS = 1200;
 const DELTA_PREVIEW_CHARS = 110;
-
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
 
 function stripMarkdown(text) {
   return String(text ?? "")

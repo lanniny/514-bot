@@ -178,7 +178,7 @@ test("live 轮询：只在供应商面可见时开，远程配置目标生效时
   const poll = sourceSection("function providerLiveViewVisible", "function providerById");
   assert.match(poll, /state\.view === "config"/);
   assert.match(poll, /state\.configSurface === "sources"/);
-  assert.match(poll, /state\.runtimeWorkspaceMode === "seats"/);
+  assert.match(poll, /\["seats", "connections"\]\.includes\(state\.runtimeWorkspaceMode\)/);
   assert.match(poll, /!state\.configHostId/);
   assert.match(poll, /document\.visibilityState !== "hidden"/);
   // 只换 live 段，不动档案列表；内容没变就不重画（避免每 8 秒销毁一次焦点）

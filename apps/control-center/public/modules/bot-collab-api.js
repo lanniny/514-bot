@@ -9,7 +9,10 @@
 import { request } from "../api.js";
 
 function isNotFound(error) {
-  return error?.status === 404 || error?.payload?.code === "PROFILE_NOT_FOUND" || error?.payload?.code === "ROUTINE_NOT_FOUND";
+  return error?.status === 404
+    || error?.payload?.code === "PROFILE_NOT_FOUND"
+    || error?.payload?.code === "ROUTINE_NOT_FOUND"
+    || error?.payload?.code === "CONVERSATION_NOT_FOUND";
 }
 
 export async function fetchBots({ signal } = {}) {
@@ -97,8 +100,29 @@ export async function pauseRoutine(id) {
   return payload?.routine ?? null;
 }
 
-export async function fetchRelayBoard(runId, { signal } = {}) {
+/**
+ * 会话协作收件箱（方案 B：GET /api/bots/inbox?conversationId=）。
+ *
+ * 为什么不是 /api/teams/<id>/inbox：Bot 会话的 run.teamId 是 team-ephemeral-<uuid>，
+ * 既有团队收件箱按 teamId 过滤且校验 team.id，对 Bot 会话恒为空。
+ * 详细判定见 src/bots/inbox.mjs 头注。
+ *
+ * @param {string} conversationId
+ * @returns {Promise<object|null>} 会话不存在时返回 null（与 profile/routine 的 404 折叠一致）
+ */
+export async function fetchBotInbox(conversationId, { signal } = {}) {
+  const id = String(conversationId ?? "").trim();
+  if (!id) return null;
   try {
+    const payload = await request(`/api/bots/inbox?conversationId=${encodeURIComponent(id)}`, { signal });
+    return payload ?? null;
+  } catch (error) {
+    if (isNotFound(error) || error?.payload?.code === "CONVERSATION_NOT_FOUND") return null;
+    throw error;
+  }
+}
+
+export async function fetchRelayBoard(runId, { signal } = {}) {  try {
     return await request(`/api/bots/relay/${encodeURIComponent(runId)}`, { signal });
   } catch (error) {
     if (isNotFound(error)) return null;

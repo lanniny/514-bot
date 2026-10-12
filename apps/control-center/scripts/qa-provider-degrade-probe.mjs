@@ -48,6 +48,7 @@ try {
 
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1512, height: 945 } });
+  await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
   const errs = [];
   page.on("pageerror", (e) => errs.push(`PAGEERROR: ${String(e).slice(0, 200)}`));
   await page.goto(url, { waitUntil: "domcontentloaded" });

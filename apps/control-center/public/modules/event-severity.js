@@ -156,6 +156,10 @@ export const EVENT_SEVERITY = Object.freeze({
   "bus.routed": "info",
   "user.message": "info",
   "assistant.message": "info",
+  // 流式噪音级事件：partial=增量 token（api-chat / codex-app-server 双发射），
+  // thought=antigravity 思考流。与 assistant.message / grok.thinking 同质，显式登记防语义静默漂移。
+  "assistant.partial_message": "info",
+  "assistant.thought": "info",
   "tool.event": "info",
   "prompt.transport": "info",
   "grok.thinking": "info",

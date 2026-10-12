@@ -182,7 +182,10 @@ export function createProjectPluginsPanel({ navigate, getContext, appendDraft, c
     if (versionEl) versionEl.textContent = resolvedItem.manifest.version;
     if (descEl) descEl.textContent = resolvedItem.manifest.description;
     if (stateEl) {
-      stateEl.textContent = !installed ? "未安装" : currentBinding?.enabled ? "当前项目已启用" : "已安装";
+      // 桌宠的配置是全局单份（服务端 @desktop 槽），文案不能说"当前项目" ——
+      // 否则用户会以为切项目就能换桌宠，而真相是全局共用一只。
+      const scopeLabel = resolvedItem.id === "desktop-pet" ? "全局已启用" : "当前项目已启用";
+      stateEl.textContent = !installed ? "未安装" : currentBinding?.enabled ? scopeLabel : "已安装";
       stateEl.dataset.state = !installed ? "available" : currentBinding?.enabled ? "enabled" : "installed";
     }
 
@@ -190,9 +193,11 @@ export function createProjectPluginsPanel({ navigate, getContext, appendDraft, c
     if (hintEl) {
       hintEl.textContent = !installed
         ? "安装后可配置项目生效范围"
-        : selected
-          ? `生效项目：${proj?.title || selected}`
-          : "请先在工具栏选择配置项目";
+        : resolvedItem.id === "desktop-pet"
+          ? "全局生效：桌宠只有一只窗口，所有项目共用这份配置"
+          : selected
+            ? `生效项目：${proj?.title || selected}`
+            : "请先在工具栏选择配置项目";
     }
 
     const formContainer = drawer.querySelector("[data-drawer-form-container]");
@@ -587,7 +592,8 @@ export function createProjectPluginsPanel({ navigate, getContext, appendDraft, c
       if (field.type === "select") {
         input = el("select");
         for (const value of field.options) {
-          const option = el("option", value);
+          // 值域来自插件清单，但标签以 PET_MODELS 为准（whale 这类模型的中文名只有前端知道）。
+          const option = el("option", PET_MODELS[value]?.label || value);
           option.value = value;
           input.append(option);
         }
@@ -868,6 +874,13 @@ export function createProjectPluginsPanel({ navigate, getContext, appendDraft, c
   }
 
   // 事件绑定
+  // 桌宠环形快捷栏改了模型：它写的是服务端台账，面板的 revision 已经过期。
+  // 不重拉的话，用户下一次在面板里保存会被 CAS 判 PLUGIN_REVISION_MISMATCH。
+  window.addEventListener("514cc:plugin-refresh-request", (event) => {
+    const projectId = String(event.detail?.projectId ?? selected ?? "");
+    void load({ projectId });
+  });
+
   projectSelect.addEventListener("change", () => {
     if (!busy) void load({ projectId: projectSelect.value });
   });

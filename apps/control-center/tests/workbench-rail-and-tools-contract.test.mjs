@@ -453,7 +453,10 @@ test("recovery bar follows live status and keeps provider failures readable", as
   assert.match(recoveryFn, /class="recovery-bar-content"/);
   assert.match(recoveryFn, /class="recovery-bar-actions"/);
   assert.match(recoveryFn, /bar\.classList\.toggle\("is-acked", acked\)/);
-  assert.match(recoveryFn, /acked \? "" : `<div class="recovery-reasons">/);
+  assert.match(recoveryFn, /class="recovery-technical-details"/);
+  assert.match(recoveryFn, /<summary>查看技术详情/);
+  assert.match(recoveryFn, /class="recovery-reasons"/);
+  assert.match(recoveryFn, /hintsHtml/);
   assert.match(app, /providerFailurePresentation\(content\)/, "assistant 里的 API 5xx 必须走有界错误卡，不能渲染为正文墙");
   assert.match(app, /function providerFailureMessageMarkup\(/);
   assert.match(styles, /\.recovery-bar \{[^}]*display: grid;[^}]*grid-template-columns: minmax\(0, 1fr\) auto;[^}]*min-width: 0;/s);

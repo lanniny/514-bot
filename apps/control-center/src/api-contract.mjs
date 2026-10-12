@@ -97,8 +97,16 @@ function collectJsFiles(dir, out = []) {
  */
 export function extractFrontendCalls(publicDir, { repoRoot = publicDir } = {}) {
   const calls = new Map();
-  const apiConstants = readApiConstants(join(publicDir, "api.js"));
+  const apiPath = join(publicDir, "api.js");
+  const apiConstants = readApiConstants(apiPath);
+  const samePath = (a, b) => a.replace(/\\/g, "/") === b.replace(/\\/g, "/");
   for (const file of collectJsFiles(publicDir)) {
+    // api.js 是**声明面**，不是消费面。下面规则①把任意 "/api/..." 字面量记为调用，
+    // 而 api.js 的常量表本身就是一堆这样的字面量——于是"在常量表里写一行"自动满足了
+    // "前端有调用"，dead 名单因此长期恒空。2026-09-18 实测：8 条前端零调用的
+    // assistant/checkpoint/distill 路由一条都没被报出来，`npm run api:audit` 报 dead:0。
+    // 声明 ≠ 调用，声明面必须排除在调用面之外。
+    if (samePath(file, apiPath)) continue;
     const rel = file.replace(repoRoot, "").replace(/^[\\/]/, "").replace(/\\/g, "/");
     readFileSync(file, "utf8").split("\n").forEach((raw, index) => {
       const line = raw.replace(/\r$/, "");
@@ -114,6 +122,13 @@ export function extractFrontendCalls(publicDir, { repoRoot = publicDir } = {}) {
       for (const match of line.matchAll(/\$\{API\.([a-zA-Z]+)\}([^"'`?#]*)/g)) {
         const base = apiConstants.get(match[1]);
         if (base) record(`${base}${match[2]}`);
+      }
+      // ③ 常量本身作为值使用：request(API.approvals) / [API.health, API.runs]。
+      //    2026-09-18 新增——规则②只认模板拼接，而这种最常见的写法此前完全不入账
+      //    （全靠 api.js 的声明兜着，正是上面那段说明的盲区）。
+      for (const match of line.matchAll(/\bAPI\.([a-zA-Z]+)\b/g)) {
+        const base = apiConstants.get(match[1]);
+        if (base) record(base);
       }
     });
   }
@@ -155,6 +170,12 @@ export function matchBackend(callPath, backend) {
  * 登记一条 = 明确承认"这个能力当前没有 UI 入口"，并写清原因。
  * **这份名单只应变短，不应变长**——它是死能力的账本，不是豁免券。
  * 加新端点却不接 UI 时，测试会逼你要么接 UI、要么在这里写下理由。
+ *
+ * ⚠️ 2026-09-18 口径修正后的名单：此前 `extractFrontendCalls` 把 api.js 自己也当调用面，
+ * 于是"在常量表里写一行"就等于"前端有调用"，dead 长期恒空（实测 8 条零调用的
+ * assistant 路由一条都没被报出来）。修正后这些**真实存在的**无 UI 端点一次性暴露出来，
+ * 所以这份名单在 2026-09-18 变长了——变长的是被掩盖的存量，不是新增豁免。
+ * 每条都经当轮实测（常量引用数 + 字面量数均为 0）后才登记。
  */
 export const KNOWN_UI_LESS = Object.freeze({
   "/api/budget/monthly": "月度预算读写：Console 当前只做单轮预算闸，月度视图未排期",
@@ -163,6 +184,15 @@ export const KNOWN_UI_LESS = Object.freeze({
   "/api/roster": "运行时花名册原始快照：memberCatalog 已在 bootstrap 里给了 UI 版本",
   "/api/security/remote-gates/open": "远程闸打开：UI 走 grant/revoke 两个显式动作，open 供脚本用",
   "/api/security/sweep": "密钥巡检触发/读取：当前由 pre-commit 与 mirror-gate 消费，UI 未排期",
+  // ↓ 2026-09-18 口径修正后暴露的存量（逐条当轮实测：常量与字面量引用数均为 0）
+  "/api/assistant/memories": "A5 记忆管理面板未排期：本轮只接了服务端注入与驻留提示，CRUD 仍无 UI 入口",
+  "/api/assistant/memories/prompt-chunk": "服务端注入消费（orchestrator 取记忆块拼进系统提示），本就不是 UI 端点；orchestrator.test.mjs 覆盖",
+  "/api/adapter-templates": "适配器模板目录：CLI 环境面板只展示已安装席位，模板选择未排期",
+  "/api/agents/native-settings": "席位原生配置：前端只有渲染骨架没有取数调用（runtime-seat-manager.js 注释声称的取数未实现）",
+  "/api/feedback": "产品反馈提交：反馈面板未排期，埋点是另一条链（/api/telemetry/*）",
+  "/api/project-bridge": "项目桥只读四面当前经 bootstrap 投影提供，独立端点无 UI 消费",
+  "/api/readiness/draft": "首发就绪草稿：/api/readiness 已由 welcome 面消费，draft 写入口仍未排期",
+  "/api/release-record/commands": "operator-attested 申报口：UI 刻意不提供，避免把人工申报冒充 server-observed 证据（D-2026-08-18-011）",
 });
 
 /**

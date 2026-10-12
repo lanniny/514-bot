@@ -132,6 +132,26 @@ test("clipboard image structure validation covers complete PNG/JPEG/GIF/WebP", (
   assert.equal(detectClipboardImageType(webpFile([{ type: "VP8X", payload: vp8xPayload(32_769, 1) }])), null);
 });
 
+test("clipboard image structure validation tolerates trailing padding and strips them upon saving", async (t) => {
+  for (const [mimeType, bytes] of Object.entries(images)) {
+    const trailingBytes = Buffer.concat([bytes, Buffer.from([0x00, 0x00, 0x00, 0x00])]);
+    assert.equal(detectClipboardImageType(trailingBytes), mimeType, `${mimeType} with trailing bytes should be detected`);
+  }
+
+  const root = await mkdtemp(join(tmpdir(), "514cc-clipboard-trailing-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const pngBytes = images["image/png"];
+  const pngWithTrailing = Buffer.concat([pngBytes, Buffer.from("EXTRA_PADDING_1234")]);
+  const saved = await saveClipboardImage({
+    dataUrl: dataUrl("image/png", pngWithTrailing),
+    dataRoot: root,
+    now: () => new Date("2026-08-14T12:00:00.000Z"),
+    id: () => "trailing-id",
+  });
+  assert.equal(saved.size, pngBytes.length);
+  assert.deepEqual(await readFile(saved.path), pngBytes);
+});
+
 test("clipboard image is atomically persisted under the control-center data root", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "514cc-clipboard-"));
   t.after(() => rm(root, { recursive: true, force: true }));

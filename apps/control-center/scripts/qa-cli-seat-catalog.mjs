@@ -865,6 +865,7 @@ export async function runCliSeatQa({ outputDir, composerOnly = false } = parseAr
       assert.ok(Number(parsed.port) > 0);
       browser = await chromium.launch({ headless: true });
       const desktop = await browser.newPage({ viewport: { width: 1512, height: 945 } });
+      await desktop.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
       watcher.watchPage(desktop, "desktop");
       await desktop.goto(bootstrapUrl, { waitUntil: "domcontentloaded" });
       await desktop.waitForSelector("#api-connection-badge.is-ok", { timeout: 30_000 });

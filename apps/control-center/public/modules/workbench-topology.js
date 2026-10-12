@@ -146,13 +146,17 @@ export function createWorkbenchTopology({
   }
 
   function renderRouteDecision(route) {
+    // 挂载点缺席（DOM 瘦身/迁移）时静默返回——不得让 Bot 事件链因缺元素而抛错中断。
+    // commitMarkup 自带 !element 守卫，但裸 innerHTML 直写没有，这两处是显式缺口。
+    const target = elements["route-decision"];
+    if (!target) return;
     if (!route) {
-      elements["route-decision"].innerHTML = `<span class="route-model">尚未路由</span><p>任务提交后显示候选模型、路由权重和守卫条件。</p>`;
+      target.innerHTML = `<span class="route-model">尚未路由</span><p>任务提交后显示候选模型、路由权重和守卫条件。</p>`;
       return;
     }
     const name = route.primary?.name || "未选择";
     const reason = route.reasons?.[0] || `策略 ${route.policy || "未标注"}`;
-    elements["route-decision"].innerHTML = `<span class="route-model">${escapeHtml(name)}</span><p>${escapeHtml(reason)}</p>`;
+    target.innerHTML = `<span class="route-model">${escapeHtml(name)}</span><p>${escapeHtml(reason)}</p>`;
   }
 
   function renderTopology(run) {
@@ -217,7 +221,10 @@ export function createWorkbenchTopology({
     // deferred/skipped/unproductive 共 9 类词根 —— `run.directive_rejected`
     // （LO 的指令被拒）会与 `run.sources_added`（加了个源）同色同形。
     // attention/critical 额外带 data-severity，让"需要注意"不只靠一条色带传达。
-    elements["workbench-event-list"].innerHTML = events.length
+    // 同 renderRouteDecision：挂载点缺席时静默返回，Bot 事件链不得因缺元素中断
+    const eventList = elements["workbench-event-list"];
+    if (!eventList) return;
+    eventList.innerHTML = events.length
       ? events
           .map((event) => {
             const { severity, tone, inferred } = severityOf(event.type);

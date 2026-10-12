@@ -11,51 +11,56 @@
   padding: 8px 16px;
   border-radius: var(--radius-4xl);
   font-size: var(--text-sm);
+  font-weight: 500;
   transition:
-    background-color var(--dur-fast) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out),
-    box-shadow var(--dur-fast) var(--ease-out),
-    transform var(--dur-fast) var(--ease-out);
+    background-color var(--dur-fast) var(--ease-spring-snappy),
+    border-color var(--dur-fast) var(--ease-spring-snappy),
+    color var(--dur-fast) var(--ease-spring-snappy),
+    box-shadow var(--dur-fast) var(--ease-spring-snappy),
+    transform var(--dur-fast) var(--ease-spring-snappy);
 }
 
 .button:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: translateY(0.5px) scale(0.97);
 }
 
 .button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent);
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px color-mix(in oklch, var(--ring) 60%, transparent);
 }
 
 .button.primary {
   border-color: var(--primary);
   background: var(--primary);
   color: var(--primary-foreground);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 0 oklch(1 0 0 / 24%);
 }
 
 .button.primary:hover:not(:disabled) {
   border-color: var(--primary-hover);
   background: var(--primary-hover);
+  box-shadow: var(--shadow-md), inset 0 1px 0 0 oklch(1 0 0 / 30%);
 }
 
 .button.secondary {
   border-color: var(--border);
   background: var(--muted);
   color: var(--foreground);
+  box-shadow: var(--shadow-card-subtle), var(--glass-specular);
 }
 
 .button.secondary:hover:not(:disabled) {
   border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
   background: color-mix(in oklch, var(--muted) 70%, var(--foreground) 4%);
   color: var(--foreground);
+  box-shadow: var(--shadow-sm);
 }
 
 .button.danger {
   border-color: var(--danger);
   background: var(--danger);
   color: oklch(0.985 0 0);
+  box-shadow: var(--shadow-sm), inset 0 1px 0 0 oklch(1 0 0 / 20%);
 }
 
 .button.danger:hover:not(:disabled) {
@@ -68,27 +73,29 @@
   border-radius: var(--radius-4xl);
   background: var(--card);
   color: var(--muted-foreground);
+  box-shadow: var(--shadow-card-subtle);
   transition:
-    background-color var(--dur-fast) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-out),
-    color var(--dur-fast) var(--ease-out),
-    box-shadow var(--dur-fast) var(--ease-out),
-    transform var(--dur-fast) var(--ease-out);
+    background-color var(--dur-fast) var(--ease-spring-snappy),
+    border-color var(--dur-fast) var(--ease-spring-snappy),
+    color var(--dur-fast) var(--ease-spring-snappy),
+    box-shadow var(--dur-fast) var(--ease-spring-snappy),
+    transform var(--dur-fast) var(--ease-spring-snappy);
 }
 
 .icon-button:hover:not(:disabled) {
-  border-color: var(--border);
+  border-color: color-mix(in oklch, var(--primary) 25%, var(--border));
   background: var(--muted);
   color: var(--foreground);
+  transform: translateY(-1px);
 }
 
 .icon-button:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: translateY(0.5px) scale(0.95);
 }
 
 .icon-button:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 50%, transparent);
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px color-mix(in oklch, var(--ring) 60%, transparent);
 }
 
 .icon-button.danger-quiet:hover:not(:disabled) {
@@ -112,17 +119,17 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-2xl);
   background: var(--card);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-card-subtle), var(--glass-specular);
   transition:
-    border-color var(--dur-slow) var(--ease-out),
-    transform var(--dur-slow) var(--ease-out),
-    box-shadow var(--dur-slow) var(--ease-out);
+    border-color var(--dur-fast) var(--ease-spring-snappy),
+    transform var(--dur-fast) var(--ease-spring-snappy),
+    box-shadow var(--dur-fast) var(--ease-spring-snappy);
 }
 
 .metric-card:hover {
   border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
   transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-md), 0 0 0 1px color-mix(in oklch, var(--primary) 15%, transparent);
 }
 
 /* New-surface card primitive for forge views (team, observability…). */
@@ -131,21 +138,22 @@
   border-radius: var(--radius-2xl);
   background: var(--card);
   color: var(--card-foreground);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-card-subtle), var(--glass-specular);
 }
 
 .forge-card-interactive {
   cursor: pointer;
+  box-shadow: var(--shadow-card-subtle), var(--glass-specular);
   transition:
-    border-color var(--dur-slow) var(--ease-out),
-    transform var(--dur-slow) var(--ease-out),
-    box-shadow var(--dur-slow) var(--ease-out);
+    border-color var(--dur-fast) var(--ease-spring-snappy),
+    transform var(--dur-fast) var(--ease-spring-snappy),
+    box-shadow var(--dur-fast) var(--ease-spring-snappy);
 }
 
 .forge-card-interactive:hover {
   border-color: color-mix(in oklch, var(--primary) 35%, var(--border));
   transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow-md), 0 0 0 1px color-mix(in oklch, var(--primary) 18%, transparent);
 }
 
 /* —— Dialogs: rounded-4xl, ring-1 border, shadow-2xl, blurred black overlay —— */

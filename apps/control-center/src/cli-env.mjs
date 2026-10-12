@@ -1,8 +1,8 @@
 /**
  * cli-env.mjs — 本地 CLI 环境检查与安装/升级（CC Switch 式「环境」面后端）。
  *
- * 契约（v4.0 环境面板波 + Cursor/CodeBuddy 扩编波）：
- *   - 11 项固定 CLI 清单（514cc 席位 6 + Provider 体系 3 + Cursor/CodeBuddy），不读外部目录、不接受任意 id
+ * 契约（v4.0 环境面板波 + Cursor/CodeBuddy 扩编波 + Antigravity 接入）：
+ *   - 12 项固定 CLI 清单（514cc 席位 7 + Provider 体系 3 + Cursor/CodeBuddy），不读外部目录、不接受任意 id
  *   - 探测走 runProcess(cmd, ["--version"])：probe 参数不注入任何 provider 凭据（process-runner isProbeArgs）
  *   - 最新版走只读版本源（npm dist-tags / PyPI JSON / Cursor 官方安装脚本内嵌版本标记）；失败如实降级 latestVersion:null + latestError，不装死
  *   - 安装/升级两段式：未 confirmed:true → 409 CLI_ENV_NOT_CONFIRMED；未知 id → 404 CLI_ENV_UNKNOWN_TOOL；
@@ -27,6 +27,29 @@ export const CLI_TOOLS = Object.freeze([
   { id: "claude", label: "Claude Code", command: "claude", packageName: "@anthropic-ai/claude-code", registry: "npm", brand: "claude" },
   { id: "codex", label: "Codex", command: "codex", packageName: "@openai/codex", registry: "npm", brand: "codex" },
   { id: "gemini", label: "Gemini CLI", command: "gemini", packageName: "@google/gemini-cli", registry: "npm", brand: "gemini" },
+  {
+    id: "antigravity", label: "Antigravity CLI", command: "agy", packageName: "@google/antigravity-cli", registry: "npm", brand: "gemini",
+    install: {
+      source: "Google 官方安装器",
+      byPlatform: Object.freeze({
+        win32: Object.freeze({
+          command: "powershell.exe",
+          args: Object.freeze(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "Invoke-RestMethod https://antigravity.google/cli/install.ps1 | Invoke-Expression"]),
+          display: "irm https://antigravity.google/cli/install.ps1 | iex",
+        }),
+        linux: Object.freeze({
+          command: "bash",
+          args: Object.freeze(["-c", "curl -fsSL https://antigravity.google/cli/install.sh | bash"]),
+          display: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+        }),
+        darwin: Object.freeze({
+          command: "bash",
+          args: Object.freeze(["-c", "curl -fsSL https://antigravity.google/cli/install.sh | bash"]),
+          display: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+        }),
+      }),
+    },
+  },
   {
     id: "grok", label: "Grok Build", command: "grok", packageName: "@xai-official/grok", registry: "npm", brand: "grok",
     install: {

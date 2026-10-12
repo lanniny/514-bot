@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { parseQaUiFixtureArgs } from "../scripts/qa-ui-fixture.mjs";
+import { parseQaUiFixtureArgs } from "../scripts/retired-workbench-era/qa-ui-fixture.mjs";
 
-const qaScript = fileURLToPath(new URL("../scripts/qa-ui.mjs", import.meta.url));
-const qaFixtureScript = fileURLToPath(new URL("../scripts/qa-ui-fixture.mjs", import.meta.url));
+const qaScript = fileURLToPath(new URL("../scripts/retired-workbench-era/qa-ui.mjs", import.meta.url));
+const qaFixtureScript = fileURLToPath(new URL("../scripts/retired-workbench-era/qa-ui-fixture.mjs", import.meta.url));
 
 test("qa-ui rejects an unknown suite before launching a browser", () => {
   const result = spawnSync(process.execPath, [qaScript, "http://127.0.0.1:1", "--suite=histroy"], {

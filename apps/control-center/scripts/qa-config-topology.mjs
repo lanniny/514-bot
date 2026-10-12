@@ -160,7 +160,8 @@ async function stopQaServer() {
 }
 
 async function openPage({ viewport, theme, route }) {
-  const page = await browser.newPage({ viewport });
+  const page = await browser.newPage({ viewport, reducedMotion: "reduce" });
+  await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
   const errors = [];
   page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
   page.on("console", (message) => {
@@ -249,15 +250,6 @@ async function assertSurface(page, surface) {
       bodyOverflow: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - innerWidth,
       mainContentOverflow: mainContent ? mainContent.scrollWidth - mainContent.clientWidth : null,
       providerOwner: document.querySelector("#runtime-connection-deck")?.closest("[data-config-surface-panel]")?.id,
-      providerControlsOffscreen: expected === "providers"
-        ? [...document.querySelectorAll(".provider-deck-heading button, .provider-deck-heading select")]
-            .filter((control) => control instanceof HTMLElement && control.offsetParent !== null)
-            .filter((control) => {
-              const rect = control.getBoundingClientRect();
-              return rect.left < -1 || rect.right > innerWidth + 1;
-            })
-            .map((control) => control.id || control.getAttribute("aria-label") || control.tagName)
-        : [],
       expected,
     };
   }, surface);
@@ -271,10 +263,43 @@ async function assertSurface(page, surface) {
   if (snapshot.mainContentOverflow == null || snapshot.mainContentOverflow > 2) {
     throw new Error(`main content horizontal overflow: ${JSON.stringify(snapshot)}`);
   }
-  if (snapshot.providerOwner !== "config-surface-providers") {
+  if (snapshot.providerOwner !== "config-surface-sources") {
     throw new Error(`provider owner mismatch: ${JSON.stringify(snapshot)}`);
   }
-  if (snapshot.providerControlsOffscreen.length) throw new Error(`provider controls are offscreen: ${JSON.stringify(snapshot)}`);
+  return snapshot;
+}
+
+async function assertRuntimeMode(page, mode) {
+  const snapshot = await page.evaluate((expected) => {
+    const panelIds = {
+      seats: "runtime-seat-workspace",
+      connections: "config-surface-providers",
+      sources: "runtime-raw-source-workspace",
+    };
+    const visiblePanels = Object.entries(panelIds)
+      .filter(([, id]) => !document.getElementById(id)?.hidden)
+      .map(([key]) => key);
+    const selectedTabs = [...document.querySelectorAll("[data-runtime-workspace-mode]")]
+      .filter((tab) => tab.getAttribute("aria-selected") === "true")
+      .map((tab) => tab.dataset.runtimeWorkspaceMode);
+    const offscreenControls = expected === "connections"
+      ? [...document.querySelectorAll(".provider-deck-heading button, .provider-deck-heading input")]
+          .filter((control) => control instanceof HTMLElement && control.offsetParent !== null)
+          .filter((control) => {
+            const rect = control.getBoundingClientRect();
+            return rect.left < -1 || rect.right > innerWidth + 1;
+          })
+          .map((control) => control.id || control.getAttribute("aria-label") || control.tagName)
+      : [];
+    return { expected, visiblePanels, selectedTabs, offscreenControls, hash: location.hash };
+  }, mode);
+  if (snapshot.visiblePanels.length !== 1 || snapshot.visiblePanels[0] !== mode) {
+    throw new Error(`runtime workspace ownership mismatch: ${JSON.stringify(snapshot)}`);
+  }
+  if (snapshot.selectedTabs.length !== 1 || snapshot.selectedTabs[0] !== mode) {
+    throw new Error(`runtime workspace tab mismatch: ${JSON.stringify(snapshot)}`);
+  }
+  if (snapshot.offscreenControls.length) throw new Error(`provider controls are offscreen: ${JSON.stringify(snapshot)}`);
   return snapshot;
 }
 
@@ -282,15 +307,31 @@ async function inspect(name, viewport, theme) {
   const { page, errors } = await openPage({ viewport, theme, route: "config/sources" });
   await waitForTopology(page);
   const screenshots = [];
-  for (const surface of ["sources", "providers", "capabilities", "hooks", "local-runtime"]) {
-    await page.locator(`[data-config-surface="${surface}"]`).click();
+  await page.evaluate(() => { location.hash = "config/providers"; });
+  await page.waitForSelector("#config-surface-providers:not([hidden])");
+  await assertSurface(page, "sources");
+  const legacyProviderRoute = await assertRuntimeMode(page, "connections");
+  for (const surface of ["sources", "capabilities", "hooks", "local-runtime"]) {
+    const activeSurface = await page.locator('[data-config-surface][aria-selected="true"]').getAttribute("data-config-surface");
+    if (activeSurface !== surface) await page.locator(`[data-config-surface="${surface}"]`).click();
     await assertSurface(page, surface);
     if (surface === "local-runtime") await page.waitForSelector("#ccswitch-workbench .ccs-tabs");
     if (surface === "hooks") await page.waitForSelector("#hooks-workbench .hooks-heading");
     if (surface === "capabilities") await page.waitForSelector("#cap-skills-body tr");
-    const file = `${name}-${theme}-${surface}.png`;
-    await page.screenshot({ path: resolve(outputRoot, file), fullPage: true, animations: "disabled" });
-    screenshots.push(file);
+    if (surface === "sources") {
+      for (const mode of ["seats", "connections", "sources"]) {
+        await page.locator(`[data-runtime-workspace-mode="${mode}"]`).click();
+        await assertRuntimeMode(page, mode);
+        if (mode === "connections") await page.waitForSelector("#provider-columns");
+        const file = `${name}-${theme}-runtime-${mode}.png`;
+        await page.screenshot({ path: resolve(outputRoot, file), fullPage: true, animations: "disabled" });
+        screenshots.push(file);
+      }
+    } else {
+      const file = `${name}-${theme}-${surface}.png`;
+      await page.screenshot({ path: resolve(outputRoot, file), fullPage: true, animations: "disabled" });
+      screenshots.push(file);
+    }
     if (surface === "capabilities") {
       await page.locator("#cap-workspace-mcp-tab").click();
       await page.waitForSelector("#cap-workspace-mcp:not([hidden])");
@@ -325,15 +366,25 @@ async function inspect(name, viewport, theme) {
     throw new Error(`capability source jump failed: ${JSON.stringify(sourceJump)}`);
   }
 
-  findings.push({ name, viewport, theme, screenshots, sourceJump, errors });
+  findings.push({ name, viewport, theme, screenshots, legacyProviderRoute, sourceJump, errors });
   await page.close();
 }
 
 async function inspectLegacyAlias() {
   const { page, errors } = await openPage({ viewport: { width: 1280, height: 800 }, theme: "light", route: "capabilities" });
   await page.waitForSelector("#config-surface-capabilities:not([hidden])");
+  // assertSurface 是别名解析是否成功的**真判据**：它强制要求可见 panel 与选中 tab
+  // 恰好都等于 expected，否则抛错（surface/tab ownership mismatch）。也就是说"旧式 hash
+  // 能否落到 capabilities 面"在这一行之前就已经被咬死了。
   const snapshot = await assertSurface(page, "capabilities");
-  if (snapshot.hash !== "#capabilities") errors.push(`legacy hash was not preserved during alias resolution: ${snapshot.hash}`);
+  // D-2026-09-28-028：原断言要求 hash 保持 #capabilities，与产品的规范化设计相悖——
+  // configRouteHash（app.js:311-318）刻意把所有 config 路由统一成 #config/<surface>，
+  // setView 主动 history.replaceState 过去（单一权威 URL）。旧写法还有个缺陷：
+  // 它分不清「解析成功且被规范化」与「别名彻底坏了」（两种都会改 hash），而那个区别
+  // 已由上面的 assertSurface 负责。故这里只钉规范化后的形态。
+  if (snapshot.hash !== "#config/capabilities") {
+    errors.push(`legacy alias must canonicalize to #config/capabilities, got: ${snapshot.hash}`);
+  }
   findings.push({ name: "legacy-capabilities-alias", ...snapshot, errors });
   await page.close();
 }
@@ -561,7 +612,12 @@ async function inspectChromeBudget() {
     for (const [key, value] of Object.entries(measured)) {
       const previous = baseline.faces?.[key] ?? {};
       const next = { high: value.ratio, chrome: value.chrome };
-      if (value.ratio > goal) next.debt = previous.debt ?? "待压缩（刷新基线时未给说明）";
+      // D-2026-09-28-028：debt 是**人审知识层**（待压清单），不是从 ratio 派生的值。
+      // 原逻辑只在"新 ratio 仍超 goal"时保留它——于是一轮收紧（0.5764→0.3234 跌破 0.4）
+      // 把 19 条人工标注冲掉，而其中多数是仍然成立的待压项（"cap-overview 98px 可压单行"、
+      // "双层 tab 待收"）。机器重写不得覆盖人审层；只在"无前人审 + 新值超目标"时补占位。
+      if (previous.debt) next.debt = previous.debt;
+      else if (value.ratio > goal) next.debt = "待压缩（刷新基线时未给说明）";
       faces[key] = next;
     }
     await writeFile(CHROME_BUDGET_BASELINE_PATH, `${JSON.stringify({ ...baseline, updatedAt: new Date().toISOString(), faces }, null, 2)}\n`, "utf8");

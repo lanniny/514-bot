@@ -29,7 +29,8 @@ test("Bot roster has a real scroll container so 项目协作室 is not clipped",
   assert.match(css, /\.bot-shell-grid\.is-ops-collapsed \{/);
   assert.match(grok, /html\.is-bot-grok-face #view-bot \.bot-roster-scroll/);
   assert.match(grok, /html\.is-bot-grok-face #view-bot \.bot-active-runs \{[\s\S]*max-height: min\(42vh, 360px\);/);
-  assert.doesNotMatch(grok, /@media \(max-width: (?!560px|820px)\d+px\)/);
+  assert.doesNotMatch(grok, /@media \(max-width: (?!560px|820px|1100px)\d+px\)/);
+  assert.match(grok, /@media \(max-width: 1100px\) and \(min-width: 821px\)/);
 });
 
 test("Bot home top icons have destinations after workbench retirement", async () => {
@@ -46,15 +47,19 @@ test("Bot home top icons have destinations after workbench retirement", async ()
   assert.match(html, /id="global-mc-toggle"[^>]+aria-label="展开右侧栏"/);
   assert.match(app, /function handleBotHomeTerminalToggle\(/);
   assert.match(app, /function handleBotHomePanelToggle\(/);
-  assert.match(app, /botTerminalDock\?\.toggle\?\.\(\)/);
+  // 2026-09-12 W11：终端并入右栏页签——入口统一为 botRailTerminalToggle（重开/激活/回会话页）
+  assert.match(app, /function botRailTerminalToggle\(/);
+  assert.match(app, /botRailTerminalToggle\(\)/);
   assert.doesNotMatch(app, /setView\(state\.view === "terminal" \? "bot" : "terminal"\)/);
   assert.match(html, /id="bot-terminal-drawer"/);
   assert.match(html, /id="bot-ops-rail"/);
   assert.match(html, /class="bot-inspector-ops"/);
   assert.match(html, /id="bot-agent-panel"[^>]+role="complementary"/);
   assert.doesNotMatch(html, /<aside class="bot-ops-rail"/);
-  assert.match(html, /data-bot-workspace-action="approvals"/);
-  assert.match(html, /data-bot-workspace-action="files"/);
+  // 审批 / 文件自 2026-09-11 起是**右栏标签**（Codex 对标），不再是动作按钮——
+  // 「看」类做标签、「开/做」类做图标动作。面板 id 未变，仍是同一批锚点。
+  assert.match(html, /data-bot-rail-tab="approvals"/);
+  assert.match(html, /data-bot-rail-tab="files"/);
   assert.match(html, /id="bot-ops-files"/);
   assert.match(html, /成员电脑连接/);
   const roster = html.slice(html.indexOf('class="bot-roster"'), html.indexOf('class="bot-conversation"'));
@@ -98,4 +103,35 @@ test("Bot home top icons have destinations after workbench retirement", async ()
   assert.match(chrome, /if \(!drawer\.closest\("\.view"\)\?\.classList\.contains\("is-active"\)\) return;/);
   assert.match(chrome, /if \(!shell\.closest\("\.view"\)\?\.classList\.contains\("is-active"\)\) return;/);
   assert.doesNotMatch(chrome, /topbar-nav \[data-view="bot"\]/);
+});
+
+test("W15 · 会话切换必须有 run 解析兜底（不许停在空占位）", async () => {
+  const app = await readFile(`${appRoot}/public/app.js`, "utf8");
+  // botSelectMember：run 解析失败时走 botOpenConversationRun 单拉回填
+  const selectFn = /function botSelectMember\([^)]*\) \{[\s\S]*?\n\}/.exec(app)?.[0] ?? "";
+  assert.ok(selectFn, "botSelectMember 缺失");
+  assert.match(selectFn, /if \(conversation && !botConversationRun\(conversation\)\) \{[\s\S]{0,300}?botOpenConversationRun\(conversation, runId/);
+  // botOpenConversation direct 分支：同样的兜底
+  const openFn = /function botOpenConversation\([^)]*\) \{[\s\S]*?\n\}/.exec(app)?.[0] ?? "";
+  assert.ok(openFn, "botOpenConversation 缺失");
+  assert.match(openFn, /if \(!botConversationRun\(conversation\)\) \{[\s\S]{0,300}?botOpenConversationRun\(conversation, runId, conversation\.directMemberId\)/);
+  // group 分支：run 未解析导致参与者为空时按会话登记的 run 兜底拉取，不是拒绝切换
+  assert.match(openFn, /run 未解析导致参与者为空[\s\S]{0,400}?botOpenConversationRun\(conversation, runId\)/);
+  // 兜底取 run 的顺序：activeRunId 优先、runIds 尾部次之（最新 run）
+  assert.match(openFn, /conversation\.activeRunId \|\| \(Array\.isArray\(conversation\.runIds\) \? conversation\.runIds\[conversation\.runIds\.length - 1\] : ""\)/);
+});
+
+test("W16 · 未知 runId 的消息必须触发会话索引刷新（不许静默丢弃）", async () => {
+  const app = await readFile(`${appRoot}/public/app.js`, "utf8");
+  // pushEvent：user/assistant.message 的未知 runId（发送受理 → 服务端新建 run → SSE 先到）
+  // 必须触发 botReloadConversationsForUnknownRun——静默返回 = 「发了消息但不渲染会话」
+  assert.match(app, /if \(event\.runId && !botState\.runAgents\[String\(event\.runId\)\]\) \{[\s\S]{0,300}?botReloadConversationsForUnknownRun\(event\.runId\);/);
+  // 当前 run 命中时不触发（正常流零额外请求）
+  assert.match(app, /const currentRun = botRunForAgent\(botState\.agentId\);[\s\S]{0,120}String\(currentRun\.id\) !== String\(event\.runId\)/);
+  // 去重 + 失败重试：成功后记账，失败回吐（不让去重集合挡住恢复路径）
+  const helper = /function botReloadConversationsForUnknownRun\([\s\S]*?\n\}/.exec(app)?.[0] ?? "";
+  assert.ok(helper, "botReloadConversationsForUnknownRun 缺失");
+  assert.match(helper, /botUnknownRunReloads\.has\(id\)[\s\S]{0,80}botUnknownRunReloads\.add\(id\)/);
+  assert.match(helper, /botUnknownRunReloads\.delete\(id\); \/\/ 刷新失败允许后续事件重试/);
+  assert.match(helper, /void botLoadConversations\(\)/);
 });

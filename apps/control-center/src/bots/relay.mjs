@@ -178,8 +178,14 @@ export class BotRelayService {
    * @param {import("../bus.mjs").BusStore} options.bus —— run 级消息总线（orchestrator.bus）
    * @param {(handleOrMemberId: string) => string|null} options.resolveHandle —— @handle/裸 id → memberId
    * @param {(memberId: string) => object|null} [options.resolveMember] —— 校验成员存在（可空）
+   * @param {object|null} [options.eventStore] —— 可选事件源（2026-09-11 收件箱实时层 W6 注入）。
+   *   为什么需要它：relay 此前**直写 bus.append**，绕过 orchestrator.appendBus——
+   *   意味着 relay 消息（交接/回执）不发任何 SSE 事件，右栏「待我处理」对面板上
+   *   新到的 ask 无从得知（memory「W3 前置已定性」的就是这个缺口）。
+   *   注入后按 orchestrator.appendBus 的**同一事件形状**补发 bus.appended，
+   *   不产生第二套事件词汇。emit 是副产物：失败绝不影响 relay 主路径（automations 同款 fail-soft）。
    */
-  constructor({ bus, resolveHandle, resolveMember = null } = {}) {
+  constructor({ bus, resolveHandle, resolveMember = null, eventStore = null } = {}) {
     if (!bus || typeof bus.append !== "function" || typeof bus.readTail !== "function") {
       fail("bus (BusStore) is required for the relay service");
     }
@@ -187,6 +193,23 @@ export class BotRelayService {
     this.bus = bus;
     this.resolveHandle = resolveHandle;
     this.resolveMember = typeof resolveMember === "function" ? resolveMember : null;
+    // 透传不做形状校验：事件是纯副产物，emit 缺失/坏掉都在 #emitAppended 里吞掉
+    this.eventStore = eventStore ?? null;
+  }
+
+  /** 与 orchestrator.appendBus 同形状的 bus.appended 补发；事件失败不外抛（派生信号）。 */
+  async #emitAppended(runId, message) {
+    if (!this.eventStore) return;
+    try {
+      await this.eventStore.emit("bus.appended", {
+        messageId: message?.id ?? null,
+        from: message?.from ?? null,
+        to: message?.to ?? null,
+        kind: message?.kind ?? null,
+      }, { runId, agentId: message?.from ?? null });
+    } catch {
+      // 事件是副产物：不影响 relay 主路径
+    }
   }
 
   #resolveTarget(handleOrMemberId, label = "target") {
@@ -251,6 +274,7 @@ export class BotRelayService {
           .join("\n"),
         refs: { stage, handoff: true, handoffId: randomUUID() },
       });
+      await this.#emitAppended(normalizedRunId, message);
       dispatched.push({ to, stage, messageId: message.id, handle: assignment.handle });
     }
     return { runId: normalizedRunId, sharedGoal: parsed.sharedGoal, dispatched, warnings };
@@ -271,6 +295,7 @@ export class BotRelayService {
       text: text.trim(),
       refs: { stage: normalizedStage, handoff: true, handoffId: randomUUID() },
     });
+    await this.#emitAppended(normalizedRunId, message);
     return { runId: normalizedRunId, messageId: message.id, to: targetMemberId, stage: normalizedStage };
   }
 
@@ -297,6 +322,7 @@ export class BotRelayService {
       text: `已接手：${target.text.slice(0, 120)}`,
       refs: { ackOf: handoffId, ack: true },
     });
+    await this.#emitAppended(normalizedRunId, message);
     return { runId: normalizedRunId, handoffId, state: "acknowledged", messageId: message.id };
   }
 

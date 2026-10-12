@@ -10,3 +10,4 @@ enter_lightweight_mode
 exit_lightweight_mode
 is_lightweight_mode
 set_pet_overlay
+set_pet_overlay_opacity

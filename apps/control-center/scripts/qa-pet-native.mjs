@@ -102,20 +102,27 @@ try {
   await main.locator("[data-plugin-project]").selectOption(project.projectId);
   await main.locator('[data-plugin-id="desktop-pet"]').getByRole("button", { name: "查看与配置", exact: true }).click();
   const drawer = main.locator("[data-drawer]");
-  await drawer.locator('input[name="interactive"]').check();
+  // 互动模式默认开：不做任何勾选，直接保存，验证「开箱即可拖」。
+  assert.equal(await drawer.locator('input[name="interactive"]').isChecked(), true, "interactive must default to checked");
   await Promise.all([
     main.waitForResponse((response) => response.url().endsWith("/api/plugins/configure") && response.request().method() === "POST"),
     drawer.getByRole("button", { name: "保存并应用", exact: true }).click(),
   ]);
-  await pet.locator("#pet-toolbar").waitFor();
+  // 顶栏已移除：不再等 #pet-toolbar，改为等模型真正挂上（说明渲染层就绪）。
+  const petFrame = pet.locator("#pet-canvas");
+  await petFrame.waitFor();
+  await until(async () => pet.evaluate(() => document.body.dataset.petState === "ready"), "pet ready");
   const interactive = await until(async () => { const value = await windowState(); return !value.clickThrough && value; }, "interactive click-through disabled");
   const moved = await windowState("drag");
   assert.ok(Math.abs(moved.x - interactive.x) > 30 || Math.abs(moved.y - interactive.y) > 30, "physical drag must move native window");
   report.drag = { before: interactive, after: moved };
   await pet.waitForTimeout(250);
   await pet.screenshot({ path: resolve(outputDir, "native-pet.png"), omitBackground: true });
-  check("interactive mode disables click-through and a real Windows mouse drag moves the window");
-  await pet.getByRole("button", { name: "退出互动模式" }).click();
+  check("interactive mode defaults on, disables click-through, and a real Windows mouse drag moves the window");
+  // 退出互动改由右键环形菜单承担（顶栏已移除）。
+  await pet.evaluate(() => window.__petTest?.applyConfig?.({ interactive: true }));
+  await pet.mouse.click(150, 140, { button: "right" });
+  await pet.locator("#pet-ring .pet-ring-item").filter({ hasText: "穿透" }).click();
   await until(async () => (await windowState()).clickThrough, "restore click-through");
   await drawer.locator('input[name="enabled"]').uncheck();
   await drawer.locator('input[name="scale"]').fill("150");

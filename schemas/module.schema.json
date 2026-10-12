@@ -51,7 +51,12 @@
     },
     "dependencies": {
       "type": "object",
-      "required": ["node", "python", "kimi-code-cli", "validation-python-packages"],
+      "required": [
+        "node",
+        "python",
+        "kimi-code-cli",
+        "validation-python-packages"
+      ],
       "minProperties": 1,
       "properties": {
         "node": {
@@ -87,7 +92,14 @@
   "$defs": {
     "agent": {
       "type": "object",
-      "required": ["code", "name", "title", "skill", "model", "description"],
+      "required": [
+        "code",
+        "name",
+        "title",
+        "skill",
+        "model",
+        "description"
+      ],
       "properties": {
         "code": {
           "type": "string",
@@ -126,7 +138,13 @@
     },
     "skill": {
       "type": "object",
-      "required": ["code", "path", "type", "phase", "description"],
+      "required": [
+        "code",
+        "path",
+        "type",
+        "phase",
+        "description"
+      ],
       "properties": {
         "code": {
           "type": "string",
@@ -137,7 +155,13 @@
           "pattern": "^(skills|\\.agents/skills)/"
         },
         "type": {
-          "enum": ["agent", "codex-skill", "task", "tool", "workflow"]
+          "enum": [
+            "agent",
+            "codex-skill",
+            "task",
+            "tool",
+            "workflow"
+          ]
         },
         "phase": {
           "type": "string",
@@ -152,7 +176,17 @@
     },
     "controlCenter": {
       "type": "object",
-      "required": ["path", "role", "configs", "adapter_manifest", "adapters", "pipeline", "tests", "start", "provider_contracts"],
+      "required": [
+        "path",
+        "role",
+        "configs",
+        "adapter_manifest",
+        "adapters",
+        "pipeline",
+        "tests",
+        "start",
+        "provider_contracts"
+      ],
       "properties": {
         "path": {
           "const": "apps/control-center"
@@ -191,7 +225,9 @@
         },
         "provider_contracts": {
           "type": "object",
-          "required": ["kimi"],
+          "required": [
+            "kimi"
+          ],
           "properties": {
             "kimi": {
               "type": "object",
@@ -251,29 +287,65 @@
             "pattern": "^[a-z0-9][a-z0-9_-]{1,63}$"
           },
           "allOf": [
-            { "contains": { "const": "codex-to-" } },
-            { "contains": { "const": "grok-to-" } },
-            { "contains": { "const": "gemini-to-" } },
-            { "contains": { "const": "kimi-to-" } },
-            { "contains": { "const": "synthesis__" } }
+            {
+              "contains": {
+                "const": "codex-to-"
+              }
+            },
+            {
+              "contains": {
+                "const": "grok-to-"
+              }
+            },
+            {
+              "contains": {
+                "const": "gemini-to-"
+              }
+            },
+            {
+              "contains": {
+                "const": "kimi-to-"
+              }
+            },
+            {
+              "contains": {
+                "const": "synthesis__"
+              }
+            }
           ]
         },
         "delta_contract": {
           "type": "object",
-          "required": ["scores", "evidence_required", "hooks", "template_assets"],
+          "required": [
+            "scores",
+            "evidence_required",
+            "hooks",
+            "template_assets"
+          ],
           "properties": {
             "scores": {
-              "const": [0, 1, 2]
+              "const": [
+                0,
+                1,
+                2
+              ]
             },
             "evidence_required": {
               "const": true
             },
             "hooks": {
               "type": "object",
-              "required": ["claude", "codex"],
+              "required": [
+                "claude",
+                "codex"
+              ],
               "properties": {
-                "claude": { "const": ".claude/hooks/stop-gate.py" },
-                "codex": { "const": ".codex/hooks/stop-gate-codex.py" }
+                "claude": {
+                  "const": ".claude/hooks/stop-gate.py"
+                },
+                "codex": {
+                  "const": ".codex/hooks/stop-gate-codex.py"
+                }
               },
               "additionalProperties": false
             },
@@ -286,10 +358,26 @@
                 "minLength": 1
               },
               "allOf": [
-                { "contains": { "const": "AGENTS.md" } },
-                { "contains": { "const": ".agents/skills/co-review/SKILL.md" } },
-                { "contains": { "const": "skills/review/codex-reviewer/SKILL.md" } },
-                { "contains": { "const": "skills/research/grok-researcher/SKILL.md" } }
+                {
+                  "contains": {
+                    "const": "AGENTS.md"
+                  }
+                },
+                {
+                  "contains": {
+                    "const": ".agents/skills/co-review/SKILL.md"
+                  }
+                },
+                {
+                  "contains": {
+                    "const": "skills/review/codex-reviewer/SKILL.md"
+                  }
+                },
+                {
+                  "contains": {
+                    "const": "skills/research/grok-researcher/SKILL.md"
+                  }
+                }
               ]
             }
           },
@@ -302,47 +390,79 @@
             {
               "contains": {
                 "type": "object",
-                "required": ["file", "event"],
+                "required": [
+                  "file",
+                  "event"
+                ],
                 "properties": {
-                  "file": { "const": ".claude/hooks/stop-gate.py" },
-                  "event": { "const": "Stop" }
+                  "file": {
+                    "const": ".claude/hooks/stop-gate.py"
+                  },
+                  "event": {
+                    "const": "Stop"
+                  }
                 }
               }
             },
             {
               "contains": {
                 "type": "object",
-                "required": ["file", "event"],
+                "required": [
+                  "file",
+                  "event"
+                ],
                 "properties": {
-                  "file": { "const": ".codex/hooks/stop-gate-codex.py" },
-                  "event": { "const": "Stop" }
+                  "file": {
+                    "const": ".codex/hooks/stop-gate-codex.py"
+                  },
+                  "event": {
+                    "const": "Stop"
+                  }
                 }
               }
             },
             {
               "contains": {
                 "type": "object",
-                "required": ["file", "event"],
+                "required": [
+                  "file",
+                  "event"
+                ],
                 "properties": {
-                  "file": { "const": ".codex/hooks/route-gate-codex.py" },
-                  "event": { "const": "UserPromptSubmit" }
+                  "file": {
+                    "const": ".codex/hooks/route-gate-codex.py"
+                  },
+                  "event": {
+                    "const": "UserPromptSubmit"
+                  }
                 }
               }
             },
             {
               "contains": {
                 "type": "object",
-                "required": ["file", "event"],
+                "required": [
+                  "file",
+                  "event"
+                ],
                 "properties": {
-                  "file": { "const": ".codex/hooks/mirror-gate-codex.py" },
-                  "event": { "const": "SessionStart" }
+                  "file": {
+                    "const": ".codex/hooks/mirror-gate-codex.py"
+                  },
+                  "event": {
+                    "const": "SessionStart"
+                  }
                 }
               }
             }
           ],
           "items": {
             "type": "object",
-            "required": ["file", "event", "role"],
+            "required": [
+              "file",
+              "event",
+              "role"
+            ],
             "properties": {
               "file": {
                 "type": "string",
@@ -371,5 +491,35 @@
       },
       "additionalProperties": true
     }
-  }
+  },
+  "not": {
+    "anyOf": [
+      {
+        "required": [
+          "user_name"
+        ]
+      },
+      {
+        "required": [
+          "communication_language"
+        ]
+      },
+      {
+        "required": [
+          "document_output_language"
+        ]
+      },
+      {
+        "required": [
+          "project_name"
+        ]
+      },
+      {
+        "required": [
+          "output_folder"
+        ]
+      }
+    ]
+  },
+  "$comment": "2026-10-09: 删除五个零消费者配置块（user_name/communication_language/document_output_language/project_name/output_folder，各有更权威真源）并用 not{} 断言禁止其回流。additionalProperties 仍为 true——另有 9 个顶层段未进 schema.properties，其命运待单独决策。"
 }

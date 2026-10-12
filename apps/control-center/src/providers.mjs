@@ -27,6 +27,7 @@ export const PROVIDER_APPS = Object.freeze([
   "opencode",
   "openclaw",
   "hermes",
+  "antigravity",
 ]);
 export const PROVIDER_SCHEME_APPS = Object.freeze(PROVIDER_APPS.filter((app) => app !== "claude-desktop"));
 export const PROVIDER_APP_LABELS = Object.freeze({
@@ -39,6 +40,7 @@ export const PROVIDER_APP_LABELS = Object.freeze({
   opencode: "OpenCode",
   openclaw: "OpenClaw",
   hermes: "Hermes",
+  antigravity: "Antigravity",
 });
 const APP_LABELS = PROVIDER_APP_LABELS;
 const appMap = (factory) => Object.fromEntries(PROVIDER_APPS.map((app) => [app, factory(app)]));
@@ -275,6 +277,10 @@ const PROVIDER_LIVE_DRIFT_FIELDS = Object.freeze({
     { key: "model", label: "默认模型", stored: (p) => p.models?.hermes?.model || null },
     { key: "baseUrl", label: "API 请求地址", stored: (p) => p.baseUrl || null, normalize: normalizeDriftUrl },
   ],
+  antigravity: [
+    { key: "model", label: "默认模型", stored: (p) => p.models?.antigravity?.model || null },
+    { key: "baseUrl", label: "API 请求地址", stored: (p) => p.baseUrl || null, normalize: normalizeDriftUrl },
+  ],
 });
 
 /**
@@ -317,6 +323,7 @@ const MODEL_KEYS_BY_APP = Object.freeze({
   opencode: new Set(["model"]),
   openclaw: new Set(["model"]),
   hermes: new Set(["model"]),
+  antigravity: new Set(["model"]),
 });
 
 // cc-switch provider.rs ProviderMeta / category 白名单移植
@@ -2317,6 +2324,7 @@ export class ProviderStore {
       claude: ["ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"],
       codex: ["OPENAI_API_KEY"],
       gemini: ["GEMINI_API_KEY", "GOOGLE_GEMINI_BASE_URL", "GEMINI_MODEL"],
+      antigravity: ["GEMINI_API_KEY", "GOOGLE_GEMINI_BASE_URL", "GEMINI_MODEL"],
       // KIMI_MODEL_* 家族会在内存里合成临时 provider，优先级压过 config.toml 的
       // default_model 投影（官方 env-vars.html）——凭据类 KIMI_API_KEY 反而不会被 shell 读取。
       kimi: ["KIMI_MODEL_NAME", "KIMI_MODEL_API_KEY", "KIMI_MODEL_BASE_URL", "KIMI_MODEL_PROVIDER_TYPE"],
@@ -2347,6 +2355,7 @@ export class ProviderStore {
       { app: "codex", label: "Codex auth.json", path: join(this.runtimeHome, ".codex", "auth.json"), credential: true },
       { app: "codex", label: "Codex 514cc 模型目录", path: join(this.runtimeHome, ".codex", CODEX_MANAGED_CATALOG_FILENAME) },
       { app: "gemini", label: "Gemini .env", path: join(this.runtimeHome, ".gemini", ".env"), credential: true },
+      { app: "antigravity", label: "Antigravity settings.json", path: join(this.runtimeHome, ".gemini", "antigravity-cli", "settings.json") },
       { app: "claude-desktop", label: "Claude Desktop 配置", path: desktop.normal },
       { app: "claude-desktop", label: "Claude Desktop 3p 配置", path: desktop.threep },
       { app: "claude-desktop", label: "Claude Desktop profile", path: desktop.profile },
@@ -2975,6 +2984,46 @@ export class ProviderStore {
     return { target, backup, keys: Object.keys(env) };
   }
 
+  async #applyAntigravity(provider) {
+    const settingsTarget = join(this.runtimeHome, ".gemini", "antigravity-cli", "settings.json");
+    const envTarget = join(this.runtimeHome, ".gemini", ".env");
+    const targets = [settingsTarget, envTarget];
+
+    return this.#withFileRollback(targets, async () => {
+      const results = [];
+      const rawSettings = this.#rawOverride(provider, "antigravity", settingsTarget);
+      if (rawSettings != null) {
+        const backup = await this.#writeRaw(settingsTarget, rawSettings);
+        results.push({ target: settingsTarget, backup, keys: ["rawConfig"] });
+      } else {
+        const backup = await this.#writeJson(settingsTarget, (settings) => {
+          if (!settings.env) settings.env = {};
+          if (provider.apiKey) {
+            settings.apiKey = provider.apiKey;
+            settings.env.GEMINI_API_KEY = provider.apiKey;
+          }
+          if (provider.baseUrl) {
+            settings.apiBaseUrl = provider.baseUrl;
+            settings.env.GOOGLE_GENAI_BASE_URL = provider.baseUrl;
+          }
+          const model = provider.models?.antigravity?.model || provider.models?.model;
+          if (model) settings.model = model;
+        });
+        results.push({ target: settingsTarget, backup, keys: ["model", "apiBaseUrl", "apiKey", "env"] });
+      }
+
+      const envLines = [];
+      if (provider.apiKey) envLines.push(`GEMINI_API_KEY="${provider.apiKey}"`);
+      if (provider.baseUrl) envLines.push(`GOOGLE_GENAI_BASE_URL="${provider.baseUrl}"`);
+      const originalEnv = await this.#readConfigText(envTarget);
+      const splicedEnv = spliceManagedBlock(originalEnv, "antigravity", provider.id, envLines);
+      const envBackup = await this.#writeText(envTarget, splicedEnv);
+      results.push({ target: envTarget, backup: envBackup, keys: ["GEMINI_API_KEY", "GOOGLE_GENAI_BASE_URL"] });
+
+      return results;
+    });
+  }
+
   #claudeDesktopPaths() {
     const localAppData = this.#localAppData();
     const normal = join(localAppData, "Claude", "claude_desktop_config.json");
@@ -3365,6 +3414,7 @@ export class ProviderStore {
         else if (app === "opencode") applied = await this.#applyOpenCode(projected);
         else if (app === "openclaw") applied = await this.#applyOpenClaw(projected);
         else if (app === "hermes") applied = await this.#applyHermes(projected);
+        else if (app === "antigravity") applied = await this.#applyAntigravity(projected);
         else fail(`no writer registered for ${app}`, "APP_NOT_SUPPORTED");
         await this.#stageSidecarWrites([{ target: this.path, content: this.#stateContent(candidate) }]);
         this.#commitPublishPlanSync(publishPlan, () => this.#installState(candidate));
@@ -3458,6 +3508,7 @@ export class ProviderStore {
         else if (app === "opencode") await this.#applyOpenCode(projected);
         else if (app === "openclaw") await this.#applyOpenClaw(projected);
         else if (app === "hermes") await this.#applyHermes(projected);
+        else if (app === "antigravity") await this.#applyAntigravity(projected);
         else fail(`no writer registered for ${app}`, "APP_NOT_SUPPORTED");
       } finally {
         collected = this.#dryRunFiles;
@@ -3524,6 +3575,7 @@ export class ProviderStore {
         else if (app === "opencode") applied = await this.#applyOpenCode(projected);
         else if (app === "openclaw") applied = await this.#applyOpenClaw(projected);
         else if (app === "hermes") applied = await this.#applyHermes(projected);
+        else if (app === "antigravity") applied = await this.#applyAntigravity(projected);
         if (publishPlan) {
           await this.#stageSidecarWrites(sidecarWrites);
           await this.beforeLiveConfigPlanCommit?.({
@@ -3613,13 +3665,26 @@ export class ProviderStore {
     try {
       const data = JSON.parse(await readFile(join(this.runtimeHome, ".claude", "settings.json"), "utf8"));
       const env = data?.env ?? {};
+      const envModels = [
+        env.ANTHROPIC_MODEL,
+        env.ANTHROPIC_DEFAULT_FABLE_MODEL,
+        env.ANTHROPIC_DEFAULT_SONNET_MODEL,
+        env.ANTHROPIC_DEFAULT_OPUS_MODEL,
+        env.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+        env.CLAUDE_CODE_SUBAGENT_MODEL,
+      ].filter((m) => typeof m === "string" && m.trim());
+      const uniqueModels = [...new Set(envModels.map((m) => m.trim()))];
+      const fableModel = typeof env.ANTHROPIC_DEFAULT_FABLE_MODEL === "string" && env.ANTHROPIC_DEFAULT_FABLE_MODEL.trim() ? env.ANTHROPIC_DEFAULT_FABLE_MODEL.trim() : null;
+      const defaultModel = (typeof env.ANTHROPIC_MODEL === "string" && env.ANTHROPIC_MODEL.trim()) || fableModel || uniqueModels[0] || null;
       live.claude = {
         baseUrl: env.ANTHROPIC_BASE_URL ?? null,
-        model: env.ANTHROPIC_MODEL ?? null,
+        model: defaultModel,
+        fableModel,
+        models: uniqueModels,
         matchedProviderId: this.#matchByBaseUrl("claude", env.ANTHROPIC_BASE_URL),
       };
     } catch {
-      live.claude = { baseUrl: null, model: null, matchedProviderId: null };
+      live.claude = { baseUrl: null, model: null, fableModel: null, models: [], matchedProviderId: null };
     }
     // codex：标记块认亲优先，base_url 次之；认证只返回脱敏分类。
     try {
@@ -3648,6 +3713,15 @@ export class ProviderStore {
       live.gemini = { baseUrl, model, matchedProviderId: this.#matchByBaseUrl("gemini", baseUrl) };
     } catch {
       live.gemini = { baseUrl: null, model: null, matchedProviderId: null };
+    }
+    // antigravity：settings.json
+    try {
+      const settings = JSON.parse(await readFile(join(this.runtimeHome, ".gemini", "antigravity-cli", "settings.json"), "utf8"));
+      const baseUrl = settings.apiBaseUrl || null;
+      const model = settings.model || null;
+      live.antigravity = { baseUrl, model, matchedProviderId: this.#matchByBaseUrl("antigravity", baseUrl) };
+    } catch {
+      live.antigravity = { baseUrl: null, model: null, matchedProviderId: null };
     }
     // Claude Desktop：企业 configLibrary 的 applied profile 是 live 真源。
     try {
@@ -3774,6 +3848,20 @@ export class ProviderStore {
       };
     } catch {
       live.hermes = { baseUrl: null, model: null, providerKey: null, matchedProviderId: null };
+    }
+    try {
+      const settingsPath = join(this.runtimeHome, ".gemini", "antigravity-cli", "settings.json");
+      const data = JSON.parse(await readFile(settingsPath, "utf8"));
+      const baseUrl = data?.env?.GOOGLE_GENAI_BASE_URL ?? data?.apiBaseUrl ?? null;
+      const model = data?.model ?? null;
+      const currentId = this.current.antigravity;
+      live.antigravity = {
+        baseUrl,
+        model,
+        matchedProviderId: currentId || this.#matchByBaseUrl("antigravity", baseUrl),
+      };
+    } catch {
+      live.antigravity = { baseUrl: null, model: null, matchedProviderId: null };
     }
     // live ↔ 档案 漂移：认亲到档案后逐字段比对，界面据此显示真实 live 值而不是过期档案值。
     // 只挂在认亲成功的条目上——没认亲时"漂移"无从谈起（那是未关联，另一码事）。

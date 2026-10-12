@@ -69,6 +69,13 @@ export function projectEvidenceArtifact(input = {}) {
     attemptId: shortText(input.attemptId, 80) || null,
     published: false,
     sourceRunId: input.sourceRunId ? shortText(input.sourceRunId, 80) : null,
+    // DELTA 专属字段（handoff 卡一律 null）。此前投影时被丢掉，导致下游
+    // value-proof-card 只能数「有几张 delta 卡」，渲染不出「谁推翻了主驾」——
+    // 而 DELTA 的呈现价值全在这三项上（v48 P-02 硬前置）。
+    // evidence 经 shortText → scrub，与其它字段走同一脱敏口径。
+    agent: input.agent ? shortText(input.agent, 80) : null,
+    score: Number.isInteger(input.score) ? input.score : null,
+    evidence: input.evidence ? shortText(input.evidence, 400) : null,
     asOfSequence,
     worktreeDigest,
   };
@@ -142,6 +149,12 @@ export function collectRunEvidenceArtifacts({
       generatedAt: entry.ts,
       verifyCommand: "rg \"^__DELTA__:\" .ai-shared/handoff .ai-shared/decisions.md",
       sourceRunId: entry.runId || null,
+      // agent/score/evidence 随卡带出：此前这三项在投影时被丢掉，导致下游
+      // value-proof-card 的 projectDelta 只能数「有几张 delta 卡」，渲染不出
+      // 「谁推翻了主驾」。DELTA 的呈现价值全在这三项上（v48 P-02）。
+      agent: entry.agent || null,
+      score: Number.isInteger(entry.score) ? entry.score : null,
+      evidence: entry.evidence ? shortText(entry.evidence, 400) : null,
       asOfSequence,
       worktreeDigest,
     }));

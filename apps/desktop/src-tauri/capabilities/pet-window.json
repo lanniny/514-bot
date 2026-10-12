@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "pet-window",
-  "description": "514 pet overlay window: drag handle and click-through toggle only. The pet page never calls native bridge commands.",
+  "description": "514 pet overlay window: drag itself, toggle click-through, report its own geometry, and sample the global pointer for hide-on-hover. It never calls the main-only native bridge commands.",
   "local": false,
   "windows": [
     "pet-overlay"
@@ -11,6 +11,11 @@
   },
   "permissions": [
     "core:window:allow-start-dragging",
-    "core:window:allow-set-ignore-cursor-events"
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-inner-position",
+    "core:window:allow-inner-size",
+    "allow-set-pet-overlay-rect",
+    "allow-pet-pointer-inside",
+    "allow-set-pet-overlay-hover"
   ]
 }

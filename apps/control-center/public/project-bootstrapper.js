@@ -19,6 +19,7 @@
 
 import { lucideIcon } from "./lucide.js";
 import { request } from "./api.js";
+import { escapeHtml } from "./utils.js";
 
 const FRAMEWORKS = [
   { id: "vanilla", name: "Vanilla", desc: "一张卡片 + 按钮，打开就能点", icon: "code", popular: true },
@@ -1079,9 +1080,7 @@ function getThemeName() {
   return THEMES.find((t) => t.id === _config.theme)?.name || _config.theme;
 }
 
-function escapeHtml(s) {
-  return String(s ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-}
+// escapeHtml 统一来自 ./utils.js（本文件此前自带副本，且未转义单引号，与规范不一致）
 
 function escapeAttr(s) {
   return String(s ?? "").replaceAll("&", "&amp;").replaceAll('"', "&quot;");

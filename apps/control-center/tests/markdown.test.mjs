@@ -56,3 +56,19 @@ test("redact hook runs before escaping so secrets never reach the DOM string", (
 test("escapeHtml is exported and total on the five metacharacters", () => {
   assert.equal(escapeHtml(`<>&"'`), "&lt;&gt;&amp;&quot;&#039;");
 });
+
+test("RTL runs are bidi-isolated so trailing digits keep logical order", () => {
+  const html = renderMarkdown("stage(•̀ᴗ•́)و 39!");
+  assert.ok(html.includes("<bdi>و</bdi> 39!"), html);
+  // 连续 RTL 词（含中间空格/数字）是同一个隔离段，不被拆成逐词倒序
+  const arabic = renderMarkdown("说：مرحبا بالعالم 2024 م。");
+  assert.ok(arabic.includes("<bdi>مرحبا بالعالم 2024 م</bdi>"), arabic);
+  // 生成的标签属性不被改写（src/alt 保持原样）
+  const img = renderMarkdown("![و](https://example.com/و.png)");
+  assert.ok(img.includes('src="https://example.com/و.png"'), img);
+  assert.ok(img.includes('alt="و"'), img);
+  // 无 RTL 文本输出不变
+  assert.ok(!renderMarkdown("hello 39!").includes("<bdi>"));
+  // 代码块内不加工
+  assert.ok(!renderMarkdown("```\nو 39\n```").includes("<bdi>"));
+});

@@ -21,6 +21,7 @@
     "allow-enter-lightweight-mode",
     "allow-exit-lightweight-mode",
     "allow-is-lightweight-mode",
-    "allow-set-pet-overlay"
+    "allow-set-pet-overlay",
+    "allow-set-pet-overlay-opacity"
   ]
 }

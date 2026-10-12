@@ -28,6 +28,7 @@ function responseKey(viewport, theme, path) {
 
 async function openPage(viewport, theme) {
   const page = await browser.newPage({ viewport });
+  await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
   page.on("console", (message) => {
     if (message.type() !== "error") return;
     const location = message.location().url;

@@ -59,10 +59,66 @@
   min-height: 38px;
 }
 
+/* —— 紧凑档补充：针对现代工作台卡片、网格与工具条细腻收敛 —— */
+
+:root[data-density="compact"] .card,
+:root[data-density="compact"] .metric-card,
+:root[data-density="compact"] .cap-mcp-card,
+:root[data-density="compact"] .tp-card {
+  padding: var(--space-3);
+  gap: var(--space-2);
+}
+
+:root[data-density="compact"] .badge,
+:root[data-density="compact"] .status-pill,
+:root[data-density="compact"] .status-label {
+  padding: 2px 6px;
+}
+
+:root[data-density="compact"] .rail-tab {
+  padding: 4px 10px;
+}
+
+:root[data-density="compact"] .bot-bubble,
+:root[data-density="compact"] .user-bubble {
+  padding: 8px 12px;
+  line-height: calc(1.45 * var(--density-leading));
+}
+
+/* —— 舒适档补充：大屏阅读与触控展示呼吸空间 —— */
+
+:root[data-density="comfortable"] .card,
+:root[data-density="comfortable"] .metric-card,
+:root[data-density="comfortable"] .cap-mcp-card,
+:root[data-density="comfortable"] .tp-card {
+  padding: var(--space-6);
+  gap: var(--space-4);
+}
+
+:root[data-density="comfortable"] .badge,
+:root[data-density="comfortable"] .status-pill,
+:root[data-density="comfortable"] .status-label {
+  padding: 4px 10px;
+}
+
+:root[data-density="comfortable"] .rail-tab {
+  padding: 8px 16px;
+}
+
+:root[data-density="comfortable"] .bot-bubble,
+:root[data-density="comfortable"] .user-bubble {
+  padding: 14px 18px;
+  line-height: calc(1.65 * var(--density-leading));
+}
+
 /* —— 无障碍兜底：无论哪一档，触控目标不得小于 32px（P2-4 触控可达性）—— */
 
 :root[data-density="compact"] .nav-item,
 :root[data-density="compact"] .settings-rail-item,
-:root[data-density="compact"] button.button {
+:root[data-density="compact"] button.button,
+:root[data-density="compact"] input,
+:root[data-density="compact"] select,
+:root[data-density="compact"] .tab-item {
   min-height: 32px;
 }
+

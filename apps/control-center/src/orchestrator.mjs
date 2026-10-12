@@ -13,6 +13,7 @@ import { normalizeRunSources, promptWithRunSources, visualSourceType } from "./r
 import { withManagedClipboardSourceRegistration } from "./clipboard-lifecycle.mjs";
 import { isAbnormalProviderTurnStop } from "./provider-turn-outcome.mjs";
 import { isPromptTransportError } from "./prompt-transport.mjs";
+import { apiChatHistory, apiChatRequestMessages } from "./api-chat-history.mjs";
 import { createWorktreeLedger } from "./worktree-ledger.mjs";
 import {
   classifyAgentRoute,
@@ -160,6 +161,8 @@ const ADAPTER_RESUME_FEATURES = Object.freeze({
   "opencode-run-json": { defaultCommand: "opencode", args: (sessionId) => ["--session", sessionId] },
   // Pi 交互 TUI 用 --session-id 精确打开既有 project session（与 RPC 创建旗标同源；--session 是模糊前缀查找，不用）
   "pi-rpc": { defaultCommand: "pi", args: (sessionId) => ["--session-id", sessionId] },
+  // CodeBuddy 交互 TUI 用 -r <sessionId>（--help 公布的 resume 旗标；headless 续轮走 --resume，同源不同形）
+  "codebuddy-stream-json": { defaultCommand: "codebuddy", args: (sessionId) => ["-r", sessionId] },
 });
 
 function commandHintToken(value) {
@@ -443,6 +446,7 @@ export class Orchestrator {
     capabilities = null,
     storage = null,
     macroStore = null, // W3.11 用户宏（/token 展开为普通提示词轮）；null=宏不可用
+    assistantMemory = null, // A5 长期记忆：仅注入 api-chat 文本席位；null=不注入
     remoteRunner = null, // v41 波二：远程 run 桥（ssh/remote-run.mjs）；null=远程 run 如实不可用
     repoRoot = null, // 远程 adapter 工厂表的 assertWithin 锚点（claude settings/grok 脚本 containment）
     interruptTimeoutMs = 30_000,
@@ -471,6 +475,7 @@ export class Orchestrator {
     this.modelDiscovery = modelDiscovery; // 可选：CLI 原生动态目录（优先于静态 modelOptions/effortLevels）
     this.capabilities = capabilities; // dispatch 必需：缺失时 turn() fail-closed，不静默放行
     this.macroStore = macroStore; // W3.11 用户宏：原生命令未命中时兜底展开（null=不可用）
+    this.assistantMemory = assistantMemory; // A5 长期记忆（null=不注入，行为与注入前一致）
     this.runs = new Map();
     this.controllers = new Map();
     this.executions = new Map();
@@ -1079,7 +1084,9 @@ export class Orchestrator {
         eligibilityReason: member.eligibilityReason || null,
       });
     }
-    if (id === run.coordinatorId && member.coordinatorEligible !== true) {
+    const directTextOwner = run.conversationKind === "direct" && id === executionOwnerIdOf(run)
+      && this.adapters.get(member.runtimeProfileId)?.id === "api-chat";
+    if (id === run.coordinatorId && member.coordinatorEligible !== true && !directTextOwner) {
       throw Object.assign(new Error(`team coordinator is not executable: ${id}`), {
         code: "RUNTIME_PROFILE_INELIGIBLE",
         eligibilityReason: member.eligibilityReason || null,
@@ -1204,7 +1211,7 @@ export class Orchestrator {
     if (!catalog) {
       catalog = Array.isArray(executionProfile?.modelOptions) ? executionProfile.modelOptions.map((option) => option.id).filter(Boolean) : null;
     }
-    const safeModelId = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(requested);
+    const safeModelId = /^[A-Za-z0-9@][A-Za-z0-9._:/[\]@-]{0,159}$/.test(requested);
     const allowed = catalog?.length ? catalog.includes(requested) : modelSupported === true ? safeModelId : /^(?:fable|opus|sonnet|haiku|claude-[a-z0-9.-]{1,48})$/i.test(requested);
     if (!allowed) {
       throw Object.assign(new Error(`unsupported model for ${executionOwnerId}: ${requested}`), { code: "INVALID_MODEL" });
@@ -2248,7 +2255,10 @@ export class Orchestrator {
           runId: activeRunId,
         });
       }
-      if (activeRun && !TERMINAL.has(activeRun.status)) {
+      const canContinueActiveRun = activeRun
+        && activeRun.status !== "cancelled"
+        && activeRun.status !== "succeeded";
+      if (canContinueActiveRun) {
         return { run: await this.continue(activeRun.id, continuationRequest), created: false };
       }
     }
@@ -2265,7 +2275,9 @@ export class Orchestrator {
       throw Object.assign(new Error("conversation has no executable members"), { code: "NOT_TEAM_MEMBER" });
     }
     const roster = await this.snapshotTeamRoster(memberIds);
-    let coordinator = roster.find((member) => member.coordinatorEligible === true)?.id || null;
+    const directTextMember = conversation.kind === "direct"
+      ? roster.find((member) => member.id === conversation.directMemberId && this.adapters.get(member.runtimeProfileId)?.id === "api-chat") : null;
+    let coordinator = directTextMember?.id || roster.find((member) => member.coordinatorEligible === true)?.id || null;
     const teamMembers = [...memberIds];
     if (!coordinator && conversation.kind === "direct" && this.teamMembers?.list) {
       const fallback = this.teamMembers.list().find((member) => (
@@ -2389,12 +2401,16 @@ export class Orchestrator {
     }
     // 团队 = 会话级能力配比：成员进路由白名单，提示词/能力声明注入主脑规划轮
     let team = null;
+    const directRoster = conversation?.kind === "direct" ? await this.snapshotTeamRoster([conversation.directMemberId]) : null;
+    const standaloneApiChat = directRoster?.length === 1 && this.adapters.get(directRoster[0].runtimeProfileId)?.id === "api-chat";
     if (this.teams) {
       const hasEphemeralTeam = input.ephemeralTeam != null;
       if (hasEphemeralTeam && input.teamId != null && String(input.teamId).trim()) {
         throw Object.assign(new Error("teamId and ephemeralTeam cannot be used together"), { code: "VALIDATION_FAILED" });
       }
-      team = hasEphemeralTeam
+      team = standaloneApiChat
+        ? this.teams.materializeDirect(conversation.directMemberId)
+        : hasEphemeralTeam
         ? this.teams.materializeEphemeral(input.ephemeralTeam)
         : this.teams.get(String(input.teamId || "team-514cc")); // 不存在 → SOURCE_NOT_FOUND
     } else if (input.ephemeralTeam != null) {
@@ -2409,7 +2425,7 @@ export class Orchestrator {
       throw Object.assign(new Error("team coordinator must be a logical team member"), { code: "NOT_TEAM_MEMBER" });
     }
     const coordinatorMember = teamRoster ? rosterMember(teamRoster, coordinatorId) : null;
-    if (coordinatorMember && coordinatorMember.coordinatorEligible !== true) {
+    if (coordinatorMember && coordinatorMember.coordinatorEligible !== true && !standaloneApiChat) {
       throw Object.assign(new Error(`team coordinator is not executable: ${coordinatorId}`), {
         code: "RUNTIME_PROFILE_INELIGIBLE",
         eligibilityReason: coordinatorMember.eligibilityReason || null,
@@ -3012,6 +3028,12 @@ export class Orchestrator {
     const contextRetryPrompt = prompt;
     const member = this.memberForRun(run, agentId);
     const runtimeProfileId = member.runtimeProfileId;
+    const apiChat = this.adapters.get(runtimeProfileId)?.id === "api-chat";
+    if (apiChat && (run.remote || nativeCommand || (run.activeInteractionSources ?? run.sources)?.length || run.conversationKind !== "direct")) {
+      throw Object.assign(new Error("模型 API 当前仅支持单助手文本聊天；请移除附件，或选择具备相应能力的 CLI 助手"), { code: "API_CAPABILITY_UNSUPPORTED" });
+    }
+    // Validate before allocating a prepared attempt or incrementing interaction steps.
+    const chatMessages = apiChat ? apiChatHistory({ conversation: this.conversations?.get(run.conversationId), run, runs: this.runs, agentId, prompt: contextRetryPrompt }) : null;
     if (nativeCommand && !/^\/[A-Za-z0-9_-]+([ \t]+\S+){0,8}$/.test(String(prompt))) {
       throw Object.assign(new Error("nativeCommand prompt must be a single-line slash command"), { code: "VALIDATION_FAILED" });
     }
@@ -3076,6 +3098,11 @@ export class Orchestrator {
       if (kitBlocks.length) prompt = `${kitBlocks.join("\n\n")}\n\n${prompt}`;
     }
     const memberPrompt = nativeCommand ? null : this.memberPromptForRun(run, agentId);
+    // A5 长期记忆：只在 api-chat 文本席位上注入。必须在**准入校验之前**取到并一起校验——
+    // 记忆块也占上下文预算，先校验后注入等于把超限推迟到 adapter，用户看到的是
+    // 「提交后才失败」而不是「提交前就被挡住」。
+    const memoryPrompt = apiChat && this.assistantMemory ? await this.assistantMemory.getPromptChunk() : "";
+    if (apiChat) apiChatRequestMessages(chatMessages, memberPrompt || "", memoryPrompt);
     if (memberPrompt) prompt = `${memberPrompt}\n\n${prompt}`;
     this.assertLifecycleOwner(run, controller);
     const coordinatorId = run.coordinatorId || "claude-fable";
@@ -3339,6 +3366,11 @@ export class Orchestrator {
     };
     const sendInput = {
       agentId,
+      ...(apiChat ? {
+        chatMessages,
+        chatSystemPrompt: memberPrompt || "",
+        chatMemoryPrompt: memoryPrompt,
+      } : {}),
       sessionId: run.sessions[agentId] || null,
       prompt,
       runId: run.id,
@@ -3825,6 +3857,7 @@ export class Orchestrator {
         costUsd: response.costUsd ?? null,
         tokens: response.tokens ?? null, // 状态栏累计用量
         text: response.text,
+        ...(apiChat ? { chatUserText: contextRetryPrompt, usage: response.usage ?? null } : {}),
         stopReason,
       };
       if (unproductive) {
@@ -3837,6 +3870,9 @@ export class Orchestrator {
           clientUserMessageId: (run.turnAttempts || []).find((item) => item.attemptId === attemptId)?.clientUserMessageId || null,
           providerBinding,
         });
+        this.assertLifecycleOwner(run, controller);
+        await this.publishConversationContext(run, agentId, attemptId, response, effectiveAdapter, providerBinding);
+        this.assertLifecycleOwner(run, controller);
         await this.emitEvent(run, "agent.turn_unproductive", {
           round: run.round,
           interactionId: turnRecord.interactionId,
@@ -3887,6 +3923,7 @@ export class Orchestrator {
         providerBinding,
         costUsd: response.costUsd ?? null,
         tokens: response.tokens ?? null,
+        ...(apiChat ? { usage: response.usage ?? null } : {}),
       }, { runId: run.id, sessionId: response.sessionId, agentId });
     });
     if (incompleteError) throw incompleteError;
@@ -5450,6 +5487,7 @@ ${run.prompt}
       acknowledgeRecovery = false,
       sources = [],
       nativeCommand = false,
+      model = null,
     } = request;
     sources = normalizeRunSources(sources);
     answerToAskId = answerToAskId == null ? null : String(answerToAskId).trim();
@@ -5583,6 +5621,29 @@ ${run.prompt}
         nativeCommand,
       });
       return this.get(id);
+    }
+    // 换模型继续（2026-10-11）：continue() 历来忽略 request.model，续聊只会复用 run 固化的
+    // modelOverride。会话早先用某模型创建（如已下架的 deepseek-flash）后，即便前端
+    // /conversations/:id/messages 一直带 model: submission.model，到这里也被丢弃 → 轮次仍
+    // --model deepseek-flash → CLI 报 "selected model ... may not exist"（CLAUDE_FAILED），
+    // 于是「换个模型继续同一会话」永远无效。派发新轮前，若请求带非空模型则校验并覆写
+    // run.modelOverride（与热改模型 patchRunControls 同口径）。
+    // 只在「派发新轮」路径改：上面的轮间插话已走 queueSteer 提前返回，不与「轮次活跃时禁改
+    // 模型」的热改守则冲突。空模型不清 override——清除覆写是热改的职责；continue 只负责
+    // 「换上用户新选的模型」，避免前端未触及模型选择时把会话既有 override 误清成席位默认。
+    const requestedModel = String(model ?? "").trim();
+    if (requestedModel) {
+      const executionProfile = this.models?.profiles?.find((item) => item.id === runtimeProfileId) || null;
+      const executionAdapterTemplate = executionProfile
+        ? ADAPTER_TEMPLATES.find((item) => item.id === executionProfile.adapter) || null
+        : null;
+      const nextModelOverride = await this.validateModelOverride(
+        { executionOwnerId: agentId, executionRuntimeProfileId: runtimeProfileId, executionProfile, executionAdapterTemplate },
+        requestedModel,
+      );
+      if (nextModelOverride !== (run.modelOverride ?? null)) {
+        run.modelOverride = nextModelOverride;
+      }
     }
     // HTTP 直接续聊注册进 executions（烛 wave2 回炉 R5/R6）：close() 等待、isBusy() 计入——
     // 否则关闭时在途续聊的落盘不被等待、可能被进程 exit 截断。键加前缀避免与
@@ -6312,7 +6373,12 @@ ${run.prompt}
         }
         run.status = "interrupted";
         run.error = null;
-        run.recoveryNote = "Current provider turn was interrupted and confirmed stopped. Send another message to continue in the same native session.";
+        const ownerId = executionOwnerIdOf(run);
+        const ownerRuntime = (run.teamRoster || []).find((member) => member.id === ownerId)?.runtimeProfileId || ownerId;
+        const textOwner = this.adapters.get(ownerRuntime)?.id === "api-chat";
+        run.recoveryNote = textOwner
+          ? "文本请求已在本机停止。已完成的会话上下文会保留，发送新消息即可继续；上游计费是否停止请以服务商记录为准。"
+          : "Current provider turn was interrupted and confirmed stopped. Send another message to continue in the same native session.";
         run.result = { ...(run.result || {}), interrupted: true };
         await this.save(run);
         interruptCommitted = !cancellationWon();

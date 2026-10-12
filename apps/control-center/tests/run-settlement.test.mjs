@@ -118,3 +118,36 @@ test("missing run is represented by the HTTP layer as RUN_NOT_FOUND-compatible i
   assert.equal(record.runId, null);
   assert.equal(record.risks[0].id, "missing-run");
 });
+
+test("synthesizeRunSettlement projects checkpoints, evidenceMatrix and deliverable when provided", () => {
+  const record = synthesizeRunSettlement({
+    run: WORKTREE_RUN,
+    checkpoints: [
+      { phase: "plan", phaseLabel: "规划大纲", progress: 20 },
+      { phase: "deliver", phaseLabel: "成果交付", progress: 100 },
+    ],
+    evidenceMatrix: {
+      metrics: { totalCount: 3, verifiedCount: 3, byType: { file: 2, web: 1 } },
+      items: [
+        { type: "file", locator: "src/a.js#L1-L10" },
+        { type: "file", locator: "src/b.js#L1-L10" },
+        { type: "web", locator: "https://example.com" },
+      ],
+    },
+    deliverable: {
+      title: "交付测试",
+      status: "completed",
+      summary: "交付摘要",
+      nextActions: [{ id: "done", label: "完成", reason: "全部结束" }],
+    },
+  });
+
+  assert.equal(record.checkpoints.total, 2);
+  assert.equal(record.checkpoints.latestPhase, "deliver");
+  assert.equal(record.checkpoints.progress, 100);
+  assert.equal(record.evidenceMatrix.totalCount, 3);
+  assert.equal(record.evidenceMatrix.verifiedCount, 3);
+  assert.equal(record.deliverable.title, "交付测试");
+  assert.equal(record.deliverable.status, "completed");
+});
+

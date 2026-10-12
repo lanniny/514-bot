@@ -36,15 +36,31 @@
 .collaboration-state[data-tone="running"] { color: var(--workspace-link); }
 .collaboration-state[data-tone="complete"] { color: var(--bot-accent); }
 .collaboration-state[data-tone="attention"] { color: var(--bot-red); }
-.collaboration-expand { width: 14px; height: 14px; color: var(--bot-muted); flex: 0 0 14px; transition: transform var(--dur-fast) var(--ease-standard); }
+.collaboration-expand { width: 14px; height: 14px; color: var(--bot-muted); flex: 0 0 14px; transition: transform var(--dur-fast) var(--ease-spring-snappy); }
 details[open] > summary > .collaboration-expand { transform: rotate(180deg); }
 .collaboration-identities { display: grid; gap: 8px; margin: 0; padding: 4px 0 16px 86px; color: var(--bot-muted); font-size: var(--text-xs); }
 .collaboration-identities > div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px; }
 .collaboration-identities dd { margin: 0; overflow-wrap: anywhere; }
 .collaboration-handoffs { list-style: none; margin: 0; padding: 0; }
 .collaboration-handoffs > li { display: grid; grid-template-columns: 26px minmax(0, 1fr); position: relative; gap: 10px; }
-.collaboration-handoffs > li:not(:last-child)::before { content: ""; position: absolute; top: 30px; bottom: -10px; left: 12px; width: 1px; background: var(--bot-line); }
-.collaboration-handoff-mark { display: grid; place-items: center; width: 26px; height: 26px; margin-top: 12px; color: var(--workspace-link); background: var(--bot-bg); z-index: 1; }
+.collaboration-handoffs > li:not(:last-child)::before { content: ""; position: absolute; top: 30px; bottom: -10px; left: 12px; width: 1px; background: linear-gradient(180deg, var(--workspace-link), var(--bot-line)); }
+.collaboration-handoff-mark {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-top: 12px;
+  color: var(--workspace-link);
+  background: var(--bot-bg);
+  z-index: 1;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--workspace-link) 16%, transparent);
+  transition: transform var(--dur-fast) var(--ease-spring-snappy), box-shadow var(--dur-fast) var(--ease-spring-snappy);
+}
+.collaboration-handoff:hover .collaboration-handoff-mark {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 5px color-mix(in oklab, var(--workspace-link) 28%, transparent);
+}
 .collaboration-handoff-mark .icon { width: 16px; height: 16px; }
 .collaboration-handoff { min-width: 0; }
 .collaboration-handoff > summary { display: grid; grid-template-columns: minmax(0, 1fr) auto 14px; gap: 10px; align-items: center; min-height: 64px; padding: 12px 0; list-style: none; cursor: pointer; }
@@ -75,4 +91,10 @@ details[open] > summary > .collaboration-expand { transform: rotate(180deg); }
 }
 @media (prefers-reduced-motion: reduce) {
   .collaboration-expand { transition: none; }
+  .collaboration-handoff-mark { transition: none; }
+  .collaboration-handoff:hover .collaboration-handoff-mark { transform: none !important; }
 }
+
+:root[data-motion="reduce"] .collaboration-expand { transition: none; }
+:root[data-motion="reduce"] .collaboration-handoff-mark { transition: none; }
+:root[data-motion="reduce"] .collaboration-handoff:hover .collaboration-handoff-mark { transform: none !important; }

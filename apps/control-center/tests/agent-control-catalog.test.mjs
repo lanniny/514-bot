@@ -147,7 +147,7 @@ const kimiProviderCatalog = JSON.stringify({
 });
 
 test("adapter manifest declares every runtime/editor control surface", () => {
-  const modes = new Set(["none", "executable-only", "argv", "stdin", "rpc", "thread-start", "turn-start", "session-start", "env"]);
+  const modes = new Set(["none", "executable-only", "argv", "stdin", "rpc", "thread-start", "turn-start", "session-start", "env", "messages", "request"]);
   for (const template of ADAPTER_TEMPLATES) {
     assert.ok(template.id);
     assert.ok(modes.has(template.commandMode), `${template.id} commandMode`);
@@ -156,10 +156,11 @@ test("adapter manifest declares every runtime/editor control surface", () => {
     assert.ok(modes.has(template.effortMode), `${template.id} effortMode`);
     assert.ok(Array.isArray(template.permissionModes) && template.permissionModes.length, `${template.id} permissionModes`);
     assert.ok(template.permissionModes.includes(template.defaultPermissionMode), `${template.id} default permission`);
-    assert.ok(["per-turn", "process-fixed"].includes(template.cwdMode), `${template.id} cwdMode`);
+    assert.ok(["per-turn", "process-fixed", "none"].includes(template.cwdMode), `${template.id} cwdMode`);
     if (template.effortMode === "none") assert.deepEqual(template.effortLevels, []);
     assert.ok(template.routingDefaults, `${template.id} routingDefaults`);
-    assert.ok(template.diagnosticActions.some((action) => action.id === "version"), `${template.id} version diagnostic`);
+    if (template.commandMode === "none") assert.deepEqual(template.diagnosticActions, []);
+    else assert.ok(template.diagnosticActions.some((action) => action.id === "version"), `${template.id} version diagnostic`);
     assert.equal(new Set(template.diagnosticActions.map((action) => action.id)).size, template.diagnosticActions.length, `${template.id} diagnostic ids`);
     assert.ok(Array.isArray(template.nativeCommands), `${template.id} nativeCommands`);
     for (const command of template.nativeCommands) {
@@ -429,6 +430,8 @@ test("every selectable CLI maps its verified read-only command surface into the 
     "kimi-headless-resume": ["version", "doctor", "doctor-tui", "provider-list"],
     "opencode-run-json": ["version", "usage", "mcp-list", "agent-list", "models", "session-list"],
     "pi-rpc": ["version", "extensions", "models"],
+    "antigravity-stream-json": ["version", "auth-status", "doctor", "skill-list", "mcp-list"],
+    "codebuddy-stream-json": ["version"],
   };
   const allowedRisks = new Set(["local-read", "network-probe", "process-probe"]);
   for (const [templateId, actionIds] of Object.entries(expected)) {
@@ -481,4 +484,17 @@ test("composer slash catalog stays adapter-driven and accepts parameter-stage qu
   runInNewContext(`${slashModule.slice(start, end)}\nthis.querySlash = slashQueryAtCursor;`, context);
   assert.equal(context.querySlash({ value: "/model ", selectionStart: 7 }).query, "model ");
   assert.equal(context.querySlash({ value: "run /effort xh", selectionStart: 14 }).query, "effort xh");
+});
+
+test("bot composer budget select includes unlimited option and workspace module accepts it", async () => {
+  const [html, workspaceModule, appSource] = await Promise.all([
+    readFile(`${appRoot}/public/index.html`, "utf8"),
+    readFile(`${appRoot}/public/modules/conversation-workspace.js`, "utf8"),
+    readFile(`${appRoot}/public/app.js`, "utf8"),
+  ]);
+  assert.match(html, /<select id="workspace-next-budget"[^>]*>[\s\S]*?<option value="unlimited">无限<\/option>/);
+  assert.match(workspaceModule, /BUDGET_OPTIONS\s*=\s*\[[^\]]*"unlimited"[^\]]*\]/);
+  // 断言语义（无限值 → "unlimited" 哨兵的映射存在），不钉变量名：
+  // composerBudgetSubmissionValue 内部 raw→text 的 trim 中间变量改名不该让这条假红。
+  assert.match(appSource, /if\s*\(isUnlimitedBudgetValue\(\w+\)\)\s*return\s*"unlimited";/);
 });

@@ -11,6 +11,7 @@ import {
   composerDraftHasActivity,
   consumeSubmittedAttachments,
   ensureAttachmentContext,
+  formatClipboardUploadError,
   MAX_CONCURRENT_CLIPBOARD_UPLOADS,
   queueClipboardImageUploads,
   retryQuotaClipboardImageUploads,
@@ -357,4 +358,41 @@ test("Bot composer accepts paste, drop, file selection, and isolates attachments
   assert.match(css, /\.bot-attach-remove[\s\S]*border-radius:\s*50%/);
   assert.match(css, /\.bot-image-preview-dialog::backdrop/);
   assert.match(css, /\.bot-image-preview-body img[\s\S]*object-fit:\s*contain/);
+});
+
+test("formatClipboardUploadError normalizes server errors into readable Chinese messages", () => {
+  assert.equal(
+    formatClipboardUploadError({ code: "INVALID_IMAGE_DATA", message: "clipboard image structure is invalid or incomplete" }),
+    "图片二进制结构损坏或不完整",
+  );
+  assert.equal(
+    formatClipboardUploadError({ code: "IMAGE_TOO_LARGE", message: "clipboard image exceeds 5242880 bytes" }),
+    "图片体积超过 5 MiB 限制",
+  );
+  assert.equal(
+    formatClipboardUploadError({ code: "UNSUPPORTED_IMAGE_TYPE", message: "unsupported clipboard image type: image/avif" }),
+    "不支持的图片格式（仅限 PNG/JPG/GIF/WebP）",
+  );
+  assert.equal(
+    formatClipboardUploadError({ code: "IMAGE_TYPE_MISMATCH", message: "clipboard image MIME image/jpeg does not match file signature image/png" }),
+    "图片扩展名与真实格式不符",
+  );
+  assert.equal(
+    formatClipboardUploadError({ code: "CLIPBOARD_STORAGE_QUOTA_EXCEEDED", message: "clipboard image storage quota is exhausted" }),
+    "剪贴板图片存储配额已满",
+  );
+});
+
+test("clipboard upload queue surfaces friendly error messages on failed items", async () => {
+  const context = { attachments: [], uploads: [] };
+  await queueClipboardImageUploads({
+    files: [pngFile],
+    context,
+    upload: async () => {
+      throw Object.assign(new Error("clipboard image structure is invalid or incomplete"), { code: "INVALID_IMAGE_DATA" });
+    },
+    id: () => "invalid-upload",
+  });
+  assert.equal(context.uploads[0].error, "图片二进制结构损坏或不完整");
+  assert.equal(context.uploads[0].status, "error");
 });

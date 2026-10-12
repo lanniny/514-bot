@@ -200,8 +200,13 @@ test("the conversation stream renders completed items and tracks the running one
   assertIncludes(mod, "escapeHtml(activity || phaseText)");
   // run 收尾必须清残留，否则进程被杀后会一直显示假的"正在执行"
   assertIncludes(mod, "if (/^run\\.(completed|failed|cancelled)$/.test(event.type))");
-  // 活跃行变化也要触发重绘，否则 item/started 到达时界面不动
-  assertIncludes(app, "matchesSelectedRun && (conversationEvent || activityChanged || delta)");
+  // 活跃行变化也要触发重绘，否则 item/started 到达时界面不动。
+  // D-2026-09-28-007：workbench 视图退役后，原 selectedRunUpdate 臂（state.view ===
+  // "workbench" 恒假）已按字面 false 固化；该意图改由 Bot 同步链承接——pushEvent 对
+  // 每个带 runId 的事件触发 scheduleBotConversationSync（120ms 去抖）→ botSyncConversation
+  // → botRenderMessageStore。此处双保险：钉活路径 + 钉退役态。
+  assertIncludes(app, "if (event.runId) scheduleBotConversationSync(event.runId);");
+  assertIncludes(app, "selectedRun: false,");
   // 命令文本与输出都是外部内容，进 DOM 前必须脱敏 + 转义
   const card = app.slice(app.indexOf("function processCardMarkup"), app.indexOf("function messageMarkup"));
   assertIncludes(card, 'escapeHtml(redact(String(progress.command || "")))');

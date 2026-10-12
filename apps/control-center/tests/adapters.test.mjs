@@ -15,6 +15,8 @@ import {
 import { buildIsolatedMcpArgs, CodexAppServerAdapter } from "../src/adapters/codex-app-server.mjs";
 import { buildClaudeArgs, ClaudeCliAdapter } from "../src/adapters/claude-cli.mjs";
 import { PiRpcAdapter, piProviderEnvPolicy } from "../src/adapters/pi-rpc.mjs";
+import { buildAntigravityArgs, AntigravityCliAdapter } from "../src/adapters/antigravity-cli.mjs";
+import { CodeBuddyCliAdapter } from "../src/adapters/codebuddy-cli.mjs";
 import { createAdapters } from "../src/adapters/index.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
@@ -2590,3 +2592,117 @@ test("codex config-load failures settle instead of forcing ambiguous recovery", 
   assert.equal(other?.nativeTurnSettled, undefined);
   assert.equal(other?.message, "something else broke");
 });
+
+test("buildAntigravityArgs compiles stream-json, approval mode, model, and resume parameters", () => {
+  const planArgs = buildAntigravityArgs({
+    permissionMode: "plan",
+    requestedModel: "gemini-3.8-flash",
+  });
+  assert.equal(planArgs.includes("--output-format"), true);
+  assert.equal(planArgs[planArgs.indexOf("--output-format") + 1], "stream-json");
+  assert.equal(planArgs.includes("--approval-mode"), true);
+  assert.equal(planArgs[planArgs.indexOf("--approval-mode") + 1], "plan");
+  assert.equal(planArgs.includes("--model"), true);
+  assert.equal(planArgs[planArgs.indexOf("--model") + 1], "gemini-3.8-flash");
+  assert.equal(planArgs.includes("--resume"), false);
+  assert.equal(planArgs[planArgs.length - 1], "");
+
+  const writeArgs = buildAntigravityArgs({
+    sessionId: "sess-123",
+    permissionMode: "workspace-write",
+  });
+  assert.equal(writeArgs[writeArgs.indexOf("--approval-mode") + 1], "auto_edit");
+  assert.equal(writeArgs[writeArgs.indexOf("--resume") + 1], "sess-123");
+
+  const skipPermArgs = buildAntigravityArgs({
+    nativeApprovalMode: "native:dangerously-skip-permissions",
+    requestedModel: "  gemini-3.8-pro  ",
+  });
+  assert.equal(skipPermArgs.includes("--dangerously-skip-permissions"), true);
+  assert.equal(skipPermArgs[skipPermArgs.indexOf("--model") + 1], "gemini-3.8-pro");
+});
+
+test("AntigravityCliAdapter executes prompt via stdin and parses NDJSON event stream", async () => {
+  const emittedEvents = [];
+  const fakeProcess = async (_cmd, args, options = {}) => {
+    assert.equal(options.input, "test prompt");
+    if (options.onStdout) {
+      options.onStdout(
+        JSON.stringify({ type: "thought", content: "thinking about it" }) + "\n" +
+        JSON.stringify({ type: "message", content: "Antigravity response chunk 1\n" }) + "\n" +
+        JSON.stringify({ type: "tool_use", id: "call-1", tool: "run_command", input: { CommandLine: "dir" } }) + "\n" +
+        JSON.stringify({ type: "session_id", id: "sess-agy-456" }) + "\n"
+      );
+    }
+    return { code: 0, stdout: "", stderr: "" };
+  };
+
+  const adapter = new AntigravityCliAdapter({
+    eventStore: { emit: async (type, data, context) => emittedEvents.push({ type, data, context }) },
+    cwd: repoRoot,
+    runProcessImpl: fakeProcess,
+  });
+
+  const res = await adapter.send({ prompt: "test prompt", runId: "run-agy-1" });
+  assert.equal(res.sessionId, "sess-agy-456");
+  assert.match(res.text, /Antigravity response chunk 1/);
+  assert.equal(emittedEvents.some((e) => e.type === "assistant.thought"), true);
+  assert.equal(emittedEvents.some((e) => e.type === "tool.event"), true);
+  assert.equal(emittedEvents.some((e) => e.type === "assistant.message"), true);
+});
+
+test("AntigravityCliAdapter classifies authentication failure into ANTIGRAVITY_AUTH_REQUIRED with actionable remediation", async () => {
+  const fakeFailProcess = async () => ({
+    code: 1,
+    stdout: "",
+    stderr: "Error: Not logged in. Please run `agy login` to authenticate.",
+  });
+
+  const adapter = new AntigravityCliAdapter({
+    eventStore: { emit: async () => {} },
+    cwd: repoRoot,
+    runProcessImpl: fakeFailProcess,
+  });
+
+  await assert.rejects(
+    adapter.send({ prompt: "hello", runId: "run-agy-auth" }),
+    (error) => {
+      assert.equal(error.code, "ANTIGRAVITY_AUTH_REQUIRED");
+      assert.equal(error.failureKind, "auth_required");
+      assert.equal(error.retryable, false);
+      assert.match(error.message, /agy login/);
+      return true;
+    }
+  );
+});
+
+test("createAdapters creates AntigravityCliAdapter for antigravity-agent profile", () => {
+  const adapters = createAdapters({
+    profiles: [
+      { id: "antigravity-agent", adapter: "antigravity-stream-json", command: "agy", enabled: true },
+    ],
+    eventStore: { emit: async () => {} },
+    cwd: repoRoot,
+  });
+
+  const agyAdapter = adapters.get("antigravity-agent");
+  assert.ok(agyAdapter);
+  assert.equal(agyAdapter.id, "antigravity-stream-json");
+  assert.equal(agyAdapter instanceof AntigravityCliAdapter, true);
+});
+
+test("createAdapters creates CodeBuddyCliAdapter for codebuddy profile", () => {
+  const adapters = createAdapters({
+    profiles: [
+      { id: "codebuddy-seat", adapter: "codebuddy-stream-json", command: "codebuddy", enabled: true, builtin: false },
+    ],
+    eventStore: { emit: async () => {} },
+    cwd: repoRoot,
+  });
+
+  const cbAdapter = adapters.get("codebuddy-seat");
+  assert.ok(cbAdapter);
+  assert.equal(cbAdapter.id, "codebuddy-stream-json");
+  assert.equal(cbAdapter instanceof CodeBuddyCliAdapter, true);
+});
+

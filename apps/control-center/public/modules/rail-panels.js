@@ -389,16 +389,28 @@ export function createRailPanels({
 
   /* ── 文件 ───────────────────────────────────────────── */
 
+  /** 文件类型着色（2026-09-12 W10，对齐 LO 截图）：git 类橙 / 图片媒体陶 / 文档绿。
+   *  只给图标上色做扫视线索，不承载第二语义；颜色全部走既有令牌。 */
+  function fileKindOf(name) {
+    const lower = String(name ?? "").toLowerCase();
+    if (/^\.git(attributes|ignore|modules|keep)?$/.test(lower)) return "git";
+    if (/\.(png|jpe?g|gif|webp|svg|ico|bmp|avif)$/.test(lower)) return "image";
+    if (/\.(mp4|mov|webm|avi|mkv|mp3|wav|flac)$/.test(lower)) return "media";
+    if (/\.(md|markdown|mdx|txt)$/.test(lower)) return "doc";
+    return "";
+  }
+
   function renderFilesTree() {
     if (!filesList) return;
     const keyword = String(filesFilter?.value ?? "").trim().toLowerCase();
     const visible = keyword ? filesEntries.filter((entry) => entry.name.toLowerCase().includes(keyword)) : filesEntries;
+    const kindAttr = (entry) => (entry.type === "directory" ? "" : ` data-file-kind="${fileKindOf(entry.name)}"`);
     const content = !visible.length
       ? `<p class="rail-tool-note">${keyword ? "没有匹配的条目" : "目录为空"}</p>`
       : `${filesCurrentPath
         ? `<button class="rail-files-entry is-parent" type="button" ${files.entry}="${escapeHtml(filesCurrentPath.split("/").slice(0, -1).join("/"))}">${icon("arrow-up")}<span>上级目录</span></button>`
         : ""}${visible.map((entry) => `
-        <button class="rail-files-entry" type="button" ${files.entry}="${escapeHtml(entry.path)}" data-entry-type="${escapeHtml(entry.type)}"${entry.openable === false ? " disabled" : ""} title="${escapeHtml(entry.path)}">
+        <button class="rail-files-entry" type="button"${kindAttr(entry)} ${files.entry}="${escapeHtml(entry.path)}" data-entry-type="${escapeHtml(entry.type)}"${entry.openable === false ? " disabled" : ""} title="${escapeHtml(entry.path)}">
           ${icon(entry.type === "directory" ? "chevron-right" : "file-text")}<span>${escapeHtml(entry.name)}</span>
         </button>`).join("")}`;
     const truncated = filesDirectoryTruncation

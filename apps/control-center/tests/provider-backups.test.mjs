@@ -136,7 +136,8 @@ test("expectedDigest 不匹配即 409 拒绝恢复，不覆盖别人刚改的 li
 test("无清单历史备份：basename 唯一命中可恢复，同名多目标如实标不可自动恢复", async (t) => {
   const { store, runtimeHome, backupDir } = await fixture(t);
   await mkdir(backupDir, { recursive: true });
-  // 唯一命中（config.toml 在登记表里同时属 codex/grok/kimi → 多目标）
+  // 唯一命中（config.toml 在登记表里同时属 codex/grok/kimi → 多目标；
+  // settings.json 自 v4.0 antigravity 加入后同属 claude + antigravity，也是多目标）
   await writeFile(join(backupDir, "20260812-101010-settings.json"), '{"env":{}}\n', "utf8");
   await writeFile(join(backupDir, "20260812-101011-config.toml"), "model = \"x\"\n", "utf8");
   await writeFile(join(backupDir, "20260812-101012-openclaw.json"), "{}\n", "utf8");
@@ -147,8 +148,8 @@ test("无清单历史备份：basename 唯一命中可恢复，同名多目标�
   const openclaw = backups.find((item) => item.name.endsWith("openclaw.json"));
 
   assert.equal(settings.hasManifest, false);
-  assert.equal(settings.restorable, true, "settings.json 在登记表里只属 claude，唯一命中");
-  assert.equal(settings.app, "claude");
+  assert.equal(settings.restorable, false, "settings.json 同属 claude + antigravity，多目标不可自动恢复");
+  assert.equal(settings.unresolved, "ambiguous");
   assert.equal(toml.restorable, false);
   assert.equal(toml.unresolved, "ambiguous");
   assert.equal(openclaw.restorable, true);

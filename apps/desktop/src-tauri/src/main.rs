@@ -546,16 +546,22 @@ fn parse_kernel_url(line: &str, expected_port: u16) -> Option<Url> {
     let rest = line.strip_prefix(URL_PREFIX)?;
     let raw = rest.split_whitespace().next()?;
     let url: Url = raw.parse().ok()?;
+    let has_auth = |value: &str| {
+        ["bootstrap=", "token="].iter().any(|prefix| {
+            value
+                .strip_prefix(prefix)
+                .is_some_and(|credential| !credential.is_empty())
+        })
+    };
+    // Accept fragment (#bootstrap=) or query (?bootstrap=); WebView2 may drop fragments.
+    let credential_ok = url.fragment().is_some_and(has_auth)
+        || url
+            .query()
+            .is_some_and(|query| query.split('&').any(has_auth));
     let valid = url.scheme() == "http"
         && url.host_str() == Some("127.0.0.1")
         && url.port() == Some(expected_port)
-        && url.fragment().is_some_and(|fragment| {
-            ["bootstrap=", "token="].iter().any(|prefix| {
-                fragment
-                    .strip_prefix(prefix)
-                    .is_some_and(|value| !value.is_empty())
-            })
-        });
+        && credential_ok;
     valid.then_some(url)
 }
 
@@ -1592,6 +1598,10 @@ fn main() {
             native::exit_lightweight_mode,
             native::is_lightweight_mode,
             native::set_pet_overlay,
+            native::set_pet_overlay_opacity,
+            native::set_pet_overlay_hover,
+            native::set_pet_overlay_rect,
+            native::pet_pointer_inside,
         ])
         .on_window_event(|window, event| match window.label() {
             "main" => {

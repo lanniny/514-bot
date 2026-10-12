@@ -43,6 +43,12 @@ import {
   WORKSPACE_EXPLORER_LIMITS,
 } from "./src/workspace-explorer.mjs";
 import { collectWorkbenchEnvironment, GitActionBroker } from "./src/workbench-environment.mjs";
+import { parseProjectFileExcerpt } from "./src/file-evidence.mjs";
+import { CheckpointStore } from "./src/checkpoint-store.mjs";
+import { createEvidenceMatrix, createEvidenceItem, extractEvidenceFromMessages, formatEvidenceMatrixMarkdown } from "./src/evidence-matrix.mjs";
+import { createUnifiedDeliverable, formatUnifiedDeliverableMarkdown } from "./src/unified-deliverable.mjs";
+import { distillWorkflowFromRun, distillWorkflowFromConversation } from "./src/workflow-distiller.mjs";
+import { SessionResidenceStore } from "./src/session-residence.mjs";
 import { collectReleaseTruth } from "./src/release-truth.mjs";
 import { collectReleaseRecord, summarizeServerObservedValidation } from "./src/release-record.mjs";
 import { collectOpsMetrics } from "./src/ops-metrics.mjs";
@@ -91,10 +97,32 @@ const publicRoot = join(appRoot, "public");
 // 这里把致命错误落到文件，并把 unhandledRejection 从"默认崩溃"降级为"记录不退出"——
 // 未处理的 rejection 大多不是同步状态损坏，不值得为此整窗闪退。
 function logKernelFatal(kind, error) {
+  // 必须**同时**写 stderr：桌面端把内核 stderr 重定向到 kernel-stderr.log，那是排障时
+  // 第一个被打开的文件。此前只写仓库点目录（.scratch/control-center-fatal.log），于是
+  // 「内核握手前退出 + stderr 空白」，把一个本来自解释的 INSTANCE_ACTIVE 变成了玄学故障。
+  // 2026-09-18 实测：僵尸实例持锁时内核 exit 1，stdout/stderr 全空，用户只能拿到空日志。
+  //
+  // 这里刻意用 ASCII：日志文件会被各种终端/重定向链消费，中文在这些链条里出现过乱码，
+  // 而排障输出最不该有编码风险。动作建议写清楚，别只丢一个错误码。
+  const message = error instanceof Error ? (error.message || String(error)) : String(error);
+  const detail = error instanceof Error ? (error.stack || error.message) : String(error);
+  try {
+    process.stderr.write(`control-center: fatal [${kind}] ${message}\n`);
+    if (error && typeof error === "object" && error.code === "INSTANCE_ACTIVE") {
+      const owner = error.owner || {};
+      process.stderr.write(
+        "control-center: another instance already owns the instance lock"
+        + ` (pid=${owner.pid ?? "?"}, image=${owner.image ?? "?"}, startedAt=${owner.startedAt ?? "?"}).\n`
+        + "control-center: this process will exit before handshake. Quit that instance first"
+        + " (desktop: tray menu -> Quit, or stop the listed pid), then start again.\n",
+      );
+    }
+  } catch {
+    // stderr 不可写时不能再抛一次
+  }
   try {
     const root = process.env.CC_ROOT || appRoot;
     const file = join(root, ".scratch", "control-center-fatal.log");
-    const detail = error instanceof Error ? (error.stack || error.message) : String(error);
     appendFileSync(file, `${new Date().toISOString()} [${kind}] ${detail}\n`, "utf8");
   } catch {
     // 日志路径不可写时静默，不能再抛一次
@@ -178,6 +206,16 @@ state.avatars = await createAvatarStore({
   dataRoot: state.dataRoot,
   teamMembers: state.teamMembers,
 }).init();
+state.checkpoints = new CheckpointStore({ dataRoot: state.dataRoot });
+await state.checkpoints.init();
+// state.assistantMemory 由 src/app.mjs 创建并注入 Orchestrator（派发时要在准入校验前取到
+// 记忆块，必须构造注入），此处不再重建——重建会得到两个实例、写盘互相覆盖。
+state.sessionResidence = new SessionResidenceStore({ dataRoot: state.dataRoot });
+await state.sessionResidence.init({
+  runs: state.orchestrator?.runs,
+  conversations: state.conversations,
+  checkpointStore: state.checkpoints,
+});
 
 // ===== 外观偏好持久化：桌面壳按地址+端口隔离 localStorage，端口随机变化后本地偏好全部失联，
 // 所以外观键改存服务端数据目录（与 operator-profile.json 同级同约定），前端双写 + 启动补齐。 =====
@@ -282,6 +320,15 @@ async function writePreferencesAtomic(value) {
 // 等下一次 PUT 重新触发（GET 合并视图全程可读，不产生「写已确认、读未见」的丢失感）。
 const PREFERENCES_RETRY_MAX = 5;
 let preferencesRetryCount = 0;
+// 提交窗口期快照：pending 已摘出、磁盘尚未落的那一瞬保留它参与读视图。
+// 否则那一瞬 GET / transformIndexHtml 会回退旧值——首帧注入据此闪回旧主题（烛 v1 照出）。
+let preferencesFlushing = null;
+
+// 读取视图 = 磁盘 ∪ 暂存/提交中快照。pending（更新）优先于 flushing（提交中）。
+function preferencesMergedView(disk) {
+  const overlay = preferencesPending ?? preferencesFlushing;
+  return overlay ? { ...disk, ...overlay } : disk;
+}
 
 async function flushPreferences() {
   clearTimeout(preferencesFlushTimer);
@@ -289,11 +336,14 @@ async function flushPreferences() {
   const snapshot = preferencesPending;
   preferencesPending = null;
   if (!snapshot) return;
+  preferencesFlushing = snapshot;
   try {
     await writePreferencesAtomic(snapshot);
     preferencesRetryCount = 0;
+    preferencesFlushing = null; // 落盘完成才撤；失败见 catch（回到 pending，磁盘旧值不闪回）
   } catch (error) {
     // 落盘失败不再静默丢弃：快照合回暂存区（期间新到的更鲜 PUT 优先），退避重试。
+    preferencesFlushing = null;
     preferencesPending = { ...snapshot, ...(preferencesPending ?? {}) };
     preferencesRetryCount += 1;
     if (preferencesRetryCount <= PREFERENCES_RETRY_MAX) {
@@ -516,6 +566,15 @@ const RUNTIME_SEAT_SOURCE_ID = "control.models";
 const RUNTIME_SEAT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 let runtimeSeatMutationChain = Promise.resolve();
 
+// 「清空已删除会话」用来判断一条 run 是否还算活着的终态集合。
+// 方向刻意与 ops-metrics / workbench-environment 那两份不同：这里枚举**终态**，
+// 未知状态一律算活着（宁可多留一条墓碑，不可误删一条还挂着活 run 的会话——purge 不可撤销）。
+// 仓里现有三份 TERMINAL 定义互不一致（3 项 / 7 项 / 此处 8 项），本次不统一它们，
+// 只把本处的取舍写明，避免后来者以为是漏抄。
+const PURGE_TERMINAL_RUN_STATES = new Set([
+  "succeeded", "complete", "completed", "failed", "cancelled", "canceled", "skipped", "superseded",
+]);
+
 function runtimeSeatError(message, code = "VALIDATION_FAILED", details = {}) {
   return Object.assign(new Error(message), { code, ...details });
 }
@@ -565,11 +624,12 @@ function normalizeRuntimeSeatControls(profile, template) {
     }
   }
 
-  const model = profile.model == null ? "" : String(profile.model).trim();
+  let model = profile.model == null ? "" : String(profile.model).trim();
+  model = model.replace(/\s*[（(][^）)]*[）)]\s*$/g, "").trim();
   if (model && template.modelMode === "none") {
     throw runtimeSeatError(`${template.id} does not support model overrides`, "INVALID_MODEL", { runtimeProfileId });
   }
-  if (model && !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(model)) {
+  if (model && !/^[A-Za-z0-9@][A-Za-z0-9._:/[\]@-]{0,159}$/.test(model)) {
     throw runtimeSeatError("model id contains unsupported characters", "INVALID_MODEL", { runtimeProfileId });
   }
 
@@ -1189,7 +1249,31 @@ function selectRunHistoryRepresentation(header) {
 
 // UI-AUDIT P0-3：静态资源服务（brotli/gzip 压缩 + ETag 条件请求 + 路径白名单）
 // 已抽出为可单测模块 src/static-assets.mjs，见 tests/static-assets.test.mjs
-const { serveStatic } = createStaticServer({ publicRoot, securityHeaders });
+const { serveStatic } = createStaticServer({
+  publicRoot,
+  securityHeaders,
+  // 首帧偏好注入：把「磁盘 + 防抖暂存区」合并偏好填进 index.html 的
+  // __514CC_BOOT_PREFS__ JSON 块，theme.js 在样式表之前同步消费它——
+  // 消灭「异步 /api/preferences 回来之前的暗/亮两段式闪烁」。
+  // type="application/json" 的 script 块不是可执行内容，CSP script-src 'self' 不拦它；
+  // JSON 值里的尖括号一律转义成 unicode escape，防恶意偏好值以 script 闭合标签提前截断数据块。
+  transformIndexHtml: async (html) => {
+    let disk = {};
+    try {
+      disk = await readPreferencesFromDisk();
+    } catch {
+      disk = {};
+    }
+    const merged = preferencesMergedView(disk);
+    const payload = JSON.stringify(merged).replace(/</g, "\\u003c");
+    // 函数替换器：payload 若含 $& / $1 / $` 这类 replacement 模式，字符串替换会把它们
+    // 当捕获组引用展开，生成畸形 JSON 让首屏 parse 崩。函数式返回不做模式展开。
+    return html.replace(
+      /(<script type="application\/json" id="__514CC_BOOT_PREFS__">)[\s\S]*?(<\/script>)/,
+      (_match, prefix, suffix) => `${prefix}${payload}${suffix}`,
+    );
+  },
+});
 
 
 async function api(request, response, url, requestId) {
@@ -1510,7 +1594,9 @@ async function api(request, response, url, requestId) {
     return json(response, 200, await state.observability.routeGate({ days: Number(url.searchParams.get("days")) || 7 }));
   }
   if (request.method === "GET" && pathname === "/api/observability/delta") return json(response, 200, await state.observability.deltaLedger());
-  if (request.method === "GET" && pathname === "/api/observability/handoffs") return json(response, 200, { handoffs: await state.observability.handoffs() });
+  // handoffs() 返回 { handoffs, total, truncated, limit } —— total 是磁盘真实份数，
+  // handoffs 是最近 limit 条。两个都下发，调用方才能区分「一共 182 份」与「只带了前 120 条」。
+  if (request.method === "GET" && pathname === "/api/observability/handoffs") return json(response, 200, await state.observability.handoffs());
   const handoffMatch = pathname.match(/^\/api\/observability\/handoffs\/([^/]+)$/);
   if (request.method === "GET" && handoffMatch) return json(response, 200, await state.observability.handoffContent(decodeURIComponent(handoffMatch[1])));
   if (request.method === "POST" && pathname === "/api/observability/drift") return json(response, 200, await state.observability.drift());
@@ -1792,7 +1878,7 @@ async function api(request, response, url, requestId) {
     // GET：文件不存在/损坏都返回 200 {}，读路径永不报错打断前端首帧。
     // 返回「磁盘 + 内存暂存区」合并视图：200ms 防抖窗口内写已确认的键立即可读。
     if (request.method === "GET") {
-      const merged = { ...(await readPreferencesFromDisk()), ...(preferencesPending ?? {}) };
+      const merged = preferencesMergedView(await readPreferencesFromDisk());
       return json(response, 200, { preferences: merged });
     }
     // PUT：白名单键合并进内存区，200ms 防抖一次落盘；连续多次 PUT 只产生一次写。
@@ -2280,8 +2366,142 @@ async function api(request, response, url, requestId) {
     );
     return json(response, 201, { schema: "514cc.conversation/v2", conversation, revision: state.conversations.status().revision });
   }
+  const conversationForkMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/fork$/);
+  if (request.method === "POST" && conversationForkMatch) {
+    const conversation = await state.conversations.fork(
+      decodeURIComponent(conversationForkMatch[1]),
+      await body(request),
+    );
+    return json(response, 201, { schema: "514cc.conversation/v2", conversation, revision: state.conversations.status().revision });
+  }
+  const conversationParseMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/parse-file$/);
+  if (request.method === "POST" && conversationParseMatch) {
+    const conversationId = decodeURIComponent(conversationParseMatch[1]);
+    const conversation = state.conversations.get(conversationId);
+    if (!conversation) {
+      return json(response, 404, { code: "CONVERSATION_NOT_FOUND", message: "conversation not found" });
+    }
+    let cwd = conversation.cwd;
+    if (!cwd && conversation.projectId && state.projects) {
+      const project = state.projects.get(conversation.projectId);
+      cwd = project?.canonicalCwd || null;
+    }
+    if (!cwd) {
+      cwd = state.projects?.active()?.canonicalCwd || process.cwd();
+    }
+    const input = await body(request) ?? {};
+    try {
+      const excerpt = await parseProjectFileExcerpt(cwd, input.relativePath, {
+        startLine: input.startLine,
+        endLine: input.endLine,
+        maxBytes: input.maxBytes,
+        maxLines: input.maxLines,
+      });
+      return json(response, 200, { schema: "514cc.file-excerpt/v1", excerpt });
+    } catch (err) {
+      return json(response, 400, { code: err.code || "FILE_PARSE_FAILED", message: err.message });
+    }
+  }
+  const conversationCheckpointsMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/checkpoints$/);
+  if (request.method === "GET" && conversationCheckpointsMatch) {
+    const conversationId = decodeURIComponent(conversationCheckpointsMatch[1]);
+    const conversation = state.conversations.get(conversationId);
+    if (!conversation) {
+      return json(response, 404, { code: "CONVERSATION_NOT_FOUND", message: "conversation not found" });
+    }
+    const checkpoints = state.checkpoints ? state.checkpoints.getByConversation(conversationId) : [];
+    return json(response, 200, { schema: "514cc.research-checkpoints/v1", conversationId, checkpoints });
+  }
+  if (request.method === "POST" && conversationCheckpointsMatch) {
+    const conversationId = decodeURIComponent(conversationCheckpointsMatch[1]);
+    const conversation = state.conversations.get(conversationId);
+    if (!conversation) {
+      return json(response, 404, { code: "CONVERSATION_NOT_FOUND", message: "conversation not found" });
+    }
+    const payload = await body(request) ?? {};
+    try {
+      const checkpoint = await state.checkpoints.record({ ...payload, conversationId });
+      return json(response, 201, { schema: "514cc.research-checkpoint/v1", checkpoint });
+    } catch (err) {
+      return json(response, 400, { code: err.code || "CHECKPOINT_RECORD_FAILED", message: err.message });
+    }
+  }
+  const conversationEvidenceMatrixMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/evidence-matrix$/);
+  if (request.method === "GET" && conversationEvidenceMatrixMatch) {
+    const conversationId = decodeURIComponent(conversationEvidenceMatrixMatch[1]);
+    const conversation = state.conversations.get(conversationId);
+    if (!conversation) {
+      return json(response, 404, { code: "CONVERSATION_NOT_FOUND", message: "conversation not found" });
+    }
+    const runIds = conversation.runIds || [];
+    const allMessages = [];
+    for (const runId of runIds) {
+      const run = state.orchestrator ? state.orchestrator.get(runId) : null;
+      if (run) {
+        for (const attempt of run.turnAttempts || []) {
+          if (attempt.prompt) allMessages.push({ role: "user", text: attempt.prompt });
+          if (attempt.answer) allMessages.push({ role: "assistant", text: attempt.answer });
+          if (Array.isArray(attempt.tools)) allMessages.push({ role: "assistant", tools: attempt.tools });
+        }
+      }
+    }
+    const items = extractEvidenceFromMessages(allMessages);
+    const matrix = createEvidenceMatrix({ conversationId, items });
+    if (url.searchParams.get("format") === "markdown") {
+      return json(response, 200, {
+        conversationId,
+        format: "markdown",
+        markdown: formatEvidenceMatrixMarkdown(matrix),
+      });
+    }
+    return json(response, 200, matrix);
+  }
+  const conversationDistillMatch = pathname.match(/^\/api\/conversations\/([^/]+)\/distill-workflow$/);
+  if (request.method === "POST" && conversationDistillMatch) {
+    const conversationId = decodeURIComponent(conversationDistillMatch[1]);
+    const conversation = state.conversations.get(conversationId);
+    if (!conversation) {
+      return json(response, 404, { code: "CONVERSATION_NOT_FOUND", message: "conversation not found" });
+    }
+    const input = await body(request) ?? {};
+    const runsMap = state.orchestrator ? state.orchestrator.runs : new Map();
+    const checkpointsMap = new Map();
+    if (state.checkpoints) {
+      for (const runId of conversation.runIds || []) {
+        checkpointsMap.set(runId, state.checkpoints.getByRun(runId));
+      }
+    }
+    const draft = distillWorkflowFromConversation(conversation, runsMap, { checkpointsMap });
+    let savedRoutine = null;
+    if (input.saveAsRoutine === true && state.routines) {
+      try {
+        savedRoutine = await state.routines.saveRoutine(draft);
+      } catch (err) {
+        return json(response, 400, { code: err.code || "ROUTINE_SAVE_FAILED", message: err.message, draft });
+      }
+    }
+    return json(response, 200, {
+      schema: "514cc.workflow-distiller/v1",
+      draft,
+      savedRoutine,
+    });
+  }
   if (request.method === "DELETE" && pathname === "/api/conversations/deleted") {
-    const result = await state.conversations.purgeDeleted(await body(request) || {});
+    // run 存活判据只能由服务端给：会话记录里的 activeRunId 是**挂载时写入、run 终态后从不清除**的
+    // 陈旧字段（2026-10-11 实测：6 条已删除会话里 5 条指向不存在的 run 文件），拿它当保留依据
+    // 会让「清空已删除」对任何有过 run 的会话永久失效。此处按「run 存在且未终态」判活。
+    const isRunLive = (runId) => {
+      const id = String(runId || "").trim();
+      if (!id) return false;
+      let run = null;
+      try {
+        run = state.orchestrator.get(id);
+      } catch {
+        return false; // run 不存在（从未落盘 / 已被清除）→ 没有什么可保护的
+      }
+      return !PURGE_TERMINAL_RUN_STATES.has(String(run?.status || ""));
+    };
+    const result = await state.conversations.purgeDeleted({ ...(await body(request) || {}), isRunLive });
     return json(response, 200, { schema: "514cc.conversations-purge/v1", ...result });
   }
   const conversationMatch = pathname.match(/^\/api\/conversations\/([^/]+)$/);
@@ -2367,7 +2587,11 @@ if (request.method === "DELETE" && conversationMatch) {
         .then((value) => ({ ok: true, value }))
         .catch((error) => ({ ok: false, error })),
     ]);
-    const handoffs = handoffsResult.ok && Array.isArray(handoffsResult.value) ? handoffsResult.value : [];
+    // handoffs() 返回 { handoffs, total, truncated, limit }；这里只取有界清单本身。
+    // ⚠️ 必须按 .handoffs 取——若沿用旧的 Array.isArray(value) 判断，形状变更后会静默
+    // 退化成 []（证据全丢却不报错），正是 collectRunSettlement 注释里禁止的「把缺失证据
+    // 伪装成已发布」。
+    const handoffs = handoffsResult.ok && Array.isArray(handoffsResult.value?.handoffs) ? handoffsResult.value.handoffs : [];
     const deltaLedger = deltaResult.ok && deltaResult.value && typeof deltaResult.value === "object" ? deltaResult.value : {};
     const evidenceIssues = [
       ["handoffs", handoffsResult],
@@ -2381,6 +2605,37 @@ if (request.method === "DELETE" && conversationMatch) {
     }));
     const asOfSequence = state.eventStore.sequenceTip();
     const worktreeDigest = await computeWorktreeDigest(run);
+    const checkpoints = state.checkpoints ? state.checkpoints.getByRun(runId) : [];
+    const runMessages = [];
+    for (const attempt of run.turnAttempts || []) {
+      if (attempt.prompt) runMessages.push({ role: "user", text: attempt.prompt });
+      if (attempt.answer) runMessages.push({ role: "assistant", text: attempt.answer });
+      if (Array.isArray(attempt.tools)) runMessages.push({ role: "assistant", tools: attempt.tools });
+    }
+    const messageEvidences = extractEvidenceFromMessages(runMessages);
+    const handoffEvidences = handoffs.map((h) => createEvidenceItem({
+      type: "artifact",
+      title: `Handoff: ${h.name}`,
+      locator: `/api/observability/handoffs/${encodeURIComponent(h.name)}`,
+      status: "verified",
+    }));
+    const deltaEvidences = (Array.isArray(deltaLedger?.deltas) ? deltaLedger.deltas : []).map((d) => createEvidenceItem({
+      type: "delta",
+      title: `DELTA: ${d.agent || "未知"}`,
+      locator: `delta://${d.agent}/${d.topic}`,
+      snippet: d.evidence,
+      status: "verified",
+      metadata: d,
+    }));
+    const evidenceMatrix = createEvidenceMatrix({
+      runId,
+      items: [...messageEvidences, ...handoffEvidences, ...deltaEvidences],
+    });
+    const deliverable = createUnifiedDeliverable({
+      run,
+      checkpoints,
+      evidenceMatrix,
+    });
     return json(response, 200, {
       ...(await collectRunSettlement({
         run,
@@ -2390,9 +2645,213 @@ if (request.method === "DELETE" && conversationMatch) {
         evidenceSource: { status: evidenceIssues.length ? "unavailable" : "available", issues: evidenceIssues },
         asOfSequence,
         worktreeDigest,
+        checkpoints,
+        evidenceMatrix,
+        deliverable,
       })),
       asOfSequence,
     });
+  }
+  const runCheckpointsMatch = pathname.match(/^\/api\/runs\/([0-9a-fA-F-]+)\/checkpoints$/);
+  if (request.method === "GET" && runCheckpointsMatch) {
+    const runId = runCheckpointsMatch[1];
+    const run = state.orchestrator.get(runId);
+    if (!run) throw Object.assign(new Error(`run not found: ${runId}`), { code: "RUN_NOT_FOUND" });
+    const checkpoints = state.checkpoints ? state.checkpoints.getByRun(runId) : [];
+    return json(response, 200, { schema: "514cc.research-checkpoints/v1", runId, checkpoints });
+  }
+  if (request.method === "POST" && runCheckpointsMatch) {
+    const runId = runCheckpointsMatch[1];
+    const run = state.orchestrator.get(runId);
+    if (!run) throw Object.assign(new Error(`run not found: ${runId}`), { code: "RUN_NOT_FOUND" });
+    const payload = await body(request) ?? {};
+    try {
+      const checkpoint = await state.checkpoints.record({ ...payload, runId, conversationId: run.conversationId });
+      return json(response, 201, { schema: "514cc.research-checkpoint/v1", checkpoint });
+    } catch (err) {
+      return json(response, 400, { code: err.code || "CHECKPOINT_RECORD_FAILED", message: err.message });
+    }
+  }
+  const runEvidenceMatrixMatch = pathname.match(/^\/api\/runs\/([0-9a-fA-F-]+)\/evidence-matrix$/);
+  if (request.method === "GET" && runEvidenceMatrixMatch) {
+    const runId = runEvidenceMatrixMatch[1];
+    const run = state.orchestrator.get(runId);
+    if (!run) throw Object.assign(new Error(`run not found: ${runId}`), { code: "RUN_NOT_FOUND" });
+    const messages = [];
+    for (const attempt of run.turnAttempts || []) {
+      if (attempt.prompt) messages.push({ role: "user", text: attempt.prompt });
+      if (attempt.answer) messages.push({ role: "assistant", text: attempt.answer });
+      if (Array.isArray(attempt.tools)) messages.push({ role: "assistant", tools: attempt.tools });
+    }
+    const items = extractEvidenceFromMessages(messages);
+    const matrix = createEvidenceMatrix({ runId, items });
+    if (url.searchParams.get("format") === "markdown") {
+      return json(response, 200, {
+        runId,
+        format: "markdown",
+        markdown: formatEvidenceMatrixMarkdown(matrix),
+      });
+    }
+    return json(response, 200, matrix);
+  }
+  const runDeliverableMatch = pathname.match(/^\/api\/runs\/([0-9a-fA-F-]+)\/deliverable$/);
+  if (request.method === "GET" && runDeliverableMatch) {
+    const runId = runDeliverableMatch[1];
+    const rawRun = state.orchestrator.get(runId);
+    if (!rawRun) throw Object.assign(new Error(`run not found: ${runId}`), { code: "RUN_NOT_FOUND" });
+    const checkpoints = state.checkpoints ? state.checkpoints.getByRun(runId) : [];
+    const messages = [];
+    for (const attempt of rawRun.turnAttempts || []) {
+      if (attempt.prompt) messages.push({ role: "user", text: attempt.prompt });
+      if (attempt.answer) messages.push({ role: "assistant", text: attempt.answer });
+      if (Array.isArray(attempt.tools)) messages.push({ role: "assistant", tools: attempt.tools });
+    }
+    const matrix = createEvidenceMatrix({ runId, items: extractEvidenceFromMessages(messages) });
+    const deliverable = createUnifiedDeliverable({ run: rawRun, checkpoints, evidenceMatrix: matrix });
+    if (url.searchParams.get("format") === "markdown") {
+      return json(response, 200, {
+        runId,
+        format: "markdown",
+        markdown: formatUnifiedDeliverableMarkdown(deliverable),
+      });
+    }
+    return json(response, 200, deliverable);
+  }
+  const runDistillMatch = pathname.match(/^\/api\/runs\/([0-9a-fA-F-]+)\/distill-workflow$/);
+  if (request.method === "POST" && runDistillMatch) {
+    const runId = runDistillMatch[1];
+    const rawRun = state.orchestrator.get(runId);
+    if (!rawRun) throw Object.assign(new Error(`run not found: ${runId}`), { code: "RUN_NOT_FOUND" });
+    const checkpoints = state.checkpoints ? state.checkpoints.getByRun(runId) : [];
+    const messages = [];
+    for (const attempt of rawRun.turnAttempts || []) {
+      if (attempt.prompt) messages.push({ role: "user", text: attempt.prompt });
+      if (attempt.answer) messages.push({ role: "assistant", text: attempt.answer });
+      if (Array.isArray(attempt.tools)) messages.push({ role: "assistant", tools: attempt.tools });
+    }
+    const matrix = createEvidenceMatrix({ runId, items: extractEvidenceFromMessages(messages) });
+    const deliverable = createUnifiedDeliverable({ run: rawRun, checkpoints, evidenceMatrix: matrix });
+    const input = await body(request) ?? {};
+    const draft = distillWorkflowFromRun(rawRun, { checkpoints, deliverable, evidenceMatrix: matrix });
+    let savedRoutine = null;
+    if (input.saveAsRoutine === true && state.routines) {
+      try {
+        savedRoutine = await state.routines.saveRoutine(draft);
+      } catch (err) {
+        return json(response, 400, { code: err.code || "ROUTINE_SAVE_FAILED", message: err.message, draft });
+      }
+    }
+    return json(response, 200, {
+      schema: "514cc.workflow-distiller/v1",
+      draft,
+      savedRoutine,
+    });
+  }
+
+  // ===== 桌面助手 A5：可控记忆端点 =====
+  if (request.method === "GET" && pathname === "/api/assistant/memories") {
+    if (!state.assistantMemory) return json(response, 200, { schema: "514cc.assistant-memory/v1", items: [] });
+    const category = url.searchParams.get("category") || null;
+    const pinned = url.searchParams.get("pinned");
+    const enabled = url.searchParams.get("enabled");
+    const search = url.searchParams.get("q") || url.searchParams.get("search") || "";
+    const items = await state.assistantMemory.list({ category, pinned, enabled, search });
+    return json(response, 200, { schema: "514cc.assistant-memory/v1", items });
+  }
+  if (request.method === "POST" && pathname === "/api/assistant/memories") {
+    if (!state.assistantMemory) return json(response, 503, { code: "MEMORY_STORE_UNAVAILABLE", message: "assistant memory is unavailable" });
+    const input = await body(request) ?? {};
+    try {
+      const item = await state.assistantMemory.create(input);
+      return json(response, 201, { schema: "514cc.assistant-memory/v1", item });
+    } catch (err) {
+      return json(response, 400, { code: err.code || "MEMORY_CREATE_FAILED", message: err.message });
+    }
+  }
+  if (request.method === "GET" && pathname === "/api/assistant/memories/prompt-chunk") {
+    if (!state.assistantMemory) return json(response, 200, { schema: "514cc.assistant-memory-prompt/v1", promptChunk: "" });
+    const promptChunk = await state.assistantMemory.getPromptChunk();
+    return json(response, 200, { schema: "514cc.assistant-memory-prompt/v1", promptChunk });
+  }
+  const assistantMemoryItemMatch = pathname.match(/^\/api\/assistant\/memories\/([A-Za-z0-9._:-]+)$/);
+  if (assistantMemoryItemMatch && pathname !== "/api/assistant/memories/prompt-chunk") {
+    const memoryId = assistantMemoryItemMatch[1];
+    if (request.method === "GET") {
+      if (!state.assistantMemory) return json(response, 404, { code: "MEMORY_NOT_FOUND", message: "memory item not found" });
+      try {
+        const item = await state.assistantMemory.get(memoryId);
+        return json(response, 200, { schema: "514cc.assistant-memory/v1", item });
+      } catch (err) {
+        return json(response, err.httpStatus || 404, { code: err.code || "MEMORY_NOT_FOUND", message: err.message });
+      }
+    }
+    if (request.method === "PATCH") {
+      if (!state.assistantMemory) return json(response, 503, { code: "MEMORY_STORE_UNAVAILABLE", message: "assistant memory is unavailable" });
+      const input = await body(request) ?? {};
+      try {
+        const item = await state.assistantMemory.update(memoryId, input);
+        return json(response, 200, { schema: "514cc.assistant-memory/v1", item });
+      } catch (err) {
+        return json(response, err.httpStatus || 400, { code: err.code || "MEMORY_UPDATE_FAILED", message: err.message });
+      }
+    }
+    if (request.method === "DELETE") {
+      if (!state.assistantMemory) return json(response, 503, { code: "MEMORY_STORE_UNAVAILABLE", message: "assistant memory is unavailable" });
+      try {
+        const result = await state.assistantMemory.delete(memoryId);
+        return json(response, 200, result);
+      } catch (err) {
+        return json(response, err.httpStatus || 404, { code: err.code || "MEMORY_DELETE_FAILED", message: err.message });
+      }
+    }
+  }
+
+  // ===== 桌面助手 A5：会话驻留与关机恢复端点 =====
+  if (request.method === "GET" && pathname === "/api/assistant/residence") {
+    if (!state.sessionResidence) {
+      return json(response, 200, { schema: "514cc.session-residence/v1", activeConversationId: null, residenceMode: "detached", recoveryHints: [] });
+    }
+    return json(response, 200, state.sessionResidence.getResidenceState());
+  }
+  if (request.method === "POST" && pathname === "/api/assistant/residence/heartbeat") {
+    if (!state.sessionResidence) {
+      return json(response, 200, { success: true });
+    }
+    const input = await body(request) ?? {};
+    const updated = await state.sessionResidence.recordHeartbeat(input);
+    return json(response, 200, updated);
+  }
+  if (request.method === "POST" && pathname === "/api/assistant/residence/dismiss-hint") {
+    if (!state.sessionResidence) {
+      return json(response, 404, { code: "HINT_NOT_FOUND", message: "session residence unavailable" });
+    }
+    const input = await body(request) ?? {};
+    if (!input.hintId) {
+      return json(response, 400, { code: "VALIDATION_FAILED", message: "hintId is required" });
+    }
+    try {
+      const res = await state.sessionResidence.dismissRecoveryHint(input.hintId);
+      return json(response, 200, res);
+    } catch (err) {
+      return json(response, err.httpStatus || 404, { code: err.code || "HINT_NOT_FOUND", message: err.message });
+    }
+  }
+  // 路由名保留兼容，但语义只是"认领提示 + 回到会话"，不重放执行——
+  // 响应里的 runResumed:false 是给调用方的明确信号（见 src/session-residence.mjs 注释）。
+  if (request.method === "POST" && pathname === "/api/assistant/residence/resume-run") {
+    if (!state.sessionResidence) {
+      return json(response, 404, { code: "HINT_NOT_FOUND", message: "session residence unavailable" });
+    }
+    const input = await body(request) ?? {};
+    if (!input.hintId) {
+      return json(response, 400, { code: "VALIDATION_FAILED", message: "hintId is required" });
+    }
+    try {
+      const res = await state.sessionResidence.claimRecoveryHint(input.hintId);
+      return json(response, 200, res);
+    } catch (err) {
+      return json(response, err.httpStatus || 404, { code: err.code || "HINT_NOT_FOUND", message: err.message });
+    }
   }
   if (request.method === "POST" && pathname === "/api/system/clipboard-image") {
     const input = await body(request, MAX_CLIPBOARD_IMAGE_REQUEST_BYTES);
@@ -2716,7 +3175,7 @@ if (request.method === "DELETE" && conversationMatch) {
         asOfSequence,
         evidenceArtifacts: collectRunEvidenceArtifacts({
           run,
-          handoffs: (await state.observability.handoffs({ limit: 80 }).catch(() => [])).map((file) => ({
+          handoffs: (await state.observability.handoffs({ limit: 80 }).then((value) => value?.handoffs ?? []).catch(() => [])).map((file) => ({
             ...file,
             exists: true,
           })),
@@ -2775,7 +3234,9 @@ if (request.method === "DELETE" && conversationMatch) {
     // 5min 缓存；发现失败如实回退 models.json 静态目录（source 字段标明出处）
     const agentId = url.searchParams.get("agent") ?? "";
     if (!agentId) throw Object.assign(new Error("agent is required"), { code: "VALIDATION_FAILED" });
+    const fresh = url.searchParams.get("fresh") === "1" || url.searchParams.get("fresh") === "true";
     const runtimeProfileId = runtimeProfileIdForMember(agentId);
+    if (fresh) state.modelDiscovery.invalidate(runtimeProfileId);
     const catalog = await state.modelDiscovery.forAgent(runtimeProfileId);
     return json(response, 200, {
       ...catalog,
@@ -3282,7 +3743,13 @@ server.listen(port, host, () => {
   serverReady = true;
   const address = server.address();
   actualPort = typeof address === "object" && address ? address.port : port;
-  const url = `http://${host}:${actualPort}/#bootstrap=${bootstrapNonce}`;
+  // 凭据走**查询串**而不是片段（2026-09-18 修复）：
+  // 应用自己的 hash 路由会在启动早期把 location.hash 改写成 `#bot`，把 `#bootstrap=<nonce>`
+  // 一起顶掉——隔离复现实测：内核打印 `#bootstrap=…`，页面落地成 `#bot`，hasToken=false，
+  // /api/teams 401，用户看到「会话凭据已失效」。这是路由与凭据初始化抢同一个 `#` 的竞态，
+  // 所以不能靠"谁先跑"来赌。查询串不共享那个 `#`，路由再也顶不掉它。
+  // 外壳的 parse_kernel_url 本来就同时接受片段与查询串（main.rs:556），因此无需重编 EXE。
+  const url = `http://${host}:${actualPort}/?bootstrap=${bootstrapNonce}`;
   process.stdout.write(`514cc Control Center: ${url}\n`);
   process.stdout.write("Bootstrap link is single-use and expires after two minutes; the API bearer is not written to logs.\n");
   if (process.env.CONTROL_CENTER_OPEN === "1") {
@@ -3332,13 +3799,20 @@ async function reopenHttpTransport() {
 const shutdownController = createShutdownController({
   closeTransport: closeHttpTransport,
   reopenTransport: reopenHttpTransport,
-  closeState: ({ deadlineMs } = {}) => state.close({
-    budgetMs: shutdownBudgetMs,
-    deadlineMs,
-    onPhase: (phase) => process.stdout.write(
-      `[shutdown] ${phase.step} ${phase.ok ? "ok" : "FAILED"} in ${phase.ms}ms${phase.code ? ` [${phase.code}]` : ""}\n`,
-    ),
-  }),
+  closeState: async ({ deadlineMs } = {}) => {
+    try {
+      await state.sessionResidence?.recordCleanShutdown();
+    } catch (err) {
+      process.stderr.write(`[shutdown] failed to record clean residence shutdown: ${err?.message}\n`);
+    }
+    return state.close({
+      budgetMs: shutdownBudgetMs,
+      deadlineMs,
+      onPhase: (phase) => process.stdout.write(
+        `[shutdown] ${phase.step} ${phase.ok ? "ok" : "FAILED"} in ${phase.ms}ms${phase.code ? ` [${phase.code}]` : ""}\n`,
+      ),
+    });
+  },
   onClosed: () => process.exit(0),
   onError(error, signal) {
     const code = error?.code || "CONTROL_CENTER_SHUTDOWN_FAILED";

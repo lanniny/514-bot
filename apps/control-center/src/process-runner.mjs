@@ -196,6 +196,13 @@ const PROVIDER_ENV_KEYS = Object.freeze({
     "OPENCODE_DISABLE_MODELS_FETCH",
     "OPENCODE_GIT_BASH_PATH",
   ]),
+  codebuddy: new Set([
+    "CODEBUDDY_API_KEY",
+    "CODEBUDDY_AUTH_TOKEN",
+    "CODEBUDDY_MODEL",
+    "CODEBUDDY_GATEWAY_BASE_PATH",
+    "CODEBUDDY_GATEWAY_URL",
+  ]),
 });
 
 const PROVIDER_ALIASES = Object.freeze({
@@ -207,6 +214,8 @@ const PROVIDER_ALIASES = Object.freeze({
   "grok-search": "grok",
   "kimi-frontend": "kimi",
   "pi-resident": "pi",
+  codebuddy: "codebuddy",
+  "codebuddy-seat": "codebuddy",
 });
 
 const PROVIDER_COMMANDS = Object.freeze({
@@ -217,6 +226,8 @@ const PROVIDER_COMMANDS = Object.freeze({
   kimi: "kimi",
   opencode: "opencode",
   pi: "pi",
+  codebuddy: "codebuddy",
+  cbc: "codebuddy",
 });
 
 function envName(value) {
@@ -268,12 +279,11 @@ export function resolveCommand(command, env = process.env) {
       // Preserve PATH ownership boundaries. Prefer a native or PowerShell entry
       // in the first matching directory instead of jumping to a later desktop
       // executable that may proxy into a shared, long-lived host.
-      // Claude Code is commonly installed through npm, which leaves a
-      // `claude.ps1` shim early in PATH while the native installer places
-      // `claude.exe` later (for example in ~/.local/bin). Prefer the native
-      // seat for this known provider so stdin remains a trusted UTF-8 pipe;
+      // Claude Code and CodeBuddy are commonly installed through npm, which leaves a
+      // `.ps1` shim early in PATH while also providing a `.cmd` or native executable.
+      // Prefer the native/.cmd seat for these providers so stdin remains a trusted UTF-8 pipe;
       // keep the legacy first-directory ordering for every other command.
-      const nativePreferred = command.toLowerCase() === "claude";
+      const nativePreferred = command.toLowerCase() === "claude" || command.toLowerCase() === "codebuddy";
       const suffixes = nativePreferred ? [".exe", ".com"] : [".exe", ".com", ".ps1"];
       for (const directory of directories) {
         if (command.toLowerCase() === "opencode") {

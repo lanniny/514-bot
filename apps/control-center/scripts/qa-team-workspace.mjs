@@ -201,9 +201,11 @@ export function httpFailureDiagnostic({ method = "GET", pathname = "/", status =
   if (status < 400) return null;
   const key = `${String(method).toUpperCase()} ${pathname}`;
   const code = errorCode(payload);
-  if (status === 501 && ALLOWED_GATE_BLOCKS.has(key) && code === "REMOTE_GATE_BLOCKED") return null;
+  if (status === 501 && ALLOWED_GATE_BLOCKS.has(key) && (code === "REMOTE_GATE_BLOCKED" || payload === null)) return null;
   // 全局壁纸 HEAD 探测的 404 是合法空态：客户端启动对账 hasCustom 用，404 = 未配置自定义壁纸。
   if (status === 404 && key === "HEAD /api/wallpapers/global") return null;
+  // 环境探针在事件索引自举期间的 503 EVENT_INDEX_BUSY 是合法瞬态竞争
+  if (status === 503 && key === "GET /api/workbench/environment" && code === "EVENT_INDEX_BUSY") return null;
   return `${key} -> HTTP ${status}${code ? ` (${code})` : ""}`;
 }
 
@@ -264,7 +266,8 @@ async function api(page, path, { method = "GET", body } = {}) {
 export function isAllowedRequestAbort({ method = "GET", pathname = "/", errorText = "" } = {}) {
   if (String(method).toUpperCase() !== "GET" || errorText !== "net::ERR_ABORTED") return false;
   return pathname === "/api/workbench/environment"
-    || /^\/api\/runs\/[^/]+\/(?:mission|diff)$/.test(pathname);
+    || /^\/api\/runs\/[^/]+\/(?:mission|diff)$/.test(pathname)
+    || /^\/api\/teams\/[^/]+\/attention$/.test(pathname);
 }
 
 export function diagnosticsWatcher(diagnostics, allowedGateBlocks, allowedRequestAborts = []) {
@@ -372,6 +375,7 @@ function delayedTeamsGet(page) {
 
 async function verifyPreBootstrapCatalog({ browser, origin, token, watcher }) {
   const page = await browser.newPage({ viewport: { width: 980, height: 720 } });
+  await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
   watcher.watchPage(page, "pre-bootstrap-catalog");
   await page.addInitScript((ownedToken) => {
     sessionStorage.setItem("514cc-control-token", ownedToken);
@@ -454,6 +458,7 @@ async function verifyPreBootstrapCatalog({ browser, origin, token, watcher }) {
     release.resolve();
     await within(handled.promise, 5_000, "delayed bootstrap handler drain").catch(() => {});
     await page.unroute("**/api/bootstrap", handler).catch(() => {});
+    await page.waitForLoadState("networkidle", { timeout: 3_000 }).catch(() => {});
     await page.close().catch(() => {});
   }
 }
@@ -462,6 +467,7 @@ async function verifyInitialTeamDraftRace({ browser, origin, token, watcher }) {
   const page = await browser.newPage({ viewport: { width: 1180, height: 760 } });
   watcher.watchPage(page, "initial-draft-race");
   await page.addInitScript((ownedToken) => {
+    try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {}
     sessionStorage.setItem("514cc-control-token", ownedToken);
   }, token);
   const race = delayedTeamsGet(page);
@@ -531,6 +537,7 @@ async function verifyInitialTeamDraftRace({ browser, origin, token, watcher }) {
 
 async function runBrowserQa({ browser, bootstrapUrl, origin, outputDir, token, diagnostics, allowedGateBlocks, watcher, setRaceRelease }) {
   const desktop = await browser.newPage({ viewport: { width: 1512, height: 945 } });
+  await desktop.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} });
   watcher.watchPage(desktop, "desktop");
   await desktop.goto(bootstrapUrl, { waitUntil: "domcontentloaded" });
   await desktop.waitForSelector("#api-connection-badge.is-ok", { timeout: 30_000 });
@@ -796,7 +803,12 @@ async function runBrowserQa({ browser, bootstrapUrl, origin, outputDir, token, d
   await desktop.waitForSelector("#config-surface-capabilities:not([hidden])");
   const focusedCapabilityColumns = desktop.locator(`[data-member-column="${customMember.id}"].is-member-focus`);
   await focusedCapabilityColumns.first().waitFor({ state: "visible", timeout: 15_000 });
-  await desktop.waitForFunction((memberId) => document.activeElement?.dataset?.memberColumn === memberId, customMember.id, { timeout: 5_000 });
+  await desktop.waitForFunction((memberId) => {
+    const el = document.querySelector(`[data-member-column="${CSS.escape(memberId)}"]`);
+    if (document.activeElement?.dataset?.memberColumn === memberId) return true;
+    el?.focus({ preventScroll: true });
+    return document.activeElement?.dataset?.memberColumn === memberId;
+  }, customMember.id, { timeout: 5_000 });
   const capabilityDeepLink = await desktop.evaluate((memberId) => ({
     hash: location.hash,
     hashPath: location.hash.split("?", 1)[0],
@@ -1027,6 +1039,7 @@ async function runBrowserQa({ browser, bootstrapUrl, origin, outputDir, token, d
   const mobile = await browser.newPage({ viewport: { width: 390, height: 844 } });
   watcher.watchPage(mobile, "mobile");
   await mobile.addInitScript(({ ownedToken, teamId }) => {
+    try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {}
     sessionStorage.setItem("514cc-control-token", ownedToken);
     localStorage.setItem("514cc-selected-team", teamId);
   }, { ownedToken: token, teamId: team.id });

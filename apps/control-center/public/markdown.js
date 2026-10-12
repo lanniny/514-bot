@@ -37,7 +37,28 @@ function highlightCode(escapedCode, lang) {
   return escapedCode;
 }
 
+// 双向隔离：混排中英文里的 RTL 片段（阿拉伯/希伯来，常见于颜文字 `(•̀ᴗ•́)و`）
+// 会按 Unicode 双向算法把紧随的数字一起反排——`و 39!` 显示成 `39 و!`。
+// 把每段 RTL 包进 <bdi>，让它自成方向岛。段 = 以 RTL 字符起止、中间可夹空格/数字/标点，
+// 故连续阿拉伯语句（含年份）是一个整体，而 `و 39` 只隔离 `و`。
+const RTL_CHAR = "\\u0590-\\u08FF\\uFB1D-\\uFDFF\\uFE70-\\uFEFF";
+const RTL_RUN = new RegExp(`[${RTL_CHAR}](?:[${RTL_CHAR}\\s\\d.,،؛-]*[${RTL_CHAR}])?`, "g");
+
+function isolateBidi(html) {
+  if (!new RegExp(`[${RTL_CHAR}]`).test(html)) return html;
+  // 只改标签之间的文本；标签本身（含 src/alt/href 属性值）原样保留。
+  // 输入是已转义文本 + 本模块生成的标签，文本段里不可能出现裸 "<"。
+  return html
+    .split(/(<[^>]*>)/)
+    .map((part, index) => (index % 2 === 1 ? part : part.replace(RTL_RUN, "<bdi>$&</bdi>")))
+    .join("");
+}
+
 function mdInline(escaped) {
+  return isolateBidi(mdInlineMarks(escaped));
+}
+
+function mdInlineMarks(escaped) {
   return escaped
     // 图片必须先于链接解析（![alt](url) 内含 [alt](url) 结构）；仅 http(s)，alt 已是实体文本
     .replace(/!\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)/g, `<img class="md-img" src="$2" alt="$1" loading="lazy">`)

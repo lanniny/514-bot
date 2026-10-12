@@ -27,6 +27,9 @@ const TRAY_ID: &str = "514cc-console";
 const AUTO_LAUNCH_APP_NAME: &str = "514cc Console";
 pub const PET_OVERLAY_LABEL: &str = "pet-overlay";
 const PET_OVERLAY_SIZE: (f64, f64) = (300.0, 280.0);
+/// 「鼠标移入自动隐藏」时的整窗透明度。上游用 0.0f（完全透明，mouse.c:35），
+/// 这里留一点余量，免得用户以为桌宠崩了找不到。
+const HOVER_HIDDEN_OPACITY: f64 = 0.06;
 static LIGHTWEIGHT_MODE: AtomicBool = AtomicBool::new(false);
 /// 内核 base origin（握手成功后由 supervisor 写入一次），猫窗 URL 由此构造。
 static PET_OVERLAY_ORIGIN: OnceLock<String> = OnceLock::new();
@@ -492,11 +495,22 @@ fn set_pet_overlay_scaled(app: &AppHandle, visible: bool, scale: Option<f64>) ->
         .visible(false)
         .build()
         .map_err(|error| format!("failed to build pet overlay window: {error}"))?;
+    // 圆角：上游 BongoCat 默认开，靠 GL 侧 alpha 命中实现；这里只走 Tauri 的原生能力
+    // （Windows 11 无边框窗口自带圆角），不额外引 GDI region —— region 裁剪会与
+    // 命中判定互相打架（region 外的像素根本收不到事件）。
     let prepare = || -> tauri::Result<()> {
         window.set_position(tauri::PhysicalPosition::new(x, y))?;
         // 默认点击穿透；互动模式由猫页切换。
         window.set_ignore_cursor_events(true)?;
-        window.show()
+        window.show()?;
+        // 窗口几何缓存：鼠标移入检测要按**窗口矩形**判，不能靠页面事件
+        // （透明区域上页面收不到 pointerenter）。建窗时就填一次，页面后续再更新。
+        if let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) {
+            *PET_WINDOW_RECT.lock().unwrap_or_else(|p| p.into_inner()) = Some((
+                position.x, position.y, size.width as i32, size.height as i32,
+            ));
+        }
+        Ok(())
     };
     if let Err(error) = prepare() {
         let _ = window.destroy();
@@ -517,6 +531,104 @@ pub fn pet_overlay_visible(app: &AppHandle) -> bool {
     app.get_webview_window(PET_OVERLAY_LABEL)
         .map(|window| window.is_visible().unwrap_or(false))
         .unwrap_or(false)
+}
+
+/// 是否处于「鼠标移入自动隐藏」（上游 hide_on_hover）。由桌宠页写入。
+static PET_HOVER_HIDDEN: AtomicBool = AtomicBool::new(false);
+/// 窗口整体透明度（0~1）。`None` 表示恢复不透明。
+static PET_WINDOW_OPACITY: Mutex<Option<f64>> = Mutex::new(None);
+/// 桌宠窗几何缓存（物理像素），供鼠标移入检测使用。
+static PET_WINDOW_RECT: Mutex<Option<(i32, i32, i32, i32)>> = Mutex::new(None);
+
+/// 整窗透明度（0~1）。
+///
+/// **为什么必须走 Win32**：Tauri 2.11 的 `WebviewWindow` 没有 `set_opacity`。
+/// **为什么必须整窗而不是 CSS**：桌宠页里 `body.style.opacity` 只影响**绘制内容**，
+/// 透明窗口未绘制的区域照样是窗口、照样吃掉鼠标事件 —— 视觉上"看不见"，行为上仍然
+/// 挡着桌面。上游 BongoCat 的 hide_on_hover 也是走平台层的窗口透明度
+/// （`bongo_cat_platform_set_opacity`，mouse.c:35），不是渲染层的 alpha。
+///
+/// 分层窗口需要 `WS_EX_LAYERED`；Tauri 建透明窗时通常已带上，这里再补一次以防万一。
+#[cfg(target_os = "windows")]
+fn apply_window_opacity(window: &WebviewWindow, value: f64) -> Result<(), String> {
+    use windows_sys::Win32::Foundation::HWND;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetLayeredWindowAttributes, SetWindowLongPtrW, GWL_EXSTYLE,
+        LWA_ALPHA, WS_EX_LAYERED,
+    };
+    let hwnd: HWND = window.hwnd().map_err(|error| error.to_string())?.0 as HWND;
+    let style = unsafe { GetWindowLongPtrW(hwnd, GWL_EXSTYLE) };
+    if style & (WS_EX_LAYERED as isize) == 0 {
+        unsafe { SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED as isize) };
+    }
+    let alpha = (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let applied = unsafe { SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA) };
+    if applied == 0 {
+        return Err("SetLayeredWindowAttributes failed".to_string());
+    }
+    Ok(())
+}
+
+#[cfg(not(target_os = "windows"))]
+fn apply_window_opacity(_window: &WebviewWindow, _value: f64) -> Result<(), String> {
+    // 非 Windows 暂不实现 —— 目标平台是 Windows。返回 Ok 让调用方无分支。
+    Ok(())
+}
+
+/// 记录桌宠页报上来的悬停状态，并施加整窗透明度。
+///
+/// **为什么不能只在前端做**：`body` 的 pointerenter 只在窗口**已经在接收鼠标事件**
+/// 时才会触发，而窗口在「透明区域」上是穿透的 —— 鼠标划过模型旁边的空白，页面收不到
+/// 任何事件，也就永远不知道该隐藏。必须由原生侧按**窗口矩形**判断光标进出。
+#[tauri::command]
+pub fn set_pet_overlay_hover(app: AppHandle, hidden: bool) -> Result<bool, String> {
+    PET_HOVER_HIDDEN.store(hidden, Ordering::SeqCst);
+    if let Some(window) = app.get_webview_window(PET_OVERLAY_LABEL) {
+        let configured = PET_WINDOW_OPACITY.lock().unwrap_or_else(|p| p.into_inner()).unwrap_or(1.0);
+        apply_window_opacity(&window, if hidden { HOVER_HIDDEN_OPACITY } else { configured })?;
+    }
+    Ok(true)
+}
+
+/// 桌宠窗的整窗透明度。`None` 表示恢复不透明（1.0）。
+/// 与 `set_ignore_cursor_events` 是两件事，互不替代。
+#[tauri::command]
+pub fn set_pet_overlay_opacity(app: AppHandle, opacity: Option<f64>) -> Result<bool, String> {
+    let value = opacity
+        .filter(|value| value.is_finite())
+        .map(|value| value.clamp(0.05, 1.0))
+        .unwrap_or(1.0);
+    *PET_WINDOW_OPACITY.lock().unwrap_or_else(|p| p.into_inner()) = opacity.map(|_| value);
+    // 移入隐藏优先：它是更低的那个值，不能被一次配置下发顶回不透明。
+    if PET_HOVER_HIDDEN.load(Ordering::SeqCst) {
+        if let Some(window) = app.get_webview_window(PET_OVERLAY_LABEL) {
+            apply_window_opacity(&window, HOVER_HIDDEN_OPACITY)?;
+        }
+        return Ok(true);
+    }
+    if let Some(window) = app.get_webview_window(PET_OVERLAY_LABEL) {
+        apply_window_opacity(&window, value)?;
+    }
+    Ok(true)
+}
+
+/// 记录桌宠窗当前位置（物理像素）。桌宠页在每次移动/缩放后回报。
+#[tauri::command]
+pub fn set_pet_overlay_rect(_app: AppHandle, x: i32, y: i32, width: i32, height: i32) -> Result<bool, String> {
+    *PET_WINDOW_RECT.lock().unwrap_or_else(|p| p.into_inner()) = Some((x, y, width, height));
+    Ok(true)
+}
+
+/// 光标是否落在桌宠窗矩形内。用**全局光标位置**而不是页面事件 ——
+/// 透明区域上页面收不到事件，这正是需要原生判断的原因。
+#[tauri::command]
+pub fn pet_pointer_inside(app: AppHandle) -> Result<bool, String> {
+    let Some((x, y, width, height)) = *PET_WINDOW_RECT.lock().unwrap_or_else(|p| p.into_inner()) else {
+        return Ok(false);
+    };
+    let cursor = app.cursor_position().map_err(|error| error.to_string())?;
+    let (cx, cy) = (cursor.x as i32, cursor.y as i32);
+    Ok(cx >= x && cy >= y && cx < x + width && cy < y + height)
 }
 
 pub fn hide_forge_window(app: &AppHandle) -> Result<(), String> {
@@ -908,6 +1020,29 @@ mod tests {
         );
     }
 
+    /// 桌宠窗**自己调用**的 native 命令 —— 它们不在主窗口名单里，必须由
+    /// `capabilities/pet-window.json` 授权，否则桌宠页一调就 403。
+    /// 与 `kernel_access.rs` 的 pet-only 判定是同一条契约，两处都要对得上。
+    /// 单一真源是 `pet-owned-commands.txt`（build.rs 也读它来生成权限）。
+    const PET_OWNED_COMMANDS: &[&str] = &[
+        "set_pet_overlay_rect",
+        "pet_pointer_inside",
+        "set_pet_overlay_hover",
+    ];
+
+    #[test]
+    fn pet_owned_command_list_matches_its_own_file() {
+        let declared = include_str!("pet-owned-commands.txt")
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            declared, PET_OWNED_COMMANDS,
+            "pet-owned-commands.txt 是权限生成的输入，必须与本表逐条一致"
+        );
+    }
+
     #[test]
     fn remote_native_capability_is_exact_and_matches_the_invoke_handler() {
         let commands = include_str!("native-command-names.txt")
@@ -932,6 +1067,34 @@ mod tests {
             serde_json::json!(expected_permissions)
         );
 
+        // 主窗口名单必须与能力文件逐条一致（顺序也一致）。
+        // 桌宠独占的命令**不得**出现在这里 —— 否则主窗口也能设桌宠透明度，
+        // 而「谁在管这个值」就说不清了。
+        for command in PET_OWNED_COMMANDS {
+            assert!(
+                !commands.contains(command),
+                "{command} 是桌宠独占命令，不该进主窗口名单"
+            );
+        }
+
+        // 桌宠窗能力文件必须恰好覆盖它自己要用的命令（核心权限另行列出）。
+        let pet: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/pet-window.json"))
+                .expect("valid pet capability");
+        assert_eq!(pet["windows"], serde_json::json!(["pet-overlay"]));
+        let pet_permissions = pet["permissions"]
+            .as_array()
+            .expect("pet permissions")
+            .iter()
+            .map(|value| value.as_str().expect("permission name").to_string())
+            .collect::<Vec<_>>();
+        for command in PET_OWNED_COMMANDS {
+            assert!(
+                pet_permissions.contains(&format!("allow-{}", command.replace('_', "-"))),
+                "pet-window 能力缺少 {command} 的授权，桌宠页调用会 403"
+            );
+        }
+
         let main_source = include_str!("main.rs");
         let handler = main_source
             .split_once(".invoke_handler(tauri::generate_handler![")
@@ -943,6 +1106,14 @@ mod tests {
             .filter_map(|line| line.trim().strip_prefix("native::"))
             .map(|line| line.trim_end_matches(',').to_string())
             .collect::<Vec<_>>();
-        assert_eq!(registered, commands);
+        // invoke_handler 注册的是**全部**命令（两个窗口共用同一张表），
+        // 所以它 = 主窗口名单 ∪ 桌宠独占名单。
+        // 比集合不比顺序 —— 注册顺序没有语义，而"少注册一条"才是要抓的漂移。
+        let mut expected = commands.iter().map(|value| value.to_string()).collect::<Vec<_>>();
+        expected.extend(PET_OWNED_COMMANDS.iter().map(|value| value.to_string()));
+        expected.sort();
+        let mut registered = registered;
+        registered.sort();
+        assert_eq!(registered, expected);
     }
 }

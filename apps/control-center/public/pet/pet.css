@@ -74,35 +74,9 @@ button[hidden] { display: none !important; }
 button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; }
 button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
-/* 互动模式工具条：仅在 interactive 时可点（穿透模式下窗口收不到鼠标事件） */
-#pet-toolbar {
-  position: absolute;
-  z-index: 5;
-  top: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 6px;
-  box-sizing: border-box;
-  background: rgba(24, 8, 14, 0.72);
-  border-bottom: 1px solid rgba(224, 24, 77, 0.3);
-  cursor: move;
-  user-select: none;
-}
-
-#pet-toolbar[hidden] {
-  display: none;
-}
-
-#pet-toolbar-label {
-  flex: 1;
-  font-size: var(--text-xs);
-  color: rgba(255, 214, 224, 0.9);
-}
-
-#pet-toolbar button, #pet-retry {
+/* 互动模式工具条已移除（会盖住 300×280 窗口里的模型顶部，且与「拖模型」的直觉冲突）。
+ * 「退出互动 / 收起桌宠」改由右键环形菜单承担。这里只留 #pet-retry 的按钮样式。 */
+#pet-retry {
   appearance: none;
   border: 1px solid rgba(224, 24, 77, 0.35);
   background: rgba(36, 12, 20, 0.9);
@@ -119,8 +93,268 @@ button:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
   body, #pet-notice { transition: none; }
 }
 
-#pet-toolbar button:hover {
+#pet-retry:hover {
   background: rgba(70, 20, 34, 0.95);
 }
+
+/* 环形快捷栏
+ * CSP 禁内联样式（style-src 'self'），所以扇区角度/半径全靠 data-ring-index 选择器。
+ * 环容器不吃指针事件，只有扇区按钮吃 —— 环外仍可拖拽、戳一戳。
+ * 索引映射：0 = 正上，顺时针。
+ */
+#pet-ring {
+  position: absolute;
+  z-index: 6;
+  inset: 0;
+  pointer-events: none;
+}
+#pet-ring[hidden] { display: none; }
+
+.pet-ring-stage {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  animation: petRingFadeIn var(--dur-fast) ease-out;
+}
+
+@keyframes petRingFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.pet-ring-track {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--ring-radius) * 2);
+  height: calc(var(--ring-radius) * 2);
+  margin: calc(var(--ring-radius) * -1) 0 0 calc(var(--ring-radius) * -1);
+  border-radius: 50%;
+  border: 1px dashed rgba(224, 24, 77, 0.22);
+  box-shadow: 0 0 24px rgba(224, 24, 77, 0.12), inset 0 0 24px rgba(224, 24, 77, 0.08);
+  pointer-events: none;
+  animation: petRingTrackRotate 24s linear infinite;
+}
+
+@keyframes petRingTrackRotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.pet-ring-list {
+  /* 窗口随 scale 缩放（PET_OVERLAY_SIZE × scale，0.6~1.8），固定 px 半径会在
+   * 小尺寸下把环挤出窗口。用 vmin 兜底：vmin = min(视口宽,高)/100，桌宠页视口
+   * 就是窗口本身，于是半径随窗口一起缩。31vmin 在 300×280 时 ≈ 86.8px < 88px，
+   * 即**默认尺寸下由 px 上限决定，行为与改动前完全一致**；只有窗口缩小时才收紧。 */
+  --ring-radius: min(88px, 31vmin);
+  --ring-item: min(52px, 18vmin);
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+}
+
+.pet-ring-item {
+  position: absolute;
+  pointer-events: auto;
+  appearance: none;
+  width: var(--ring-item);
+  height: var(--ring-item);
+  margin: calc(var(--ring-item) / -2) 0 0 calc(var(--ring-item) / -2);
+  padding: 3px 2px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  text-align: center;
+  border: 1px solid rgba(224, 24, 77, 0.45);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, rgba(42, 14, 24, 0.94), rgba(20, 7, 13, 0.92));
+  color: rgba(255, 224, 232, 0.95);
+  font-size: var(--text-xs, 11px);
+  line-height: 1.15;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  /* 状态反馈 ≤160ms 语义：用 --dur-fast，不写裸 120ms（UI 门禁 bare-duration）。 */
+  transition: background var(--dur-fast) ease, border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+.pet-ring-item:hover,
+.pet-ring-item:focus-visible {
+  background: radial-gradient(circle at 35% 35%, rgba(120, 24, 52, 0.98), rgba(58, 12, 26, 0.95));
+  border-color: rgba(255, 75, 110, 0.9);
+  box-shadow: 0 0 16px rgba(244, 63, 94, 0.55), inset 0 0 8px rgba(255, 255, 255, 0.2);
+  outline: 2px solid var(--ring, rgba(224, 24, 77, 0.6));
+  outline-offset: 1px;
+}
+.pet-ring-item.is-active {
+  border-color: rgba(255, 75, 110, 0.95);
+  background: radial-gradient(circle at 35% 35%, rgba(130, 28, 58, 0.98), rgba(65, 16, 32, 0.95));
+  box-shadow: 0 0 16px rgba(244, 63, 94, 0.6), inset 0 0 8px rgba(255, 255, 255, 0.25);
+}
+.pet-ring-item.is-active::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(255, 75, 110, 1);
+  box-shadow: 0 0 6px rgba(255, 75, 110, 0.9);
+}
+.pet-ring-item-label {
+  font-size: var(--text-xs, 11px);
+  line-height: 1.1;
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow-wrap: anywhere;
+  transform: scale(0.92);
+  transform-origin: center center;
+}
+.pet-ring-icon {
+  flex-shrink: 0;
+  pointer-events: none;
+  stroke: rgba(255, 224, 232, 0.95);
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+  transition: transform var(--dur-fast) ease;
+}
+.pet-ring-item:hover .pet-ring-icon,
+.pet-ring-item:focus-visible .pet-ring-icon {
+  transform: scale(1.15);
+}
+
+/* 扇区定位：围绕中心均分圆周，起点正上（-90deg）。 */
+.pet-ring-list[data-count="1"] .pet-ring-item[data-ring-index="0"] { transform: translate(0, calc(var(--ring-radius) * -1)); }
+.pet-ring-list[data-count="2"] .pet-ring-item[data-ring-index="0"] { transform: translate(calc(var(--ring-radius) * 1), 0); }
+.pet-ring-list[data-count="2"] .pet-ring-item[data-ring-index="1"] { transform: translate(calc(var(--ring-radius) * -1), 0); }
+.pet-ring-list[data-count="3"] .pet-ring-item[data-ring-index="0"] { transform: translate(0, calc(var(--ring-radius) * -1)); }
+.pet-ring-list[data-count="3"] .pet-ring-item[data-ring-index="1"] { transform: translate(calc(var(--ring-radius) * 0.866), calc(var(--ring-radius) * 0.5)); }
+.pet-ring-list[data-count="3"] .pet-ring-item[data-ring-index="2"] { transform: translate(calc(var(--ring-radius) * -0.866), calc(var(--ring-radius) * 0.5)); }
+.pet-ring-list[data-count="4"] .pet-ring-item[data-ring-index="0"] { transform: translate(0, calc(var(--ring-radius) * -1)); }
+.pet-ring-list[data-count="4"] .pet-ring-item[data-ring-index="1"] { transform: translate(var(--ring-radius), 0); }
+.pet-ring-list[data-count="4"] .pet-ring-item[data-ring-index="2"] { transform: translate(0, var(--ring-radius)); }
+.pet-ring-list[data-count="4"] .pet-ring-item[data-ring-index="3"] { transform: translate(calc(var(--ring-radius) * -1), 0); }
+.pet-ring-list[data-count="5"] .pet-ring-item[data-ring-index="0"] { transform: translate(0, calc(var(--ring-radius) * -1)); }
+.pet-ring-list[data-count="5"] .pet-ring-item[data-ring-index="1"] { transform: translate(calc(var(--ring-radius) * 0.951), calc(var(--ring-radius) * -0.309)); }
+.pet-ring-list[data-count="5"] .pet-ring-item[data-ring-index="2"] { transform: translate(calc(var(--ring-radius) * 0.588), calc(var(--ring-radius) * 0.809)); }
+.pet-ring-list[data-count="5"] .pet-ring-item[data-ring-index="3"] { transform: translate(calc(var(--ring-radius) * -0.588), calc(var(--ring-radius) * 0.809)); }
+.pet-ring-list[data-count="5"] .pet-ring-item[data-ring-index="4"] { transform: translate(calc(var(--ring-radius) * -0.951), calc(var(--ring-radius) * -0.309)); }
+.pet-ring-list[data-count="6"] .pet-ring-item[data-ring-index="0"] { transform: translate(0, calc(var(--ring-radius) * -1)); }
+.pet-ring-list[data-count="6"] .pet-ring-item[data-ring-index="1"] { transform: translate(calc(var(--ring-radius) * 0.866), calc(var(--ring-radius) * -0.5)); }
+.pet-ring-list[data-count="6"] .pet-ring-item[data-ring-index="2"] { transform: translate(calc(var(--ring-radius) * 0.866), calc(var(--ring-radius) * 0.5)); }
+.pet-ring-list[data-count="6"] .pet-ring-item[data-ring-index="3"] { transform: translate(0, var(--ring-radius)); }
+.pet-ring-list[data-count="6"] .pet-ring-item[data-ring-index="4"] { transform: translate(calc(var(--ring-radius) * -0.866), calc(var(--ring-radius) * 0.5)); }
+.pet-ring-list[data-count="6"] .pet-ring-item[data-ring-index="5"] { transform: translate(calc(var(--ring-radius) * -0.866), calc(var(--ring-radius) * -0.5)); }
+.pet-ring-list[data-count="7"] .pet-ring-item[data-ring-index="0"] { transform: translate(0, calc(var(--ring-radius) * -1)); }
+.pet-ring-list[data-count="7"] .pet-ring-item[data-ring-index="1"] { transform: translate(calc(var(--ring-radius) * 0.782), calc(var(--ring-radius) * -0.623)); }
+.pet-ring-list[data-count="7"] .pet-ring-item[data-ring-index="2"] { transform: translate(calc(var(--ring-radius) * 0.975), calc(var(--ring-radius) * 0.223)); }
+.pet-ring-list[data-count="7"] .pet-ring-item[data-ring-index="3"] { transform: translate(calc(var(--ring-radius) * 0.434), calc(var(--ring-radius) * 0.901)); }
+.pet-ring-list[data-count="7"] .pet-ring-item[data-ring-index="4"] { transform: translate(calc(var(--ring-radius) * -0.434), calc(var(--ring-radius) * 0.901)); }
+.pet-ring-list[data-count="7"] .pet-ring-item[data-ring-index="5"] { transform: translate(calc(var(--ring-radius) * -0.975), calc(var(--ring-radius) * 0.223)); }
+.pet-ring-list[data-count="7"] .pet-ring-item[data-ring-index="6"] { transform: translate(calc(var(--ring-radius) * -0.782), calc(var(--ring-radius) * -0.623)); }
+
+/* 二级页的标题与返回：挂在环心，交互枢纽。 */
+.pet-ring-head {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(64px, 22vmin);
+  height: min(64px, 22vmin);
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 1px;
+  padding: 3px;
+  box-sizing: border-box;
+  pointer-events: auto;
+  z-index: 2;
+  background: radial-gradient(circle at 35% 35%, rgba(42, 12, 22, 0.95), rgba(18, 6, 12, 0.98));
+  border: 1px solid rgba(224, 24, 77, 0.45);
+  box-shadow: 0 0 16px rgba(224, 24, 77, 0.25), inset 0 0 8px rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: border-color var(--dur-fast) ease, box-shadow var(--dur-fast) ease;
+}
+.pet-ring-title {
+  font-size: var(--text-xs, 11px);
+  font-weight: 600;
+  color: rgba(255, 224, 232, 0.98);
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+.pet-ring-hint {
+  font-size: var(--text-xs, 11px);
+  color: rgba(255, 180, 200, 0.75);
+  white-space: nowrap;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+  max-width: 90%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.1;
+  transform: scale(0.85);
+  transform-origin: center top;
+}
+.pet-ring-back {
+  appearance: none;
+  pointer-events: auto;
+  border: 1px solid rgba(224, 24, 77, 0.5);
+  background: rgba(48, 14, 24, 0.95);
+  color: rgba(255, 224, 232, 0.98);
+  border-radius: var(--radius-sm, 6px);
+  font-size: var(--text-xs, 11px);
+  padding: 1px 6px;
+  margin-bottom: 1px;
+  line-height: 1.15;
+  cursor: pointer;
+  transform: scale(0.9);
+  transition: background var(--dur-fast) ease, border-color var(--dur-fast) ease, transform var(--dur-fast) ease;
+}
+.pet-ring-back:hover,
+.pet-ring-back:focus-visible {
+  background: rgba(120, 24, 52, 0.98);
+  border-color: rgba(255, 75, 110, 0.9);
+  transform: scale(0.98);
+  outline: none;
+}
+.pet-ring-back[hidden] { display: none; }
+.pet-ring-item:active {
+  filter: brightness(1.25);
+}
+.pet-ring-more {
+  border-style: dashed;
+  border-color: rgba(224, 24, 77, 0.65);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pet-ring-stage,
+  .pet-ring-track,
+  .pet-ring-item,
+  .pet-ring-icon {
+    animation: none;
+    transition: none;
+  }
+}
+
 
 /* QA 断言钩子：状态以 body[data-pet-state] 为唯一真源 */

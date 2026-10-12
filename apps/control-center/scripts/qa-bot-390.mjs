@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * qa-bot-390.mjs — Grok 对标 W6：bot 面四视口走查（390 / 820 / 1280 / 1440）。
+ * qa-bot-390.mjs — Grok 对标 W6：bot 面五视口走查（390 / 820 / 1024 / 1280 / 1440）。
  *
  * 断言：页面与关键表面无横向溢出；新建例行 dialog、交接板、成员设置、composer
  * 的主控件在视口内可点。运行：node scripts/qa-bot-390.mjs
@@ -33,6 +33,8 @@ const token = "bot-390-qa-token-0123456789";
 const VIEWPORTS = [
   { name: "mobile-390", width: 390, height: 844 },
   { name: "tablet-820", width: 820, height: 1180 },
+  // 1100px 以内会进入中等桌面布局，专门守住右栏覆盖层与中央对话宽度。
+  { name: "tablet-1024", width: 1024, height: 900 },
   { name: "laptop-1280", width: 1280, height: 800 },
   { name: "desktop-1440", width: 1440, height: 900 },
 ];
@@ -88,6 +90,7 @@ function measureOverflow() {
     "#view-bot",
     "#bot-composer-form",
     "#bot-agent-panel",
+    "#bot-ops-inbox",
     "#bot-agent-settings-panel",
     "#bot-routine-dialog",
     "[data-relay-mount]",
@@ -210,6 +213,9 @@ async function walkViewport(page, viewport, { directId, groupId, projectId, outp
   await openConversation(page, groupId, projectId);
   await page.locator("#bot-agent-info-button").click();
   await page.waitForSelector("#bot-collab-tabs:not([hidden])", { timeout: 10_000 });
+  // 收件箱面板（方案 B）：群会话激活时必须真的出现——可见性是硬证据，
+  // 之前「390px 下该面板不溢出」只是推断（它藏在 #bot-agent-panel 内），这里补直接断言。
+  await page.waitForSelector("#bot-ops-inbox:not([hidden])", { timeout: 10_000 });
   await page.locator("#bot-collab-tab-tasks").click();
   await page.waitForSelector("[data-relay-mount]", { timeout: 10_000 });
   await page.locator("[data-relay-mount]").scrollIntoViewIfNeeded();

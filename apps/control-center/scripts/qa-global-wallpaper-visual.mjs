@@ -9,6 +9,7 @@ const TOKEN = process.env.QA_WALLPAPER_TOKEN || "e2e-visual-token-0123456789";
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
 page.on("pageerror", (error) => console.log("[pageerror]", String(error).slice(0, 300)));
 
 const OUT = `.test-visual-out/run-${Date.now()}`;

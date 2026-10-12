@@ -32,6 +32,18 @@ test("pet settings stay draftable without a workbench surface", () => {
   assert.match(markup, /data-pet-preset="lively"/);
   assert.match(markup, /演示项目/);
 
+  // D-2026-09-28-021：未安装分支此前零覆盖——"卸载后如实告知"这条契约只活在
+  // petFormMarkup 的一个三元里，没有机械扳机。补：状态文案必须说明资源包未装，
+  // 且不给"已生效"的错觉。
+  const notInstalled = petFormMarkup(defaults, {
+    canEdit: true,
+    projectOptions: [{ id: "p1", label: "演示项目" }],
+    selectedProjectId: "p1",
+    installed: false,
+  });
+  assert.match(notInstalled, /桌宠资源包尚未安装；可先改草稿，安装后再生效/);
+  assert.doesNotMatch(notInstalled, /配置保存后同步到桌宠运行时/);
+
   const form = {
     elements: {
       namedItem(name) {

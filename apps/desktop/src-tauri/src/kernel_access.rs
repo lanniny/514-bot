@@ -153,13 +153,26 @@ mod tests {
                     .is_some(),
                 "{command}"
             );
+            // 桌宠窗只允许两件事：拖动自己、切换点击穿透，外加两条「自己报状态」——
+            // 上报窗口几何、采样全局光标。**「鼠标移入自动隐藏」的判定必须在桌宠侧**：
+            // 主窗口拿不到 pet-overlay 的位置，只有桌宠页自己知道窗口在哪。
+            let pet_only = matches!(command.as_str(),
+                "plugin:window|start_dragging" | "set_pet_overlay_rect" | "pet_pointer_inside"
+                | "set_pet_overlay_hover");
             assert_eq!(
                 authority
                     .resolve_access(command, "pet-overlay", "pet-overlay", &active)
                     .is_some(),
-                command == "plugin:window|start_dragging",
+                pet_only,
                 "{command}: pet-overlay window"
             );
+            // 透明度由**主窗口**下发（配置变更时），是 main-only ——
+            // 桌宠侧只报「该不该隐藏」，不该直接设值，否则两处会互相覆盖。
+            if command == "set_pet_overlay_opacity" {
+                assert!(authority
+                    .resolve_access(command, "pet-overlay", "pet-overlay", &active)
+                    .is_none(), "{command}: must stay main-only");
+            }
             for origin in [
                 Origin::Local,
                 remote("http://127.0.0.1:51400/"),

@@ -230,6 +230,33 @@ test("Provider -> runtime seat -> member -> non-Claude coordinator is editable w
   assert.equal(seat.payload.seat.activation, "live");
   assert.equal(seat.payload.transaction.activation.status, "reloaded");
 
+  // Model validation: allow bracketed context window suffixes (e.g. [1M]) and strip trailing parenthesized labels
+  const modelWithBrackets = await jsonRequest(origin, "/api/runtime-seats/seat-codex-custom", token, {
+    method: "PUT",
+    body: { model: "step-5-preview[1M]" },
+  });
+  assert.equal(modelWithBrackets.response.status, 200, JSON.stringify(modelWithBrackets.payload));
+  assert.equal(modelWithBrackets.payload.seat.model, "step-5-preview[1M]");
+
+  const modelWithLabel = await jsonRequest(origin, "/api/runtime-seats/seat-codex-custom", token, {
+    method: "PUT",
+    body: { model: "step-5-preview (stepai)" },
+  });
+  assert.equal(modelWithLabel.response.status, 200, JSON.stringify(modelWithLabel.payload));
+  assert.equal(modelWithLabel.payload.seat.model, "step-5-preview");
+
+  const modelWithUnsupported = await jsonRequest(origin, "/api/runtime-seats/seat-codex-custom", token, {
+    method: "PUT",
+    body: { model: "step-5-preview; dangerous" },
+  });
+  assert.equal(modelWithUnsupported.response.status, 422);
+  assert.equal(modelWithUnsupported.payload.error.code, "INVALID_MODEL");
+
+  await jsonRequest(origin, "/api/runtime-seats/seat-codex-custom", token, {
+    method: "PUT",
+    body: { model: "gpt-seat-test" },
+  });
+
   const catalogSeat = await jsonRequest(origin, "/api/runtime-seats", token, {
     method: "POST",
     body: {

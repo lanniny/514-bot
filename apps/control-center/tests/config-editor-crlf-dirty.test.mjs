@@ -185,6 +185,12 @@ test("编辑 CRLF 真源后保存，落盘行尾仍是 CRLF（不得把整份文
   const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
   await page.goto(entryUrl, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("#api-connection-badge.is-ok", { timeout: 30_000 });
+  // C3 产品导览（9836acb）会在新 localStorage 上自动 showModal——modal 之外的整个页面
+  // 都是 inert，后续点击会被 <html> 拦截到超时（2026-09-12 实测根因）。预置 dismissed 键
+  // 与 qa-bot-* 脚本同一约定。
+  await page.evaluate(() => localStorage.setItem("514cc-product-tour-dismissed", "1"));
+  // 首次启动可能已在令牌等待期间打开 modal；写入偏好不会自动关闭已打开的原生 dialog。
+  await page.evaluate(() => document.querySelector("#bot-product-tour-dialog[open]")?.close());
   await page.evaluate(() => { location.hash = "#config/sources"; });
   await page.waitForSelector("#view-config:not([hidden])", { timeout: 15_000 });
   // 编辑器活在「高级真源」工作区里，默认打开的是「运行席位」——

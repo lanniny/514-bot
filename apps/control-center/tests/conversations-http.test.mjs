@@ -121,6 +121,28 @@ test("conversation HTTP API persists direct and workspace identities with CAS", 
   const draftRoom = (await draftRoomResponse.json()).conversation;
   assert.deepEqual(draftRoom.memberIds, []);
 
+  // Test parse-file endpoint
+  await writeFile(resolve(workspaceA, "sample.js"), "const a = 1;\nconst b = 2;\nconst c = 3;\n");
+  const parseResponse = await request(`/api/conversations/${group.id}/parse-file`, {
+    method: "POST",
+    body: JSON.stringify({ relativePath: "sample.js", startLine: 1, endLine: 2 }),
+  });
+  assert.equal(parseResponse.status, 200);
+  const parseJson = await parseResponse.json();
+  assert.equal(parseJson.schema, "514cc.file-excerpt/v1");
+  assert.equal(parseJson.excerpt.relativePath, "sample.js");
+  assert.equal(parseJson.excerpt.startLine, 1);
+  assert.equal(parseJson.excerpt.endLine, 2);
+  assert.equal(parseJson.excerpt.totalLines, 4);
+  assert.equal(parseJson.excerpt.content, "const a = 1;\nconst b = 2;");
+
+  const traversalResponse = await request(`/api/conversations/${group.id}/parse-file`, {
+    method: "POST",
+    body: JSON.stringify({ relativePath: "../../etc/shadow" }),
+  });
+  assert.equal(traversalResponse.status, 400);
+  assert.equal((await traversalResponse.json()).code, "PATH_TRAVERSAL_BLOCKED");
+
   const unauthorizedMessage = await fetch(new URL(`/api/conversations/${draftRoom.id}/messages`, baseUrl), {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -219,6 +241,15 @@ test("conversation HTTP API persists direct and workspace identities with CAS", 
   const duplicated = (await duplicatedResponse.json()).conversation;
   assert.equal(duplicated.sourceConversationId, group.id);
   assert.deepEqual(duplicated.runIds, []);
+
+  const forkedResponse = await request(`/api/conversations/${group.id}/fork`, {
+    method: "POST",
+    body: JSON.stringify({ title: "Forked Group" }),
+  });
+  assert.equal(forkedResponse.status, 201);
+  const forked = (await forkedResponse.json()).conversation;
+  assert.equal(forked.sourceConversationId, group.id);
+  assert.equal(forked.title, "Forked Group");
 
   const projectsPayload = await (await request("/api/projects?includeArchived=1")).json();
   assert.equal(projectsPayload.schema, "514cc.projects/v1");

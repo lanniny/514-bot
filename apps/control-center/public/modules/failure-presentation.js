@@ -34,13 +34,18 @@ export function providerFailurePresentation(value) {
   const originTimeout = status === 524 || ORIGIN_TIMEOUT_NAMES.has(errorName);
 
   if (originTimeout) {
+    // D-2026-09-28-022：524/connection_timeout 是「代理建了连但没拿到完整响应」——
+    // 服务端这一轮到底收没收到、commit 没 commit，调用方无从确认。原措辞
+    // "当前原生轮已结束，可稍后显式重试" 暗示了"没送达"，是不诚实的：
+    // 盲信它会让人重复提交（重复工作/重复扣费）。改为直说状态未确认，
+    // 与 api.js networkFailure 的 outcomeUnknown 语义对齐（同源诚实原则）。
     return {
       kind: "origin-timeout",
       status: status || 524,
       title: "上游响应超时",
       summary: payload?.owner_action_required === true
-        ? "服务已建立连接，但上游没有在代理窗口内返回完整响应。当前原生轮已结束，可稍后显式重试。"
-        : "服务已建立连接，但未在代理等待窗口内返回完整响应。请查看当前运行状态后再决定是否继续。",
+        ? "服务已建立连接，但上游没有在代理窗口内返回完整响应。提交状态仍不明确——请先查看当前运行状态，再决定是否显式重试，避免重复提交。"
+        : "服务已建立连接，但未在代理等待窗口内返回完整响应。提交状态仍不明确——请查看当前运行状态后再决定是否继续。",
       detail: raw,
     };
   }

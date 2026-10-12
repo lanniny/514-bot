@@ -173,11 +173,16 @@ async function main() {
     await page.waitForFunction(() => document.querySelector(".app-shell")?.classList.contains("is-settings") === true, null, { timeout: 15_000 });
     const railText = await page.locator("#settings-destinations").textContent();
     check("settings panel carries all migrated sidebar destinations", () => {
-      for (const label of ["514 Bot", "自动化", "插件中心", "会话聚合", "团队协作", "运行控制台", "文档工坊", "项目启动器", "渠道", "配置", "市场", "远程主机", "系统总览", "体系观测", "安全诊断"]) {
+      // D-2026-09-28-012：移除「运行控制台」——VIEW_TITLES（state.js）无 runs 视图、
+      // index.html 无 view-runs 容器、提交史无该导航项（当前与已提交架构均不存在此目的地）。
+      // 运行面由 514 Bot（会话内 run）与系统总览承担，独立「运行控制台」无产品承载。
+      for (const label of ["514 Bot", "自动化", "插件中心", "会话聚合", "团队协作", "文档工坊", "项目启动器", "渠道", "配置", "市场", "远程主机", "系统总览", "体系观测", "安全诊断"]) {
         assert.ok(railText.includes(label), `设置面板缺少迁移项：${label}`);
       }
       // 原设置项不丢
-      for (const label of ["运行席位", "连接档案", "能力", "钩子", "本机运行时", "外观", "浏览器", "权限与审批"]) {
+      // D-2026-09-28-012：「运行席位」→「席位与模型」为同面改名（config-topology-sources
+      // 按钮未动，models 并入该面后的文案演进，提交版旧标签 → 现版新标签），条目未丢。
+      for (const label of ["席位与模型", "连接档案", "能力", "钩子", "本机运行时", "外观", "浏览器", "权限与审批"]) {
         assert.ok(railText.includes(label), `设置面板缺少原设置项：${label}`);
       }
     });

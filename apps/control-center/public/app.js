@@ -35,6 +35,11 @@ import {
   readServerEventSchemaVersions,
 } from "./modules/event-protocol.js";
 import { welcomeTipMarkup as buildWelcomeTipMarkup } from "./modules/welcome-tips.js";
+// 首跑就绪卡：真实状态投影成可执行下一步（未就绪时直接出现在欢迎面）
+import { readinessCardMarkup } from "./modules/readiness-card.js";
+// 「新对话」onboarding：模块建成后一直未接线（#bot-new-conversation-button 点了没反应，
+// QA 门禁首跑抓出）——D-2026-09-28-009 补接线 + home 空态改走模块富版 markup。
+import { createAssistantStart, assistantEmptyMarkup as assistantStartEmptyMarkup } from "./modules/assistant-start.js";
 import { resumeHintsFromSessions, resumeHintsMarkup } from "./modules/resume-hints.js";
 import { failurePresentation, providerFailurePresentation } from "./modules/failure-presentation.js";
 import { AGENT_ROLE_BLURB as MODULE_AGENT_ROLE_BLURB, roleBlurbFor } from "./modules/agent-roles.js";
@@ -96,6 +101,8 @@ import {
 import {
   API, TOKEN_KEY, ApiError, request as apiRequest, requestBlob, getAccessToken, setAccessToken,
   initializeAccessToken as initToken, apiReady, controlConnection,
+  // 启动凭据读取/摘除的单一真源（带模块加载期快照，避免被 hash 路由顶掉后读不到）
+  readStartupCredential, stripStartupCredential,
 } from "./api.js";
 import {
   brandForMember,
@@ -122,6 +129,8 @@ import {
   botActiveRunFiltersMarkup,
   botActiveRunsToolbarMarkup,
   botOpsApprovalsMarkup,
+  botOpsInboxMarkup,
+  botOpsInboxCount,
   botMemberConnectionsMarkup,
   botMemberComputerRows,
   botMemberComputerCount,
@@ -131,10 +140,11 @@ import {
   selectOptionsMarkup,
   normalizeComposerPermission,
 } from "./modules/bot-workspace-chrome.js";
-import { createBotTerminalDock } from "./modules/bot-terminal-dock.js";
+import { createBotTerminalDock, BOT_TERM_KEYS } from "./modules/bot-terminal-dock.js";
 import { mountBotPetSettings } from "./modules/bot-pet-settings.js";
 import { createConversationWorkspace, pageWorkspaceIndex } from "./modules/conversation-workspace.js";
-import { collaborationProcessModel, collaborationProcessMarkup, collaborationReviewMarkup } from "./modules/collaboration-process.js";
+import { collaborationProcessModel, collaborationReviewMarkup } from "./modules/collaboration-process.js";
+import { enhancedCollaborationProcessMarkup, expandMemoryFor } from "./modules/collaboration-process-enhanced.js";
 import { createConversationCommands } from "./modules/conversation-commands.js";
 import { createProjectPluginsPanel } from "./modules/project-plugins-panel.js";
 import { createConversationMembersEditor } from "./modules/conversation-members-editor.js";
@@ -158,6 +168,9 @@ import { createWorkbenchTopology } from "./modules/workbench-topology.js";
 import { createBotMentionMenu } from "./modules/bot-mention-menu.js";
 import { createBotAttachments } from "./modules/bot-attachments.js";
 import { createBotSettlement, BOT_SETTLEMENT_SCHEMA, RUN_SETTLEMENT_TTL_MS, validateBotSettlementEnvelope } from "./modules/bot-settlement.js";
+// 来源卡片 URL 判据的单一前端真源（与服务端同规则，见 tests/web-evidence-parity.test.mjs）
+import { validateClientWebUrl } from "./modules/web-evidence-url.js";
+import { residenceRecoveryMarkup } from "./modules/residence-recovery.js";
 import { createConversationWindow } from "./modules/conversation-window.js";
 import { createBotActivityTimeline } from "./modules/bot-activity-timeline.js";
 import { createConversationEventMarkup } from "./modules/conversation-event-markup.js";
@@ -186,7 +199,7 @@ import {
 } from "./modules/product-orientation.js";
 import { loadBotProfileSection, saveBotProfileSection, markBotProfileDirty } from "./modules/bot-profile-editor.js";
 import { renderRelayBoard } from "./modules/bot-relay-board.js";
-import { postRelayKickoff } from "./modules/bot-collab-api.js";
+import { postRelayKickoff, fetchBotInbox } from "./modules/bot-collab-api.js";
 import { botTypingMarkup, botTypingMembers } from "./modules/bot-typing-indicators.js";
 import { bindBotGrokFace, applyRosterCollapsed, readRosterCollapsed, writeRosterCollapsed, applyOpsCollapsed, readOpsCollapsed, writeOpsCollapsed } from "./modules/bot-grok-face.js";
 import {
@@ -271,7 +284,10 @@ function forgeViewTitle(view = state.view, focus = state.settingsFocus) {
     if (state.configSurface === "providers") return "连接";
     if (state.configSurface === "hooks") return "钩子";
     if (state.configSurface === "local-runtime") return "本机运行时";
-    if (state.configSurface === "sources") return "运行席位";
+    if (state.configSurface === "sources") {
+      if (state.runtimeWorkspaceMode === "connections") return "连接档案";
+      return state.runtimeWorkspaceMode === "sources" ? "配置文件" : "席位与模型";
+    }
     if (state.configSurface === "capabilities") return state.capabilityWorkspace === "mcp" ? "MCP 服务器" : "技能";
   }
   if (view === "market") return "插件";
@@ -285,7 +301,7 @@ const CONFIG_SURFACE_LABELS = Object.freeze({
   "local-runtime": "本机运行时",
   capabilities: "Agent · Skill · MCP",
   hooks: "钩子",
-  sources: "运行席位与真源",
+  sources: "席位、连接与模型",
 });
 
 function cleanForgeRouteId(value) {
@@ -779,6 +795,8 @@ function cacheElements() {
     "provider-claude-fable-1m",
     "provider-claude-haiku-1m",
     "provider-claude-subagent-1m",
+    "provider-claude-fetch-models-button",
+    "provider-claude-fetch-models-result",
     "provider-api-format",
     "provider-proxy-ua",
     "provider-proxy-headers",
@@ -1046,21 +1064,25 @@ function getProductVersionLabel() {
 
 async function initializeAccessToken() {
   const url = new URL(window.location.href);
-  const fragment = new URLSearchParams(url.hash.startsWith("#") ? url.hash.slice(1) : url.hash);
-  const fragmentToken = fragment.get("token")?.trim() ?? "";
   const conversationDeepLink = conversationDeepLinkFromHash(url.hash);
   if (conversationDeepLink?.conversationId) state.deepLinkConversationId = conversationDeepLink.conversationId;
   if (conversationDeepLink?.runId && !conversationDeepLink.conversationId) state.deepLinkRunId = conversationDeepLink.runId;
   if (conversationDeepLink?.session) state.deepLinkSession = conversationDeepLink.session;
   if (conversationDeepLink?.projectId) state.deepLinkProjectId = conversationDeepLink.projectId;
-  const bootstrapNonce = fragment.get("bootstrap")?.trim() ?? "";
-  if (bootstrapNonce) {
-    let response;
+  // 凭据的读取与摘除走 api.js 的单一真源。三件事都是这轮修复的要点：
+  //  ① 它带**模块加载期快照**：`#bootstrap=` 会被 hash 路由改写成 `#bot`，
+  //     读当前 location 已经晚了（隔离复现：hasToken=false → 整页 401「会话凭据已失效」）；
+  //  ② 它同时认查询串形态——内核现在打印的就是 `?bootstrap=`；
+  //  ③ 兑换后会把参数**真的摘掉**。只删片段、保留查询串的旧写法会让刷新拿着
+  //     已消费的 nonce 再兑换一次，直接抛错且不回退到存量 token —— 等于刷新即故障。
+  const credential = readStartupCredential();
+  const storedToken = sessionStorage.getItem(TOKEN_KEY)?.trim() ?? "";
+  if (credential?.kind === "bootstrap") {
     try {
-      response = await fetch("/auth/bootstrap", {
+      const response = await fetch("/auth/bootstrap", {
         method: "POST",
         headers: { Accept: "application/json", "Content-Type": "application/json" },
-        body: JSON.stringify({ nonce: bootstrapNonce }),
+        body: JSON.stringify({ nonce: credential.value }),
       });
       const payload = await response.json().catch(() => null);
       const issuedToken = typeof payload?.token === "string" ? payload.token.trim() : "";
@@ -1070,18 +1092,23 @@ async function initializeAccessToken() {
       }
       sessionStorage.setItem(TOKEN_KEY, issuedToken);
       setAccessToken(issuedToken);
+    } catch (error) {
+      // 已消费/过期的 nonce 不该毁掉本来可用的会话；有存量 token 就继续用，
+      // 一个都没有才把错误抛出去（那才是真的登不进去）。
+      if (!storedToken) throw error;
+      setAccessToken(storedToken);
     } finally {
-      history.replaceState(null, "", `${url.pathname}${url.search}`);
+      stripStartupCredential();
     }
     return;
   }
-  if (fragmentToken) {
-    sessionStorage.setItem(TOKEN_KEY, fragmentToken);
-    setAccessToken(fragmentToken);
-    history.replaceState(null, "", `${url.pathname}${url.search}`);
+  if (credential?.kind === "token") {
+    sessionStorage.setItem(TOKEN_KEY, credential.value);
+    setAccessToken(credential.value);
+    stripStartupCredential();
     return;
   }
-  setAccessToken(sessionStorage.getItem(TOKEN_KEY) ?? "");
+  setAccessToken(storedToken);
 }
 
 // ===== 主题：亮色暖纸 / 暗色暖墨 =====
@@ -2140,6 +2167,37 @@ function isBotHomeChrome() {
   return !isWorkbenchViewActive();
 }
 
+// 终端开合的唯一真源是**页签**（见 botActivateRailTab / botRailTerminalToggle），
+// 所以 dock 自己的持久化在这里被架空：
+//   · getItem(open) 恒返回 "0" —— 0 尺寸守卫。终端页默认不可见，此时构造 xterm 面板
+//     会在 0 尺寸容器里 open()，之后永远画不出字（LO 实测「终端不显示」）。
+//   · 真正的开合由页签状态驱动，不读 localStorage，避免"抽屉自己以为开着"。
+// 高度仍然真实持久化（那是布局偏好，与开合无关）。
+const dockStorage = {
+  getItem(key) {
+    if (key === BOT_TERM_KEYS.open) return "0";
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem(key, value) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // 存不下只影响下次启动的高度记忆，不影响本次会话
+    }
+  },
+  removeItem(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch {
+      // ignore
+    }
+  },
+};
+
 let botTerminalDock = null;
 function ensureBotTerminalDock() {
   if (botTerminalDock) return botTerminalDock;
@@ -2147,6 +2205,9 @@ function ensureBotTerminalDock() {
     document,
     window,
     createPanel: createTerminalPanel,
+    storage: dockStorage,
+    // 页内 Ctrl+` 上交页签层：dock 内置 toggle 会让抽屉在可见页里凭空消失
+    onToggleRequest: () => botRailTerminalToggle(),
   });
   botTerminalDock.syncCwd?.(byId("terminal-drawer-cwd")?.textContent || "");
   return botTerminalDock;
@@ -2258,11 +2319,10 @@ function syncBotHomeChromeButtons() {
 
 function handleBotHomeTerminalToggle() {
   if (isWorkbenchViewActive()) return;
-  const leaving = state.view !== "bot";
-  if (leaving) setView("bot");
-  ensureBotTerminalDock();
-  if (leaving) botTerminalDock?.setOpen?.(true);
-  else botTerminalDock?.toggle?.();
+  if (state.view !== "bot") setView("bot");
+  // 终端的所有入口（顶栏按钮 / 动作行 / Ctrl+`）统一收敛到页签状态机：
+  // 抽屉现在住在终端页里，直接 toggle 抽屉会出现「抽屉在隐藏页里开着」的鬼状态。
+  botRailTerminalToggle();
   syncBotHomeChromeButtons();
 }
 
@@ -2459,12 +2519,13 @@ function replayAppearanceFromStorage() {
 }
 
 async function reconcileGlobalWallpaperMedia() {
-  // 只对「已有本地偏好但 hasCustom=false」做存在性修复（旧内核自愈误伤/换端残留）。
-  // 本地没有壁纸键 = 水合尚未发生或服务端没有偏好：此时写快照必然是默认值，
-  // 既挡回填又会被偏好双写 PUT 回服务端降级真源——直接等待水合路径处理。
-  let local = null;
-  try { local = localStorage.getItem(GLOBAL_WALLPAPER_KEY); } catch {}
-  if (!local || readGlobalWallpaper().hasCustom) return;
+  // 对「已有本地偏好但 hasCustom=false」做存在性修复（旧内核自愈误伤/换端残留）。
+  // 调用点在 boot 链 hydratePreferencesFromServer 结算之后（见启动处 finally）——
+  // 此时仍无本地键意味着服务端也没有偏好记录（全新端），但服务端**可能存有字节**
+  // （直接 POST /api/wallpapers/global 的上传路径不写偏好）：同样要 HEAD 探测并
+  // 物化默认快照，否则「服务端有字节、客户端永远不知道」，换端后自定义壁纸静默丢失
+  // （qa-global-wallpaper-tune 守）。水合已结算，写出默认快照不会挡服务端回填。
+  if (readGlobalWallpaper().hasCustom) return;
   try {
     await requestBlob(API.globalWallpaper, { method: "HEAD" });
     // 服务端确实存着字节：恢复开关位（不动 preset——用户是否启用全局层仍由色板选择决定）
@@ -2647,6 +2708,26 @@ function initializeTheme() {
   });
 }
 
+// 认证失效恢复：只走**已注册**的原生命令，不新开凭据通道。
+// 桌面壳有 restart_app（重启后内核签发新 token、打印新地址）；
+// 浏览器模式如实说明无法自愈——不假装能修。
+function requestAuthRecovery() {
+  const tauri = window.__TAURI_INTERNALS__;
+  if (tauri?.invoke) {
+    // 外围 try/catch：tauri.invoke 是 Promise.resolve 的**参数表达式**，同步 throw 发生在
+    // Promise 构造之前，.catch 接不到——烛 v1 照出的缺口。
+    try {
+      void Promise.resolve(tauri.invoke("restart_app")).catch(() => {
+        toast("恢复失败：桌面壳拒绝了重启请求，请手动重启控制台", "error", 8000);
+      });
+    } catch {
+      toast("恢复失败：桌面壳拒绝了重启请求，请手动重启控制台", "error", 8000);
+    }
+    return;
+  }
+  toast("浏览器模式无法自动恢复：请重启控制台内核，再用新启动时打印的地址进入", "error", 8000);
+}
+
 function setApiState() {
   const snapshot = controlConnection.snapshot();
   const presentation = connectionPresentation(snapshot);
@@ -2664,6 +2745,27 @@ function setApiState() {
         : snapshot.interrupted ? "工作数据待刷新"
           : normalized === "ok" ? "API 已连接" : "连接验证中";
   badge.title = Object.values(presentation).map((item) => item.label).join(" / ");
+  // 恢复入口只在认证失效时挂上：健康态留一个"点了没用"的按钮比没有按钮更糟。
+  if (snapshot.auth === "error") {
+    badge.dataset.authRecovery = "1";
+    badge.setAttribute("role", "button");
+    badge.setAttribute("tabindex", "0");
+    badge.setAttribute("aria-label", "会话凭据已失效，激活以恢复");
+    badge.onclick = () => requestAuthRecovery();
+    badge.onkeydown = (event) => {
+      // 键盘可达：role/tabindex 同进同出，Enter/Space 与点击同一路径
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      requestAuthRecovery();
+    };
+  } else {
+    delete badge.dataset.authRecovery;
+    badge.removeAttribute("role");
+    badge.removeAttribute("tabindex");
+    badge.removeAttribute("aria-label");
+    badge.onclick = null;
+    badge.onkeydown = null;
+  }
   for (const [kind, item] of Object.entries(presentation)) {
     const detail = byId(`control-${kind}-state`);
     if (detail) { detail.textContent = item.label; detail.className = `is-${item.tone}`; }
@@ -2695,11 +2797,28 @@ function compactToastRegion() {
   while (region.childElementCount > limit) region.firstElementChild?.remove();
 }
 
+// 认证失效的单一事实文案：api.js 的 request()/requestBlob() 逐字抛出同一句，
+// 改文案时两处必须同改——toast 靠这句相等认出「全局认证故障」并收敛去重。
+const AUTH_FAILURE_TEXT = "会话凭据已失效";
+
 function toast(message, type = "info", duration = 3600) {
+  // 认证失效是内核级全局故障：并发请求会把同一句报错叠成一柱；调用方还会把
+  // error.message 包进上下文文案（「加载失败：会话凭据已失效」），=== 判等会漏。
+  // 收敛判据用包含匹配：命中的 toast 同类只留一条，直到它自己消失。
+  const isAuthFailure = typeof message === "string" && message.includes(AUTH_FAILURE_TEXT);
+  if (isAuthFailure) {
+    for (const node of elements["toast-region"]?.children ?? []) {
+      if (node.dataset.toastAuth === "1") return;
+    }
+  }
   const item = document.createElement("div");
   item.className = `toast is-${type}`;
   item.dataset.toastType = type;
-  item.textContent = redact(message);
+  if (isAuthFailure) item.dataset.toastAuth = "1";
+  // 恢复路径必须说准：旧带凭据地址的 nonce 已被消费，不能笼统让人"重新访问原地址"。
+  item.textContent = redact(isAuthFailure
+    ? `${AUTH_FAILURE_TEXT}。恢复入口已挂到顶部连接徽章；带凭据的启动地址一次性有效，请改用新启动时打印的地址进入`
+    : message);
   elements["toast-region"].append(item);
   compactToastRegion();
   window.setTimeout(() => item.remove(), duration);
@@ -2976,6 +3095,11 @@ function applyApprovalSnapshot(payload, { source = "审批快照" } = {}) {
   approvalSnapshotRevision = snapshot.revision;
   state.approvals = snapshot.approvals;
   nativeNotifications.syncApprovals(state.approvals); // W2.4：新 pending → 系统通知（幂等 diff）
+  // 有待办就必须看得见：用户关过审批页不是「以后都别提醒我」的意思。
+  // 放在**事件路径**而不是 renderBotOpsRail 渲染循环里——渲染循环夺权是 09-11 真实引入过的 bug。
+  if (botPendingApprovals(state.approvals).length) {
+    if (botRailClosedTabs.has("approvals")) botReopenRailTab("approvals");
+  }
   return { accepted: true };
 }
 
@@ -3317,6 +3441,10 @@ async function loadRuns() {
   // （它们不在 conversationEvent 白名单）——不补这刀，停止键/composer 禁用态/恢复条停在旧快照
   renderSelectedRun();
   syncBotRunState();
+  // Bot 面：runs 快照到达必须刷新会话树——非活动会话的状态行（需恢复/待审批/失败）
+  // 只能靠这条通道更新（qa-assistant-start 守：刷新不得重建聚焦中的 composer、不得丢
+  // 草稿——botRenderRoster 只动树不动 composer）。workbench 的 renderRuns 覆盖不到它。
+  if (state.view === "bot") botRenderRoster();
   const run = selectedRun();
   missionControlDock?.selectRun(run?.id ?? null, run ? `${run.updatedAt ?? run.createdAt ?? ""}:${run.status}:${run.round ?? 0}` : null, runLocalEnvironmentId(run));
   syncRailToActiveRun();
@@ -3401,6 +3529,11 @@ function setConfigSurface(surface, { updateHash = true, focus = false, preserveM
   const remoteTarget = Boolean(state.configHostId || state.configProjectId);
   let next = CONFIG_SURFACE_SET.has(surface) ? surface : (remoteTarget ? "providers" : "sources");
   const requested = next;
+  const localProviderAlias = !remoteTarget && next === "providers";
+  if (localProviderAlias) {
+    next = "sources";
+    state.runtimeWorkspaceMode = "connections";
+  }
   if (remoteTarget && next === "hooks") {
     toast("远端钩子尚未接入，请切回本机后再编辑", "warning", 4000);
     next = "providers";
@@ -3419,7 +3552,7 @@ function setConfigSurface(surface, { updateHash = true, focus = false, preserveM
     button.tabIndex = active ? 0 : -1;
   });
   if (state.view === "config" && (updateHash || next !== requested)) {
-    history.replaceState(null, "", configRouteHash(next, {
+    history.replaceState(null, "", configRouteHash(localProviderAlias ? "providers" : next, {
       memberId: state.configMemberFocusId,
       runtimeProfileId: state.configRuntimeFocusId,
     }));
@@ -3428,7 +3561,7 @@ function setConfigSurface(surface, { updateHash = true, focus = false, preserveM
   // 远程配置目标生效期间，程序化 surface 切换不得把本机三面图谱重新放出来
   if (state.configHostId) syncConfigHostView();
   if ((next === "providers" || next === "sources") && !state.providersData) void loadTeams().then(() => loadProviders());
-  if (next === "providers") renderProviders();
+  if (next === "providers" || next === "sources" && state.runtimeWorkspaceMode === "connections") renderProviders();
   reconcileProviderLivePoll(); // 席位连接区进出即开停 live 轮询
   if (next === "local-runtime") {
     const panel = window.__forgeCcSwitchPanel;
@@ -3662,7 +3795,6 @@ function setView(view, {
     botSetComputerView?.(false);
     botCloseSettings?.();
   }
-  if (state.view === "workbench" && view !== "workbench") cancelSettlementRequests("workbench");
   const previousRoute = captureViewRoute();
   if (state.view === "bot" && view !== "bot") botWorkspace?.deactivate();
   if (view !== "config") clearMemberConfigTarget();
@@ -3790,6 +3922,8 @@ function setView(view, {
   }
   if ((view === "bot" || view === "workbench") && !state.projectsData) void loadProjects();
   if ((view === "bot" || view === "workbench") && !state.teams.length) void loadTeams();
+  // 首跑就绪清单只在 bot 家拉一次（welcome 面顶部投影；失败如实显错误卡，不假装就绪）
+  if (view === "bot" && state.readiness === null && !state.readinessLoading) void loadReadiness();
   if (view === "automations") {
     void Promise.all([
       loadAutomations().catch(() => null),
@@ -3856,7 +3990,6 @@ const {
 function renderConfigTopology() {
   const providers = state.providersData?.providers ?? [];
   const runtimeSeats = state.runtimeSeatsData?.seats ?? [];
-  const adapterTemplates = state.adapterTemplatesData?.templates ?? [];
   const runtimeError = state.runtimeSeatsData?.error;
   const providerError = state.providersData?.error;
   const providerBlocked = state.providersData?.storeStatus?.state === "blocked";
@@ -3924,13 +4057,14 @@ function renderConfigTopology() {
       : runtimeError
       ? "席位读取失败"
       : state.runtimeSeatsData
-        ? `${runtimeSeats.length} 席位 · ${adapterTemplates.length} Adapter`
+        ? `${runtimeSeats.length} 席位 · ${providers.length} 连接`
         : "读取中";
   }
 
   const providerNode = byId("config-topology-providers");
   const capabilityNode = byId("config-topology-capabilities");
   const sourceNode = byId("config-topology-sources");
+  if (providerNode) providerNode.hidden = !remoteTarget;
   providerNode?.classList.toggle("is-error", remoteTarget ? remoteEntry?.status === "error" : Boolean(providerError));
   providerNode?.classList.toggle("is-warning", remoteTarget ? false : !providerError && providerBlocked);
   capabilityNode?.classList.toggle("is-error", remoteTarget ? remoteEntry?.status === "error" : Boolean(state.capabilitiesError || capabilityStatus.failClosed || mcpStatus.failClosed));
@@ -3945,7 +4079,9 @@ function renderConfigTopology() {
   }
   const configTitle = byId("config-title");
   if (configTitle) configTitle.textContent = {
-    sources: state.runtimeWorkspaceMode === "sources" ? "配置文件" : "运行席位",
+    sources: state.runtimeWorkspaceMode === "connections"
+      ? "连接档案"
+      : state.runtimeWorkspaceMode === "sources" ? "配置文件" : "席位与模型",
     providers: "连接档案",
     capabilities: "能力",
     hooks: "钩子",
@@ -4005,6 +4141,11 @@ function renderConfigTopology() {
         tone = "warning";
         label = `${runtimeSeats.length} 个席位 · 待重载`;
       } else { tone = "ok"; label = `${runtimeSeats.length} 个运行席位`; }
+    } else if (state.runtimeWorkspaceMode === "connections") {
+      if (providerError) { tone = "error"; label = "连接档案读取失败"; }
+      else if (providerBlocked) { tone = "warning"; label = "连接档案已冻结"; }
+      else if (state.providersData) { tone = "ok"; label = `${providers.length} 个连接档案`; }
+      else label = "正在读取连接档案";
     } else if (!state.sources.length) label = "正在读取真源";
     else if (state.config?.transactionBlocked) { tone = "error"; label = "事务写入已阻断"; }
     else if (configIsDirty()) { tone = "warning"; label = "有未保存变更"; }
@@ -4156,7 +4297,7 @@ function selectConfigHost(id) {
   syncConfigHostView(); // remote 分支内部 renderConfigRemotePanel
   renderConfigHostBar();
   if (state.configHostId) {
-    if (!state.configHostProbes.has(state.configHostId)) void probeConfigHost(state.configHostId);
+    if (shouldProbeConfigHost(state.configHostId)) void probeConfigHost(state.configHostId);
     void loadConfigHostGraph(state.configHostId);
   }
 }
@@ -4170,7 +4311,7 @@ function selectConfigProject(id) {
   state.configHostSourceOpen = null;
   syncConfigHostView();
   renderConfigHostBar();
-  if (!state.configHostProbes.has(project.hostId)) void probeConfigHost(project.hostId);
+  if (shouldProbeConfigHost(project.hostId)) void probeConfigHost(project.hostId);
   void loadConfigHostGraph(project.hostId);
 }
 
@@ -5841,6 +5982,18 @@ async function diagnoseConfigRemoteProxy(hostId) {
   if (targetKey === configRemoteTargetKey()) renderConfigRemotePanel();
 }
 
+// 失败探测不得永久固化：一次离线/超时不代表这台机器从此不可达。
+// 没有时间锚点的话，`has()` 守卫会把席位一直钉在「离线」，用户只能刷新页面。
+const CONFIG_HOST_PROBE_RETRY_MS = 60_000;
+
+function shouldProbeConfigHost(id) {
+  const probe = state.configHostProbes.get(id);
+  if (!probe) return true;
+  if (probe.status === "loading" || probe.status === "ok") return false;
+  if (probe.status !== "error") return true;
+  return Date.now() - Number(probe.at || 0) >= CONFIG_HOST_PROBE_RETRY_MS;
+}
+
 async function probeConfigHost(id) {
   const loading = { status: "loading" };
   state.configHostProbes.set(id, loading);
@@ -5867,7 +6020,7 @@ async function probeConfigHost(id) {
     }
   } catch (error) {
     if (state.configHostProbes.get(id) !== loading) return;
-    state.configHostProbes.set(id, { status: "error", error: error.message });
+    state.configHostProbes.set(id, { status: "error", error: error.message, at: Date.now() });
   }
   if (typeof renderConfigHostBar === "function") renderConfigHostBar();
   renderConfigTopology();
@@ -6596,18 +6749,24 @@ function renderCapabilities() {
         .join("") +
       `</div>`
     : "";
+  if (state.configMemberFocusId && state.view === "config" && state.configSurface === "capabilities") {
+    focusMemberCapabilityColumn(state.configMemberFocusId);
+  }
 }
 
 function focusMemberCapabilityColumn(memberId) {
   if (!memberId) return false;
   const heading = elements["cap-skills-head"]?.querySelector(`[data-member-column="${CSS.escape(memberId)}"]`);
   if (!heading) return false;
-  requestAnimationFrame(() => {
+  const applyFocus = () => {
     if (state.configMemberFocusId !== memberId || state.view !== "config" || state.configSurface !== "capabilities") return;
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches === true;
     heading.scrollIntoView({ block: "nearest", inline: "center", behavior: reduceMotion ? "auto" : "smooth" });
     heading.focus({ preventScroll: true });
-  });
+  };
+  heading.focus({ preventScroll: true });
+  requestAnimationFrame(applyFocus);
+  setTimeout(applyFocus, 100);
   return true;
 }
 
@@ -7099,6 +7258,27 @@ function teamConstellationMarkup() {
     </div>`;
 }
 
+// 首次就绪清单：/api/readiness 是服务端权威源，这里只做「拉取 + 失败如实」。
+// 未就绪不阻塞使用——welcome 面顶部显示卡，用户可以先干活再消项。
+async function loadReadiness() {
+  state.readinessLoading = true;
+  try {
+    state.readiness = await apiRequest(API.readiness);
+    state.readinessError = null;
+  } catch (error) {
+    state.readiness = null;
+    state.readinessError = error?.message || "服务端不可用";
+  } finally {
+    state.readinessLoading = false;
+    if (state.view === "bot") {
+      botRenderAgent(botState.agentId);
+      // home 英雄先于 readiness 渲染：botRenderMessageStore 的 store-context 守卫会挡住
+      // botRenderAgent 内的重渲——无活动会话时直接重刷英雄，让就绪卡离开 loading。
+      botRefreshHomeHero();
+    }
+  }
+}
+
 function welcomeTemplatesMarkup() {
   const category = state.welcomeCategory || "all";
   const categories = [
@@ -7133,6 +7313,7 @@ function welcomeTemplatesMarkup() {
       <h2 class="welcome-hero">LO，<span class="hero-accent">${escapeHtml(greet.hey)}</span>${heyParticle}——${escapeHtml(greet.tail)}</h2>
       <span class="welcome-sub">直接在下面说目标。多套真实 CLI 同房间协作，路由和证据可回放。</span>
       ${welcomeTipMarkup()}
+      ${readinessCardMarkup(state.readinessLoading ? null : (state.readinessError ? { error: state.readinessError } : state.readiness))}
       ${teamConstellationMarkup()}
       <div class="welcome-section-label">快速开始</div>
       <div class="welcome-cats" role="tablist" aria-label="任务模板分类">${tabs}</div>
@@ -7490,6 +7671,92 @@ const promptDialog = createPromptDialog({
   getInput: () => elements["input-dialog-value"],
   getForm: () => byId("input-dialog-form"),
   getCancel: () => elements["input-dialog-cancel"],
+});
+// 「新对话」对话框（assistant-start.js 工厂 + DI）：此前整个对话框从未接线——
+//  Bot 面「+ 新对话」按钮点击无响应、home 空态也没有新对话入口（QA 门禁首跑抓出，P0）。
+// 依赖件全部复用既有权威实现：选择令牌 / 打开会话 / 直连创建 / 新建项目对话框。
+const assistantStart = createAssistantStart({
+  dialog: byId("assistant-start-dialog"),
+  getMembers: () => (state.memberCatalog || [])
+    .filter((member) => botMemberIsVisible(String(member?.id || "")))
+    .map((member) => {
+      const meta = botMeta(String(member.id));
+      return {
+        id: String(member.id),
+        label: meta.label,
+        detail: `${meta.role} · ${meta.health?.label || "未验证"}`,
+        // 目录成员均由团队/席位配置产生；空目录由「添加成员」空态引导兜底。
+        eligible: true,
+      };
+    }),
+  creation: {
+    createDirect: async ({ memberId, title }) => {
+      const payload = await request(API.conversations, {
+        method: "POST",
+        body: { kind: "direct", title: title || botMeta(memberId).label, directMemberId: memberId },
+      });
+      botState.conversationsRevision = Number(payload.revision ?? botState.conversationsRevision);
+      // 新会话落进已折叠的助手组时先展开，否则刚建好的那一行是看不见的。
+      botState.collapsedProjectIds.delete(`direct:${memberId}`);
+      return botUpsertConversation(payload.conversation);
+    },
+    // 指定文件夹的新对话：直接对话按宪法恒为全局（服务端拒绝 cwd），所以文件夹走项目——
+    // POST /api/projects 按 cwd 幂等 ensure（已有项目即复用），再在其中开一个单成员任务。
+    // cwd 的绝对路径/存在性校验由服务端 identityResolver 与 run 启动时的 stat 负责，不在前端猜。
+    createInFolder: async ({ memberId, title, cwd }) => {
+      let projectPayload;
+      try {
+        projectPayload = await request(API.projects, { method: "POST", body: { cwd } });
+      } catch (error) {
+        // 4xx = 路径被服务端如实拒绝（不存在/非绝对/非目录）；原文保留，前缀说清是哪一步。
+        if (error?.status && error.status < 500) throw Object.assign(new Error(`文件夹不可用：${error.message}`), { cause: error, status: error.status });
+        throw error;
+      }
+      const project = botUpsertProject(projectPayload.project);
+      botState.projectsRevision = Number(projectPayload.revision || botState.projectsRevision);
+      if (!project || project.archivedAt) throw new Error("该文件夹所属项目已归档，请先在左栏恢复项目");
+      let payload;
+      try {
+        payload = await request(API.conversations, {
+          method: "POST",
+          body: { kind: "workspace_group", title: title || botMeta(memberId).label, memberIds: [memberId], projectId: project.projectId },
+        });
+      } catch (error) {
+        // 非幂等的创建：网络中断/5xx 时服务端可能已落库，按「未确认」处理，禁止自动重试。
+        if (!error?.status || error.status >= 500) {
+          throw Object.assign(new Error("创建状态未确认，请先刷新对话列表核对；未自动重试"), { cause: error, outcomeUnknown: true });
+        }
+        throw error;
+      }
+      botState.conversationsRevision = Number(payload.revision ?? botState.conversationsRevision);
+      botState.collapsedProjectIds.delete(String(project.projectId));
+      return botUpsertConversation(payload.conversation);
+    },
+  },
+  pickDirectory: async () => {
+    const result = await request("/api/system/pick-directory", { method: "POST" });
+    return result?.path || null;
+  },
+  beginSelection: () => botBeginSelectionIntent(),
+  selectionCurrent: (token) => botSelectionIntentCurrent(token),
+  openConversation: (conversationId, selectionToken) => botOpenConversation(conversationId, { selectionToken }),
+  onProject: (trigger) => botOpenGroupDialog(trigger),
+  onConfigure: () => setView("team"),
+  onInspect: () => void botLoadConversations(),
+  onError: (error) => {
+    // 迟到的未知结果（对话框已关、服务端可能已落库）：创建语境固定文案，
+    // 明确「不自动重试」——用户下一步是刷新列表核对，不是再点一次创建
+    // （重复创建风险）。文案由 qa-assistant-start 契约定。
+    toast(error?.outcomeUnknown ? "创建状态未确认，请先刷新对话列表核对；未自动重试" : error.message, "error", 6000);
+  },
+});
+// 触发入口委托：Bot chrome 的 #bot-new-conversation-button 与 home 空态英雄按钮共用
+// （两者都带 data-assistant-start，模块只认对话框内的控件）。
+document.addEventListener("click", (event) => {
+  const trigger = event.target.closest("[data-assistant-start]");
+  if (!trigger) return;
+  event.preventDefault();
+  assistantStart.open(trigger);
 });
 const railMetaSections = createRailMetaSections({
   elements,
@@ -8730,7 +8997,6 @@ function startTeamsLoad() {
       applyActiveTeamBackground();
       // boot 时 loadProjects 与 loadTeams 并发：teams 晚到时 projectTreeModel 的 teamById
       // 查空，显式归属项目会降级进「未归属」组且不再自愈——teams 就绪后必须重渲项目树。
-      if (state.view === "workbench") renderProjects();
       if (elements["team-switch-select"]) {
         const editing = teamById(state.editingTeamId);
         if (state.editingTeamId && !editing) {
@@ -8856,6 +9122,14 @@ function renderTeams() {
     select.innerHTML = state.teams
       .map((team) => `<option value="${escapeHtml(team.id)}"${team.id === state.selectedTeamId ? " selected" : ""}>${escapeHtml(team.name)}</option>`)
       .join("");
+  }
+  const botTeam = byId("bot-composer-team");
+  if (botTeam) {
+    commitMarkup(botTeam, selectOptionsMarkup(
+      (state.teams || []).map((item) => ({ value: item.id, label: item.name || item.id })),
+      state.selectedTeamId,
+      { escapeHtml },
+    ));
   }
   const startSelect = elements["start-agent"];
   if (startSelect) {
@@ -10411,8 +10685,9 @@ function renderTeamMemberOptions(team, {
   const selectedMembers = members instanceof Set ? members : new Set(members ?? []);
   const options = knownProviderOptions(team);
   if (!options.length) {
-    // UI-AUDIT P0-6：席位目录首载骨架屏（此前为唯一"文字 loading"占位，切换时高度跳变）
+    // UI-AUDIT P0-6：席位目录首载骨架屏（保持 .team-catalog-loading 外层容器以供门禁与样式收拢）
     renderPlaceholder(list, skeleton({ variant: "list", rows: 4, label: "正在加载可执行席位" }));
+    list.innerHTML = `<div class="team-catalog-loading">${list.innerHTML}</div>`;
     updateTeamRosterSummary();
     return;
   }
@@ -12629,7 +12904,7 @@ let providerLiveInFlight = false;
 
 function providerLiveViewVisible() {
   return state.view === "config"
-    && (state.configSurface === "providers" || state.configSurface === "sources" && state.runtimeWorkspaceMode === "seats")
+    && (state.configSurface === "providers" || state.configSurface === "sources" && ["seats", "connections"].includes(state.runtimeWorkspaceMode))
     && !state.configHostId // 远程配置目标生效时，本机 live 不是当前关注面
     && document.visibilityState !== "hidden";
 }
@@ -12645,6 +12920,7 @@ async function refreshProviderLive() {
     state.providersData.live = payload.live;
     renderProviders();
     renderConfigTopology();
+    runtimeSeatManager?.syncProviders();
   } catch {
     // 轮询静默失败：live 读不到不该弹 toast 打扰 LO，下一拍自然重试（手动刷新仍会如实报错）
   } finally {
@@ -13921,20 +14197,6 @@ function fillProviderDialog(provider, { app: preferredApp = null, prefill = null
   if (presetBlock) presetBlock.hidden = Boolean(provider);
   const presetSearch = elements["provider-preset-search"];
   if (presetSearch) presetSearch.value = "";
-  const presetClear = elements["provider-preset-clear-button"];
-  if (presetClear) presetClear.hidden = true;
-  const presetHint = elements["provider-preset-hint"];
-  if (presetHint) {
-    presetHint.hidden = true;
-    presetHint.textContent = "";
-  }
-  const catalogList = elements["provider-catalog-list"];
-  if (catalogList) catalogList.innerHTML = "";
-  // 提示条与「配置 JSON」区块跟随聚焦应用（截图 2 形态：按应用给端点填写提示）
-  const hintApp = selection.targetApp;
-  const hintLabel = PROVIDER_APP_META.find((entry) => entry.app === hintApp)?.label ?? "Claude";
-  const baseurlHint = elements["provider-baseurl-hint"];
-  if (baseurlHint) baseurlHint.textContent = `填写兼容 ${hintLabel} API 的服务端点地址，不要以斜杠结尾；留空 = 官方默认端点`;
   if (hintApp === "codex" || hintApp === "grokbuild") updateCodexBaseUrlHint();
   if (hintApp === "opencode") {
     if (baseurlHint) baseurlHint.textContent = "填写 OpenAI Compatible 端点，不要以斜杠结尾。例如 https://514claude.xyz/v1";
@@ -14061,6 +14323,7 @@ async function openProviderDialog(provider = null, options = {}) {
 function closeProviderDialog() {
   elements["provider-dialog"].close();
   state.editingProviderId = null;
+  providerSeatBindingIntent = null;
 }
 
 /** 本地代理请求覆盖收集：两个 JSON 文本区解析（空=不设），非法 JSON 抛错由 save 兜底 toast。 */
@@ -14282,6 +14545,7 @@ function collectProviderEnvLines(raw, label) {
 }
 
 let providerSaveBusy = false;
+let providerSeatBindingIntent = null;
 
 async function saveProviderForm(event, { enable = false } = {}) {
   event?.preventDefault?.();
@@ -14308,6 +14572,7 @@ async function saveProviderForm(event, { enable = false } = {}) {
   elements["provider-save-button"].disabled = true;
   if (elements["provider-save-enable-button"]) elements["provider-save-enable-button"].disabled = true;
   try {
+    const seatBindingIntent = providerSeatBindingIntent;
     const editingId = state.editingProviderId;
     let savedId = editingId;
     if (editingId) {
@@ -14320,6 +14585,9 @@ async function saveProviderForm(event, { enable = false } = {}) {
     }
     closeProviderDialog();
     await loadProviders({ fresh: true });
+    if (seatBindingIntent && savedId) {
+      runtimeSeatManager?.selectProvider(savedId, { adoptDefaultModel: seatBindingIntent.adoptDefaultModel === true });
+    }
     if (enable && savedId) {
       const app = payload.apps[state.providerDialogTargetApp]
         ? state.providerDialogTargetApp
@@ -14784,7 +15052,12 @@ async function ensureProviderPresets() {
 
 async function fetchProviderCodexModels() {
   const grokMode = state.providerDialogTargetApp === "grokbuild";
-  const result = grokMode ? elements["provider-grokbuild-fetch-models-result"] : elements["provider-codex-fetch-models-result"];
+  const claudeMode = state.providerDialogTargetApp === "claude";
+  const result = grokMode
+    ? elements["provider-grokbuild-fetch-models-result"]
+    : claudeMode
+      ? (elements["provider-claude-fetch-models-result"] || elements["provider-codex-fetch-models-result"])
+      : elements["provider-codex-fetch-models-result"];
   if (!result) return [];
   const baseUrl = elements["provider-baseurl-input"].value.trim();
   const apiKey = elements["provider-key-input"].value;
@@ -14796,7 +15069,11 @@ async function fetchProviderCodexModels() {
   }
   const buttons = grokMode
     ? [elements["provider-grokbuild-fetch-models-button"]].filter(Boolean)
-    : [elements["provider-codex-fetch-models-button"], elements["provider-codex-catalog-fetch-button"]].filter(Boolean);
+    : [
+        elements["provider-codex-fetch-models-button"],
+        elements["provider-codex-catalog-fetch-button"],
+        elements["provider-claude-fetch-models-button"],
+      ].filter(Boolean);
   for (const button of buttons) button.disabled = true;
   result.textContent = "正在获取模型列表…";
   result.classList.remove("is-error");
@@ -14813,9 +15090,9 @@ async function fetchProviderCodexModels() {
     });
     const models = Array.isArray(response.models) ? response.models : [];
     state.providerFetchedModels = models;
-    elements["provider-catalog-list"].innerHTML = models
+    commitMarkup(elements["provider-catalog-list"], models
       .map((entry) => `<option value="${escapeHtml(entry.id)}">${escapeHtml(entry.ownedBy ? `${entry.id} · ${entry.ownedBy}` : entry.id)}</option>`)
-      .join("");
+      .join(""));
     result.textContent = models.length ? `已获取 ${models.length} 个模型。` : "接口返回空模型列表。";
     result.classList.toggle("is-error", !models.length);
     return models;
@@ -16827,6 +17104,39 @@ const BOT_PENDING_TIMEOUT_MS = 15_000;
 const BOT_RUN_INDEX_STORAGE_KEY = "514cc-bot-run-index-v1";
 const BOT_AGENT_OVERRIDE_STORAGE_KEY = "514cc-bot-agent-overrides-v1";
 const BOT_PROJECT_TREE_STORAGE_KEY = "514cc-bot-project-tree-v1";
+const BOT_ACTIVE_RUNS_STORAGE_KEY = "514cc-bot-active-runs-v1";
+// 这两个折叠态变量**必须声明在下面 botRestoreActiveRuns() 调用点之前**。
+// 曾把它们放在 22598 行的渲染区附近，结果 restore 在模块求值期读到一个 TDZ 里的 let，
+// 抛出的 ReferenceError 被下面那个「localStorage 损坏」专用 catch 吞掉——既不崩、也不生效，
+// 静默降级成全展开。declare-before-restore 是这里唯一可靠的顺序，别再把它们搬下去。
+let botActiveRunsCollapsed = false;
+let botActiveRunsCollapsedGroups = new Set();
+
+function botPersistActiveRuns() {
+  try {
+    localStorage.setItem(BOT_ACTIVE_RUNS_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      collapsed: botActiveRunsCollapsed === true,
+      collapsedGroups: [...botActiveRunsCollapsedGroups],
+    }));
+  } catch {
+    // localStorage 不可用时折叠状态只保留在当前页面。
+  }
+}
+
+function botRestoreActiveRuns() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BOT_ACTIVE_RUNS_STORAGE_KEY) || "null");
+    if (raw?.version !== 1) return;
+    botActiveRunsCollapsed = raw.collapsed === true;
+    botActiveRunsCollapsedGroups = new Set(
+      (Array.isArray(raw.collapsedGroups) ? raw.collapsedGroups : [])
+        .map(String).filter(Boolean).slice(0, 50),
+    );
+  } catch {
+    // 损坏的本地折叠状态不能阻塞 Bot 启动——按全展开继续，不假装记得。
+  }
+}
 
 function botPersistProjectTree() {
   try {
@@ -16919,6 +17229,7 @@ function botRestoreRunIndex() {
   botRestoreRunIndex();
 botRestoreAgentOverrides();
 botRestoreProjectTree();
+botRestoreActiveRuns();
 
 function botRunIdsForAgent(agentId = botState.agentId) {
   const id = String(agentId || "");
@@ -17373,6 +17684,12 @@ function botConversationRun(conversation) {
   return botConversationActiveRun(conversation);
 }
 
+// Bot 面所有用户可见的运行状态都必须从同一条 Conversation 投影读取。
+// activeRun 仅用于提交新消息；把它混入展示会让历史选中 Run 与恢复确认互相打架。
+function botVisibleConversationRun(conversation = botActiveConversation()) {
+  return conversation ? botConversationRun(conversation) : null;
+}
+
 function botUpsertConversation(conversation) {
   if (!conversation?.id) return null;
   const id = String(conversation.id);
@@ -17556,6 +17873,64 @@ async function botDuplicateConversation(conversation) {
   }
 }
 
+async function botPromptWorkspaceFileExcerpt(conversation = botActiveConversation()) {
+  if (!conversation) {
+    toast("请先选择或打开一个会话", "warning", 3000);
+    return;
+  }
+  const input = await promptDialog({
+    eyebrow: "文件解析与证据引用",
+    title: "输入工作区相对文件路径",
+    placeholder: "例如：src/server.mjs 或 src/server.mjs#L10-L45",
+  });
+  if (!input || !input.trim()) return;
+  const match = input.trim().match(/^([^#\s]+)(?:#L?(\d+)(?:-L?(\d+))?)?$/);
+  if (!match) {
+    toast("无效的文件路径格式", "warning", 3000);
+    return;
+  }
+  const relativePath = match[1];
+  const startLine = match[2] ? Number(match[2]) : 1;
+  const endLine = match[3] ? Number(match[3]) : (match[2] ? Number(match[2]) + 50 : undefined);
+  try {
+    const payload = await request(API.parseConversationFile(conversation.id), {
+      method: "POST",
+      body: { relativePath, startLine, endLine },
+    });
+    const excerpt = payload?.excerpt;
+    if (!excerpt) throw new Error("未能获取文件片段");
+    const header = `--- [文件证据: ${excerpt.relativePath}#L${excerpt.startLine}-L${excerpt.endLine} (共 ${excerpt.totalLines} 行${excerpt.truncated ? " · 已截断" : ""})] ---`;
+    const footer = `--- [文件证据结束: ${excerpt.sha256.slice(0, 12)}] ---`;
+    const block = `\n${header}\n${excerpt.content}\n${footer}\n`;
+    const botInput = byId("bot-composer-input");
+    if (botInput) {
+      botInput.value = (botInput.value ? botInput.value + "\n" : "") + block;
+      botInput.dispatchEvent(new Event("input", { bubbles: true }));
+      botInput.focus({ preventScroll: true });
+    }
+    toast(`已安全载入「${excerpt.relativePath}」#L${excerpt.startLine}-L${excerpt.endLine}`, "success", 4000);
+  } catch (error) {
+    toast(`文件解析失败：${error.message}`, "error", 5000);
+  }
+}
+
+async function botForkConversation(conversation, options = {}) {
+  const selectionToken = botBeginSelectionIntent();
+  try {
+    const payload = await request(API.forkConversation(conversation.id), {
+      method: "POST",
+      body: { expectedRevision: conversation.revision, ...options },
+    });
+    const forked = botUpsertConversation(payload.conversation);
+    await botLoadConversations({ focusId: forked.id, selectionToken });
+    botOpenConversation(forked.id, { selectionToken });
+    toast("会话分支已创建，继承历史对话记录与上下文", "success", 5000);
+    return forked;
+  } catch (error) {
+    toast(`分叉会话失败：${error.message}`, "error", 5000);
+  }
+}
+
 async function botHideConversation(conversation) {
   if (conversation.roomRole === "default") {
     toast("默认项目协作室不能单独隐藏；请归档整个项目", "warning", 4200);
@@ -17615,10 +17990,14 @@ async function botPurgeDeletedConversations() {
   if (!deleted.length) return;
   const confirmed = await confirmAction({
     eyebrow: "清空已删除会话",
-    title: `从列表永久移除 ${deleted.length} 条已删除会话？`,
+    // 标题不承诺具体条数：后端只清「activeRunId 指向的 run 已终态/已消失」的墓碑，
+    // 仍挂着活 run 的会被留下。承诺一个数然后又做不到，就是 LO 2026-10-11 遇到的那种脱节。
+    title: "清空已删除会话？",
     rows: [
+      ["已删除", `${deleted.length} 条`],
       ["范围", "仅清除 Conversation 删除墓碑"],
       ["保留", "Run 事件、审批、产物、项目文件与原生 CLI session"],
+      ["可能留下", "仍关联未结束运行的会话不会被清除，结果里会列出"],
     ],
     warning: "清除后这些会话身份不会再出现在“其他”中，也不能恢复；隐藏会话和归档项目不受影响。",
     confirmLabel: "清空已删除",
@@ -17636,10 +18015,16 @@ async function botPurgeDeletedConversations() {
     botState.conversations = botState.conversations.filter((item) => !removed.has(String(item?.id || "")));
     botState.conversationsRevision = Number(result?.revision ?? botState.conversationsRevision);
     const purged = Number(result?.purged || removed.size);
-    const skipped = Array.isArray(result?.skipped) ? result.skipped.length : 0;
-    toast(skipped
-      ? `已清空 ${purged} 条；另有 ${skipped} 条因仍关联运行记录而保留，审计不变`
-      : `已清空 ${purged} 条已删除会话；运行审计保持不变`, skipped ? "warning" : "success", 6000);
+    const skipped = Array.isArray(result?.skipped) ? result.skipped : [];
+    // 结论先行。旧文案「已清空 0 条；另有 N 条因仍关联运行记录而保留，审计不变」把结论埋在中间，
+    // LO 2026-10-11 实测看完不知道该怎么办——尤其一条都没清掉时，那是个死路。
+    if (!purged && skipped.length) {
+      toast(`没能清掉任何会话：${skipped.length} 条仍关联未结束的运行（先结束或取消这些运行即可清除）`, "warning", 7000);
+    } else if (skipped.length) {
+      toast(`已清空 ${purged} 条；另有 ${skipped.length} 条因仍关联未结束的运行而保留`, "warning", 6000);
+    } else {
+      toast(`已清空 ${purged} 条已删除会话；运行审计保持不变`, "success", 6000);
+    }
   } catch (error) {
     if (error?.code === "CONVERSATION_STORE_REVISION_MISMATCH") {
       await botLoadConversations();
@@ -17726,6 +18111,7 @@ function botConversationContextItems(conversation, opener) {
     { icon: "rename", label: "重命名会话", action: () => void botEditConversation(conversation, opener) },
     ...(conversation.kind === "direct" ? [{ icon: "settings", label: "编辑成员资料", action: () => botOpenAgentSettings(opener, { memberId: conversation.directMemberId }) }] : []),
     { icon: "copy", label: "创建副本", action: () => void botDuplicateConversation(conversation) },
+    { icon: "git-branch", label: "分叉此会话（继承历史）", action: () => void botForkConversation(conversation) },
     { icon: "id", label: "复制对话 ID", action: () => void copyText(conversation.id, "对话 ID") },
     { icon: "link", label: "复制会话链接", action: () => void copyText(botConversationLink(conversation), "会话链接") },
     "---",
@@ -17913,6 +18299,27 @@ function botConversationRowMarkup(conversation, { label = null, hidden = false, 
   </button>`;
 }
 
+// 「直接对话」按助手折叠成组：组节点复用项目树的 data-bot-project-node/toggle 通道
+// （点击/←→键盘/折叠持久化全部现成），键名加 "direct:" 前缀与真实 projectId 隔离——
+// 项目 ID 是 16 位 hex，菜单/右键经 botProjectById 查不到即静默忽略，不会误开项目菜单。
+function botDirectGroupMarkup(memberId, conversations, { query = "" } = {}) {
+  const rows = conversations.map((conversation) => botConversationRowMarkup(conversation, { level: 2 })).join("");
+  if (!rows) return "";
+  const key = `direct:${memberId}`;
+  const meta = botMeta(memberId);
+  // 与项目节点同规则：搜索时一律展开，其余尊重用户的折叠选择（重绘不得自行弹开）。
+  const collapsed = !query && botState.collapsedProjectIds.has(key);
+  const attentionCount = conversations.filter((item) => botConversationAttention(item)).length;
+  const domId = `bot-direct-rooms-${String(memberId).replace(/[^w-]/g, "_")}`;
+  return `<div class="bot-project-node bot-direct-group${collapsed ? " is-collapsed" : ""}" data-bot-project-node="${escapeHtml(key)}">
+    <div class="bot-project-heading"><button class="bot-project-row" type="button" role="treeitem" aria-level="1" aria-expanded="${!collapsed}" aria-controls="${escapeHtml(domId)}" data-bot-project-toggle="${escapeHtml(key)}" title="${escapeHtml(meta.label)}">
+      <svg class="icon lucide bot-project-chevron" aria-hidden="true"><use href="#lucide-chevron-down"></use></svg><svg class="icon lucide bot-project-icon" aria-hidden="true"><use href="#lucide-user-round"></use></svg>
+      <span><strong>${escapeHtml(meta.label)}</strong><small>${conversations.length} 段对话</small></span>${attentionCount ? `<b aria-label="${attentionCount} 个待处理">${attentionCount}</b>` : ""}
+    </button></div>
+    <div class="bot-project-rooms" id="${escapeHtml(domId)}" role="group"${collapsed ? " hidden" : ""}>${rows}</div>
+  </div>`;
+}
+
 function botTreeSectionMarkup(id, title, body, { count = null, archived = false, action = "" } = {}) {
   if (!body) return "";
   const countMarkup = count == null ? "" : `<span>${count}</span>`;
@@ -17946,8 +18353,15 @@ function botRenderRoster() {
       && botConversationMatches(conversation, query, botProjectForConversation(conversation)));
   const directConversations = activeConversations
     .filter((item) => item.kind === "direct" && botConversationMatches(item, query));
-  const directRows = directConversations
-    .map((conversation) => botConversationRowMarkup(conversation))
+  // 组顺序跟随组内最靠前的会话（已按置顶/待处理/最近活动排好），组内保持原序。
+  const directGroups = new Map();
+  for (const conversation of directConversations) {
+    const memberId = String(conversation.directMemberId || "");
+    if (!directGroups.has(memberId)) directGroups.set(memberId, []);
+    directGroups.get(memberId).push(conversation);
+  }
+  const directRows = [...directGroups]
+    .map(([memberId, conversations]) => botDirectGroupMarkup(memberId, conversations, { query }))
     .join("");
   const projectNodes = indexPage.projects
     .filter((project) => !project.archivedAt)
@@ -18014,9 +18428,14 @@ function botRenderRoster() {
   const rosterEmpty = byId("bot-roster-empty");
   const contactEmpty = byId("bot-contact-empty");
   if (rosterEmpty) {
-    // 空态文案跟随语义：有搜索词才是「没有匹配」，否则是「还没有」（PM 走查 2026-08-30）
+    // 空态文案跟随语义：有搜索词才是「没有匹配」，否则是「还没有」（PM 走查 2026-08-30）；
+    // 每态都带可执行下一步——空窗不给入口等于把用户晾在死胡同里。
     const searching = Boolean(String(botState.conversationSearchQuery ?? "").trim());
-    rosterEmpty.textContent = searching ? "没有匹配的对话" : "还没有对话——点左上角 + 开始";
+    rosterEmpty.innerHTML = searching
+      ? `<span>没有匹配的对话</span><button class="bot-empty-action" type="button" data-bot-empty-action="clear-search">清空搜索</button>`
+      : `<span>还没有对话，从下面开始</span>`
+        + `<button class="bot-empty-action" type="button" data-bot-empty-action="new-project"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-folder-open"></use></svg>新建项目</button>`
+        + `<button class="bot-empty-action" type="button" data-bot-empty-action="new-member"><svg class="icon lucide" aria-hidden="true"><use href="#lucide-user-round"></use></svg>添加成员</button>`;
     rosterEmpty.hidden = Boolean(tree.querySelector("[data-bot-tree-row], [data-bot-project-node]"));
   }
   if (contactEmpty) {
@@ -18223,6 +18642,8 @@ async function botLoadPanelChannels() {
 }
 
 function botRenderAgent(agentId = botState.agentId) {
+  void loadBotResidenceHints();
+  botResidenceHeartbeat();
   if (!state.memberCatalog?.length && !botWorkspaceLocationReady) return;
   const availableIds = (state.memberCatalog || []).map((member) => String(member?.id)).filter(Boolean);
   const fallbackId = availableIds[0] || "claude-fable";
@@ -18372,8 +18793,20 @@ function botRenderAgent(agentId = botState.agentId) {
   botRenderMentionRecipients();
   botSyncPendingAskCard(botRunForAgent(next), next);
   syncBotRunState();
+  // 注意条属于当前 Conversation 的 visibleRun。切换会话时先同步清空旧条，
+  // 不能等异步历史回填完成，否则旧会话的 recovery_required 会短暂甚至持续挂在新会话上。
+  renderRecoveryBar(visibleRun);
+  renderRunAttentionBar(visibleRun);
+  // composer 控件（recipient/model/effort）随当前会话/目录同步：此前只在 setView("bot")
+  // 时跑一次——会话在页面加载后才打开（点行/深链接）就永远是占位「当前会话成员」，
+  // 收件人与模型不跟随会话（qa-bot-composer-switch 实测）。挂渲染尾覆盖三条选择路径；
+  // commitMarkup 幂等，SSE 热路径重复调用不抖。
+  syncBotComposerControls();
   botRenderAttachments();
   void botSyncConversation(next);
+  // 三个选择路径（botSelectMember / botOpenConversation / botOpenGroupConversation）都经本函数，
+  // 一处补全三条通：没有这一行，切换会话后右栏不换归属，旧会话的待办会留在栏里。
+  renderBotOpsRail();
 }
 
 function botSelectMember(agentId, { activateChats = true } = {}) {
@@ -18383,15 +18816,27 @@ function botSelectMember(agentId, { activateChats = true } = {}) {
   botState.activeConversationId = conversation?.id || null;
   botState.activeGroupRunId = null;
   botState.mobileRosterVisible = false;
+  // run 解析失败时走 botOpenConversationRun 单拉回填（索引漏解析 = 切换后停在空占位）
+  if (conversation && !botConversationRun(conversation)) {
+    const runId = conversation.activeRunId || (Array.isArray(conversation.runIds) ? conversation.runIds[conversation.runIds.length - 1] : "");
+    if (runId) void botOpenConversationRun(conversation, runId);
+  }
   if (activateChats) botActivateSurfaceTab("chats", { focus: false });
   botRenderAgent(agentId);
 }
 
 function botOpenConversation(conversationId, { activateChats = true, selectionToken = null } = {}) {
   const ownedSelectionToken = selectionToken ?? botBeginSelectionIntent();
-  if (!botSelectionIntentCurrent(ownedSelectionToken)) return false;
+  if (!botSelectionIntentCurrent(ownedSelectionToken)) {
+    console.warn("[botOpenConversation] selection token 失效", { conversationId, ownedSelectionToken });
+    return false;
+  }
   const conversation = botConversationById(conversationId);
-  if (!conversation || conversation.deletedAt || conversation.hiddenAt) return false;
+  if (!conversation || conversation.deletedAt || conversation.hiddenAt) {
+    console.warn("[botOpenConversation] 会话不可用", { conversationId, conversation: conversation?.id, deleted: conversation?.deletedAt, hidden: conversation?.hiddenAt });
+    return false;
+  }
+  console.log("[botOpenConversation] 开始切换", { from: botState.activeConversationId, to: conversation.id, kind: conversation.kind });
   botWorkspace?.beforeSelection();
   botHideMentionMenu();
   botState.activeConversationId = conversation.id;
@@ -18399,16 +18844,32 @@ function botOpenConversation(conversationId, { activateChats = true, selectionTo
   botWriteConversationLocation(conversation);
   if (conversation.kind === "direct") {
     botState.activeGroupRunId = null;
+    console.log("[botOpenConversation] direct 会话，渲染成员", { memberId: conversation.directMemberId });
     botRenderAgent(conversation.directMemberId);
   } else if (conversation.kind === "workspace_group") {
     const run = botConversationRun(conversation);
+    // run 未解析导致参与者为空时按会话登记的 run 兜底拉取，不是拒绝切换
+    if (!run || !botGroupParticipants(run || conversation).length) {
+      const runId = conversation.activeRunId || (Array.isArray(conversation.runIds) ? conversation.runIds[conversation.runIds.length - 1] : "");
+      if (runId) void botOpenConversationRun(conversation, runId);
+    }
     const participants = botGroupParticipants(run || conversation);
     const primary = String(run?.startAgentId || participants[0] || botState.agentId || botVisibleMemberCatalog()[0]?.id || "");
-    if (!primary || !botCatalogMember(primary)) return false;
+    if (!primary || !botCatalogMember(primary)) {
+      console.warn("[botOpenConversation] workspace_group 找不到 primary member", { primary, participants, run: run?.id });
+      return false;
+    }
+    console.log("[botOpenConversation] workspace_group 会话，渲染成员", { primary, runId: run?.id });
     botState.activeGroupRunId = run?.id || null;
     botState.agentId = primary;
     botState.runId = run?.id || null;
     botRenderAgent(primary);
+  }
+  // 索引完全没解析出 run（发送受理竞态窗口）时：直接切换会停在空占位，
+  // 按会话登记的 run 单拉回填——directMemberId 让单聊落到正确成员。
+  if (!botConversationRun(conversation)) {
+    const runId = conversation.activeRunId || (Array.isArray(conversation.runIds) ? conversation.runIds[conversation.runIds.length - 1] : "");
+    if (runId) void botOpenConversationRun(conversation, runId, conversation.directMemberId);
   }
   if (activateChats) botActivateSurfaceTab("chats", { focus: false });
   botWorkspace?.afterSelection();
@@ -18944,9 +19405,36 @@ const BOT_EMPTY_CHIPS = [
   { label: "规划", prompt: "帮我规划接下来的步骤：" },
 ];
 
-function botEmptyConversationMarkup(hint, title = "还没有消息") {
-  const chips = BOT_EMPTY_CHIPS.map((chip) => `<button type="button" role="listitem" data-bot-suggest="${escapeHtml(chip.prompt)}">${escapeHtml(chip.label)}</button>`).join("");
-  return `<div class="bot-message-empty bot-empty-hero"><strong class="bot-empty-brand">514</strong><span class="bot-empty-kicker">${escapeHtml(title)}</span><span>${hint}</span><div class="bot-empty-chips" role="list">${chips}</div></div>`;
+// 空态 markup 真源：options.chips === false 时不给建议芯片
+// （「正在读取运行记录」等瞬时态下，对着空窗点建议只会打乱用户）。
+// Bot home（无活动会话）富版英雄：新对话/新建项目入口 + 就绪卡摘要。
+// 本地简化副本只有一句引导语——新用户进 Bot 面零行动入口（QA 门禁首跑抓出，P0）。
+// readiness 异步到达后由 botRefreshHomeHero 重刷（store-context 守卫会挡住常规重渲）。
+function botHomeHeroMarkup() {
+  return assistantStartEmptyMarkup("", "还没有消息", {
+    home: true,
+    readiness: readinessCardMarkup(state.readinessLoading ? null : (state.readinessError ? { error: state.readinessError } : state.readiness)),
+  });
+}
+
+function botRefreshHomeHero() {
+  const stream = byId("bot-message-stream");
+  if (!stream || botActiveConversation()) return;
+  reconcileMessageMarkup(stream, botHomeHeroMarkup());
+  botNormalizeTranscript(stream);
+}
+
+function assistantEmptyMarkup(hint, title, options = {}) {
+  const chips = options.chips === false
+    ? ""
+    : `<div class="bot-empty-chips" role="list">${BOT_EMPTY_CHIPS.map(
+      (chip) => `<button type="button" role="listitem" data-bot-suggest="${escapeHtml(chip.prompt)}">${escapeHtml(chip.label)}</button>`,
+    ).join("")}</div>`;
+  return `<div class="bot-message-empty bot-empty-hero"><strong class="bot-empty-brand">514</strong><span class="bot-empty-kicker">${escapeHtml(title)}</span><span>${hint}</span>${chips}</div>`;
+}
+
+function botEmptyConversationMarkup(hint, title = "还没有消息", options = {}) {
+  return assistantEmptyMarkup(hint, title, options);
 }
 
 function botConversationStoreKey(agentId = botState.agentId) {
@@ -18974,6 +19462,7 @@ function botRenderMessageStore(agentId = botState.agentId) {
   const key = botConversationStoreKey(agentId);
   const stored = botState.messageStores[key];
   const expectedRunId = botRunForAgent(agentId)?.id || null;
+  console.log("[botRenderMessageStore]", { agentId, key, currentContext: stream.dataset.storeContext, currentRunId: stream.dataset.historyRunId, newKey: key, newRunId: String(expectedRunId || ""), willSkip: stream.dataset.storeContext === key && stream.dataset.historyRunId === String(expectedRunId || "") });
   if (stream.dataset.storeContext === key && stream.dataset.historyRunId === String(expectedRunId || "")) return;
   const conversation = botActiveConversation();
   const groupRun = conversation?.kind === "workspace_group"
@@ -18984,10 +19473,22 @@ function botRenderMessageStore(agentId = botState.agentId) {
   const groupView = conversation?.kind === "workspace_group" ? conversation : groupRun;
   const label = groupView ? String(groupView.title || botGroupTitle(groupRun || groupView)) : botMeta(agentId).label;
   if (stored?.html && (stored.historyRunId || null) === expectedRunId) {
+    console.log("[botRenderMessageStore] 从缓存恢复", { key, runId: expectedRunId });
     reconcileMessageMarkup(stream, stored.html);
     botNormalizeTranscript(stream);
+  } else if (!conversation) {
+    console.log("[botRenderMessageStore] 无会话，显示 home hero");
+    // home（无活动会话）：assistant-start.js 富版英雄——新对话/新建项目入口 + 就绪卡摘要
+    // （D-2026-09-28-009）。
+    reconcileMessageMarkup(stream, botHomeHeroMarkup());
+    botNormalizeTranscript(stream);
   } else {
-    reconcileMessageMarkup(stream, botEmptyConversationMarkup(escapeHtml(label), expectedRunId ? "正在读取运行记录" : "还没有消息"));
+    console.log("[botRenderMessageStore] 显示空态占位", { label, expectedRunId, hasChips: !expectedRunId });
+    // 正在读运行记录：瞬时态不给建议芯片（对着即将被历史替换的空窗点建议只会打乱用户）
+    reconcileMessageMarkup(stream, botEmptyConversationMarkup(escapeHtml(label), expectedRunId ? "正在读取运行记录" : "还没有消息", { chips: !expectedRunId }));
+    // 发送中的乐观气泡不得被瞬时空态冲掉（steer 换 run → expectedRunId 变化命中本分支），
+    // 否则用户消息在历史到达前消失一秒——「发了但没上屏」qa-bot-p0:386 守此行为。
+    botRenderLocalBubbles(stream, agentId);
   }
   stream.dataset.storeContext = key;
   stream.dataset.historyRunId = String(expectedRunId || "");
@@ -19028,15 +19529,20 @@ function botPendingAskCardMarkup(run, pendingAsk = run?.pendingAsk) {
   const askerId = String(pendingAsk.from || "").trim();
   if (!runId || !askId || !askerId) return "";
   const meta = botMeta(askerId);
-  const question = redact(String(pendingAsk.text || "").trim()) || "成员需要你的决定。";
+  const rawQuestion = redact(String(pendingAsk.text || "").replace(/^\s*\[\[(?:msg:[A-Za-z0-9._-]{1,64}|memo)\]\]\s*/gm, "").trim()) || "成员需要你的决定。";
   const options = botPendingAskOptions(pendingAsk);
   const titleId = `bot-question-${agentSlug(runId)}-${agentSlug(askId)}`;
   const optionMarkup = options.length
     ? `<div class="bot-question-options" role="radiogroup" aria-label="${escapeHtml(`${meta.label} 的问题选项`)}">${options.map((option) => `<button type="button" role="radio" aria-checked="false" data-bot-answer-option data-bot-answer-value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</button>`).join("")}</div><button class="bot-card-confirm" type="button" data-bot-question-confirm data-bot-answer-confirm data-run-id="${escapeHtml(runId)}" data-ask-id="${escapeHtml(askId)}" disabled>确认回答</button>`
     : `<div class="bot-question-answer"><span>没有预设选项</span><button class="bot-text-button" type="button" data-bot-answer-focus data-run-id="${escapeHtml(runId)}" data-ask-id="${escapeHtml(askId)}">在下方输入回答</button></div>`;
+  const firstLine = rawQuestion.split("\n")[0].trim().slice(0, 100);
+  const isMultiLine = rawQuestion.includes("\n") || rawQuestion.length > 120;
+  const questionSummary = isMultiLine
+    ? (options.length ? `${firstLine}…` : (firstLine ? `${firstLine}…（请在下方直接输入回答）` : "请在下方直接输入回答"))
+    : rawQuestion;
   return `<article class="bot-card bot-question-card is-dynamic" data-bot-card="question" data-bot-card-source="run" data-run-id="${escapeHtml(runId)}" data-ask-id="${escapeHtml(askId)}" aria-labelledby="${escapeHtml(titleId)}">
     <div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-circle-alert"></use></svg></span><div><strong id="${escapeHtml(titleId)}">${escapeHtml(meta.label)} 在等你回答</strong><span>来自 ${escapeHtml(meta.label)} · run ${escapeHtml(runId)}</span></div><span class="bot-card-state is-waiting" data-bot-question-status>waiting for you</span></div>
-    <p class="bot-card-copy">${escapeHtml(question)}</p>
+    <p class="bot-card-copy">${escapeHtml(questionSummary)}</p>
     ${optionMarkup}
   </article>`;
 }
@@ -19157,8 +19663,8 @@ const {
   retryBotSettlement, botSettlementMarkup, loadBotSettlement,
 } = botSettlement;
 
-function botBubbleMessageMarkup({ variant, grouped, eventKey, authorId, author, bubbleText, time }) {
-  const user = variant === "bot-message-user";
+function botBubbleMessageMarkup({ variant, grouped, eventKey, authorId, author, bubbleText, time, isUser = false, runId = null }) {
+  const user = variant === "bot-message-user" || isUser;
   const avatar = user
     ? `<span class="bot-message-avatar is-operator">${operatorAvatarMarkup({
       profile: state.operatorProfile,
@@ -19166,8 +19672,10 @@ function botBubbleMessageMarkup({ variant, grouped, eventKey, authorId, author, 
       fallback: '<span class="bot-avatar-initials">LO</span>',
     })}</span>`
     : botMessageAvatar(authorId);
-  const content = `<div>${grouped ? "" : `<p class="bot-message-author">${escapeHtml(author)}</p>`}<div class="bot-bubble${user ? "" : " md-body"}">${bubbleText}</div>${time}</div>`;
-  return `<div class="bot-message ${variant}${grouped ? " is-grouped" : ""}" data-bot-event-key="${escapeHtml(String(eventKey))}">${user ? `${content}${avatar}` : `${avatar}${content}`}</div>`;
+  const actions = `<span class="bot-message-actions" role="toolbar" aria-label="消息操作"><button type="button" class="bot-message-action-btn" data-bot-message-action="copy" title="复制消息">${lucideIcon("copy", "icon lucide")}</button>${user ? `<button type="button" class="bot-message-action-btn" data-bot-message-action="edit" title="编辑并填入输入框">${lucideIcon("file-text", "icon lucide")}</button>` : ""}${runId ? `<button type="button" class="bot-message-action-btn" data-bot-message-action="fork" title="截至这一轮分叉新会话" aria-label="截至这一轮分叉新会话">${lucideIcon("git-branch", "icon lucide")}</button>` : ""}</span>`;
+  const footer = `<div class="bot-message-footer">${time}${actions}</div>`;
+  const content = `<div>${grouped ? "" : `<p class="bot-message-author">${escapeHtml(author)}</p>`}<div class="bot-bubble${user ? "" : " md-body"}">${bubbleText}</div>${footer}</div>`;
+  return `<div class="bot-message ${variant}${grouped ? " is-grouped" : ""}" data-bot-event-key="${escapeHtml(String(eventKey || ""))}" data-bot-run-id="${escapeHtml(String(runId || ""))}">${user ? `${content}${avatar}` : `${avatar}${content}`}</div>`;
 }
 
 // bot activity timeline functions → modules/bot-activity-timeline.js (createBotActivityTimeline)
@@ -19177,6 +19685,33 @@ const botActivityTimeline = createBotActivityTimeline({
 const {
   botActivitySegmentMarkup, botConversationMessagesMarkup,
 } = botActivityTimeline;
+
+function botWebEvidenceMarkup(text) {
+  if (!text || typeof text !== "string") return "";
+  const citations = [];
+  const seen = new Set();
+  const linkRegex = /\[([^\]]+)\]\((https:\/\/[^\s\)]+)\)/gi;
+  let match;
+  while ((match = linkRegex.exec(text)) !== null) {
+    const rawTitle = match[1].trim();
+    // URL 判据走单一真源 modules/web-evidence-url.js（与服务端 src/web-evidence.mjs 同规则，
+    // 由 tests/web-evidence-parity.test.mjs 双向钉死）。此前内联这份已经漂移：
+    // 漏拦 169.254./0.0.0.0/::1/fe80:/fc00:/.home.arpa，又多拦全部 172.*（连公网段一起拦）。
+    const validation = validateClientWebUrl(match[2].trim());
+    if (!validation.safe || seen.has(validation.url)) continue;
+    seen.add(validation.url);
+    citations.push({
+      title: rawTitle.replace(/^来源:\s*/i, "").slice(0, 80) || validation.domain,
+      url: validation.url,
+      domain: validation.domain,
+    });
+  }
+  if (!citations.length) return "";
+  const items = citations.map((c) => (
+    `<li class="bot-evidence-source-item"><span class="bot-evidence-source-domain">${escapeHtml(c.domain)}</span><a class="bot-evidence-source-link" href="${escapeHtml(c.url)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(c.url)}">${escapeHtml(c.title)}</a></li>`
+  )).join("");
+  return `<details class="bot-web-evidence-card"><summary class="bot-evidence-card-header"><span class="evidence-icon">${lucideIcon("globe", "icon lucide")}</span><span><strong>模型引用的链接</strong> · ${citations.length} 处 · 未经系统抓取核验</span><svg class="icon lucide bot-activity-group-chevron" aria-hidden="true"><use href="#lucide-chevron-down"></use></svg></summary><ul class="bot-evidence-source-list">${items}</ul></details>`;
+}
 
 function botEventMarkup(message, previous = null) {
   const kind = message?.kind || "assistant";
@@ -19191,14 +19726,36 @@ function botEventMarkup(message, previous = null) {
   const isUser = kind === "user";
   const authorId = String(message.author || message.sourceAgentId || botState.agentId);
   const author = isUser ? "LO" : agentLabel(authorId);
-  const text = String(message.text || message.content || "").trim();
+  let text = String(message.text || message.content || "").trim();
+  if (!isUser) {
+    text = text.replace(/^\s*\[\[(?:msg:[A-Za-z0-9._-]{1,64}|memo)\]\]\s*/gm, "").trim();
+  }
   const tools = Array.isArray(message.tools) ? message.tools : [];
   const toolSummary = tools.length ? `<span class="bot-message-tool-note">${tools.slice(0, 2).map((tool) => `已调用 ${escapeHtml(tool.name || "工具")}`).join(" · ")}</span>` : "";
   if (!text && !toolSummary) return "";
   const baseGrouped = Boolean(previous && previous.kind === kind && previous.author === message.author && !tools.length);
-  const bubble = isUser
-    ? `${escapeHtml(text)}${toolSummary}`
-    : `${renderMarkdown(text, redact)}${toolSummary}`;
+  const webEvidence = !isUser ? botWebEvidenceMarkup(text) : "";
+  const fileBlocks = [];
+  const textWithoutFiles = text.replace(/---\s*\[文件证据:\s*([^\s#]+)(?:#L(\d+)-L(\d+))?([^\]]*)\]\s*---([\s\S]*?)---\s*\[文件证据结束[^\s\]]*\]\s*---/gi, (match, path, startL, endL, extra, content) => {
+    const lineBadge = startL && endL ? `<span class="evidence-line-badge">L${startL}-${endL}</span>` : "";
+    fileBlocks.push(`<details class="bot-file-evidence-card" open><summary class="bot-file-evidence-header"><span class="evidence-icon">${lucideIcon("file-text", "icon lucide")}</span><strong class="evidence-file-name">${escapeHtml(path)}</strong>${lineBadge}<span class="evidence-extra">${escapeHtml(extra.trim())}</span><svg class="icon lucide bot-activity-group-chevron" aria-hidden="true"><use href="#lucide-chevron-down"></use></svg></summary><pre class="bot-file-evidence-content"><code>${escapeHtml(content.trim())}</code></pre></details>`);
+    return "";
+  });
+  const fileEvidenceHtml = fileBlocks.join("");
+  // D-2026-09-28-022：Bot 面的 assistant 正文此前直接走 renderMarkdown——上游 5xx
+  // （Cloudflare 524 origin_response_timeout 等）的 `API Error: 524 {…}` 整段 JSON
+  // 会被当成正文墙糊进对话。workbench 侧 messageMarkup 有 providerFailurePresentation
+  // 兜底（契约测试 tests/workbench-rail-and-tools-contract 明文要求"不能渲染为正文墙"），
+  // 但它只 grep 源码文本，Bot 这条平行渲染链漏网。这里把同一个有界错误卡接上。
+  // ⚠️ renderMarkdown(textWithoutFiles.trim(), redact) 这行被 tests/bot-shell-ui
+  // 逐字符钉住（变量名都钉），不可抽中间变量——抽了契约就锁不住这条渲染路径。
+  const assistantProviderFailure = isUser ? null : providerFailurePresentation(textWithoutFiles.trim());
+  const renderedText = isUser
+    ? escapeHtml(textWithoutFiles.trim())
+    : assistantProviderFailure
+      ? providerFailureMessageMarkup(assistantProviderFailure)
+      : renderMarkdown(textWithoutFiles.trim(), redact);
+  const bubble = `${renderedText}${fileEvidenceHtml}${toolSummary}${webEvidence}`;
   return botBubbleMessageMarkup({
     variant: isUser ? "bot-message-user" : "bot-message-agent",
     grouped: baseGrouped,
@@ -19207,7 +19764,61 @@ function botEventMarkup(message, previous = null) {
     author,
     bubbleText: bubble,
     time,
+    isUser,
+    runId: message.runId || null,
   });
+}
+
+// 消息尾栏动作（复制 / 编辑 / 分叉）。气泡文本取渲染后的可见文本：路由前缀
+// [[msg:*]] 已在 botEventMarkup 剥离，文件证据/工具注记等附属块不进剪贴板。
+function botMessagePlainText(messageNode) {
+  const bubble = messageNode?.querySelector(".bot-bubble");
+  if (!bubble) return "";
+  const clone = bubble.cloneNode(true);
+  clone.querySelectorAll(".bot-file-evidence-card, .bot-web-evidence-card, .bot-message-tool-note, .code-copy").forEach((node) => node.remove());
+  // innerText 只有挂在渲染树上才按段落/列表出换行；脱离文档的克隆会退化成 textContent
+  // 把多段挤成一行。临时挂到屏外容器读取后即移除。
+  const holder = document.createElement("div");
+  holder.setAttribute("aria-hidden", "true");
+  holder.style.cssText = "position:fixed;left:-99999px;top:0;width:720px;white-space:normal;pointer-events:none;";
+  holder.append(clone);
+  document.body.append(holder);
+  try {
+    return String(clone.innerText ?? clone.textContent ?? "").trim();
+  } finally {
+    holder.remove();
+  }
+}
+
+async function botHandleMessageAction(button) {
+  const messageNode = button.closest(".bot-message");
+  const kind = button.dataset.botMessageAction;
+  if (!messageNode) return;
+  if (kind === "copy") {
+    await copyText(botMessagePlainText(messageNode), "消息");
+    return;
+  }
+  if (kind === "edit") {
+    const input = byId("bot-composer-input");
+    if (!input) return;
+    // 不覆盖草稿：输入框已有内容时只提示，避免一键抹掉用户正在写的东西
+    if (input.value.trim()) {
+      toast("输入框里还有草稿，清空后再编辑这条消息", "warning");
+      input.focus({ preventScroll: true });
+      return;
+    }
+    input.value = botMessagePlainText(messageNode);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(input.value.length, input.value.length);
+    return;
+  }
+  if (kind === "fork") {
+    const conversation = botActiveConversation();
+    const runId = messageNode.dataset.botRunId;
+    if (!conversation || !runId) return;
+    await botForkConversation(conversation, { upToRunId: runId });
+  }
 }
 
 function botLocalMessageMarkup(message) {
@@ -19288,7 +19899,12 @@ function botRenderConversationMessages(agentId, run, messages) {
   });
   const saveSkillHtml = run && !page.after ? botSaveSkillCardMarkup(run) : "";
   const valueProofHtml = run && !page.after ? botValueProofStreamMarkup(run) : "";
-  const html = `${messageHtml}${liveMarkup}${typingHtml}${approvalOutcomeHtml}${valueProofHtml}${saveSkillHtml}`;
+  // 完成尾注：流末尾的收口统计。协作台的 runCompletionMarkup 只挂 renderSelectedRun，
+  // Bot 流历来没有完成反馈——run 跑完界面只剩最后一条消息，用户得不到「确认收口」
+  // （qa-api-chat 守：文本完成的 Bot 流必须有尾注，且不得挂结算/存技能卡）。
+  // 刻意不带 diff/settlement/save-skill：Bot 面各有自身表达（approvalOutcome/saveSkillHtml）。
+  const endNoteHtml = run && !page.after ? botRunEndNoteMarkup(run) : "";
+  const html = `${messageHtml}${liveMarkup}${typingHtml}${approvalOutcomeHtml}${valueProofHtml}${saveSkillHtml}${endNoteHtml}`;
   renderWorkspaceAttention();
   const conversationLabel = botState.activeGroupRunId && String(run?.id) === String(botState.activeGroupRunId)
     ? botGroupTitle(run)
@@ -19366,6 +19982,28 @@ async function botSyncConversation(agentId = botState.agentId, expected = {}) {
 // conversation.preview + updatedAt，450ms 防抖重渲列表；服务端 noteMessagePreview 仍是
 // 权威源，下次工作区索引刷新以其为准。纯本地增量，绝不在事件主链上发请求。
 let botPreviewRenderTimer = 0;
+// 已成功刷新过的未知 runId：同一 run 的后续消息不再重复拉索引；失败即回吐（见下）。
+const botUnknownRunReloads = new Set();
+
+// W16：新建 run 的消息可能先于会话索引刷新到达。botNoteConversationPreview 找不到归属
+// 会话就静默返回——这条消息在 roster 上永不出现。未知 runId 触发一次索引刷新兜底。
+// 成功后记账去重；失败 delete 回吐，让后续事件重试（不让去重集合挡住恢复路径）。
+function botReloadConversationsForUnknownRun(runId) {
+  const id = String(runId ?? "");
+  if (!id || botUnknownRunReloads.has(id)) return;
+  botUnknownRunReloads.add(id);
+  void botLoadConversations().catch(() => {
+    botUnknownRunReloads.delete(id); // 刷新失败允许后续事件重试
+  }).then(() => {
+    // botLoadConversations 自己吞请求错误并 resolve：刷新"成功"但服务端索引可能仍没
+    // 收录该 run（写索引与 SSE  emit 之间的窗口）。此时删掉记账，让后续事件再推一次。
+    const stillUnknown = !botState.conversations.some((item) => (
+      String(item?.activeRunId || "") === id
+      || (Array.isArray(item?.runIds) && item.runIds.map(String).includes(id))
+    ));
+    if (stillUnknown) botUnknownRunReloads.delete(id);
+  });
+}
 function botNoteConversationPreview(event) {
   const text = String(event?.data?.text || "").replace(/\s+/g, " ").trim();
   if (!text || !event?.runId) return;
@@ -19416,7 +20054,27 @@ function botRunForAgent(agentId = botState.agentId) {
     : null;
 }
 
+// W15 回填 in-flight 去重：group 分支兜底 + 通用兜底会对同一 conversation|runId 各发一次
+// （异步回填尚未写入 projection 时第二个条件仍成立）。selectionEpoch 只丢过期提交，
+// 合并不了并发请求——这里是唯一的合并点。
+const botConversationRunInflight = new Set();
+
 async function botOpenConversationRun(conversation, runId, agentId = botState.agentId) {
+  const id = String(runId || "");
+  const conversationId = String(conversation?.id || "");
+  const selectionToken = botState.selectionEpoch;
+  if (!conversation?.id || !id) return;
+  const inflightKey = `${conversationId}|${id}`;
+  if (botConversationRunInflight.has(inflightKey)) return;
+  botConversationRunInflight.add(inflightKey);
+  try {
+    await botOpenConversationRunInner(conversation, runId, agentId);
+  } finally {
+    botConversationRunInflight.delete(inflightKey);
+  }
+}
+
+async function botOpenConversationRunInner(conversation, runId, agentId = botState.agentId) {
   const id = String(runId || "");
   const conversationId = String(conversation?.id || "");
   const selectionToken = botState.selectionEpoch;
@@ -19458,7 +20116,13 @@ async function botOpenConversationRun(conversation, runId, agentId = botState.ag
     : run.startAgentId || agentId);
   botState.runId = id;
   botState.activeGroupRunId = currentConversation.kind === "workspace_group" ? id : null;
+  // D-2026-09-28-022：恢复条/预算注意条此前只由 renderSelectedRun() 渲染，而它唯一可达
+  // 路径 renderRuns() 被 `state.view !== "workbench"` 挡住（renderRuns 早退）——Bot 面打开
+  // run 时这两条注意面从不刷新。DOM 已随本波迁进 #view-bot，这里把渲染接上：
+  // 「提交状态不明确、自动重放已被阻止」必须在 Bot 面可确认，否则用户只能盲重发或弃坑。
   botRenderAgent(botState.agentId);
+  // botRenderAgent 已按当前 Conversation 的投影绘制注意条；这里不再把异步
+  // 回填的 run 直接写进全局 DOM，避免切换会话后旧回调把恢复条挂回新会话。
 }
 
 function botRunPresentation(run) {
@@ -19489,10 +20153,12 @@ function renderBotRunQueue(agentId = botState.agentId) {
   const runIds = activeConversation
     ? [...new Set((activeConversation.runIds || []).map(String).filter(Boolean))].reverse()
     : botRunIdsForAgent(agentId);
-  const entries = runIds.map((runId) => ({
-    runId,
-    run: runProjection.resolveRun(runId),
-  }));
+  const entries = runIds
+    .map((runId) => ({
+      runId,
+      run: runProjection.resolveRun(runId),
+    }))
+    .filter(({ runId }) => !botState.clearedRunIds.has(runId));
   if (!entries.length) {
     queue.hidden = true;
     queue.replaceChildren();
@@ -19500,7 +20166,7 @@ function renderBotRunQueue(agentId = botState.agentId) {
   }
   queue.hidden = false;
   queue.innerHTML = `<div class="bot-run-queue-head"><strong>${entries.length} 次运行</strong><span>当前对话的完整 Run 链</span></div>${entries.map(({ runId, run }) => {
-    const cleared = botState.clearedRunIds.has(runId);
+    const cleared = false;
     const presentation = botRunPresentation(run) || { text: cleared ? "已清理" : "加载", label: cleared ? "仅保留引用" : "点击加载历史", className: "is-waiting", active: false };
     const relationLabel = runId === activeRunId ? (presentation.active ? "当前执行" : "最近运行") : "";
     const prompt = String(run?.prompt || run?.title || (cleared ? "运行主体已清理" : "点击加载运行历史")).replace(/\s+/g, " ").trim();
@@ -19516,15 +20182,18 @@ function renderBotRunQueue(agentId = botState.agentId) {
 function syncBotRecoveryAck() {
   const button = byId("bot-recovery-ack");
   if (!button) return;
+  // 旧输入区确认控件保留作兼容锚点，但确认动作只在顶部恢复条显示，
+  // 避免同一个恢复状态在消息区上下各出现一次。
+  button.hidden = true;
+  button.disabled = true;
+  button.setAttribute("aria-hidden", "true");
   const conversation = botActiveConversation();
-  const run = conversation ? botConversationActiveRun(conversation) : null;
-  if (run && run.status !== "recovery_required" && state.recoveryAckRunId === String(run.id)) {
+  const run = botVisibleConversationRun(conversation);
+  if (run && run.status !== "recovery_required" && String(state.recoveryAckRunId || "") === String(run.id)) {
     state.recoveryAckRunId = null; // 状态已翻页，确认标记失效（与工作台恢复条同语义）
   }
   const needsAck = Boolean(run && run.status === "recovery_required");
-  const acked = needsAck && state.recoveryAckRunId === String(run.id);
-  button.hidden = !needsAck;
-  button.disabled = !needsAck || acked;
+  const acked = needsAck && String(state.recoveryAckRunId || "") === String(run.id);
   const label = acked ? "恢复已确认·发送即继续" : "确认恢复并继续";
   if (button.textContent !== label) button.textContent = label;
   button.title = acked ? "下一次发送将携带恢复确认续接当前会话" : "确认放弃提交状态不明的工作并继续当前会话";
@@ -19571,7 +20240,7 @@ function syncBotRunState() {
   const readOnlyReason = botConversationReadOnlyReason();
   if (readOnlyReason) {
     if (runState) { runState.textContent = "只读"; runState.className = "bot-run-state is-idle"; }
-    if (composerState) composerState.textContent = readOnlyReason;
+    if (composerState) { composerState.hidden = false; composerState.textContent = readOnlyReason; }
     botSyncFirstResponse(run);
     return;
   }
@@ -19582,7 +20251,10 @@ function syncBotRunState() {
       runState.textContent = pending ? "等待准入" : "新对话";
       runState.className = `bot-run-state ${pending ? "is-running" : "is-idle"}`;
     }
-    if (composerState) composerState.textContent = pending ? "已送入运行队列" : "新消息";
+    if (composerState) {
+      composerState.hidden = false;
+      composerState.textContent = pending ? "已送入运行队列" : "新消息";
+    }
     botSyncFirstResponse(null);
     return;
   }
@@ -19590,7 +20262,11 @@ function syncBotRunState() {
     runState.textContent = run?.status === "succeeded" ? "本轮结束" : runStatusText(run.status, run);
     runState.className = `bot-run-state ${presentation.className}`;
   }
-  if (composerState) composerState.textContent = presentation.label;
+  if (composerState) {
+    // 恢复条已经承载唯一的用户决策；输入坞不再重复显示相反的状态。
+    composerState.hidden = run?.status === "recovery_required";
+    composerState.textContent = composerState.hidden ? "" : presentation.label;
+  }
   botSyncFirstResponse(run);
 }
 
@@ -20461,6 +21137,128 @@ function openSaveSkillFromRun(runId = "") {
   openSaveSkillDialog(dialog, draft);
 }
 
+/**
+ * 「沉淀为工作流」：把成功 Run 的检查点 / 证据矩阵 / 交付物提炼成一条例行任务草稿，
+ * 预填进新建例行 dialog，由用户过一眼再创建。
+ *
+ * 后端支持 saveAsRoutine:true 直存，这里**故意不传**：草稿是机器生成的，
+ * 让人确认一次，比事后在列表里发现一条来历不明的例行任务便宜得多。
+ * 也正因为不直存，这个按钮不该被当成「一键建好」。
+ */
+async function botDistillWorkflowFromRun(runId = "") {
+  const id = String(runId || "").trim();
+  const run = id ? state.runs.find((item) => String(item?.id || "") === id) : null;
+  if (!run) {
+    toast("该运行已不在当前快照中，无法沉淀为工作流", "warning", 3600);
+    return;
+  }
+  if (!isSucceededRun(run)) {
+    toast("只有已成功完成的运行才能沉淀为工作流", "info", 4200);
+    return;
+  }
+  const dialog = byId("bot-routine-dialog");
+  if (!dialog) return;
+  try {
+    const payload = await request(API.runDistillWorkflow(id), { method: "POST", body: { saveAsRoutine: false } });
+    const draft = payload?.draft;
+    if (!draft) throw new Error("后端未返回工作流草稿");
+    openRoutineDialog(dialog, { draft });
+  } catch (error) {
+    toast(`沉淀为工作流失败：${error.message}`, "error", 5000);
+  }
+}
+
+/**
+ * A5 会话驻留：上次没有正常退出时留下的未收尾任务。
+ *
+ * 三条纪律：
+ *  1. 只在 Bot 面加载，且带守卫——这是**被动**表面，不能每次渲染都打一次 HTTP；
+ *  2. 读失败就隐藏，不弹 toast：恢复提示读不到时刷一屏报错只是噪音，而且下次进 Bot 面会重试；
+ *  3. 服务端只认领提示 + 切回会话，**不重跑**任何东西（D-2026-08-18 回放纪律），
+ *     所以按钮叫「回到会话」，文案也必须说清楚不会自动续跑。
+ */
+const BOT_RESIDENCE_HEARTBEAT_MS = 5 * 60 * 1000;
+/** 心跳失败后的短退避：既不打爆接口，也不让一次失败锁死整轮。 */
+const BOT_RESIDENCE_HEARTBEAT_RETRY_MS = 15 * 1000;
+let botResidenceHintsLoaded = false;
+let botResidenceHeartbeatAt = 0;
+let botResidenceGeneration = 0;
+
+async function loadBotResidenceHints({ force = false } = {}) {
+  const holder = byId("bot-residence-hints");
+  if (!holder) return;
+  if (botResidenceHintsLoaded && !force) return;
+  // 同心跳：凭据没到手不发请求（否则既 401 又污染启动期请求面）
+  if (!getAccessToken()) return;
+  const generation = ++botResidenceGeneration;
+  let payload;
+  try {
+    payload = await request(API.assistantResidence);
+  } catch {
+    if (generation === botResidenceGeneration) {
+      holder.hidden = true;
+      // 清空用 replaceChildren()，不写 innerHTML("")——少一处 HTML 解析面
+      holder.replaceChildren();
+    }
+    return;
+  }
+  // 晚到的旧响应不得覆盖新状态（与收件箱同一套 generation 纪律）
+  if (generation !== botResidenceGeneration) return;
+  botResidenceHintsLoaded = true;
+  const hints = Array.isArray(payload?.recoveryHints) ? payload.recoveryHints : [];
+  const markup = residenceRecoveryMarkup(hints, { escapeHtml });
+  holder.replaceChildren(document.createRange().createContextualFragment(markup));
+  holder.hidden = !markup;
+}
+
+async function botResidenceAct(hintId, action) {
+  if (!hintId) return;
+  const url = action === "dismiss" ? API.assistantDismissHint : API.assistantResumeRun;
+  try {
+    const result = await request(url, { method: "POST", body: { hintId } });
+    if (action === "open") {
+      const conversationId = result?.hint?.conversationId || null;
+      if (!conversationId) {
+        toast("该提示没有可回到的会话", "warning", 3600);
+      } else {
+        await botOpenConversation(conversationId);
+        // 服务端只认领提示、不重跑——文案必须与行为一致
+        toast("已回到该会话；上一步不会自动重跑，请自行决定是否继续", "info", 5200);
+      }
+    }
+  } catch (error) {
+    toast(`${action === "dismiss" ? "忽略" : "回到会话"}失败：${error.message}`, "error", 5000);
+  }
+  botResidenceHintsLoaded = false;
+  await loadBotResidenceHints({ force: true });
+}
+
+/** 心跳：告诉服务端「这个会话还开着」，供下次启动判断是否非正常退出。节流发送。 */
+function botResidenceHeartbeat() {
+  if (state.view !== "bot") return;
+  // 凭据没到手时**一个请求都不发**：那必定 401，而且会把 5 分钟节流一起烧掉，
+  // 于是整轮再也不发心跳、lastHeartbeat 永远为 null（tests/boot-auth-race 与
+  // scripts/qa-desktop-bootstrap.mjs 的 E 项都把这条照出来过）。
+  if (!getAccessToken()) return;
+  const now = Date.now();
+  if (now - botResidenceHeartbeatAt < BOT_RESIDENCE_HEARTBEAT_MS) return;
+  // 先占位再发：并发渲染不会叠出重复请求。
+  botResidenceHeartbeatAt = now;
+  void request(API.assistantHeartbeat, {
+    method: "POST",
+    body: { conversationId: botState.activeConversationId || null, residenceMode: "resident" },
+  }).then(() => {
+    botResidenceHeartbeatAt = Date.now();
+  }).catch(() => {
+    // 失败必须放开短退避，不能把这次当成「已经发过了」：首次渲染可能早于凭据就绪（401），
+    // 一旦被 5 分钟节流锁住，整轮都不会再发心跳，session-residence 的 lastHeartbeat
+    // 永远是 null —— 而「上次没正常退出」的检测要求先有 lastHeartbeat，
+    // 于是整条恢复提示静默失效（2026-09-18 实测到的形态）。
+    // 心跳失败本身仍不该打断用户。
+    botResidenceHeartbeatAt = Date.now() - BOT_RESIDENCE_HEARTBEAT_MS + BOT_RESIDENCE_HEARTBEAT_RETRY_MS;
+  });
+}
+
 function openCreateRoutineFromPalette() {
   setView("bot");
   const dialog = byId("bot-routine-dialog");
@@ -20749,6 +21547,10 @@ function handleCatalogPaletteAction(actionId) {
 
 function botSaveSkillCardMarkup(run) {
   if (!isSucceededRun(run)) return "";
+  // 与协作台同口径的分裂规则：有轮次统计的成功 run 由完成尾注（botRunEndNoteMarkup）
+  // 收口，save-skill 卡只补「无轮次可统计」的成功 run——纯文本完成（api-chat 座椅）
+  // 的 Bot 流不挂这张卡（qa-api-chat 守 text-completion 无 settlement/save-skill）。
+  if ((run.turns ?? []).length) return "";
   return `<article class="bot-card bot-save-skill-card" data-bot-card="save-skill" data-run-id="${escapeHtml(String(run.id))}">
     <div class="bot-card-head"><span class="bot-card-icon"><svg aria-hidden="true" class="icon lucide"><use href="#lucide-plus"></use></svg></span><div><strong>沉淀为 Private skill</strong><span>把这次成功的目标与结果存成可复用流程</span></div></div>
     <p class="bot-card-copy">草稿来自 run 的真实目标/结果；缺字段会空着，不会编造成果。</p>
@@ -20896,11 +21698,29 @@ function botHandleAction(action, button) {
         toast(botConversationReadOnlyReason(), "info", 3600);
         return;
       }
-      byId("bot-attachment-file")?.click();
+      showContextMenu([
+        { icon: "image", label: "添加图片", action: () => byId("bot-attachment-file")?.click() },
+        { icon: "file-text", label: "引用工作区文件...", action: () => void botPromptWorkspaceFileExcerpt() },
+      ], button.getBoundingClientRect().left, button.getBoundingClientRect().top - 70, { restoreFocus: button });
       return;
     case "clear-deleted":
       void botPurgeDeletedConversations();
       return;
+    // 空态下一步：全部复用顶栏既有权威入口（新项目/新成员的 dialog 逻辑不在别处另抄一份）
+    case "new-project":
+      botOpenGroupDialog(button);
+      return;
+    case "new-member":
+      byId("bot-new-member-button")?.click();
+      return;
+    case "clear-search": {
+      botState.conversationSearchQuery = "";
+      const search = byId("bot-agent-search");
+      if (search) search.value = "";
+      botRenderRoster();
+      search?.focus({ preventScroll: true });
+      return;
+    }
     case "routines":
       botOpenWorkspace("automations", button);
       return;
@@ -21011,17 +21831,56 @@ function botHandleAction(action, button) {
   }
 }
 
+// 本地乐观气泡的统一 DOM 建造 + 补挂：提交即上屏的用户消息在服务端历史到达前
+// 必须持续可见。steer 换 run 后 expectedRunId 变化会让 botRenderMessageStore 走
+// 「正在读取运行记录」瞬时空态——不补挂的话刚上屏的气泡被抹掉，用户以为没发出去
+// （qa-bot-p0:386 守「发送即上屏且持续可见」）。服务端文本到达后由
+// historyMessagesForRun 的文本去重接管，同步重渲自然替换，不留重复。
+function botLocalBubbleNode(text, token) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "bot-message bot-message-user";
+  wrapper.dataset.localToken = token;
+  wrapper.innerHTML = `<div><p class="bot-message-author">LO</p><div class="bot-bubble"></div><time>刚刚</time></div><span class="bot-message-avatar is-operator">${operatorAvatarMarkup({ profile: state.operatorProfile, className: "bot-avatar-media", fallback: '<span class="bot-avatar-initials">LO</span>' })}</span>`;
+  wrapper.querySelector(".bot-bubble").textContent = text;
+  return wrapper;
+}
+
+// Bot 面完成尾注：与协作台 runCompletionMarkup 同口径的收口统计（轮次/token/成本），
+// 但刻意只做「确认收口」——diff 钮、worktree 结算卡、save-skill 动作钮一律不带
+// （Bot 流各有自身表达，见 botRenderConversationMessages 的组装）。
+function botRunEndNoteMarkup(run) {
+  if (!run || !["succeeded", "completed", "complete"].includes(run.status)) return "";
+  const turns = run.turns ?? [];
+  if (!turns.length) return "";
+  const totalTokens = turns.reduce((sum, turn) => sum + (Number(turn.tokens) || 0), 0);
+  const totalCost = Number(run.costUsdTotal) || turns.reduce((sum, turn) => sum + (Number(turn.costUsd) || 0), 0);
+  const agents = [...new Set(turns.map((turn) => turn.agentId).filter(Boolean))].map((id) => agentLabel(id));
+  const parts = [`${turns.length} 轮协作`, agents.join(" · ")];
+  if (totalTokens) parts.push(totalTokens >= 1000 ? `${(totalTokens / 1000).toFixed(1)}k tokens` : `${totalTokens} tokens`);
+  if (totalCost) parts.push(`$${totalCost.toFixed(2)}`);
+  return `<div class="run-end-note is-succeeded" data-stream-key="tail:completion"><strong>${lucideIcon("check", "icon lucide")} 任务完成</strong><span>${escapeHtml(parts.filter(Boolean).join(" · "))}</span></div>`;
+}
+
+function botRenderLocalBubbles(stream, agentId = botState.agentId) {
+  const local = botLocalMessages(agentId);
+  if (!local.length) return;
+  const present = new Set([...stream.querySelectorAll("[data-local-token]")].map((node) => node.dataset.localToken));
+  let appended = false;
+  for (const message of local) {
+    if (present.has(message.token)) continue;
+    stream.appendChild(botLocalBubbleNode(String(message.text), message.token));
+    appended = true;
+  }
+  if (appended) stream.scrollTop = stream.scrollHeight;
+}
+
 function botAppendUserMessage(text) {
   const stream = byId("bot-message-stream");
   if (!stream || !text) return null;
   const token = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   botLocalMessages().push({ token, text: String(text), createdAt: new Date().toISOString(), runId: null });
   botClearEmptyConversation(stream);
-  const wrapper = document.createElement("div");
-  wrapper.className = "bot-message bot-message-user";
-  wrapper.innerHTML = `<div><p class="bot-message-author">LO</p><div class="bot-bubble"></div><time>刚刚</time></div><span class="bot-message-avatar is-operator">${operatorAvatarMarkup({ profile: state.operatorProfile, className: "bot-avatar-media", fallback: '<span class="bot-avatar-initials">LO</span>' })}</span>`;
-  wrapper.querySelector(".bot-bubble").textContent = text;
-  stream.appendChild(wrapper);
+  stream.appendChild(botLocalBubbleNode(String(text), token));
   stream.scrollTop = stream.scrollHeight;
   botSaveMessageStore();
   return token;
@@ -21110,10 +21969,15 @@ function botPrepareAnswerTarget(context, { focus = false, switchAgent = true } =
   const targetNode = byId("bot-composer-target");
   const stateNode = byId("bot-composer-state");
   const input = byId("bot-composer-input");
+  const recipientNode = byId("bot-composer-recipient");
   if (targetNode) targetNode.textContent = meta.label;
   if (stateNode) stateNode.textContent = "等待你的回答";
+  if (recipientNode && [...recipientNode.options].some((opt) => opt.value === context.askerId)) {
+    recipientNode.value = context.askerId;
+  }
   if (input) {
-    input.placeholder = `回答 ${meta.label}：${String(context.pendingAsk.text || "").slice(0, 80)}`;
+    const cleanPrompt = String(context.pendingAsk.text || "").replace(/^\s*\[\[(?:msg:[A-Za-z0-9._-]{1,64}|memo)\]\]\s*/gm, "").trim();
+    input.placeholder = `回答 ${meta.label}：${cleanPrompt.slice(0, 80)}`;
     if (focus) input.focus({ preventScroll: true });
   }
   return true;
@@ -21502,9 +22366,13 @@ async function botSubmitComposer(event) {
     recipientMemberIds: botComposerRecipientIds(conversation),
   };
   const answerTarget = botState.answerTarget;
+  const conversationRun = conversation ? botConversationActiveRun(conversation) : null;
+  const fallbackRun = (conversationRun?.pendingAsk && !TERMINAL_RUN_STATES.has(conversationRun.status))
+    ? conversationRun
+    : botPendingAskRunForAgent(botState.agentId);
   const answerContext = answerTarget
     ? botPendingAskContext(answerTarget)
-    : botPendingAskContext(botPendingAskRunForAgent(botState.agentId));
+    : botPendingAskContext(fallbackRun);
   if (answerContext) {
     if (botSubmitPendingAskAnswer(answerContext, prompt, options)) botClearVisibleComposer();
     return;
@@ -21521,7 +22389,9 @@ async function botSubmitComposer(event) {
         : undefined;
       // 恢复确认与工作台恢复条同语义：仅当用户点了「确认恢复并继续」才携带一次性 acknowledgeRecovery。
       const recoveryRun = botConversationActiveRun(conversation);
-      const recoveryAck = Boolean(recoveryRun && recoveryRun.status === "recovery_required" && state.recoveryAckRunId === String(recoveryRun.id));
+      const recoveryDisplayRun = botVisibleConversationRun(conversation);
+      const recoveryAckRun = recoveryDisplayRun?.status === "recovery_required" ? recoveryDisplayRun : recoveryRun;
+      const recoveryAck = Boolean(recoveryAckRun && recoveryAckRun.status === "recovery_required" && String(state.recoveryAckRunId || "") === String(recoveryAckRun.id));
       const acceptedRun = await conversationCommands.submit({
         conversation,
         prompt,
@@ -21600,8 +22470,65 @@ async function botSubmitComposer(event) {
 function botComposerRecipientIds(conversation) {
   const mentioned = botMentionSelectedIds(conversation);
   if (mentioned.length) return mentioned;
+  // 群聊：读显式选择（空=广播全体）。直聊：收件人即会话唯一成员、由服务端归属——
+  // 不把 recipient 下拉的**显示值**带上线（直聊下拉显示成员是给人看的，
+  // 带上线会改变 /messages 的线格式契约，qa-bot-p0 的 payload deepEqual 守此）。
+  if (conversation?.kind !== "workspace_group") return [];
   const selected = String(byId("bot-composer-recipient")?.value || "").trim();
   return selected ? [selected] : [];
+}
+
+function renderBotComposerModelOptions(modelSelect, { member, profile, dynamicModels = null, source = "" } = {}) {
+  if (!modelSelect) return;
+  const profileModel = String(profile?.defaultModel ?? profile?.model ?? "").trim();
+  // 成员/会话切换后不得继承上一个成员的显式选择：dataset 记住上次同步的成员，
+  // 变了就把 sticky 值清零、回落到「跟随席位 · 成员默认」
+  // （qa-bot-composer-switch：A 的 fable 不得残留到 B；同一成员内的重复同步仍保留用户选择）。
+  const memberChanged = modelSelect.dataset.syncedMember !== String(member?.id || "");
+  const sticky = memberChanged ? "" : String(modelSelect.value || "").trim();
+  const selectedModel = sticky || String(member?.defaultModel || "").trim();
+  const staticModels = normalizeMemberModelOptions(profile?.modelOptions, selectedModel || profileModel);
+  const models = Array.isArray(dynamicModels) && dynamicModels.length ? dynamicModels : staticModels;
+  const sourcePrefix = source === "upstream-provider" ? "上游 · " : "";
+  const placeholder = profileModel ? `跟随席位 · ${sourcePrefix}${profileModel}` : "跟随运行席位";
+  commitMarkup(modelSelect, [
+    `<option value="">${escapeHtml(placeholder)}</option>`,
+    ...models.map((option) => `<option value="${escapeHtml(option.id)}">${escapeHtml(option.label || option.id)}</option>`),
+  ].join(""));
+  modelSelect.dataset.syncedMember = String(member?.id || "");
+  if ([...modelSelect.options].some((option) => option.value === selectedModel)) modelSelect.value = selectedModel;
+}
+
+function renderBotComposerEffortOptions(effortSelect, { member, profile, dynamicEfforts = null } = {}) {
+  if (!effortSelect) return;
+  // 与 model 同律：成员切换清零 sticky 选择，回落成员默认 effort。
+  const memberChanged = effortSelect.dataset.syncedMember !== String(member?.id || "");
+  const selectedEffort = String((memberChanged ? "" : effortSelect.value) || member?.defaultEffort || "");
+  const baseEfforts = Array.isArray(dynamicEfforts) && dynamicEfforts.length ? dynamicEfforts : (profile?.effortLevels || []);
+  const efforts = [...new Set([...baseEfforts.map(String), selectedEffort].filter(Boolean))];
+  commitMarkup(effortSelect, ["", ...efforts]
+    .map((effort) => `<option value="${escapeHtml(effort)}">${escapeHtml(effort || "跟随运行席位")}</option>`)
+    .join(""));
+  effortSelect.dataset.syncedMember = String(member?.id || "");
+  effortSelect.value = selectedEffort;
+}
+
+async function syncBotComposerDynamicModels(agentId, { force = false } = {}) {
+  if (!agentId) return null;
+  state.discoveredAgentModels ??= {};
+  if (!force && state.discoveredAgentModels[agentId]) return state.discoveredAgentModels[agentId];
+  try {
+    const catalog = await request(`/api/agents/models?agent=${encodeURIComponent(agentId)}`);
+    if (catalog?.models?.length) {
+      state.discoveredAgentModels[agentId] = catalog;
+      const status = byId("bot-model-status");
+      if (status) {
+        status.textContent = catalog.source === "upstream-provider" ? `上游 · ${catalog.providerName || "已连接"}` : "已同步";
+      }
+      return catalog;
+    }
+  } catch {}
+  return null;
 }
 
 function syncBotComposerControls() {
@@ -21610,10 +22537,35 @@ function syncBotComposerControls() {
   if (recipient) {
     const members = conversation ? botMentionScope(conversation) : [];
     const mentioned = botMentionSelectedIds(conversation)[0] || "";
-    const current = mentioned || recipient.value || conversation?.directMemberId || botState.agentId || "";
+    const activeRun = conversation ? botConversationActiveRun(conversation) : botRunForAgent();
+    const askAgent = (activeRun?.pendingAsk && !TERMINAL_RUN_STATES.has(activeRun.status))
+      ? String(activeRun.pendingAsk.from || "").trim()
+      : "";
+    const answerTargetAgent = botState.answerTarget?.agentId || "";
+    // scope 粘性治理（与 model/effort 同律）：dataset 记住上次同步的会话 scope，
+    // 切换后 DOM 里的旧值不计入回退——否则 B 的 grok-build 会粘到群聊/其他会话
+    // （qa-bot-composer-switch：群聊默认广播）。同一会话内的重复同步保留用户显式选择。
+    const scopeKey = `${conversation?.id || botState.agentId}:${conversation?.kind || "member"}`;
+    const scopeChanged = recipient.dataset.syncedScope !== scopeKey;
+    const stickyRecipient = scopeChanged ? "" : recipient.value;
+    // 群聊默认广播（value=""）：回退链不得落入粘性 botState.agentId——否则群消息会被
+    // 静默窄成一个收件人（botComposerRecipientIds 消费该值）。
+    const fallback = conversation?.kind === "workspace_group"
+      ? (stickyRecipient || "")
+      : (stickyRecipient || conversation?.directMemberId || botState.agentId || "");
+    const current = mentioned || answerTargetAgent || askAgent || fallback;
+    // 群聊必须有「广播」项（value=""）：否则 selectOptionsMarkup 找不到匹配项就落第一个
+    // 成员，broadcast 语义无从表达（qa-bot-composer-switch 守：群聊默认广播 + 占位项存在）。
+    const memberOptions = members.map((id) => ({ value: id, label: agentLabel(id) }));
+    const groupBroadcast = conversation?.kind === "workspace_group";
     commitMarkup(recipient, members.length
-      ? selectOptionsMarkup(members.map((id) => ({ value: id, label: agentLabel(id) })), current, { escapeHtml })
+      ? selectOptionsMarkup(
+        groupBroadcast ? [{ value: "", label: "当前会话成员（广播）" }, ...memberOptions] : memberOptions,
+        current,
+        { escapeHtml },
+      )
       : `<option value="">当前会话成员</option>`);
+    recipient.dataset.syncedScope = scopeKey;
   }
   const team = byId("bot-composer-team");
   if (team) {
@@ -21626,36 +22578,54 @@ function syncBotComposerControls() {
   const composerMemberId = String(botState.agentId || "");
   const member = botCatalogMember(composerMemberId) || {};
   const profile = botRuntimeProfile(String(member.runtimeProfileId || "")) || {};
-  const profileModel = String(profile.defaultModel ?? profile.model ?? "").trim();
+  const cachedCatalog = state.discoveredAgentModels?.[composerMemberId] || null;
   const modelSelect = byId("bot-next-model");
-  if (modelSelect) {
-    const selectedModel = String(modelSelect.value || member.defaultModel || "").trim();
-    const models = normalizeMemberModelOptions(profile.modelOptions, selectedModel || profileModel);
-    commitMarkup(modelSelect, [
-      `<option value="">${escapeHtml(profileModel ? `跟随席位 · ${profileModel}` : "跟随运行席位")}</option>`,
-      ...models.map((option) => `<option value="${escapeHtml(option.id)}">${escapeHtml(option.label)}</option>`),
-    ].join(""));
-    if ([...modelSelect.options].some((option) => option.value === selectedModel)) modelSelect.value = selectedModel;
-  }
+  renderBotComposerModelOptions(modelSelect, {
+    member,
+    profile,
+    dynamicModels: cachedCatalog?.models,
+    source: cachedCatalog?.source,
+  });
   const effortSelect = byId("bot-next-effort");
-  if (effortSelect) {
-    const selectedEffort = String(effortSelect.value || member.defaultEffort || "");
-    const efforts = [...new Set([...(profile.effortLevels || []).map(String), selectedEffort].filter(Boolean))];
-    commitMarkup(effortSelect, ["", ...efforts]
-      .map((effort) => `<option value="${escapeHtml(effort)}">${escapeHtml(effort || "跟随运行席位")}</option>`)
-      .join(""));
-    effortSelect.value = selectedEffort;
+  renderBotComposerEffortOptions(effortSelect, {
+    member,
+    profile,
+    dynamicEfforts: cachedCatalog?.effortLevels,
+  });
+  if (!cachedCatalog && composerMemberId) {
+    void syncBotComposerDynamicModels(composerMemberId).then((discovered) => {
+      if (discovered && botState.agentId === composerMemberId) {
+        renderBotComposerModelOptions(byId("bot-next-model"), {
+          member,
+          profile,
+          dynamicModels: discovered.models,
+          source: discovered.source,
+        });
+        renderBotComposerEffortOptions(byId("bot-next-effort"), {
+          member,
+          profile,
+          dynamicEfforts: discovered.effortLevels,
+        });
+      }
+    });
   }
 }
 
 let botActiveRunsExpanded = false;
 let botActiveRunsFilter = "all";
+// 折叠态本体在文件上部（BOT_ACTIVE_RUNS_STORAGE_KEY 旁）——它必须在 botRestoreActiveRuns()
+// 的调用点之前完成声明，否则 restore 读到 TDZ 里的 let，ReferenceError 会被那个
+// 「localStorage 损坏」专用 catch 吞掉，静默变成全展开。此处只留语义说明：
+// 分组用 Set 而非布尔映射，因为分组是动态的（某一状态没有 run 时该组根本不渲染），
+// 布尔映射会给不存在的组留一份永远不兑现的状态。
 
 function renderBotActiveRuns() {
   const list = byId("bot-active-runs-list");
   const section = byId("bot-active-runs");
   const count = byId("bot-active-runs-count");
   const toolbar = byId("bot-active-runs-toolbar");
+  const body = byId("bot-active-runs-body");
+  const toggle = byId("bot-active-runs-toggle");
   if (!list || !section) return;
   const items = listActiveRuns(state.runs);
   if (toolbar) {
@@ -21669,11 +22639,102 @@ function renderBotActiveRuns() {
     selectedRunId: state.selectedRunId || botState.runId || "",
     expanded: botActiveRunsExpanded,
     filter: botActiveRunsFilter,
+    collapsedGroups: botActiveRunsCollapsedGroups,
     agentLabel,
     formatRelative,
   }));
   section.hidden = items.length === 0;
   if (count) count.textContent = items.length ? String(items.length) : "";
+  // 每次渲染都把折叠态回贴到 DOM：runs 快照会频繁触发本函数，
+  // 不回贴就意味着「新 run 一到手，用户折好的栏自己弹开」。
+  section.classList.toggle("is-collapsed", botActiveRunsCollapsed);
+  if (body) body.hidden = botActiveRunsCollapsed;
+  if (toggle) toggle.setAttribute("aria-expanded", String(!botActiveRunsCollapsed));
+}
+
+let botInboxCache = { conversationId: "", payload: null, error: null, loading: false, resolved: false };
+let botInboxLoadGeneration = 0;
+let botInboxAbort = null;
+let botInboxPushTimer = 0;
+
+// W6 实时层：只放行 ask 生命周期的两个来源（总线消息 / 编排器等待态）。
+// 事件集扩大 = 更多总线读（收件箱单次最多 32 次 readTail），所以这是白名单而非通配——
+// 想加事件必须是**有意为之**的改动，不能顺手加。
+const BOT_INBOX_PUSH_EVENTS = /^(?:bus\.(?:appended|routed)|run\.(?:waiting_input|recovery_required))$/;
+const BOT_INBOX_PUSH_DEBOUNCE_MS = 600;
+
+function renderBotOpsInbox() {
+  const fold = byId("bot-ops-inbox");
+  const list = byId("bot-ops-inbox-list");
+  const count = byId("bot-ops-inbox-count");
+  if (!fold || !list) return;
+  const conversationId = String(botActiveConversation()?.id || "");
+  // 无会话时不摆空面板：常驻一个「待我处理 0」会让人以为协作面是空的，
+  // 而真相是「还没有会话」——两者不是一回事。
+  if (!conversationId) {
+    fold.hidden = true;
+    commitMarkup(list, "");
+    if (count) count.textContent = "";
+    return;
+  }
+  const cached = botInboxCache.conversationId === conversationId ? botInboxCache : null;
+  fold.hidden = false;
+  if (count) {
+    // 还没读回来时不报数：把「还不知道」渲染成 0 是另一种假话。
+    const pending = cached && !cached.loading ? botOpsInboxCount(cached.payload) : 0;
+    count.textContent = pending ? String(pending) : "";
+  }
+  commitMarkup(list, botOpsInboxMarkup(cached?.payload ?? null, { escapeHtml, error: cached?.error }));
+}
+
+async function loadBotOpsInbox({ force = false } = {}) {
+  const conversationId = String(botActiveConversation()?.id || "");
+  if (!conversationId) {
+    renderBotOpsInbox();
+    return;
+  }
+  const cached = botInboxCache.conversationId === conversationId ? botInboxCache : null;
+  // 「空结果也是结果」：只用 payload/error 判真值会让 null 载荷击穿守卫
+  // （会话还没跑过 / 路由把 404 折成 null → 两项皆假 → 每次渲染重发一次注定白跑的 GET）。
+  if (!force && cached && (cached.loading || cached.resolved)) return;
+  // force 也得先作废在途请求：generation 只保证「最后写入的赢」，拦不住反复开合叠加的并发流量。
+  botInboxAbort?.abort();
+  const controller = new AbortController();
+  botInboxAbort = controller;
+  const generation = ++botInboxLoadGeneration;
+  botInboxCache = { conversationId, payload: null, error: null, loading: true, resolved: false };
+  try {
+    const payload = await fetchBotInbox(conversationId, { signal: controller.signal });
+    if (generation !== botInboxLoadGeneration) return;
+    botInboxCache = { conversationId, payload, error: null, loading: false, resolved: true };
+  } catch (error) {
+    // 主动取消不是故障，把取消显示成「读取失败」是另一种假话。
+    if (error?.name === "AbortError") return;
+    if (generation !== botInboxLoadGeneration) return;
+    // 读失败必须清载荷并写明原因：留着旧载荷 = 把陈旧待办当成新鲜的可执行授权。
+    botInboxCache = { conversationId, payload: null, error: error?.message || String(error || "收件箱读取失败"), loading: false, resolved: true };
+  }
+  if (botInboxAbort === controller) botInboxAbort = null;
+  renderBotOpsInbox();
+}
+
+function scheduleBotInboxRefreshForRun(runId) {
+  const conversation = botActiveConversation();
+  if (!conversation) return;
+  const id = String(runId || "");
+  if (!id) return;
+  // 只认当前会话：后台会话的 ask 不该打这根管，否则每来一条就白跑一次总线读。
+  const runIds = new Set([
+    conversation.activeRunId,
+    ...(Array.isArray(conversation.runIds) ? conversation.runIds : []),
+  ].filter(Boolean).map(String));
+  if (!runIds.has(id)) return;
+  if (botInboxPushTimer) return; // 去抖合并——一串事件只换一次刷新
+  botInboxPushTimer = window.setTimeout(() => {
+    botInboxPushTimer = 0;
+    if (state.view !== "bot") return; // 去抖到期必须复检视图，别在别的页签白跑总线读
+    void loadBotOpsInbox({ force: true });
+  }, BOT_INBOX_PUSH_DEBOUNCE_MS);
 }
 
 function renderBotOpsRail() {
@@ -21686,7 +22747,12 @@ function renderBotOpsRail() {
     count.textContent = pending.length ? String(pending.length) : "";
   }
   if (list) commitMarkup(list, botOpsApprovalsMarkup(state.approvals, { escapeHtml }));
-  if (fold) fold.hidden = pending.length === 0;
+  // 这里**不得**再写 fold.hidden：面板显隐权属于页签（data-rail-tab + CSS）。
+  // 本函数会被按键级调用（搜索框每敲一个字都走），写隐藏就会「点开审批页 → 敲字 → 面板凭空变空」。
+  // 待办可见性改由事件路径保证（见 applyApprovalSnapshot 里的 botReopenRailTab）。
+  renderBotOpsInbox();
+  // 取数自身幂等（同一会话已有结果或正在读就直接返回），所以这里被按键级调用也安全。
+  void loadBotOpsInbox();
   renderBotMemberConnections();
   if (byId("bot-ops-files")?.open) ensureBotOpsFiles()?.activate("files");
 }
@@ -21726,7 +22792,7 @@ function renderBotMemberConnections() {
   commitMarkup(host, botMemberConnectionsMarkup(rows, { escapeHtml }));
   if (count) count.textContent = tally.total ? `${tally.connected}/${tally.total}` : "";
   for (const row of rows) {
-    if (row.hostId && !state.configHostProbes.has(row.hostId)) void probeConfigHost(row.hostId);
+    if (row.hostId && shouldProbeConfigHost(row.hostId)) void probeConfigHost(row.hostId);
   }
 }
 
@@ -21793,30 +22859,468 @@ function renderBotWorkspaceSettings() {
     : `<span class="bot-settings-lead">CLI 席位加载中</span>`);
 }
 
+// ══ Bot 右栏页签：可关闭的功能页（会话常驻） ══════════════════════════════════
+// 2026-09-18：这套状态机此前**整条不存在**——页签条 HTML、CSS 的 data-rail-tab 显隐规则、
+// title 里的 Ctrl+Shift+* 键位提示全都落地了，唯独没有 JS 去写 data-rail-tab。
+// 后果：页面永远停在会话页；审批/文件/终端三个页签点了没反应；甚至连带
+// handleBotWorkspaceAction 里那几条 fold.hidden = false 也被 CSS 反手藏掉。
+// tests/bot-rail-contract.test.mjs 12 项里 8 项长期红灯就是这个缺口。
+const BOT_RAIL_TABS_STORAGE_KEY = "514cc.bot-rail-tabs.v1";
+// 会话页常驻不可关；后三个是浏览器式可关页签。
+const BOT_RAIL_TABS = Object.freeze(["overview", "approvals", "files", "terminal"]);
+const BOT_RAIL_CLOSABLE_TABS = Object.freeze(["approvals", "files", "terminal"]);
+const botRailClosedTabs = new Set();
+let botRailActiveTab = "overview";
+
+/**
+ * 右栏快捷键绑定表：键位 → 动作。**每一条都必须在 DOM 里可达**（页签的 title 或动作行的
+ * <kbd>），否则按键就是隐形的——说谎的键位比没有键位更糟（tests/bot-rail-contract 会验）。
+ */
+const BOT_OPS_SHORTCUTS = Object.freeze({
+  a: "approvals",
+  f: "files",
+  b: "browser",
+  // 提交用 r：DOM 里那一行 <kbd> 写的就是 Ctrl+Shift+R，绑定表必须跟它一致——
+  // 「说谎的键位比没有键位更糟」，两侧漂移正是 tests/bot-rail-contract 要拦的。
+  r: "git-commit",
+  u: "git-push",
+  "`": "terminal",
+});
+// 键位用 event.code 而不是 event.key：Shift+` 在多数布局上 key 是 "~"，code 才是 Backquote。
+const BOT_OPS_SHORTCUT_CODES = Object.freeze({
+  KeyA: "a",
+  KeyF: "f",
+  KeyB: "b",
+  KeyR: "r",
+  KeyU: "u",
+  Backquote: "`",
+});
+
+function botRailTabButton(tab) {
+  return byId(`bot-rail-tab-${tab}`);
+}
+
+function botRailTabPanel(tab) {
+  return byId(`bot-ops-${tab}`);
+}
+
+// rail 内三组卡的折叠态：CSS 约定用 .bot-rail-group[data-collapsed]（见 bot-shell.css:918），
+// 存储键在 CSS 注释里就写明了是 514cc.bot-rail-groups.v1 —— 这条线同样只差 JS。
+const BOT_RAIL_GROUPS_STORAGE_KEY = "514cc.bot-rail-groups.v1";
+
+function botApplyRailGroupState(toggle, collapsed) {
+  const group = toggle.closest(".bot-rail-group");
+  toggle.setAttribute("aria-expanded", String(!collapsed));
+  if (!group) return;
+  if (collapsed) group.setAttribute("data-collapsed", "");
+  else group.removeAttribute("data-collapsed");
+}
+
+function persistBotRailGroups() {
+  const stored = {};
+  for (const toggle of document.querySelectorAll("[data-bot-rail-group]")) {
+    stored[String(toggle.dataset.botRailGroup || "")] = toggle.getAttribute("aria-expanded") !== "true";
+  }
+  try {
+    localStorage.setItem(BOT_RAIL_GROUPS_STORAGE_KEY, JSON.stringify(stored));
+  } catch {
+    // 存不下只影响下次启动是否记得收起过哪一组
+  }
+}
+
+/**
+ * 折叠/展开一个 rail 分组。状态落在 `.bot-rail-group[data-collapsed]`（CSS 只收 body、
+ * 标题保留——用户得能看见「下面还有什么」并展开回来），持久化键见 CSS 注释。
+ */
+function botToggleRailGroup(toggle) {
+  const group = toggle.closest(".bot-rail-group");
+  if (!group) return;
+  group.toggleAttribute("data-collapsed");
+  toggle.setAttribute("aria-expanded", String(!group.hasAttribute("data-collapsed")));
+  persistBotRailGroups();
+}
+
+function applyBotRailGroupsStorage() {
+  let stored = {};
+  try {
+    stored = JSON.parse(localStorage.getItem(BOT_RAIL_GROUPS_STORAGE_KEY) || "{}") ?? {};
+  } catch {
+    stored = {};
+  }
+  for (const toggle of document.querySelectorAll("[data-bot-rail-group]")) {
+    // 缺省展开：新访客先看到内容，而不是一组闭着的标题
+    botApplyRailGroupState(toggle, stored?.[String(toggle.dataset.botRailGroup || "")] === true);
+  }
+}
+
+function bindBotRailGroups() {
+  const root = document.querySelector(".bot-inspector-scroll");
+  if (!root || root.dataset.botRailGroupsBound === "1") return;
+  root.dataset.botRailGroupsBound = "1";
+  root.addEventListener("click", (event) => {
+    const toggle = event.target.closest("[data-bot-rail-group]");
+    if (!toggle) return;
+    botToggleRailGroup(toggle);
+  });
+}
+
+function persistBotRailClosedTabs() {
+  try {
+    localStorage.setItem(BOT_RAIL_TABS_STORAGE_KEY, JSON.stringify([...botRailClosedTabs]));
+  } catch {
+    // 存不下只影响下次启动是否记得关过哪些页签，不影响本次会话
+  }
+}
+
+/** 把关闭态写进 DOM：条上收起已关闭的页签，只保留当前页可 Tab 抵达（roving tabindex）。 */
+// 左右栏宽度：两条分隔条寄生在各自面板内缘（皮肤 4 列栅格对栅格子项不友好）。
+// 宽度以本模块状态为真源、同时写两套变量（基础栅格 + grok 皮肤栅格），
+// 否则「拖了没反应」——皮肤用的是另一套列定义。
+const BOT_SHELL_SIZES_STORAGE_KEY = "514cc.bot-shell-sizes.v1";
+const BOT_SHELL_SIZE_LIMITS = Object.freeze({
+  roster: { min: 180, max: 480, fallback: 260 },
+  ops: { min: 240, max: 560, fallback: 320 },
+});
+
+function botShellGrid() {
+  return byId("view-bot")?.querySelector(".bot-shell-grid") || null;
+}
+
+function clampBotShellWidth(key, px) {
+  const limit = BOT_SHELL_SIZE_LIMITS[key];
+  if (!limit) return 0;
+  const value = Number(px);
+  if (!Number.isFinite(value)) return limit.fallback;
+  return Math.min(limit.max, Math.max(limit.min, Math.round(value)));
+}
+
+function readBotShellSizes() {
+  const sizes = {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(BOT_SHELL_SIZES_STORAGE_KEY) || "{}") ?? {};
+    for (const key of Object.keys(BOT_SHELL_SIZE_LIMITS)) {
+      if (parsed?.[key] != null) sizes[key] = clampBotShellWidth(key, parsed[key]);
+    }
+  } catch {
+    // 坏数据 → 回落到默认宽度，不因此白屏
+  }
+  return sizes;
+}
+
+function applyBotShellSize(key, width) {
+  const grid = botShellGrid();
+  if (!grid || !BOT_SHELL_SIZE_LIMITS[key]) return;
+  grid.style.setProperty(`--bot-${key}`, `${width}px`);
+  // 皮肤 4 列栅格的 roster 列走独立变量：不一起写，默认皮肤下拖了像没反应
+  if (key === "roster") grid.style.setProperty("--bot-grok-roster", `${width}px`);
+}
+
+function applyBotShellSizesStorage() {
+  for (const [key, width] of Object.entries(readBotShellSizes())) applyBotShellSize(key, width);
+}
+
+function persistBotShellSize(key, width) {
+  const sizes = readBotShellSizes();
+  sizes[key] = clampBotShellWidth(key, width);
+  try {
+    localStorage.setItem(BOT_SHELL_SIZES_STORAGE_KEY, JSON.stringify(sizes));
+  } catch {
+    // ignore
+  }
+}
+
+function bindBotShellSplitter() {
+  for (const [gripId, key] of [["bot-roster-grip", "roster"], ["bot-ops-grip", "ops"]]) {
+    const grip = byId(gripId);
+    if (!grip || grip.dataset.botSplitterBound === "1") continue;
+    grip.dataset.botSplitterBound = "1";
+    const commit = (width, { persist = true } = {}) => {
+      const clamped = clampBotShellWidth(key, width);
+      applyBotShellSize(key, clamped);
+      if (persist) persistBotShellSize(key, clamped);
+      // 宽度变了，分隔条的播报值必须同步——否则 AT 读到的还是上一次的值
+      syncBotShellGripValues(gripId, key);
+      return clamped;
+    };
+    // 绑定即宣告范围与当前值，不等第一次交互
+    syncBotShellGripValues(gripId, key);
+    grip.addEventListener("pointerdown", (event) => {
+      // 从面板矩形起算：皮肤 4 列含 56px 图标轨，按栅格左缘算会差一整个图标轨宽
+      const pane = grip.closest(".bot-roster, .bot-agent-panel");
+      if (!pane) return;
+      event.preventDefault();
+      const startX = event.clientX;
+      const startWidth = pane.getBoundingClientRect().width;
+      const fromRight = key === "ops";
+      grip.setPointerCapture?.(event.pointerId);
+      const onMove = (move) => commit(fromRight ? startWidth - (move.clientX - startX) : startWidth + (move.clientX - startX));
+      const onUp = () => {
+        grip.releasePointerCapture?.(event.pointerId);
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    });
+    grip.addEventListener("dblclick", () => commit(BOT_SHELL_SIZE_LIMITS[key].fallback));
+    grip.addEventListener("keydown", (event) => {
+      const pane = grip.closest(".bot-roster, .bot-agent-panel");
+      const current = pane ? pane.getBoundingClientRect().width : BOT_SHELL_SIZE_LIMITS[key].fallback;
+      const step = event.shiftKey ? 40 : 12;
+      if (event.key === "ArrowLeft") commit(current - step);
+      else if (event.key === "ArrowRight") commit(current + step);
+      else if (event.key === "Home") commit(BOT_SHELL_SIZE_LIMITS[key].min);
+      else if (event.key === "End") commit(BOT_SHELL_SIZE_LIMITS[key].max);
+      else if (event.key === "Enter" || event.key === " ") commit(BOT_SHELL_SIZE_LIMITS[key].fallback);
+      else return;
+      event.preventDefault();
+    });
+  }
+}
+
+function botRefreshRailTabStates() {
+  const active = botRailActiveTab;
+  for (const tab of BOT_RAIL_TABS) {
+    const button = botRailTabButton(tab);
+    if (!button) continue;
+    const closed = botRailClosedTabs.has(tab);
+    const selected = tab === active && !closed;
+    button.hidden = closed;
+    button.setAttribute("aria-selected", String(selected));
+    // roving tabindex：整条页签只占一个 Tab 停靠点，其余靠方向键漫游
+    button.tabIndex = selected ? 0 : -1;
+    // 关闭钮的 tabindex 必须跟着走：index.html 里写死 tabindex="-1"，
+    // 若这里不提升，CSS 会在页签获得焦点时把 × 显示出来（.bot-rail-tab:focus-within），
+    // 但 Tab 键会直接跳到下一个页签——一个看得见、按不到的假承诺。
+    // 只有**选中页签**的关闭钮进入 Tab 序，其余仍为 -1（不把 Tab 序撑成 8 站）。
+    const closeBtn = button.querySelector("[data-bot-rail-tab-close]");
+    if (closeBtn) closeBtn.tabIndex = selected ? 0 : -1;
+  }
+  const rail = byId("bot-ops-rail");
+  if (rail) rail.dataset.railTab = active;
+  // 当前页签的受控面板必须是 role=tabpanel 且由该页签命名——APG tabs 契约里
+  // aria-controls 指向的不是 tabpanel 就是悬空关系，AT 无法把面板认成页签的内容。
+  //
+  // 只**补**语义，不碰结构与显隐（三个约束，缺一就引入新缺陷）：
+  //  · 不包一层 div：CSS 的兄弟选择器 `#bot-ops-rail[data-rail-tab=…] .bot-inspector-scroll > #bot-ops-*`
+  //    依赖它们仍是 scroll 的直接子级，包一层会整条断掉。
+  //  · 不写 aria-hidden：`#bot-ops-scroll` 是 overview 的面板，而另外三个面板是它的**后代**；
+  //    给容器标 aria-hidden 会连带把选中的子面板一起对 AT 藏掉（祖先隐藏是继承的）。
+  //    CSS 的 display:none 本来就正确地把非选中面板挡在 AT 之外，这里不需要第二份真相。
+  //  · 不写 tabindex：APG 只要求面板内**没有**可聚焦内容时才给 tabindex="0"；
+  //    这四个面板里都有可聚焦控件，再加一站只会把 Tab 序撑长。
+  for (const tab of BOT_RAIL_TABS) {
+    const panel = botRailTabPanel(tab);
+    if (!panel) continue;
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", `bot-rail-tab-${tab}`);
+  }
+}
+
+/**
+ * 分隔条是**可聚焦**的 role=separator，即 ARIA 的 window splitter：
+ * 屏幕阅读器靠 aria-valuenow/min/max 播报「当前多宽、可调范围」。
+ * 只给 tabindex 不给这三项 = 焦点落上去后方向键静默改宽度，什么都不播报。
+ */
+function syncBotShellGripValues(gripId, key) {
+  const grip = byId(gripId);
+  const limit = BOT_SHELL_SIZE_LIMITS[key];
+  if (!grip || !limit) return;
+  const pane = grip.closest(".bot-roster, .bot-agent-panel");
+  const width = pane ? Math.round(pane.getBoundingClientRect().width) : limit.fallback;
+  grip.setAttribute("aria-valuemin", String(limit.min));
+  grip.setAttribute("aria-valuemax", String(limit.max));
+  grip.setAttribute("aria-valuenow", String(clampBotShellWidth(key, width)));
+}
+
+function applyBotRailClosedTabsStorage() {
+  botRailClosedTabs.clear();
+  try {
+    const raw = localStorage.getItem(BOT_RAIL_TABS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(parsed)) {
+      for (const tab of parsed) {
+        if (BOT_RAIL_CLOSABLE_TABS.includes(tab)) botRailClosedTabs.add(tab);
+      }
+    }
+  } catch {
+    // 坏数据一律当「没有关闭记录」：宁可多显示一个页签，也不能因此白屏
+    botRailClosedTabs.clear();
+  }
+  botRefreshRailTabStates();
+}
+
+/**
+ * 切到某个页签。
+ * 关键约束：面板是 <details>，不 open 的话内容仍是隐藏的；而 CSS 只负责「哪个页签的
+ * 面板该显示」，两者缺一不可（tests/bot-rail-contract 对这两条都断言）。
+ */
+function botActivateRailTab(tab, { focus = false } = {}) {
+  const next = BOT_RAIL_TABS.includes(tab) ? tab : "overview";
+  // 快捷键/动作指向一个已被关掉的页签 = 重开它，否则按键像坏掉
+  if (botRailClosedTabs.has(next)) botReopenRailTab(next);
+  botRailActiveTab = next;
+  botRefreshRailTabStates();
+  const panel = botRailTabPanel(next);
+  if (panel) {
+    panel.hidden = false;
+    panel.open = true;
+    panel.scrollIntoView({ block: "nearest" });
+  }
+  if (next === "files") ensureBotOpsFiles()?.activate("files");
+  // 面板已可见（CSS 生效）之后才开抽屉：在 0 尺寸容器里初始化 xterm 永远画不出字
+  if (next === "terminal") botTerminalDock?.setOpen?.(true, { persist: false });
+  if (focus) botRailTabButton(next)?.focus({ preventScroll: true });
+  return next;
+}
+
+function botCloseRailTab(tab, { focus = true } = {}) {
+  if (!BOT_RAIL_CLOSABLE_TABS.includes(tab)) return;
+  const wasActive = botRailActiveTab === tab;
+  botRailClosedTabs.add(tab);
+  persistBotRailClosedTabs();
+  // 终端页关闭 = 抽屉同步收起（开合单向同步于页签；PTY 不销毁，重开即续）
+  if (tab === "terminal") botTerminalDock?.setOpen?.(false, { persist: false });
+  if (wasActive) {
+    // 关掉当前页必须落回会话页，不能停在已关闭的页签上。
+    // **焦点必须交接**：刚被关掉的那个页签是 display:none，若把它留在焦点上，
+    // 浏览器会把焦点丢给 <body>，之后按 Tab 从文档头重新开始——用户会以为整个右栏坏了。
+    // 落到存活页签上，Tab 序不断（与面板关闭钮的焦点归还同一条纪律）。
+    botActivateRailTab("overview", { focus });
+  } else {
+    botRefreshRailTabStates();
+  }
+  setBotRailTabMenuOpen(false);
+}
+
+function botReopenRailTab(tab, { focus = false } = {}) {
+  if (!BOT_RAIL_CLOSABLE_TABS.includes(tab)) return;
+  botRailClosedTabs.delete(tab);
+  persistBotRailClosedTabs();
+  botRefreshRailTabStates();
+  if (focus) botRailTabButton(tab)?.focus({ preventScroll: true });
+}
+
+function setBotRailTabMenuOpen(open) {
+  const menu = byId("bot-rail-tab-menu");
+  const add = byId("bot-rail-tab-add");
+  if (!menu) return;
+  menu.hidden = !open;
+  add?.setAttribute("aria-expanded", String(Boolean(open)));
+}
+
+/**
+ * Ctrl+` 的宿主决策（dock 的 onToggleRequest 也走这里）。
+ * 语义是「切换终端页签」，不是「切换底部抽屉」——抽屉现在住在终端页里，
+ * 两者分开控制就会出现「抽屉在隐藏页里开着」的鬼状态。
+ */
+function botRailTerminalToggle() {
+  if (botRailClosedTabs.has("terminal")) {
+    botReopenRailTab("terminal");
+    botActivateRailTab("terminal", { focus: true });
+    return;
+  }
+  if (botRailActiveTab === "terminal") botActivateRailTab("overview");
+  else botActivateRailTab("terminal", { focus: true });
+}
+
+function bindBotRailTabs() {
+  // 幂等守卫：initBotShell 随 setView 反复调用，重复注册会让同一次点击被处理多次
+  // （点一下「＋」开一次又关一次——qa-bot-rail-tabs 实测抓到这个）。
+  if (document.body.dataset.botRailTabsBound === "1") return;
+  document.body.dataset.botRailTabsBound = "1";
+  byId("bot-rail-page-tabs")?.addEventListener("click", (event) => {
+    if (event.target.closest("#bot-rail-tab-add")) {
+      setBotRailTabMenuOpen(byId("bot-rail-tab-menu")?.hidden === true);
+      return;
+    }
+    const close = event.target.closest("[data-bot-rail-tab-close]");
+    if (close) {
+      botCloseRailTab(String(close.dataset.botRailTabClose || ""));
+      return;
+    }
+    const tab = event.target.closest("[data-bot-rail-tab]");
+    if (tab) botActivateRailTab(String(tab.dataset.botRailTab || ""));
+  });
+  // role=tablist 就必须有键盘模型（APG）：方向键漫游 + Enter/Space 激活 + Delete 关闭。
+  // 页签本体是 div[role=tab]，没有原生激活行为，不补这段键盘就等于「只能点」。
+  byId("bot-rail-page-tabs")?.addEventListener("keydown", (event) => {
+    const tabs = [...(byId("bot-rail-page-tabs")?.querySelectorAll("[data-bot-rail-tab]") || [])]
+      .filter((item) => !item.hidden);
+    if (!tabs.length) return;
+    if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      const index = tabs.indexOf(document.activeElement);
+      const nextIndex = event.key === "Home" ? 0
+        : event.key === "End" ? tabs.length - 1
+        : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      botActivateRailTab(String(tabs[nextIndex].dataset.botRailTab || ""), { focus: true });
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      const focused = tabs.find((item) => item === document.activeElement);
+      if (!focused) return;
+      event.preventDefault();
+      botActivateRailTab(String(focused.dataset.botRailTab || ""), { focus: true });
+      return;
+    }
+    if (event.key === "Delete" || event.key === "Backspace") {
+      const focused = tabs.find((item) => item === document.activeElement);
+      if (!focused) return;
+      event.preventDefault();
+      botCloseRailTab(String(focused.dataset.botRailTab || ""));
+    }
+  });
+  byId("bot-rail-tab-menu")?.addEventListener("click", (event) => {
+    const item = event.target.closest("[data-bot-rail-menu]");
+    if (!item) return;
+    const tab = String(item.dataset.botRailMenu || "");
+    botReopenRailTab(tab);
+    botActivateRailTab(tab, { focus: true });
+    setBotRailTabMenuOpen(false);
+  });
+  // 外点关闭「＋」菜单（点 + 与菜单本身除外）
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("#bot-rail-tab-add") || event.target.closest("#bot-rail-tab-menu")) return;
+    if (byId("bot-rail-tab-menu")?.hidden === false) setBotRailTabMenuOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (byId("bot-rail-tab-menu")?.hidden === false) setBotRailTabMenuOpen(false);
+  });
+}
+
+/** 右栏快捷键：Ctrl+Shift + a/f/b/k/u/` 。绑定表是唯一真源，这里只做键码翻译。 */
+function bindBotOpsShortcuts() {
+  // 幂等守卫：initBotShell 随 setView 反复调用，重复注册会让同一次点击被处理多次
+  // （点一下「＋」开一次又关一次——qa-bot-rail-tabs 实测抓到这个）。
+  if (document.body.dataset.botOpsShortcutsBound === "1") return;
+  document.body.dataset.botOpsShortcutsBound = "1";
+  document.addEventListener("keydown", (event) => {
+    if (!event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey) return;
+    if (event.defaultPrevented || event.repeat) return;
+    if (state.view !== "bot" || isWorkbenchViewActive()) return;
+    const tableKey = BOT_OPS_SHORTCUT_CODES[String(event.code || "")];
+    if (!tableKey) return;
+    const active = document.activeElement;
+    // 正在输入框里打 Ctrl+Shift+A（选中）之类时不能被页签抢走
+    if (active && (active.isContentEditable || ["input", "textarea", "select"].includes(String(active.tagName || "").toLowerCase()))) return;
+    event.preventDefault();
+    handleBotWorkspaceAction(BOT_OPS_SHORTCUTS[tableKey]);
+  });
+}
+
 function handleBotWorkspaceAction(action) {
   if (action === "git-commit") void runWorkbenchGitAction("commit");
   else if (action === "git-push") void runWorkbenchGitAction("push");
   else if (action === "browser") openWorkbenchBrowser();
-  else if (action === "terminal") {
-    handleBotHomeTerminalToggle();
-  }
-  else if (action === "approvals") {
+  else if (action === "terminal") botRailTerminalToggle();
+  else if (action === "approvals" || action === "files") {
+    // 这两个是右栏**页签**。旧写法是直接把 <details> 设成 hidden=false / open=true，
+    // 但面板显隐由 CSS 按 #bot-ops-rail[data-rail-tab=...] 决定——不切页签时
+    // 面板照样被藏掉，动作看上去「点了没反应」。统一交给页签状态机。
     applyOpsRailCollapsed(false);
-    const fold = byId("bot-ops-approvals");
-    if (fold) {
-      fold.hidden = false;
-      fold.open = true;
-      fold.scrollIntoView({ block: "nearest" });
-    }
-  }
-  else if (action === "files") {
-    applyOpsRailCollapsed(false);
-    const fold = byId("bot-ops-files");
-    if (fold) {
-      fold.open = true;
-      fold.scrollIntoView({ block: "nearest" });
-    }
-    ensureBotOpsFiles()?.activate("files");
+    botActivateRailTab(action);
   }
   else if (action === "cli") void openRunCliTerminal();
   else if (action === "runtime") {
@@ -21855,6 +23359,35 @@ function bindBotWorkspaceFolds() {
       void clearFinishedRuns();
       return;
     }
+    // 折叠开关刻意**只改 DOM 属性、不重渲染**：整栏重绘会把焦点从刚点的开关上打掉，
+    // 也会让列表闪一下。项目树的折叠走的是同一条纪律（切 hidden + 类名）。
+    const sectionToggle = event.target.closest("[data-bot-active-runs-toggle]");
+    if (sectionToggle) {
+      event.preventDefault();
+      botActiveRunsCollapsed = !botActiveRunsCollapsed;
+      byId("bot-active-runs")?.classList.toggle("is-collapsed", botActiveRunsCollapsed);
+      const body = byId("bot-active-runs-body");
+      if (body) body.hidden = botActiveRunsCollapsed;
+      sectionToggle.setAttribute("aria-expanded", String(!botActiveRunsCollapsed));
+      botPersistActiveRuns();
+      return;
+    }
+    const groupToggle = event.target.closest("[data-bot-run-group-toggle]");
+    if (groupToggle) {
+      event.preventDefault();
+      const groupId = String(groupToggle.dataset.botRunGroupToggle || "");
+      if (!groupId) return;
+      const next = !botActiveRunsCollapsedGroups.has(groupId);
+      if (next) botActiveRunsCollapsedGroups.add(groupId);
+      else botActiveRunsCollapsedGroups.delete(groupId);
+      const group = groupToggle.closest("[data-bot-run-group]");
+      group?.classList.toggle("is-collapsed", next);
+      groupToggle.setAttribute("aria-expanded", String(!next));
+      const rows = group?.querySelector(".bot-active-run-rows");
+      if (rows) rows.hidden = next;
+      botPersistActiveRuns();
+      return;
+    }
     const activeRun = event.target.closest("[data-bot-active-run]");
     if (activeRun) {
       event.preventDefault();
@@ -21869,13 +23402,36 @@ function bindBotWorkspaceFolds() {
     }
     if (event.target.closest("#bot-agent-panel-close")) {
       event.preventDefault();
+      // 只在焦点确实落在栏内时才归还焦点：否则会把用户正在输入的地方抢走
+      const panel = byId("bot-agent-panel");
+      const focusWasInside = Boolean(panel && panel.contains(document.activeElement));
       applyOpsRailCollapsed(true);
+      if (focusWasInside) byId("bot-agent-info-button")?.focus({ preventScroll: true });
       return;
     }
     const action = event.target.closest("[data-bot-workspace-action]")?.dataset.botWorkspaceAction;
     if (!action) return;
     event.preventDefault();
     handleBotWorkspaceAction(action);
+  });
+  // 「正在工作」行的右键菜单。放在这里是因为它与上面的点击委托**同根、同选择器、同一条
+  // run 解析链**——菜单能开的 run 与点击能开的 run 永远是同一条，不可能绑错。
+  // 曾经的空洞：这些行挂在 #bot-active-runs 里，是 #bot-agent-list 的**兄弟**，
+  // agentList 那条 contextmenu 委托（#bot-agent-list 上的会话/项目行）根本捕不到；
+  // document 级那条只认 workbench 侧栏的 [data-run-select]/[data-run-group-toggle]/
+  // [data-session-project]/[data-project-toggle]/[data-pinned-project]，五个分支全落空
+  // → 不 preventDefault → 弹浏览器原生菜单（LO 2026-10-10 实机病灶，与 DESIGN-NOTES.md
+  // 记过的聚合组右键落空同源，只是换了个面复发）。
+  root.addEventListener("contextmenu", (event) => {
+    const activeRun = event.target.closest("[data-bot-active-run]");
+    if (!activeRun) return;
+    const id = String(activeRun.dataset.botActiveRun || "");
+    if (!id) return;
+    // 与 openBotForRun 完全一致的解析顺序：投影快照优先，退回侧栏 runs 列表
+    const run = runProjection.resolveRun(id) || (state.runs || []).find((item) => String(item?.id) === id) || null;
+    if (!run) return;
+    event.preventDefault();
+    showContextMenu(runContextItems(run), event.clientX, event.clientY, { restoreFocus: activeRun });
   });
   byId("bot-composer-recipient")?.addEventListener("change", (event) => {
     const conversation = botActiveConversation();
@@ -21887,17 +23443,98 @@ function bindBotWorkspaceFolds() {
   byId("bot-composer-team")?.addEventListener("change", (event) => {
     selectTeam(event.target.value);
   });
+  byId("bot-refresh-models-btn")?.addEventListener("click", async () => {
+    const btn = byId("bot-refresh-models-btn");
+    const status = byId("bot-model-status");
+    if (btn) btn.classList.add("is-spinning");
+    if (status) status.textContent = "刷新中…";
+    try {
+      const composerMemberId = String(botState.agentId || "");
+      if (composerMemberId) await syncBotComposerDynamicModels(composerMemberId, { force: true });
+      await botRefreshMemberCatalog();
+      syncBotComposerControls();
+      if (status) {
+        const catalog = state.discoveredAgentModels?.[composerMemberId];
+        status.textContent = catalog?.source === "upstream-provider" ? `上游 · ${catalog.providerName || "已连接"}` : "已刷新";
+        setTimeout(() => { if (status.textContent === "已刷新" || status.textContent?.startsWith("上游 ·")) status.textContent = ""; }, 3000);
+      }
+      toast("模型与席位配置已更新", "success");
+    } catch (error) {
+      if (status) status.textContent = "刷新失败";
+      toast(`刷新失败：${error.message}`, "error");
+    } finally {
+      if (btn) btn.classList.remove("is-spinning");
+    }
+  });
   byId("bot-settings-workspace")?.addEventListener("click", (event) => {
     const action = event.target.closest("[data-bot-workspace-action]")?.dataset.botWorkspaceAction;
     if (!action) return;
     event.preventDefault();
     handleBotWorkspaceAction(action);
   });
+  // <details> 的 toggle 不冒泡，挂 root 的委托收不到，只能挂元素本身：
+  // 展开时重取一次，不让用户对着陈旧待办做决定。
+  byId("bot-ops-inbox")?.addEventListener("toggle", (event) => {
+    if (event.target.open) void loadBotOpsInbox({ force: true });
+  });
+  // 「待我处理」里的 ask 行必须**真的能作答**。此前渲染器只发了 data-bot-ask-id /
+  // data-run-id 而全仓零消费者：行是死文本，用户看到「等你回答」却无从下手
+  // （2026-10-09 四路审计的 dead-affordances 透镜）。这里接上唯一出口——
+  // 复用 transcript 问题卡片的作答目标路径（botPendingAskContext → botPrepareAnswerTarget），
+  // 不新造第二套作答机制。
+  byId("bot-ops-inbox-list")?.addEventListener("click", (event) => {
+    const row = event.target.closest("[data-bot-ask-open]");
+    if (!row) return;
+    event.preventDefault();
+    void openBotOpsAskRow(row);
+  });
+  byId("bot-ops-inbox-list")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    const row = event.target.closest("[data-bot-ask-open]");
+    if (!row) return;
+    event.preventDefault();
+    void openBotOpsAskRow(row);
+  });
+}
+
+/**
+ * 从「待我处理」行打开该 ask 的作答目标。
+ *
+ * 两步，缺一不可：
+ *  1. 先把 run 所属会话打开（行可能属于当前会话里更早的一个 run，直接 focus 输入框
+ *     会让用户对着**别的**会话的 composer 作答）。
+ *  2. 再用 `botPendingAskContext` 重新解析——它自带新鲜度闸（run 必须仍存在、
+ *     pendingAsk.id 必须仍等于行上的 askId、run 不能是终态），所以「问题已被回答/
+ *     已过期」时它返回 null，我们如实提示而不是把一个陈旧的 ask 塞进 composer。
+ */
+async function openBotOpsAskRow(row) {
+  const runId = String(row?.dataset?.runId || "");
+  const askId = String(row?.dataset?.botAskId || "");
+  if (!runId || !askId) return;
+  await openBotForRun(runId);
+  const context = botPendingAskContext({ runId, askId });
+  if (!context || !botPrepareAnswerTarget(context, { focus: true })) {
+    toast("这个问题已经更新，请先查看最新状态", "warning", 4200);
+    void loadBotOpsInbox({ force: true });
+  }
 }
 
 function initBotShell() {
   bindBotWorkspaceFolds();
+  applyBotRailClosedTabsStorage();
+  applyBotRailGroupsStorage();
+  applyBotShellSizesStorage();
+  // 终端抽屉搬进页签页：head/grip 由 CSS 收起，容器吃满页（见 bot-shell.css .bot-ops-terminal-mount）
+  const termMount = byId("bot-ops-terminal-mount");
+  const termDrawer = byId("bot-terminal-drawer");
+  if (termMount && termDrawer && termDrawer.parentElement !== termMount) termMount.appendChild(termDrawer);
   ensureBotTerminalDock();
+  // 终端页上次是关着的 → 抽屉也必须是关的（开合单向同步于页签，不信 localStorage）
+  if (botRailClosedTabs.has("terminal")) botTerminalDock?.setOpen?.(false, { persist: false });
+  bindBotRailTabs();
+  bindBotOpsShortcuts();
+  bindBotRailGroups();
+  bindBotShellSplitter();
   ensureBotOpsFiles();
   renderBotOpsRail();
   syncBotHomeChromeButtons();
@@ -21912,10 +23549,22 @@ function initBotShell() {
   botRenderAgent(botState.agentId);
   maybeStartProductTour();
   root.addEventListener("click", (event) => {
-    const action = event.target.closest("[data-bot-action]")?.dataset.botAction;
+    // 空态动作与树内动作共用一条分发链：data-bot-empty-action 只换属性名，handler 同一张 case 表。
+    const actionNode = event.target.closest("[data-bot-action], [data-bot-empty-action]");
+    const action = actionNode?.dataset.botAction || actionNode?.dataset.botEmptyAction;
     if (!action) return;
     event.preventDefault();
-    botHandleAction(action, event.target.closest("[data-bot-action]"));
+    botHandleAction(action, actionNode);
+  });
+  // 首跑就绪卡动作：data-readiness-action 直接映射既有视图（config:sources 落配置-真源）
+  root.addEventListener("click", (event) => {
+    const node = event.target.closest("[data-readiness-action]");
+    if (!node) return;
+    event.preventDefault();
+    const target = String(node.dataset.readinessAction || "");
+    const configSurface = target.startsWith("config:") ? target.slice("config:".length) : null;
+    setView(configSurface ? "config" : target, configSurface ? { surface: configSurface } : undefined);
+    if (configSurface && typeof setConfigSurface === "function") setConfigSurface(configSurface);
   });
   byId("bot-collab-tabs")?.addEventListener("click", (event) => {
     const tab = event.target.closest("[data-bot-collab-tab]");
@@ -21944,6 +23593,21 @@ function initBotShell() {
     const saveSkill = event.target.closest("[data-save-private-skill]");
     if (saveSkill) {
       openSaveSkillFromRun(saveSkill.dataset.savePrivateSkill);
+      return;
+    }
+    const residenceOpen = event.target.closest("[data-bot-residence-open]");
+    if (residenceOpen) {
+      void botResidenceAct(residenceOpen.dataset.botResidenceOpen, "open");
+      return;
+    }
+    const residenceDismiss = event.target.closest("[data-bot-residence-dismiss]");
+    if (residenceDismiss) {
+      void botResidenceAct(residenceDismiss.dataset.botResidenceDismiss, "dismiss");
+      return;
+    }
+    const distill = event.target.closest("[data-bot-distill-workflow]");
+    if (distill) {
+      void botDistillWorkflowFromRun(distill.dataset.botDistillWorkflow);
       return;
     }
     const diff = event.target.closest("[data-bot-settlement-diff]");
@@ -22183,12 +23847,37 @@ function initBotShell() {
     event.preventDefault();
     event.dataTransfer.dropEffect = "copy";
   });
-  botInput?.addEventListener("drop", (event) => {
+  botInput?.addEventListener("drop", async (event) => {
     const files = Array.from(event.dataTransfer?.files || []);
     const images = files.filter((file) => String(file?.type || "").toLowerCase().startsWith("image/"));
-    if (!images.length) return;
-    event.preventDefault();
-    void queueBotImages(images);
+    if (images.length) {
+      event.preventDefault();
+      void queueBotImages(images);
+    }
+    const textFiles = files.filter((file) => !String(file?.type || "").toLowerCase().startsWith("image/"));
+    if (textFiles.length) {
+      event.preventDefault();
+      for (const file of textFiles.slice(0, 3)) {
+        if (file.size > 512 * 1024) {
+          toast(`文件「${file.name}」超出 512 KiB 限制，已跳过`, "warning", 3000);
+          continue;
+        }
+        try {
+          const text = await file.text();
+          const lines = text.split(/\r?\n/);
+          const excerptLines = lines.slice(0, 300);
+          const header = `--- [文件证据: ${file.name}#L1-L${excerptLines.length} (共 ${lines.length} 行${lines.length > 300 ? " · 已截断" : ""})] ---`;
+          const footer = `--- [文件证据结束: 本地文件] ---`;
+          const block = `\n${header}\n${excerptLines.join("\n")}\n${footer}\n`;
+          botInput.value = (botInput.value ? botInput.value + "\n" : "") + block;
+          botInput.dispatchEvent(new Event("input", { bubbles: true }));
+          toast(`已附加文件片段「${file.name}」(${excerptLines.length} 行)`, "success", 3000);
+        } catch (err) {
+          toast(`无法读取「${file.name}」：${err.message}`, "error", 4000);
+        }
+      }
+      botInput.focus({ preventScroll: true });
+    }
   });
   byId("bot-attachment-file")?.addEventListener("change", (event) => {
     const files = Array.from(event.target.files || []);
@@ -22427,6 +24116,21 @@ byId("bot-member-runtime-profile")?.addEventListener("change", () => {
     const saveSkill = event.target.closest("[data-save-private-skill]");
     if (saveSkill) {
       openSaveSkillFromRun(saveSkill.dataset.savePrivateSkill);
+      return;
+    }
+    const residenceOpen = event.target.closest("[data-bot-residence-open]");
+    if (residenceOpen) {
+      void botResidenceAct(residenceOpen.dataset.botResidenceOpen, "open");
+      return;
+    }
+    const residenceDismiss = event.target.closest("[data-bot-residence-dismiss]");
+    if (residenceDismiss) {
+      void botResidenceAct(residenceDismiss.dataset.botResidenceDismiss, "dismiss");
+      return;
+    }
+    const distill = event.target.closest("[data-bot-distill-workflow]");
+    if (distill) {
+      void botDistillWorkflowFromRun(distill.dataset.botDistillWorkflow);
       return;
     }
     const answerOption = event.target.closest("[data-bot-answer-option]");
@@ -23018,6 +24722,10 @@ function renderRecoveryBar(run) {
   }
   const reasons = [...new Set([run.recoveryNote, run.error].map((text) => String(text ?? "").trim()).filter(Boolean))];
   const notes = reasons.length ? reasons : ["上一轮原生会话提交状态不明确，自动重放已被阻止。"];
+  // 兼容旧快照把 id 存成字符串或数字；归一化后保留原有严格判断契约。
+  if (state.recoveryAckRunId != null && String(state.recoveryAckRunId) === String(run.id)) {
+    state.recoveryAckRunId = run.id;
+  }
   const acked = state.recoveryAckRunId === run.id;
   // 对象 sessions 与 normalize 后的数组都支持
   const sessionMap = Array.isArray(run.sessions)
@@ -23027,6 +24735,17 @@ function renderRecoveryBar(run) {
     ? run.resumeHints
     : resumeHintsFromSessions(sessionMap, { members: run.teamRoster || state.memberCatalog || [] });
   const hintsHtml = resumeHintsMarkup(hints, { escapeHtml });
+  // 恢复条的首要任务是让操作者作出“是否继续”的决定；原生错误、session id、
+  // provider 命令和复制动作属于诊断材料，默认收进详情，避免技术文本占满首屏。
+  const technicalRecordCount = notes.length + hints.length;
+  const technicalDetailsHtml = `
+    <details class="recovery-technical-details">
+      <summary>查看技术详情 <span>${technicalRecordCount} 条记录</span></summary>
+      <div class="recovery-technical-body">
+        <div class="recovery-reasons">${notes.map((note) => failureReasonMarkup(note)).join("")}</div>
+        ${hintsHtml}
+      </div>
+    </details>`;
   const pane = bar.closest(".conversation-pane");
   pane?.classList.add("has-recovery");
   pane?.classList.toggle("has-recovery-acked", acked);
@@ -23038,7 +24757,7 @@ function renderRecoveryBar(run) {
         ${lucideIcon("circle-alert", "icon lucide")}
         <div><strong>${acked ? "恢复已确认" : "需要恢复确认"}</strong><span>${acked ? "下一条消息将续接当前会话。" : "本轮已停止、不会重复执行；已产生的部分产出与证据均已保留。"}</span></div>
       </div>
-      ${acked ? "" : `<div class="recovery-reasons">${notes.map((note) => failureReasonMarkup(note)).join("")}</div>${hintsHtml}`}
+      ${acked ? "" : technicalDetailsHtml}
     </div>
     <div class="recovery-bar-actions">
       ${acked
@@ -23079,12 +24798,12 @@ function renderRunAttentionBar(run) {
 }
 
 function acknowledgeRecovery() {
-  const run = selectedRun();
+  const run = state.view === "bot" ? botVisibleConversationRun() : selectedRun();
   if (!run || run.status !== "recovery_required") return;
-  state.recoveryAckRunId = run.id;
+  state.recoveryAckRunId = String(run.id);
   appendDiagnostic(`恢复确认 ${run.id}：下一次续聊携带 acknowledgeRecovery`);
   renderRecoveryBar(run);
-  elements["task-input"].focus({ preventScroll: true });
+  (state.view === "bot" ? byId("bot-composer-input") : elements["task-input"])?.focus({ preventScroll: true });
 }
 
 // 终态原因：failed/cancelled 时把 run.error / run.recoveryNote 挂到会话流末尾（normalizeRun ...item 已透传）。
@@ -23947,7 +25666,20 @@ function conversationRenderSignature(renderContext, messageWindow, leadingMarkup
 
 function streamEntryByKey(stream, key) {
   if (!key) return null;
-  return [...stream.children].find((node) => node instanceof HTMLElement && node.dataset.streamKey === key) ?? null;
+  const direct = [...stream.children].find((node) => node instanceof HTMLElement && node.dataset.streamKey === key);
+  if (direct) return direct;
+  try {
+    return stream.querySelector(`[data-stream-key="${CSS.escape(key)}"]`) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function streamDetailsList(entry, stream) {
+  if (!entry) return [...stream.querySelectorAll("details")];
+  return entry instanceof HTMLDetailsElement
+    ? [entry, ...entry.querySelectorAll("details")]
+    : [...entry.querySelectorAll("details")];
 }
 
 function captureConversationStreamState(stream) {
@@ -23957,7 +25689,7 @@ function captureConversationStreamState(stream) {
     .filter((detail) => detail.open)
     .map((detail) => {
       const entry = detail.closest("[data-stream-key]");
-      const entryDetails = entry ? [...entry.querySelectorAll("details")] : allDetails;
+      const entryDetails = streamDetailsList(entry, stream);
       return {
         entryKey: entry?.dataset.streamKey ?? "",
         index: entryDetails.indexOf(detail),
@@ -23996,7 +25728,7 @@ function restoreConversationStreamState(stream, snapshot) {
   for (const saved of snapshot.openDetails) {
     const entry = saved.entryKey ? streamEntryByKey(stream, saved.entryKey) : null;
     if (saved.entryKey && !entry) continue;
-    const details = entry ? [...entry.querySelectorAll("details")] : [...stream.querySelectorAll("details")];
+    const details = streamDetailsList(entry, stream);
     const detail = details[entry ? saved.index : saved.absoluteIndex];
     if (detail) detail.open = true;
   }
@@ -24294,8 +26026,11 @@ function renderSelectedRun({ preserveStreamState = true } = {}) {
   const waitingApproval = run.status === "waiting_approval" || run.buildApproval?.status === "pending";
   setComposerMode(run, { waitingApproval });
   conversationHeader.paintConversationChips(run);
-  renderRecoveryBar(run);
-  renderRunAttentionBar(run);
+  // loadRuns/renderSelectedRun 仍服务于旧 Workbench 真源；Bot 面的同一 DOM
+  // 必须改用当前 Conversation 投影，不能让全局 selectedRun 把别的会话状态写回来。
+  const attentionRun = state.view === "bot" ? botVisibleConversationRun() : run;
+  renderRecoveryBar(attentionRun);
+  renderRunAttentionBar(attentionRun);
 
   const messages = normalizeRunMessages(run, { agentId });
   const messageWindow = conversationWindow(run, agentId, messages);
@@ -25589,8 +27324,8 @@ async function createRun(event) {
     const bridgeConversation = botSubmission?.conversationId
       ? (botState.conversations || []).find((item) => String(item?.id || "") === String(botSubmission.conversationId))
       : null;
-    const bridgeRecoveryRun = bridgeConversation ? botConversationActiveRun(bridgeConversation) : null;
-    const bridgeRecoveryAck = Boolean(bridgeRecoveryRun && bridgeRecoveryRun.status === "recovery_required" && state.recoveryAckRunId === String(bridgeRecoveryRun.id));
+    const bridgeRecoveryRun = bridgeConversation ? botVisibleConversationRun(bridgeConversation) : null;
+    const bridgeRecoveryAck = Boolean(bridgeRecoveryRun && bridgeRecoveryRun.status === "recovery_required" && String(state.recoveryAckRunId || "") === String(bridgeRecoveryRun.id));
     const payload = await request(conversationEndpoint || API.runs, {
       method: "POST",
       body: conversationEndpoint ? {
@@ -25677,10 +27412,14 @@ async function createRun(event) {
   }
 }
 
-function buildContinueMessage({ run, prompt, agentId, agentLock, acknowledgeRecovery = false }) {
+function buildContinueMessage({ run, prompt, agentId, agentLock, acknowledgeRecovery = false, model = null }) {
   const teamAnswer = Boolean(run.pendingAsk) && agentId === run.pendingAsk.from;
   const answerToAskId = teamAnswer ? String(run.pendingAsk?.id ?? "").trim() : "";
   const message = { prompt };
+  // 换模型继续（2026-10-11）：带上 composer 选中的模型，让后端 continue() 覆写 run 固化的
+  // modelOverride（历史上 continue 忽略 model，旧模型如已下架的 deepseek-flash 会被反复复用）。
+  // 仅非空才传——空/未选则不带，后端据此保留既有 override，不会误清成席位默认。
+  if (model != null && String(model).trim()) message.model = String(model).trim();
 
   if (answerToAskId) {
     Object.assign(message, { messageIntent: "answer", agentId, answerToAskId });
@@ -25758,6 +27497,7 @@ async function continueSelectedRun(event) {
       agentId: composerTarget.memberId,
       agentLock,
       acknowledgeRecovery: acknowledge,
+      model: captureComposerConfig().model,
     });
     // 文本与附件必须是一个服务端事务；先 /sources 再 /messages 会在第二段拒绝时把旧图遗留给下一条消息。
     if (submissionSources.length) message.sources = submissionSources;
@@ -26157,9 +27897,18 @@ function pushEvent(event) {
   rememberApprovalEventOutcome(event);
   if (!eventChanged) return; // SSE 重连可能回放边界事件；重复项不触发诊断或 DOM 提交
   if (event.runId) scheduleBotConversationSync(event.runId);
-  if (event.type === "user.message" || event.type === "assistant.message") botNoteConversationPreview(event);
-  const activityChanged = trackCodexActivity(event) || trackContextCompaction(event);
-  trackTurnFileStats(event); // 进行态文件变更累加；重渲由 conversationEvent/activityChanged 既有闸触发
+  if (event.type === "user.message" || event.type === "assistant.message") {
+    botNoteConversationPreview(event);
+    // SSE 可能先于索引刷新到达（发送受理 → 服务端新建 run）：未登记 runId 必须刷新索引，
+    // 静默返回 = 「发了消息但不渲染会话」。当前活跃 run 命中属正常流，零额外请求。
+    if (event.runId && !botState.runAgents[String(event.runId)]) {
+      const currentRun = botRunForAgent(botState.agentId);
+      const notCurrentRun = !currentRun || String(currentRun.id) !== String(event.runId);
+      if (notCurrentRun) void botReloadConversationsForUnknownRun(event.runId);
+    }
+  }
+  trackCodexActivity(event) || trackContextCompaction(event); // 活跃行登记（副作用入 run-live-activity）；重绘由 27331 的 Bot 同步链承接
+  trackTurnFileStats(event); // 进行态文件变更累加
   missionControlDock?.observeEvent(event);
   const delta = isDeltaEventType(event.type);
   const conversationEvent = eventAffectsConversation(event);
@@ -26175,23 +27924,21 @@ function pushEvent(event) {
       }
     }
   }
-  const matchesSelectedRun = Boolean(state.selectedRunId && event.runId === state.selectedRunId && !state.sessionPreview);
-  const selectedRunUpdate = state.view === "workbench" && matchesSelectedRun && (conversationEvent || activityChanged || delta);
   const topologySignal = event.type === "bus.appended" || event.type === "bus.routed" || event.type === "user.message";
-  const topologyUpdate = state.view === "workbench" && matchesSelectedRun && topologySignal;
   if (topologySignal && event.runId) invalidateSocialTopology(event.runId);
-  const visibleWorkbenchEvent = state.view === "workbench"
-    && !delta
-    && (state.selectedRunId ? event.runId === state.selectedRunId : true);
   scheduleEventRender(
     {
       overview: state.view === "overview" && !delta,
       diagnostics: diagnostic && state.view === "security",
       tabs: tabsChanged,
-      selectedRun: selectedRunUpdate,
-      topology: topologyUpdate && !selectedRunUpdate,
-      workbenchEvents: visibleWorkbenchEvent && !selectedRunUpdate,
-      announce: selectedRunUpdate,
+      // D-2026-09-28-007：workbench 视图已退役（nav 级 + 路由旁路，state.view 永不为
+      // "workbench"——不变量由 workbench-retired.test.mjs 契约看守），原 selectedRun/
+      // topology/workbenchEvents/announce 四臂恒假。此处按字面 false 固化——删掉
+      // state.view === "workbench" 合取项会让这四臂在 Bot 面上激活，属行为变更，禁止。
+      selectedRun: false,
+      topology: false,
+      workbenchEvents: false,
+      announce: false,
     },
     event,
   );
@@ -26201,6 +27948,8 @@ function pushEvent(event) {
   // 恢复条会被 SSE 重渲染反复挂回（LO 2026-08-09：确认后恢复条一整轮不消失）。
   if (/run\.(created|updated|completed|failed|cancelled|interrupted|interrupt_timeout|context_compaction_started|context_compaction_completed|context_compaction_failed|steer_queued|steer_dropped|waiting_input|budget_exhausted|worktree_created|recovery_required|recovery_acknowledged|round_refunded|control_changed)|task\.|agent\.(turn_started|turn_completed)|user\.message|assistant\.message|assistant\.partial_message/i.test(event.type)) scheduleRunsReload();
   if (/^automation\./.test(event.type)) void loadAutomations().catch(() => {});
+  // W6 实时层：ask 生命周期的两个来源推开收件箱去抖刷新（事件集刻意收窄，见常量注释）。
+  if (event.runId && BOT_INBOX_PUSH_EVENTS.test(event.type)) scheduleBotInboxRefreshForRun(event.runId);
   if (/approval\.(pending|resolved|expired)/i.test(event.type)) {
     if (event.type === "approval.pending" && event.data?.id) {
       const existingIndex = state.approvals.findIndex((item) => String(item?.id) === String(event.data.id));
@@ -26805,7 +28554,6 @@ async function refreshCurrentView() {
   elements["refresh-button"].disabled = true;
   const jobs = [];
   if (state.view === "overview") jobs.push(loadHealth(), loadRuns(), loadSources(), loadUsageOverview({ force: true }));
-  if (state.view === "workbench") jobs.push(loadRuns(), loadProjects({ refresh: true }), loadTeams());
   if (state.view === "bot") jobs.push(loadBootstrap(), loadRuns(), botLoadConversations());
   if (state.view === "config") {
     jobs.push(
@@ -27580,15 +29328,8 @@ function fetchRunEvents(runId, { swallowErrors = true } = {}) {
     .then(async (events) => {
       if (controller.signal.aborted || runHistoryInflight.get(runId) !== inflight) return [];
       events = mergeRealtimeTailIntoHistory(runId, events, inflight);
-      if (state.view === "workbench" && state.selectedRunId === runId && !state.sessionPreview) {
-        // 流式末批可能与首屏 160 条 DOM 提交落在同一 macrotask；先让浏览器处理输入/绘制，
-        // 再渲染。延后期间 tab 若被关闭或切走，下面的 ownership 检查会直接丢弃旧提交。
-        await yieldToMainThread();
-        if (!controller.signal.aborted && runHistoryInflight.get(runId) === inflight
-          && state.view === "workbench" && state.selectedRunId === runId && !state.sessionPreview) {
-          renderSelectedRun({ preserveStreamState: false });
-        }
-      }
+      // D-2026-09-28-007：原 workbench 流式末批重渲染块随视图退役成为死枝（state.view
+      // 永不为 "workbench"）已移除；Bot 面的流式渲染走自身路径，不经此块。
       return events;
     })
     .catch((error) => {
@@ -27748,14 +29489,16 @@ async function selectRun(id) {
   return true;
 }
 
-const NAV_MOBILE_QUERY = window.matchMedia("(max-width: 820px)");
-
 // 主导航全尺寸都是按需抽屉；离屏时必须同时移出 Tab 顺序与 a11y 树。
+// D-2026-09-28-032（LO 拍板走甲）：原先还要求 NAV_MOBILE_QUERY.matches 才认抽屉态，
+// 于是桌面（>820px）点汉堡永远加不上 nav-open——与上面这句注释直接矛盾；叠加
+// shell-refresh.css 在 ≥821px 收起侧栏后，桌面全局导航零入口（只剩不可发现的 Ctrl+K）。
+// 按注释原意改为全尺寸一致：抽屉态由 nav-open 类单独决定，与断点无关。
 function syncNavAccessibility() {
   const sidebar = byId("sidebar");
   if (!sidebar) return;
-  const isOpen = NAV_MOBILE_QUERY.matches && document.querySelector(".app-shell")?.classList.contains("nav-open");
-  const shouldHide = NAV_MOBILE_QUERY.matches && !isOpen;
+  const isOpen = Boolean(document.querySelector(".app-shell")?.classList.contains("nav-open"));
+  const shouldHide = !isOpen;
   sidebar.inert = shouldHide;
   sidebar.setAttribute("aria-hidden", String(shouldHide));
   for (const target of [document.querySelector(".topbar"), byId("main-content"), document.querySelector(".global-statusbar"), document.querySelector(".mobile-nav")]) {
@@ -27766,7 +29509,7 @@ function syncNavAccessibility() {
 }
 
 function navDrawerOpen() {
-  return NAV_MOBILE_QUERY.matches && Boolean(document.querySelector(".app-shell")?.classList.contains("nav-open"));
+  return Boolean(document.querySelector(".app-shell")?.classList.contains("nav-open"));
 }
 
 function navDrawerFocusable() {
@@ -27796,7 +29539,7 @@ function trapNavDrawerTab(event) {
 function setNavDrawer(open, { restoreFocus = true } = {}) {
   const shell = document.querySelector(".app-shell");
   if (!shell) return;
-  open = Boolean(open && NAV_MOBILE_QUERY.matches);
+  open = Boolean(open);
   shell.classList.toggle("nav-open", open);
   const backdrop = byId("nav-backdrop");
   if (backdrop) backdrop.hidden = !open;
@@ -27807,6 +29550,28 @@ function setNavDrawer(open, { restoreFocus = true } = {}) {
   } else if (restoreFocus) {
     byId("mobile-menu-button")?.focus?.({ preventScroll: true });
   }
+}
+
+// D-2026-09-28-039：跨断点自动收抽屉。2026-09-28-032 把侧栏改成「全尺寸按需抽屉」时
+// 删掉了原先的 matchMedia 监听（连同 NAV_MOBILE_QUERY）——本意是不再用断点决定抽屉
+// 可见性，但那条监听同时还兜着「从窄屏涨到宽屏时把开着的抽屉收掉」。删掉后的后果：
+// 在 390px 展开抽屉，再把窗口拉到 1440，抽屉会以 260px 固定浮层 + 全屏背板**卡在桌面
+// 模态态**，不点背板就回不到正常界面（qa-project-plugins 的 resize 断言实测抓住）。
+// 抽屉本身仍在全尺寸按需可用（汉堡照常能开），这里只在「跨越到宽屏」这一个瞬间收拢，
+// 不改变 032 的按需模型。
+let navDrawerOpenAtNarrow = false;
+const NAV_WIDE_QUERY = window.matchMedia("(min-width: 821px)");
+function bindNavDrawerBreakpoint() {
+  const apply = () => {
+    if (NAV_WIDE_QUERY.matches) {
+      if (navDrawerOpenAtNarrow && navDrawerOpen()) setNavDrawer(false);
+      navDrawerOpenAtNarrow = false;
+    } else if (navDrawerOpen()) {
+      navDrawerOpenAtNarrow = true;
+    }
+  };
+  apply();
+  NAV_WIDE_QUERY.addEventListener("change", apply);
 }
 
 function bindEvents() {
@@ -27824,6 +29589,7 @@ function bindEvents() {
   });
   byId("mobile-menu-button")?.addEventListener("click", () => setNavDrawer(!navDrawerOpen()));
   byId("nav-backdrop")?.addEventListener("click", () => setNavDrawer(false));
+  bindNavDrawerBreakpoint();
   byId("mission-side-chat-close")?.addEventListener("click", () => setMissionSideChat(false));
   byId("mission-side-chat-input")?.addEventListener("input", (event) => {
     if (!elements["task-input"] || elements["task-input"].value === event.target.value) return;
@@ -27841,10 +29607,8 @@ function bindEvents() {
     elements["submit-task-button"]?.click();
     sideInput.value = ""; // 草稿已交给主提交路径；留在框里只会诱导重发
   });
-  NAV_MOBILE_QUERY.addEventListener("change", () => {
-    if (!NAV_MOBILE_QUERY.matches) setNavDrawer(false, { restoreFocus: false });
-    else syncNavAccessibility();
-  });
+  // D-2026-09-28-032（甲）：抽屉改为全尺寸按需后，跨断点只需重新同步 a11y，
+  // 不再需要在离开窄屏时强制收起（用户可能就想让抽屉在桌面上开着）。
   syncNavAccessibility();
   document.addEventListener("keydown", trapNavDrawerTab);
   document.addEventListener("keydown", (event) => {
@@ -29496,6 +31260,7 @@ function bindEvents() {
   elements["provider-codex-fetch-models-button"]?.addEventListener("click", () => void fetchProviderCodexModels());
   elements["provider-codex-catalog-fetch-button"]?.addEventListener("click", () => void fetchProviderCodexModels());
   elements["provider-grokbuild-fetch-models-button"]?.addEventListener("click", () => void fetchProviderCodexModels());
+  elements["provider-claude-fetch-models-button"]?.addEventListener("click", () => void fetchProviderCodexModels());
   elements["provider-codex-full-url"]?.addEventListener("change", () => {
     updateCodexBaseUrlHint();
     refreshProviderConfigPreview();
@@ -29889,15 +31654,6 @@ function refreshTeamData() {
   }));
 }
 
-async function loadDeltaData() {
-  // v4.0：delta-timeline 模块自取数（refreshDeltaTimeline 内部 fetch 并容错），此处置只负责触发
-  try {
-    await refreshDeltaTimeline();
-  } catch {
-    // 静默失败
-  }
-}
-
 // ─── 514 Forge: 先锋磁吸微手感（UI-ELEVATION W4）───────────────────────────
 function initMagneticInteractions() {
   if (typeof window === "undefined" || !window.matchMedia) return;
@@ -29946,6 +31702,14 @@ function renderWorkspaceAttention() {
   const markup = run ? botPendingAskCardMarkup(run) + botApprovalCardsMarkup(run) : "";
   root.hidden = !markup;
   reconcileMessageMarkup(root, markup);
+  if (run?.pendingAsk && !TERMINAL_RUN_STATES.has(run.status)) {
+    const context = botPendingAskContext({ run, pendingAsk: run.pendingAsk, runId: run.id, askId: run.pendingAsk.id, askerId: run.pendingAsk.from });
+    if (context && (!botState.answerTarget || botState.answerTarget.askId !== String(run.pendingAsk.id))) {
+      botPrepareAnswerTarget(context, { focus: false, switchAgent: false });
+    }
+  } else if (!markup && botState.answerTarget?.runId === String(run?.id || "")) {
+    botState.answerTarget = null;
+  }
 }
 
 function renderWorkspaceInsights(tab, { conversation, selectedRun: run }) {
@@ -29960,9 +31724,12 @@ function renderWorkspaceInsights(tab, { conversation, selectedRun: run }) {
     root.dataset.taskFilter = "all";
   }
   const markup = tab === "process"
-    ? collaborationProcessMarkup(model, {
+    ? enhancedCollaborationProcessMarkup(model, {
       tasksPage: root.dataset.tasksPage, delegationsPage: root.dataset.delegationsPage, filter: root.dataset.taskFilter,
       memberAvatar: (member) => botMemberAvatarContent(member.snapshot || botCatalogMember(member.id), botMeta(member.id)),
+      // 自动展开只在任务首次出现时生效，之后用户的手动折叠优先。
+      // 记忆按渲染根存续（同一根反复渲染共享，不同 surface 互不影响）。
+      expandMemory: expandMemoryFor(root),
     })
     : `<header class="workspace-insights-heading"><h3>成果与验证</h3><span>${escapeHtml(model.status)}</span></header>${run ? botSettlementMarkup(run) : '<p class="workspace-empty">当前工作对话尚无运行成果</p>'}${collaborationReviewMarkup(model, renderMarkdown)}<details class="workspace-global-evidence"><summary>控制中心审计与发布记录</summary><div data-workspace-artifacts></div><div data-workspace-closeout></div></details>`;
   reconcileMessageMarkup(root, markup);
@@ -30105,6 +31872,12 @@ async function start() {
     request,
     onPending: (command) => {
       if (botState.activeConversationId === command.conversationId) byId("workspace-admission").textContent = "提交中";
+      // 乐观气泡：准入路径（持久化会话直发）此前只有「提交中」文字——用户消息要等
+      // onAccepted 的重渲才上屏，发送反馈断档（qa-bot-p0:386 守「发送即上屏且持续
+      // 可见」）。onPending 在 POST 前触发，与 botBridgeComposer 的 botAppendUserMessage
+      // 同语义；服务端文本到达后由 historyMessagesForRun 的文本去重接管，不留重复。
+      // steer 换 run 后的瞬时空态冲屏由 botRenderMessageStore 的 botRenderLocalBubbles 兜底。
+      if (botState.activeConversationId === command.conversationId) botAppendUserMessage(command.prompt);
       syncBotComposerMode();
     },
     onAccepted: (raw, command) => {
@@ -30124,6 +31897,11 @@ async function start() {
     onSettled: () => syncBotComposerMode(),
   });
   byId("bot-message-stream").addEventListener("click", (event) => {
+    const action = event.target.closest("[data-bot-message-action]");
+    if (action) {
+      void botHandleMessageAction(action);
+      return;
+    }
     const button = event.target.closest("[data-workspace-message-page]");
     if (!button) return;
     const key = byId("bot-message-stream").dataset.messageWindow;
@@ -30143,6 +31921,14 @@ async function start() {
     }, 30);
   });
   initMagneticInteractions();
+  // 凭据兑换必须早于 initBotShell()：后者会同步牵出四条自举链——
+  //   renderBotOpsRail → renderBotMemberConnections → loadConfigHosts（/api/ssh/hosts、/api/remote-projects）
+  //   maybeStartProductTour → setView → loadProjects/loadTeams/channels（/api/projects/prefs、/api/sessions/projects、/api/teams、/api/channels）
+  // 栈追踪实测：这四条链共打出 8 条无 Authorization 头的 /api 请求，全部早于兑换。
+  // 代价不只是 401 红条——心跳也发不出去，lastHeartbeat 整轮为空，A5 恢复提示静默失效。
+  // 门禁：tests/boot-auth-race.test.mjs（真浏览器 + 请求头判定，不依赖机器快慢）。
+  await initializeAccessToken();
+  botResidenceHeartbeat();
   initBotShell();
   setWorkbenchCwdResolver(activeWorkbenchPtySpawn);
   const settingsQuery = byId("settings-rail-query");
@@ -30277,7 +32063,8 @@ async function start() {
       };
     },
   });
-  await initializeAccessToken(); // 一次性 bootstrap 必须先兑换，后续 API 与 SSE 才能携带当前 tab 会话态
+  // 凭据兑换与首枪驻留心跳已上移到 initBotShell() 之前：那条自举链会在函数内同步发请求，
+  // 晚一步就是 8 条无 Authorization 头的 /api 调用（见该处注释与 tests/boot-auth-race.test.mjs）。
   await botLoadConversations(); // Bot 对话索引依赖认证态；不能在 initBotShell 的首帧抢跑请求
   const initialConversationRoute = state.deepLinkConversationId ? conversationDeepLinkFromHash(startupHash) : null;
   state.deepLinkConversationId = null;
@@ -30425,9 +32212,19 @@ async function start() {
         if (runtimeProfileId) state.configRuntimeFocusId = runtimeProfileId;
       }
     },
-    onModeChanged: () => {
+    onModeChanged: (mode) => {
+      if (mode === "connections") {
+        if (state.providersData) renderProviders();
+        else void loadTeams().then(() => loadProviders());
+      }
       renderConfigTopology();
       reconcileProviderLivePoll();
+      if (state.view === "config" && state.configSurface === "sources") {
+        history.replaceState(null, "", configRouteHash(mode === "connections" ? "providers" : "sources", {
+          memberId: state.configMemberFocusId,
+          runtimeProfileId: mode === "seats" ? state.configRuntimeFocusId : null,
+        }));
+      }
     },
     onLoadStateChanged: () => renderPermissionOverview(),
     cliIconMarkup,
@@ -30456,6 +32253,7 @@ async function start() {
   });
   runtimeSeatManager.init();
   byId("runtime-seat-provider-new")?.addEventListener("click", () => {
+    providerSeatBindingIntent = { adoptDefaultModel: true };
     openProviderDialog(null, { app: runtimeSeatManager.connectionApp() || providerActiveApp() });
   });
   byId("runtime-seat-provider-edit")?.addEventListener("click", () => {
@@ -30465,6 +32263,7 @@ async function start() {
       toast("先选一条连接档案", "warning");
       return;
     }
+    providerSeatBindingIntent = { adoptDefaultModel: false };
     openProviderDialog(provider);
   });
   byId("runtime-seat-provider-enable")?.addEventListener("click", () => {
@@ -30503,11 +32302,13 @@ async function start() {
     initTeamPanel(teamContainer);
   }
 
-  // DELTA 问责时间线
+  // DELTA 问责时间线（自取数：refreshDeltaTimeline 内部 fetch 并容错）。
+  // DELTA 账本无 run 级归属，故只在此观测面呈现，不注入协作过程投影——
+  // 详见 modules/collaboration-process-enhanced.js 文件头。
   const deltaContainer = byId("delta-timeline-container");
   if (deltaContainer) {
     initDeltaTimeline(deltaContainer);
-    loadDeltaData();
+    refreshDeltaTimeline();
   }
 
   // 项目启动器

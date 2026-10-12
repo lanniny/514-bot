@@ -332,6 +332,19 @@
   font-size: var(--text-xs, 11px);
 }
 
+/* 认证失效时徽章是**恢复入口**（app.js setApiState 打 data-auth-recovery）：
+   必须看起来可点、键盘可达——否则「能点却看不出能点」等于没有这个入口。 */
+.connection-badge[data-auth-recovery="1"] {
+  cursor: pointer;
+}
+.connection-badge[data-auth-recovery="1"]:hover {
+  border-color: var(--destructive, currentColor);
+}
+.connection-badge[data-auth-recovery="1"]:focus-visible {
+  outline: 2px solid var(--ring, currentColor);
+  outline-offset: 2px;
+}
+
 /* ── 状态栏（玫瑰实色 → 令牌化 hairline 栏） ───────────── */
 .global-statusbar {
   border-top: 1px solid var(--border, #e4e1ea);

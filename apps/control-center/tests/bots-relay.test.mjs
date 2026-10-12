@@ -16,11 +16,11 @@ const resolveHandle = (value) => {
 };
 const resolveMember = (memberId) => (MEMBERS.has(memberId) ? { label: memberId } : null);
 
-async function freshRelay(t) {
+async function freshRelay(t, { eventStore } = {}) {
   const root = await mkdtemp(resolve(appRoot, ".test-bots-relay-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const bus = new BusStore({ dataRoot: root });
-  const relay = new BotRelayService({ bus, resolveHandle, resolveMember });
+  const relay = new BotRelayService({ bus, resolveHandle, resolveMember, ...(eventStore ? { eventStore } : {}) });
   return { root, bus, relay };
 }
 
@@ -116,8 +116,51 @@ test("handoff then acknowledge: only the receiver may ack, repeat ack is idempot
   assert.equal(board.acknowledgedHandoffs[0].ack.from, "candle");
 });
 
-test("readBoard keeps unacked handoffs open", async (t) => {
-  const { relay } = await freshRelay(t);
+test("W6 · relay 写总线必须补发同形状 bus.appended 事件（可选 eventStore 注入）", async (t) => {
+  const events = [];
+  const eventStore = {
+    emit: async (type, data, context) => {
+      events.push({ type, data, context });
+      return true;
+    },
+  };
+  const { relay, bus } = await freshRelay(t, { eventStore });
+  const runId = randomUUID();
+
+  const handoff = await relay.handoff({ runId, from: "weaver", to: "candle", text: "收集账本" });
+  // handoffId 在消息 refs 里（返回值只带 messageId），按既有 ack 用例的方式从总线取
+  const busMessages = await bus.read(runId);
+  const handoffId = busMessages.find((message) => message?.refs?.handoffId)?.refs?.handoffId;
+  assert.ok(handoffId, "handoff 消息必须带 handoffId ref");
+  const ack = await relay.acknowledge({ runId, from: "candle", handoffId });
+
+  // 两条消息（handoff + ack）各补发一条 bus.appended；形状与 orchestrator.appendBus 一致
+  assert.equal(events.length, 2, `handoff+ack 应各补发一条事件，实际 ${events.length}`);
+  for (const event of events) {
+    assert.equal(event.type, "bus.appended");
+    assert.equal(event.context.runId, runId);
+    assert.equal(typeof event.data.messageId, "string");
+    assert.ok(["task", "say"].includes(event.data.kind));
+    assert.ok(MEMBERS.has(event.data.from));
+  }
+  assert.equal(events[0].data.to, "candle");
+  assert.equal(events[1].data.from, "candle"); // ack 的署名是接收方
+  assert.equal(events[1].data.kind, "say");
+  // 总线本身不受影响
+  assert.equal((await bus.read(runId)).length, 2);
+});
+
+test("W6 · eventStore.emit 抛错绝不影响 relay 主路径（fail-soft）", async (t) => {
+  const { relay, bus } = await freshRelay(t, {
+    eventStore: { emit: async () => { throw new Error("event sink down"); } },
+  });
+  const runId = randomUUID();
+  const handoff = await relay.handoff({ runId, from: "weaver", to: "candle", text: "事件源挂了也要交出去" });
+  assert.equal(typeof handoff.messageId, "string");
+  assert.equal((await bus.read(runId)).length, 1, "消息必须已落总线");
+});
+
+test("readBoard keeps unacked handoffs open", async (t) => {  const { relay } = await freshRelay(t);
   const runId = randomUUID();
   await relay.handoff({ runId, from: "weaver", to: "smith", text: "复核这个 diff" });
   const board = await relay.readBoard(runId);

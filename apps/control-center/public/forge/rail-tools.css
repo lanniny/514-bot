@@ -37,18 +37,26 @@
   flex: 0 0 auto;
   align-items: center;
   border: 1px solid transparent;
-  border-radius: 8px;
-  transition: background var(--dur-instant) ease, border-color var(--dur-instant) ease;
+  border-radius: var(--radius-md, 8px);
+  transition: background-color var(--dur-fast) var(--ease-spring-snappy),
+    border-color var(--dur-fast) var(--ease-spring-snappy),
+    box-shadow var(--dur-fast) var(--ease-spring-snappy),
+    transform var(--dur-fast) var(--ease-spring-snappy);
 }
 
 .rail-tab:hover {
   background: var(--surface-hover);
 }
 
+.rail-tab:active {
+  transform: scale(0.97);
+}
+
 /* 活动标签用描边胶囊而非下划线：参考图的标签是浮起的卡片感 */
 .rail-tab.is-active {
   border-color: var(--border);
   background: var(--surface-muted);
+  box-shadow: var(--shadow-card-subtle), var(--glass-specular);
 }
 
 .rail-tab-main {
@@ -452,25 +460,33 @@
 .rail-diff-file {
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 9px;
-  margin-bottom: 8px;
+  border-radius: var(--radius-xl, 12px);
+  margin-bottom: 10px;
   background: var(--surface);
+  box-shadow: var(--shadow-card-subtle), var(--glass-specular);
+  transition: border-color var(--dur-fast) var(--ease-spring-snappy),
+    box-shadow var(--dur-fast) var(--ease-spring-snappy);
+}
+
+.rail-diff-file:hover {
+  border-color: color-mix(in oklab, var(--primary) 30%, var(--border));
+  box-shadow: var(--shadow-md), var(--glass-specular);
 }
 
 .rail-diff-file > header {
   display: grid;
-  min-height: 32px;
+  min-height: 34px;
   grid-template-columns: 14px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 7px;
-  padding: 0 9px;
+  gap: 8px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface-muted);
+  background: color-mix(in oklab, var(--card, var(--surface)) 92%, var(--muted));
 }
 
 .rail-diff-file > header .icon {
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
   color: var(--text-muted);
 }
 
@@ -486,7 +502,7 @@
 
 .rail-diff-count {
   display: inline-flex;
-  gap: 5px;
+  gap: 6px;
   font-family: var(--mono);
   font-size: var(--text-xs);
 }
@@ -508,51 +524,54 @@
 
 .rail-diff-line {
   display: grid;
-  grid-template-columns: 34px 34px minmax(0, 1fr);
+  grid-template-columns: 36px 36px minmax(0, 1fr);
   font-family: var(--mono);
   font-size: var(--text-xs);
   line-height: 1.65;
+  transition: background-color var(--dur-instant) var(--ease-out);
 }
 
 .rail-diff-no {
-  padding-right: 6px;
+  padding-right: 8px;
   color: var(--text-soft);
   font-size: var(--text-xs);
   opacity: 0.7;
   text-align: right;
   user-select: none;
+  border-right: 1px solid color-mix(in oklab, var(--border) 40%, transparent);
 }
 
 .rail-diff-line code {
   padding-right: 8px;
-  padding-left: 6px;
+  padding-left: 8px;
   color: var(--text);
   white-space: pre;
 }
 
 .rail-diff-line.is-add {
-  background: color-mix(in srgb, var(--green) 12%, transparent);
+  background: color-mix(in oklab, var(--success, var(--green)) 10%, transparent);
 }
 
 .rail-diff-line.is-add code {
-  color: color-mix(in srgb, var(--green) 72%, var(--text-strong));
+  color: color-mix(in oklab, var(--success, var(--green)) 85%, var(--text-strong));
 }
 
 .rail-diff-line.is-del {
-  background: color-mix(in srgb, var(--red) 11%, transparent);
+  background: color-mix(in oklab, var(--danger, var(--red)) 10%, transparent);
 }
 
 .rail-diff-line.is-del code {
-  color: color-mix(in srgb, var(--red) 70%, var(--text-strong));
+  color: color-mix(in oklab, var(--danger, var(--red)) 85%, var(--text-strong));
 }
 
 .rail-diff-line.is-hunk {
-  background: var(--surface-muted);
+  background: color-mix(in oklab, var(--primary) 7%, var(--surface-muted));
 }
 
 .rail-diff-line.is-hunk code,
 .rail-diff-line.is-meta code {
-  color: var(--text-soft);
+  color: var(--primary);
+  font-weight: 550;
 }
 
 /* ── 浏览器页 ───────────────────────────────────────── */
@@ -986,10 +1005,11 @@
   background:
     linear-gradient(180deg, color-mix(in oklab, var(--primary) 6%, var(--surface)) 0, var(--surface) 28px),
     var(--surface);
-  box-shadow: 0 -10px 28px color-mix(in oklab, var(--foreground) 6%, transparent);
+  box-shadow: 0 -10px 28px color-mix(in oklab, var(--foreground) 6%, transparent), var(--glass-specular);
   opacity: 0;
   transform: translateY(16px);
-  transition: opacity var(--dur-base) ease, transform var(--dur-base) cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: opacity var(--dur-base) var(--ease-spring-snappy),
+    transform var(--dur-base) var(--ease-spring-snappy);
 }
 
 .terminal-drawer.is-open {
@@ -1000,9 +1020,6 @@
 /* Mission Control 在桌面布局中是脱离 grid 的右侧浮层。终端若仍铺满中栏，
    标题栏右端会落到浮层下方；宽屏给它留出真实 overlay inset，而不是抬高按钮。 */
 @media (min-width: 821px) {
-  .workbench-shell:not(.mc-collapsed) .terminal-drawer.is-open {
-    margin-inline-end: calc(var(--codex-context-width, 326px) + 8px);
-  }
 }
 
 /* 窄屏右栏本来就是近全屏 overlay，没有可供两面并排的宽度。此时后打开的
@@ -1079,11 +1096,20 @@
   background: var(--surface);
   color: var(--text-muted);
   cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-spring-snappy),
+    border-color var(--dur-fast) var(--ease-spring-snappy),
+    color var(--dur-fast) var(--ease-spring-snappy),
+    background-color var(--dur-fast) var(--ease-spring-snappy);
 }
 
 .terminal-drawer-close:hover {
   color: var(--text-strong);
   border-color: color-mix(in oklab, var(--primary) 35%, var(--border));
+  transform: translateY(-0.5px);
+}
+
+.terminal-drawer-close:active {
+  transform: scale(0.92);
 }
 
 .terminal-drawer-close .icon {
@@ -1119,12 +1145,21 @@
   border-color: transparent;
   background: transparent;
   color: var(--muted-foreground, var(--text-muted));
+  transition: background-color var(--dur-fast) var(--ease-spring-snappy),
+    color var(--dur-fast) var(--ease-spring-snappy),
+    box-shadow var(--dur-fast) var(--ease-spring-snappy),
+    transform var(--dur-fast) var(--ease-spring-snappy);
 }
 
 .terminal-drawer-body .terminal-tab:hover,
 .rail-terminal-body .terminal-tab:hover {
   background: color-mix(in oklab, var(--primary) 8%, var(--surface));
   color: var(--foreground, var(--text-strong));
+}
+
+.terminal-drawer-body .terminal-tab:active,
+.rail-terminal-body .terminal-tab:active {
+  transform: scale(0.97);
 }
 
 .terminal-drawer-body .terminal-tab.is-active,
@@ -1178,4 +1213,20 @@
     animation: none;
     transition: none;
   }
+  .terminal-drawer-close:active,
+  .terminal-drawer-body .terminal-tab:active,
+  .rail-terminal-body .terminal-tab:active {
+    transform: none !important;
+  }
+}
+
+:root[data-motion="reduce"] .terminal-drawer,
+:root[data-motion="reduce"] .rail-tool-panel[data-tool-panel="terminal"] {
+  animation: none;
+  transition: none;
+}
+:root[data-motion="reduce"] .terminal-drawer-close:active,
+:root[data-motion="reduce"] .terminal-drawer-body .terminal-tab:active,
+:root[data-motion="reduce"] .rail-terminal-body .terminal-tab:active {
+  transform: none !important;
 }

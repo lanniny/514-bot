@@ -27,10 +27,10 @@ html body.atelier .atelier-stage { display: none; }
    team-bg-active 玻璃门控空转（偏好正常、媒体已挂，但舞台不可见）。
    壳实底（body/app-shell/main-content）同理会盖住舞台——激活态逐一放行，
    内容可读性由各视图既有玻璃层承接（Bot 见 bot-shell.css，协作台见 team.css）。 */
-html body.atelier.team-bg-active .atelier-stage { display: block; }
-html body.atelier.team-bg-active,
-html body.atelier.team-bg-active .app-shell,
-html body.atelier.team-bg-active .main-content { background: transparent; }
+:is(html.team-bg-active body.atelier, html body.atelier.team-bg-active) .atelier-stage { display: block; }
+:is(html.team-bg-active, html.team-bg-active body.atelier, html body.atelier.team-bg-active),
+:is(html.team-bg-active, html.team-bg-active body.atelier, html body.atelier.team-bg-active) .app-shell,
+:is(html.team-bg-active, html.team-bg-active body.atelier, html body.atelier.team-bg-active) .main-content { background: transparent !important; }
 html body.atelier :is(.topbar, .global-statusbar) { background: var(--bg) !important; border-color: var(--border); }
 html body.atelier .main-content { background: var(--bg); }
 html body.atelier .app-shell:not(.is-settings) .main-content:not(:has(#view-bot.is-active)):not(:has(#view-workbench.is-active)) { padding: 24px !important; }
@@ -475,18 +475,20 @@ html body.atelier .sidebar-footer { display: none; }
   inset: 0;
   background: var(--product-backdrop, rgba(0, 0, 0, 0.45));
   backdrop-filter: blur(2px);
-  z-index: 105;
+  z-index: 1000;
 }
 .plugin-drawer {
   position: fixed;
   top: 0;
   right: 0;
   bottom: 0;
+  height: 100dvh;
+  max-height: 100dvh;
   width: min(520px, 100vw);
   background: var(--surface);
   border-left: 1px solid var(--border);
   box-shadow: -8px 0 28px rgba(0, 0, 0, 0.3);
-  z-index: 110;
+  z-index: 1001;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -497,6 +499,7 @@ html body.atelier .sidebar-footer { display: none; }
   to { transform: translateX(0); }
 }
 .plugin-drawer-header {
+  flex: 0 0 auto;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
@@ -539,10 +542,13 @@ html body.atelier .sidebar-footer { display: none; }
 .plugin-drawer-body {
   padding: 20px 22px;
   overflow-y: auto;
-  flex: 1;
+  flex: 1 1 auto;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 .plugin-drawer-section h3 {
   margin: 0 0 10px;
@@ -588,6 +594,7 @@ html body.atelier .sidebar-footer { display: none; }
   color: var(--text);
 }
 .plugin-drawer-footer {
+  flex: 0 0 auto;
   padding: 14px 22px;
   border-top: 1px solid var(--border);
   background: var(--surface-level-2);

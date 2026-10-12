@@ -182,7 +182,7 @@ export function createRunLiveActivity({
   // （LO 2026-08-10：要 Codex 官方那种「正在思考」状态）。
   function trackCodexActivity(event) {
     if (!event?.runId) return false;
-    const progress = event.data?.progress;
+    const progress = event.data?.progress || (event.data?.kind ? event.data : null);
     if (event.type === "codex.item/started" && progress?.id && ["command", "file", "reasoning", "tool"].includes(progress.kind)) {
       codexActivity.set(`${event.runId}\u0000${progress.id}`, { runId: event.runId, progress, since: event.timestamp });
       return true;
@@ -269,7 +269,7 @@ export function createRunLiveActivity({
       return turnFileStats.delete(event.runId);
     }
     if (event.type !== "codex.item/completed") return false;
-    const progress = event.data?.progress;
+    const progress = event.data?.progress || (event.data?.kind ? event.data : null);
     if (progress?.kind !== "file" || !Array.isArray(progress.changes)) return false;
     let stats = turnFileStats.get(event.runId);
     if (!stats) {

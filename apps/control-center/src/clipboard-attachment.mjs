@@ -58,56 +58,60 @@ function parseImageDataUrl(dataUrl) {
   return { mimeType, bytes };
 }
 
-function validPng(bytes) {
-  if (bytes.length < 45 || !bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return false;
+function inspectPng(bytes) {
+  if (bytes.length < 45 || !bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return null;
   let offset = 8;
   let chunkIndex = 0;
   let hasImageData = false;
   while (offset + 12 <= bytes.length) {
     const chunkLength = bytes.readUInt32BE(offset);
-    if (chunkLength > bytes.length - offset - 12) return false;
+    if (chunkLength > bytes.length - offset - 12) return null;
     const type = bytes.subarray(offset + 4, offset + 8).toString("ascii");
     const dataOffset = offset + 8;
     const nextOffset = offset + 12 + chunkLength;
     if (chunkIndex === 0) {
-      if (type !== "IHDR" || chunkLength !== 13) return false;
-      if (!validDimensions(bytes.readUInt32BE(dataOffset), bytes.readUInt32BE(dataOffset + 4))) return false;
+      if (type !== "IHDR" || chunkLength !== 13) return null;
+      if (!validDimensions(bytes.readUInt32BE(dataOffset), bytes.readUInt32BE(dataOffset + 4))) return null;
     } else if (type === "IHDR") {
-      return false;
+      return null;
     }
     if (type === "IDAT") hasImageData = true;
-    if (type === "IEND") return chunkLength === 0 && hasImageData && nextOffset === bytes.length;
+    if (type === "IEND") {
+      return (chunkLength === 0 && hasImageData && nextOffset <= bytes.length) ? { length: nextOffset } : null;
+    }
     offset = nextOffset;
     chunkIndex += 1;
   }
-  return false;
+  return null;
 }
 
 const JPEG_SOF_MARKERS = new Set([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf]);
 
-function validJpeg(bytes) {
-  if (bytes.length < 16 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return false;
+function inspectJpeg(bytes) {
+  if (bytes.length < 16 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return null;
   let offset = 2;
   let hasFrame = false;
   let hasScan = false;
   while (offset < bytes.length) {
-    if (bytes[offset] !== 0xff) return false;
+    if (bytes[offset] !== 0xff) return null;
     while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
-    if (offset >= bytes.length) return false;
+    if (offset >= bytes.length) return null;
     const marker = bytes[offset++];
-    if (marker === 0xd9) return hasFrame && hasScan && offset === bytes.length;
-    if (marker === 0xd8) return false;
+    if (marker === 0xd9) {
+      return (hasFrame && hasScan && offset <= bytes.length) ? { length: offset } : null;
+    }
+    if (marker === 0xd8) return null;
     if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) continue;
-    if (offset + 2 > bytes.length) return false;
+    if (offset + 2 > bytes.length) return null;
     const segmentLength = bytes.readUInt16BE(offset);
-    if (segmentLength < 2 || segmentLength > bytes.length - offset) return false;
+    if (segmentLength < 2 || segmentLength > bytes.length - offset) return null;
     const segmentEnd = offset + segmentLength;
     if (JPEG_SOF_MARKERS.has(marker)) {
-      if (segmentLength < 8 || !validDimensions(bytes.readUInt16BE(offset + 5), bytes.readUInt16BE(offset + 3))) return false;
+      if (segmentLength < 8 || !validDimensions(bytes.readUInt16BE(offset + 5), bytes.readUInt16BE(offset + 3))) return null;
       hasFrame = true;
     }
     if (marker === 0xda) {
-      if (!hasFrame) return false;
+      if (!hasFrame) return null;
       hasScan = true;
       let scan = segmentEnd;
       let foundMarker = false;
@@ -118,7 +122,7 @@ function validJpeg(bytes) {
         }
         let markerOffset = scan + 1;
         while (markerOffset < bytes.length && bytes[markerOffset] === 0xff) markerOffset += 1;
-        if (markerOffset >= bytes.length) return false;
+        if (markerOffset >= bytes.length) return null;
         const scanMarker = bytes[markerOffset];
         if (scanMarker === 0x00 || (scanMarker >= 0xd0 && scanMarker <= 0xd7)) {
           scan = markerOffset + 1;
@@ -128,12 +132,12 @@ function validJpeg(bytes) {
         foundMarker = true;
         break;
       }
-      if (!foundMarker) return false;
+      if (!foundMarker) return null;
       continue;
     }
     offset = segmentEnd;
   }
-  return false;
+  return null;
 }
 
 function skipGifSubBlocks(bytes, offset) {
@@ -146,36 +150,38 @@ function skipGifSubBlocks(bytes, offset) {
   return -1;
 }
 
-function validGif(bytes) {
-  if (bytes.length < 15 || !["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"))) return false;
-  if (!validDimensions(bytes.readUInt16LE(6), bytes.readUInt16LE(8))) return false;
+function inspectGif(bytes) {
+  if (bytes.length < 15 || !["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"))) return null;
+  if (!validDimensions(bytes.readUInt16LE(6), bytes.readUInt16LE(8))) return null;
   let offset = 13;
   const packed = bytes[10];
   if (packed & 0x80) offset += 3 * (2 ** ((packed & 0x07) + 1));
-  if (offset >= bytes.length) return false;
+  if (offset >= bytes.length) return null;
   let hasImage = false;
   while (offset < bytes.length) {
     const block = bytes[offset++];
-    if (block === 0x3b) return hasImage && offset === bytes.length;
+    if (block === 0x3b) {
+      return (hasImage && offset <= bytes.length) ? { length: offset } : null;
+    }
     if (block === 0x21) {
-      if (offset >= bytes.length) return false;
+      if (offset >= bytes.length) return null;
       offset = skipGifSubBlocks(bytes, offset + 1);
-      if (offset < 0) return false;
+      if (offset < 0) return null;
       continue;
     }
-    if (block !== 0x2c || offset + 9 > bytes.length) return false;
+    if (block !== 0x2c || offset + 9 > bytes.length) return null;
     const width = bytes.readUInt16LE(offset + 4);
     const height = bytes.readUInt16LE(offset + 6);
-    if (!validDimensions(width, height)) return false;
+    if (!validDimensions(width, height)) return null;
     const imagePacked = bytes[offset + 8];
     offset += 9;
     if (imagePacked & 0x80) offset += 3 * (2 ** ((imagePacked & 0x07) + 1));
-    if (offset >= bytes.length) return false;
+    if (offset >= bytes.length) return null;
     offset = skipGifSubBlocks(bytes, offset + 1);
-    if (offset < 0) return false;
+    if (offset < 0) return null;
     hasImage = true;
   }
-  return false;
+  return null;
 }
 
 function webpImageDimensions(type, payload) {
@@ -237,60 +243,71 @@ function validWebpAnimationFrame(payload, canvasDimensions) {
   return hasImageData && offset === payload.length;
 }
 
-function validWebp(bytes) {
-  if (bytes.length < 26 || bytes.subarray(0, 4).toString("ascii") !== "RIFF" || bytes.subarray(8, 12).toString("ascii") !== "WEBP") return false;
-  if (bytes.readUInt32LE(4) + 8 !== bytes.length) return false;
+function inspectWebp(bytes) {
+  if (bytes.length < 26 || bytes.subarray(0, 4).toString("ascii") !== "RIFF" || bytes.subarray(8, 12).toString("ascii") !== "WEBP") return null;
+  const riffLength = bytes.readUInt32LE(4) + 8;
+  if (riffLength > bytes.length) return null;
   let offset = 12;
   let chunkIndex = 0;
   let extendedHeader = null;
   let staticImageDimensions = null;
   let hasAnimationHeader = false;
   let animationFrames = 0;
-  while (offset + 8 <= bytes.length) {
+  while (offset + 8 <= riffLength) {
     const type = bytes.subarray(offset, offset + 4).toString("ascii");
     const size = bytes.readUInt32LE(offset + 4);
     const payloadStart = offset + 8;
-    if (size > bytes.length - payloadStart) return false;
+    if (size > riffLength - payloadStart) return null;
     const nextOffset = payloadStart + size + (size % 2);
-    if (nextOffset > bytes.length) return false;
+    if (nextOffset > riffLength) return null;
     const payload = bytes.subarray(payloadStart, payloadStart + size);
     if (type === "VP8X") {
-      if (chunkIndex !== 0 || extendedHeader) return false;
+      if (chunkIndex !== 0 || extendedHeader) return null;
       extendedHeader = webpExtendedHeader(payload);
-      if (!extendedHeader || !validDimensions(...extendedHeader.dimensions)) return false;
+      if (!extendedHeader || !validDimensions(...extendedHeader.dimensions)) return null;
     }
     if (["VP8 ", "VP8L"].includes(type)) {
       const dimensions = webpImageDimensions(type, payload);
-      if (!dimensions || !validDimensions(...dimensions) || staticImageDimensions || hasAnimationHeader || animationFrames) return false;
-      if (!extendedHeader && chunkIndex !== 0) return false;
-      if (extendedHeader?.animation) return false;
-      if (extendedHeader && (dimensions[0] !== extendedHeader.dimensions[0] || dimensions[1] !== extendedHeader.dimensions[1])) return false;
+      if (!dimensions || !validDimensions(...dimensions) || staticImageDimensions || hasAnimationHeader || animationFrames) return null;
+      if (!extendedHeader && chunkIndex !== 0) return null;
+      if (extendedHeader?.animation) return null;
+      if (extendedHeader && (dimensions[0] !== extendedHeader.dimensions[0] || dimensions[1] !== extendedHeader.dimensions[1])) return null;
       staticImageDimensions = dimensions;
     }
     if (type === "ANIM") {
-      if (size !== 6 || !extendedHeader?.animation || hasAnimationHeader || staticImageDimensions || animationFrames) return false;
+      if (size !== 6 || !extendedHeader?.animation || hasAnimationHeader || staticImageDimensions || animationFrames) return null;
       hasAnimationHeader = true;
     }
     if (type === "ANMF") {
       if (!extendedHeader?.animation || !hasAnimationHeader || staticImageDimensions
-        || !validWebpAnimationFrame(payload, extendedHeader.dimensions)) return false;
+        || !validWebpAnimationFrame(payload, extendedHeader.dimensions)) return null;
       animationFrames += 1;
     }
     offset = nextOffset;
     chunkIndex += 1;
   }
-  if (offset !== bytes.length) return false;
-  if (extendedHeader?.animation) return hasAnimationHeader && animationFrames > 0 && !staticImageDimensions;
-  return Boolean(staticImageDimensions) && !hasAnimationHeader && animationFrames === 0;
+  if (offset !== riffLength) return null;
+  if (extendedHeader?.animation) {
+    return (hasAnimationHeader && animationFrames > 0 && !staticImageDimensions) ? { length: riffLength } : null;
+  }
+  return (Boolean(staticImageDimensions) && !hasAnimationHeader && animationFrames === 0) ? { length: riffLength } : null;
+}
+
+export function inspectClipboardImage(bytes) {
+  if (!Buffer.isBuffer(bytes) || bytes.length === 0) return null;
+  const png = inspectPng(bytes);
+  if (png) return { mimeType: "image/png", length: png.length };
+  const jpeg = inspectJpeg(bytes);
+  if (jpeg) return { mimeType: "image/jpeg", length: jpeg.length };
+  const gif = inspectGif(bytes);
+  if (gif) return { mimeType: "image/gif", length: gif.length };
+  const webp = inspectWebp(bytes);
+  if (webp) return { mimeType: "image/webp", length: webp.length };
+  return null;
 }
 
 export function detectClipboardImageType(bytes) {
-  if (!Buffer.isBuffer(bytes)) return null;
-  if (validPng(bytes)) return "image/png";
-  if (validJpeg(bytes)) return "image/jpeg";
-  if (validGif(bytes)) return "image/gif";
-  if (validWebp(bytes)) return "image/webp";
-  return null;
+  return inspectClipboardImage(bytes)?.mimeType ?? null;
 }
 
 async function clipboardStorageUsage(root, storage) {
@@ -379,11 +396,13 @@ export async function saveClipboardImage({
 } = {}) {
   if (!dataRoot) throw attachmentError("clipboard attachment data root is required", "INVALID_IMAGE_DATA");
   const { mimeType, bytes } = parseImageDataUrl(dataUrl);
-  const detectedType = detectClipboardImageType(bytes);
-  if (!detectedType) throw attachmentError("clipboard image structure is invalid or incomplete", "INVALID_IMAGE_DATA");
+  const imageInfo = inspectClipboardImage(bytes);
+  if (!imageInfo) throw attachmentError("clipboard image structure is invalid or incomplete", "INVALID_IMAGE_DATA");
+  const detectedType = imageInfo.mimeType;
   if (detectedType !== mimeType) {
     throw attachmentError(`clipboard image MIME ${mimeType} does not match file signature ${detectedType}`, "IMAGE_TYPE_MISMATCH");
   }
+  const cleanBytes = imageInfo.length < bytes.length ? bytes.subarray(0, imageInfo.length) : bytes;
 
   const root = clipboardStorageRoot(dataRoot);
   const safeId = String(id()).replace(/[^a-z0-9-]/gi, "");
@@ -400,7 +419,7 @@ export async function saveClipboardImage({
   return withClipboardLifecycleLock(dataRoot, async () => {
     await storage.mkdir(root, { recursive: true });
     const usage = await clipboardStorageUsage(root, storage);
-    if (usage.files >= limits.files || usage.bytes + bytes.length > limits.bytes) {
+    if (usage.files >= limits.files || usage.bytes + cleanBytes.length > limits.bytes) {
       throw Object.assign(
         attachmentError("clipboard image storage quota is exhausted", "CLIPBOARD_STORAGE_QUOTA_EXCEEDED"),
         {
@@ -415,7 +434,7 @@ export async function saveClipboardImage({
     try {
       handle = await storage.open(temporaryPath, "wx", 0o600);
       ownsTemporaryPath = true;
-      await handle.writeFile(bytes);
+      await handle.writeFile(cleanBytes);
       await handle.close();
       handle = null;
       await storage.rename(temporaryPath, path);
@@ -426,6 +445,6 @@ export async function saveClipboardImage({
       throw error;
     }
     const claim = registerPendingClipboardUpload({ dataRoot, path, claimToken, now: claimNow });
-    return { path, name: basename(path), mimeType, size: bytes.length, ...claim };
+    return { path, name: basename(path), mimeType, size: cleanBytes.length, ...claim };
   });
 }

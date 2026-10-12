@@ -21,6 +21,18 @@ function health(overrides = {}) {
   return { map: async () => new Map(items.map((item) => [item.id, item])) };
 }
 
+test("text API never replaces automatic CLI routing or the independent executor", async () => {
+  const profiles = [
+    { id: "cli", adapter: "claude-stream-json", label: "CLI", provider: "a", enabled: true, quality: .1, speed: .1, costTier: 4 },
+    { id: "text", adapter: "api-chat", label: "Text", provider: "b", enabled: true, quality: 1, speed: 1, costTier: 1 },
+  ];
+  const router = new ModelRouter({ profiles, policy: { weights: policy.weights, requireHealthyProvider: true, rules: [], independentPass: { requiredFor: ["high"], mustDifferFromPrimary: true } },
+    healthService: { map: async () => new Map(profiles.map((p) => [p.id, { available: true, status: "online" }])) } });
+  assert.equal((await router.preview({ prompt: "实现功能" })).selected.id, "cli");
+  assert.equal((await router.preview({ prompt: "聊天", requestedProvider: "text" })).selected.id, "text");
+  await assert.rejects(router.preview({ prompt: "实现功能", risk: "high" }), { code: "NO_INDEPENDENT_ROUTE" });
+});
+
 test("classifies current and technical tasks", () => {
   assert.equal(classifyTask("搜索今天最新模型变化"), "current-research");
   assert.equal(classifyTask("修复这个异常并补测试"), "debugging");

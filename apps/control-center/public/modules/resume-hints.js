@@ -15,6 +15,7 @@ const RESUME_BY_ADAPTER = Object.freeze({
   "kimi-headless-resume": { protocol: "kimi-headless-resume", command: "kimi", args: (sessionId) => ["-S", sessionId] },
   "opencode-run-json": { protocol: "opencode-run-json", command: "opencode", args: (sessionId) => ["--session", sessionId] },
   "pi-rpc": { protocol: "pi-rpc", command: "pi", args: (sessionId) => ["--session-id", sessionId] },
+  "codebuddy-stream-json": { protocol: "codebuddy-stream-json", command: "codebuddy", args: (sessionId) => ["-r", sessionId] },
 });
 
 const PROFILE_TO_ADAPTER = Object.freeze({
@@ -41,6 +42,7 @@ function guessAdapterId(agentId) {
   if (id.startsWith("gemini")) return "gemini-stream-json";
   if (id.startsWith("opencode")) return "opencode-run-json";
   if (id.startsWith("pi")) return "pi-rpc";
+  if (id.startsWith("codebuddy")) return "codebuddy-stream-json";
   return null;
 }
 

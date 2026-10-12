@@ -8,7 +8,8 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { runProcess } from "./process-runner.mjs";
-import { runtimeControlCatalog } from "./adapters/manifest.mjs";
+import { runtimeControlCatalog, resolveAdapterTemplate } from "./adapters/manifest.mjs";
+import { fetchProviderModels } from "./provider-net.mjs";
 
 const CACHE_TTL_MS = 5 * 60_000;
 
@@ -21,9 +22,18 @@ export function parseCodexCatalog(raw) {
       id: entry.slug,
       label: entry.display_name || entry.slug,
       defaultReasoning: entry.default_reasoning_level ?? null,
+      effortLevels: (entry.supported_reasoning_levels ?? []).map((level) => level.effort).filter(Boolean),
     }));
-  // 推理档位取首个模型的支持集（目录内模型档位集通常一致；差异时以首个为准）
-  const effortLevels = (parsed.models?.[0]?.supported_reasoning_levels ?? []).map((level) => level.effort).filter(Boolean);
+  // 推理档位收集所有模型的支持集总和（包含全量可用档位，随 CLI 动态扩展）
+  const allEfforts = new Set();
+  for (const model of parsed.models ?? []) {
+    for (const level of model.supported_reasoning_levels ?? []) {
+      if (level?.effort) allEfforts.add(String(level.effort).trim().toLowerCase());
+    }
+  }
+  const effortLevels = allEfforts.size
+    ? [...allEfforts]
+    : (parsed.models?.[0]?.supported_reasoning_levels ?? []).map((level) => level.effort).filter(Boolean);
   const defaultModel = models[0]?.id ?? null;
   return { models, effortLevels, defaultModel };
 }
@@ -40,7 +50,7 @@ export function parseGrokCatalog(raw) {
     if (isDefault) defaultModel = id;
     models.push({ id, label: isDefault ? `${id}（默认）` : id });
   }
-  return { models, effortLevels: [], defaultModel };
+  return { models, effortLevels: ["low", "medium", "high", "xhigh"], defaultModel };
 }
 
 /**
@@ -81,6 +91,7 @@ function grokConfigFingerprint() {
 
 /** claude models 输出（格式随版本漂移）：先试 JSON，再按行抓 claude-* id；全失败返回 null 走回退。 */
 export function parseClaudeCatalog(raw) {
+  const claudeEfforts = ["low", "medium", "high", "xhigh", "max", "ultracode"];
   try {
     const parsed = JSON.parse(raw);
     const list = Array.isArray(parsed) ? parsed : parsed.models;
@@ -88,8 +99,8 @@ export function parseClaudeCatalog(raw) {
       const models = list
         .map((entry) => (typeof entry === "string" ? entry : entry?.id ?? entry?.slug ?? entry?.name))
         .filter(Boolean)
-        .map((id) => ({ id, label: id }));
-      if (models.length) return { models, effortLevels: [], defaultModel: models[0].id };
+        .map((id) => ({ id, label: id, effortLevels: claudeEfforts }));
+      if (models.length) return { models, effortLevels: claudeEfforts, defaultModel: models[0].id };
     }
   } catch {
     // 非 JSON，按行抓
@@ -99,7 +110,7 @@ export function parseClaudeCatalog(raw) {
     ids.add(match[1].toLowerCase());
   }
   if (!ids.size) return null;
-  return { models: [...ids].map((id) => ({ id, label: id })), effortLevels: [], defaultModel: null };
+  return { models: [...ids].map((id) => ({ id, label: id, effortLevels: claudeEfforts })), effortLevels: claudeEfforts, defaultModel: null };
 }
 
 /** Kimi `provider list --json` -> normalized model catalog. */
@@ -109,14 +120,19 @@ export function parseKimiCatalog(raw) {
     ? Object.entries(parsed.models)
     : [];
   const models = entries
-    .filter(([id]) => /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,159}$/.test(id))
-    .map(([id, entry]) => ({
-      id,
-      label: String(entry?.displayName || entry?.name || id),
-      ...(Number.isFinite(Number(entry?.maxContextSize)) ? { maxContextSize: Number(entry.maxContextSize) } : {}),
-      ...(Array.isArray(entry?.supportEfforts) ? { nativeEffortLevels: entry.supportEfforts.map(String) } : {}),
-      ...(entry?.defaultEffort ? { nativeDefaultEffort: String(entry.defaultEffort) } : {}),
-    }));
+    .filter(([id]) => /^[A-Za-z0-9@][A-Za-z0-9._:/[\]@-]{0,159}$/.test(id))
+    .map(([id, entry]) => {
+      const entryEfforts = Array.isArray(entry?.supportEfforts)
+        ? entry.supportEfforts.map(String).map((e) => e.trim().toLowerCase()).filter(Boolean)
+        : [];
+      return {
+        id,
+        label: String(entry?.displayName || entry?.name || id),
+        ...(Number.isFinite(Number(entry?.maxContextSize)) ? { maxContextSize: Number(entry.maxContextSize) } : {}),
+        ...(entryEfforts.length ? { nativeEffortLevels: entryEfforts, effortLevels: entryEfforts } : {}),
+        ...(entry?.defaultEffort ? { nativeDefaultEffort: String(entry.defaultEffort), defaultReasoning: String(entry.defaultEffort) } : {}),
+      };
+    });
   return { models, effortLevels: [], defaultModel: null };
 }
 
@@ -147,8 +163,10 @@ export function parsePiCatalog(raw) {
 export class ModelDiscovery {
   constructor({
     profiles = [],
+    providerStore = null,
     cacheTtlMs = CACHE_TTL_MS,
     runProcessImpl = runProcess,
+    fetchProviderModelsImpl = fetchProviderModels,
     maxConcurrentDiscoveries = 4,
     maxPendingDiscoveries = 32,
   } = {}) {
@@ -159,8 +177,10 @@ export class ModelDiscovery {
       throw new TypeError("model discovery pending capacity must be within [1, 128]");
     }
     this.profiles = profiles;
+    this.providerStore = providerStore;
     this.cacheTtlMs = cacheTtlMs;
     this.runProcess = runProcessImpl;
+    this.fetchProviderModels = fetchProviderModelsImpl;
     this.maxConcurrentDiscoveries = maxConcurrentDiscoveries;
     this.maxPendingDiscoveries = maxPendingDiscoveries;
     this.cache = new Map(); // runtimeProfileId → { at, signature, result }
@@ -190,12 +210,158 @@ export class ModelDiscovery {
     return `${this.globalGeneration}:${this.generations.get(String(agentId)) || 0}`;
   }
 
+  resolveProviderForProfile(profile) {
+    if (!profile) return null;
+    // API text seats use their explicit model list without implicit network probes
+    // or fallback to a CLI's current provider/authentication.
+    if (profile.adapter === "api-chat") return null;
+    if (this.providerStore) {
+      if (profile.providerId) {
+        try {
+          const p = this.providerStore.get(profile.providerId);
+          if (p?.baseUrl && p?.apiKey) return p;
+        } catch {}
+      }
+      let providerApp = null;
+      try {
+        const { adapterTemplate } = resolveAdapterTemplate(profile);
+        providerApp = adapterTemplate?.providerApp || null;
+      } catch {}
+      if (providerApp) {
+        const currentId = this.providerStore.current?.[providerApp];
+        if (currentId) {
+          try {
+            const p = this.providerStore.get(currentId);
+            if (p?.baseUrl && p?.apiKey) return p;
+          } catch {}
+        }
+      }
+    }
+    // Claude 本地 settings.json 直出（当席位跟随当前连接时，优先认领当前活跃的 CLI 实际连接）
+    if (profile.adapter === "claude-stream-json") {
+      try {
+        const home = this.providerStore?.runtimeHome || homedir();
+        const settingsPath = join(home, ".claude", "settings.json");
+        const text = readFileSync(settingsPath, "utf8");
+        const data = JSON.parse(text);
+        const baseUrl = data.env?.ANTHROPIC_BASE_URL;
+        const apiKey = data.env?.ANTHROPIC_AUTH_TOKEN || data.env?.ANTHROPIC_API_KEY;
+        if (baseUrl && apiKey) {
+          const localModels = [
+            data.env?.ANTHROPIC_MODEL,
+            data.env?.ANTHROPIC_DEFAULT_FABLE_MODEL,
+            data.env?.ANTHROPIC_DEFAULT_SONNET_MODEL,
+            data.env?.ANTHROPIC_DEFAULT_OPUS_MODEL,
+            data.env?.ANTHROPIC_DEFAULT_HAIKU_MODEL,
+            data.env?.CLAUDE_CODE_SUBAGENT_MODEL,
+          ].filter((m) => typeof m === "string" && m.trim()).map((m) => m.trim());
+          const fableModel = data.env?.ANTHROPIC_DEFAULT_FABLE_MODEL?.trim() || null;
+          const liveName = (() => { try { return new URL(baseUrl).hostname; } catch { return String(baseUrl); } })();
+          return {
+            id: "claude-live-settings",
+            name: `当前活跃连接（${liveName}）`,
+            baseUrl,
+            apiKey,
+            localModels: [...new Set(localModels)],
+            fableModel,
+          };
+        }
+      } catch {}
+    }
+    // 最后兜底：若本地没有配置反代端点，才检查注册表中同应用的候选 Provider（供单测/仅注册未切换场景使用）
+    if (this.providerStore) {
+      let providerApp = null;
+      try {
+        const { adapterTemplate } = resolveAdapterTemplate(profile);
+        providerApp = adapterTemplate?.providerApp || null;
+      } catch {}
+      if (providerApp) {
+        try {
+          const providers = this.providerStore.list?.()?.providers || [];
+          const candidate = providers.find((p) => p.apps?.[providerApp] && p.baseUrl);
+          if (candidate) {
+            const p = this.providerStore.get(candidate.id);
+            if (p?.baseUrl && p?.apiKey) return p;
+          }
+        } catch {}
+      }
+    }
+    return null;
+  }
+
+  async discoverFromProvider(provider, profile) {
+    if (!provider?.baseUrl || !provider?.apiKey) return null;
+    let templateEfforts = [];
+    try {
+      templateEfforts = resolveAdapterTemplate(profile).adapterTemplate?.effortLevels || [];
+    } catch {}
+    const effortLevels = (profile?.effortLevels?.length ? profile.effortLevels : templateEfforts) || [];
+    const isFable = profile?.id === "claude-fable" || profile?.role === "primary-coordinator" || String(profile?.id || "").includes("fable");
+
+    let fetched = null;
+    try {
+      fetched = await this.fetchProviderModels({
+        baseUrl: provider.baseUrl,
+        apiKey: provider.apiKey,
+        isFullUrl: Boolean(provider.meta?.isFullUrl),
+        customUserAgent: String(provider.meta?.proxyOverrides?.userAgent || ""),
+      });
+    } catch {
+      fetched = null;
+    }
+
+    const fetchedList = fetched?.models || [];
+    const localList = (provider.localModels || []).map((id) => {
+      const clean = id.replace(/\[1m\]$/i, "").trim();
+      return { id: clean || id, rawId: id, label: id };
+    });
+
+    const seen = new Set();
+    const merged = [];
+
+    for (const m of localList) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        merged.push({ id: m.id, label: m.label || m.id, ...(effortLevels.length ? { effortLevels } : {}) });
+      }
+    }
+
+    for (const m of fetchedList) {
+      if (!seen.has(m.id)) {
+        seen.add(m.id);
+        merged.push({
+          id: m.id,
+          label: m.ownedBy ? `${m.id} (${m.ownedBy})` : m.id,
+          ...(effortLevels.length ? { effortLevels } : {}),
+        });
+      }
+    }
+
+    if (merged.length) {
+      const defaultModel = (isFable && provider.fableModel)
+        ? provider.fableModel.replace(/\[1m\]$/i, "").trim()
+        : profile?.model || merged[0]?.id || null;
+      return {
+        models: merged,
+        effortLevels,
+        defaultModel,
+        source: fetchedList.length ? "upstream-provider" : "live-settings",
+        modelSource: fetchedList.length ? "upstream-provider" : "live-settings",
+        providerId: provider.id,
+        providerName: provider.name,
+      };
+    }
+    return null;
+  }
+
   signatureOf(agentId) {
     const profile = this.profileOf(agentId);
     if (!profile) return "missing";
     const parts = [profile.adapter, profile.command, profile.model, profile.modelOptions, profile.effortLevels];
     // grok 默认档位真源在 ~/.grok/config.toml：内容哈希入签名，外改配置后 5 分钟缓存不挡真值
     if (profile.adapter === "grok-build-headless") parts.push(grokConfigFingerprint());
+    const provider = this.resolveProviderForProfile(profile);
+    if (provider) parts.push(provider.id, provider.baseUrl);
     return JSON.stringify(parts);
   }
 
@@ -257,9 +423,9 @@ export class ModelDiscovery {
       } else {
         result = {
           ...result,
-          source: "dynamic",
-          modelSource: "dynamic",
-          effortSource: result.effortLevels?.length ? "dynamic" : null,
+          source: result.source || "dynamic",
+          modelSource: result.modelSource || result.source || "dynamic",
+          effortSource: result.effortLevels?.length ? (result.effortSource || "dynamic") : null,
         };
       }
       if (profile) result = runtimeControlCatalog(profile, result);
@@ -275,58 +441,61 @@ export class ModelDiscovery {
   }
 
   async discover(profile) {
-    if (profile.adapter === "codex-app-server" || profile.adapter === "codex-exec-json") {
-      const proc = await this.runProcess(profile.command || "codex", ["debug", "models"], { timeoutMs: 30_000, maxOutputBytes: 4 * 1024 * 1024 });
-      if (proc.code !== 0) return null;
-      return parseCodexCatalog(proc.stdout);
+    // 1. 若席位关联了 Provider（显式绑定 providerId、当前激活 current[app]、或已配置有效上游端点），
+    // 优先尝试向上游 Provider 接口拉取全量真实模型列表（对应用户上游动态模型需求）
+    const provider = this.resolveProviderForProfile(profile);
+    if (provider) {
+      const upstream = await this.discoverFromProvider(provider, profile);
+      if (upstream?.models?.length) return upstream;
     }
-    if (profile.adapter === "grok-build-headless") {
-      const proc = await this.runProcess(profile.command || "grok", ["models"], { timeoutMs: 30_000, maxOutputBytes: 256 * 1024 });
-      if (proc.code !== 0) return null;
-      const catalog = parseGrokCatalog(proc.stdout);
-      // 默认推理档位透出：来自 ~/.grok/config.toml [models].default_reasoning_effort；
-      // 文件缺失/无该键 → null，只影响 defaultEffort，不构成新的发现失败模式。
-      let defaultEffort = null;
-      try {
-        defaultEffort = parseGrokDefaults(readFileSync(grokConfigPath(), "utf8")).defaultEffort;
-      } catch {
-        defaultEffort = null;
+
+    // 2. 尝试 CLI 原生自省发现（针对无独立 Provider 配置或上游离线时的本地 CLI 席位）
+    let cliCatalog = null;
+    try {
+      if (profile.adapter === "codex-app-server" || profile.adapter === "codex-exec-json") {
+        const proc = await this.runProcess(profile.command || "codex", ["debug", "models"], { timeoutMs: 15_000, maxOutputBytes: 4 * 1024 * 1024 });
+        if (proc.code === 0) cliCatalog = parseCodexCatalog(proc.stdout);
+      } else if (profile.adapter === "grok-build-headless") {
+        const proc = await this.runProcess(profile.command || "grok", ["models"], { timeoutMs: 15_000, maxOutputBytes: 256 * 1024 });
+        if (proc.code === 0) {
+          const catalog = parseGrokCatalog(proc.stdout);
+          let defaultEffort = null;
+          try {
+            defaultEffort = parseGrokDefaults(readFileSync(grokConfigPath(), "utf8")).defaultEffort;
+          } catch {
+            defaultEffort = null;
+          }
+          cliCatalog = { ...catalog, defaultEffort };
+        }
+      } else if (profile.adapter === "kimi-headless-resume") {
+        const proc = await this.runProcess(profile.command || "kimi", ["provider", "list", "--json"], {
+          timeoutMs: 15_000,
+          maxOutputBytes: 1024 * 1024,
+        });
+        if (proc.code === 0) cliCatalog = parseKimiCatalog(proc.stdout);
+      } else if (profile.adapter === "opencode-run-json") {
+        const proc = await this.runProcess(profile.command || "opencode", ["models"], {
+          provider: null,
+          env: { OPENCODE_DISABLE_MODELS_FETCH: "1" },
+          timeoutMs: 15_000,
+          maxOutputBytes: 2 * 1024 * 1024,
+        });
+        if (proc.code === 0) cliCatalog = parseOpencodeCatalog(proc.stdout);
+      } else if (profile.adapter === "pi-rpc") {
+        const proc = await this.runProcess(profile.command || "pi", ["--list-models"], {
+          provider: null,
+          env: { PI_OFFLINE: "1" },
+          timeoutMs: 15_000,
+          maxOutputBytes: 2 * 1024 * 1024,
+        });
+        if (proc.code === 0) cliCatalog = parsePiCatalog(proc.stdout);
       }
-      return { ...catalog, defaultEffort };
+    } catch {
+      cliCatalog = null;
     }
-    if (profile.adapter === "claude-stream-json") {
-      const proc = await this.runProcess(profile.command || "claude", ["models"], { timeoutMs: 30_000, maxOutputBytes: 512 * 1024 });
-      if (proc.code !== 0) return null;
-      return parseClaudeCatalog(proc.stdout);
-    }
-    if (profile.adapter === "kimi-headless-resume") {
-      const proc = await this.runProcess(profile.command || "kimi", ["provider", "list", "--json"], {
-        timeoutMs: 30_000,
-        maxOutputBytes: 1024 * 1024,
-      });
-      if (proc.code !== 0) return null;
-      return parseKimiCatalog(proc.stdout);
-    }
-    if (profile.adapter === "opencode-run-json") {
-      const proc = await this.runProcess(profile.command || "opencode", ["models"], {
-        provider: null,
-        env: { OPENCODE_DISABLE_MODELS_FETCH: "1" },
-        timeoutMs: 30_000,
-        maxOutputBytes: 2 * 1024 * 1024,
-      });
-      if (proc.code !== 0) return null;
-      return parseOpencodeCatalog(proc.stdout);
-    }
-    if (profile.adapter === "pi-rpc") {
-      const proc = await this.runProcess(profile.command || "pi", ["--list-models"], {
-        provider: null,
-        env: { PI_OFFLINE: "1" },
-        timeoutMs: 30_000,
-        maxOutputBytes: 2 * 1024 * 1024,
-      });
-      if (proc.code !== 0) return null;
-      return parsePiCatalog(proc.stdout);
-    }
+
+    if (cliCatalog?.models?.length) return cliCatalog;
+
     return null;
   }
 }

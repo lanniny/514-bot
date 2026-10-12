@@ -219,6 +219,14 @@ async function main() {
     }, token);
     await page.goto(`${origin}/#bot`, { waitUntil: "domcontentloaded" });
     await page.waitForFunction(() => document.querySelector("#api-connection-badge")?.classList.contains("is-ok") === true, null, { timeout: 30_000 });
+    // 健康态守卫：拿到了真凭据还挂「点击重启」就是一个点了没用的假按钮。
+    // 注意 check() 是**同步**的——异步断言不会被 await，会静默通过（假绿），所以先取后断。
+    const badgeRecoveryAttr = await page.locator("#api-connection-badge").getAttribute("data-auth-recovery");
+    const badgeRole = await page.locator("#api-connection-badge").getAttribute("role");
+    check("healthy session keeps the badge read-only (no fake recovery affordance)", () => {
+      assert.equal(badgeRecoveryAttr, null);
+      assert.equal(badgeRole, null);
+    });
 
     // ① 右栏 Routines 真实化
     await page.locator(`[data-bot-conversation="${direct.id}"]`).click();
@@ -301,6 +309,28 @@ async function main() {
       page.locator("[data-relay-mount] .bot-relay-row.is-acked").waitFor({ state: "attached", timeout: 5000 }));
     await page.screenshot({ path: resolve(outputDir, "04-relay-acked.png") });
     report.screenshots.push("04-relay-acked.png");
+
+    // ⑤ 会话协作收件箱（方案 B）：本页此刻正停在一个**带 run 的真群会话**上，
+    // 正是收件箱该出现的状态。这条断言能区分「路由通了」与「路由静默失败」——
+    // 取数失败时 fetchBotInbox 折成 null，面板会退回「还没有协作收件箱」占位文案，
+    // 因此只有真正拿到投影才会出现「没有需要你回答的协作事项」。
+    await page.waitForFunction(
+      () => document.querySelector("#bot-ops-inbox")?.hidden === false,
+      null,
+      { timeout: 15_000 },
+    );
+    await page.waitForFunction(
+      () => document.querySelector("#bot-ops-inbox-list")?.textContent?.includes("没有需要你回答的协作事项") === true,
+      null,
+      { timeout: 15_000 },
+    );
+    const inboxText = await page.locator("#bot-ops-inbox-list").textContent();
+    check("bot inbox panel reads the real conversation (Plan B route)", () => {
+      assert.match(inboxText, /没有需要你回答的协作事项/);
+      assert.doesNotMatch(inboxText, /还没有协作收件箱|读取失败/, "取数失败/未加载时不得到此");
+    });
+    await page.screenshot({ path: resolve(outputDir, "10-ops-inbox.png") });
+    report.screenshots.push("10-ops-inbox.png");
 
     // ④ Grok 式列表预览 + 日期徽章：social 执行轮在 adapter 启动前先把 user.message
     // 投影进事件流（隔离内核无真实 CLI，turn 随后失败不影响预览回填——这正是真实时序）。

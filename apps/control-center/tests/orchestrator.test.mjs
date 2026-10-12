@@ -138,6 +138,69 @@ async function fixture({
   return { root, calls, orchestrator, approvalBroker, events };
 }
 
+test("API context admission fails before creating an inflight turn or consuming a step", async (t) => {
+  const fx = await fixture({ extraAdapterIds: ["api-seat"] });
+  t.after(() => rm(fx.root, { recursive: true, force: true }));
+  fx.orchestrator.adapters.get("api-seat").id = "api-chat";
+  const run = { id: "api-context-run", conversationId: "api-c", conversationKind: "direct", round: 0, interactionStep: 0, turns: [] };
+  fx.orchestrator.runs.set(run.id, run);
+  fx.orchestrator.conversations = { get: () => ({ id: "api-c", kind: "direct", directMemberId: "api-seat", runIds: [run.id] }) };
+  await assert.rejects(fx.orchestrator.turn(run, "api-seat", "x".repeat(140000)), { code: "API_CONTEXT_LIMIT" });
+  fx.orchestrator.controllers.set(run.id, new AbortController());
+  fx.orchestrator.memberPromptForRun = () => "s".repeat(1024);
+  await assert.rejects(fx.orchestrator.turn(run, "api-seat", "x".repeat(130100)), { code: "API_CONTEXT_LIMIT" });
+  assert.equal(run.round, 0);
+  assert.equal(run.interactionStep, 0);
+  assert.equal(run.inflightTurns, undefined);
+  assert.equal(run.turnAttempts, undefined);
+  assert.equal(fx.calls.length, 0);
+});
+
+// A5 长期记忆：2026-09-18 之前 `chatMemoryPrompt` 只有消费者（adapter 读取）没有任何
+// 生产者——记忆 CRUD 全通、HTTP 端点全在，但模型永远收不到它。下面两条分别钉住
+// "真的下发了" 与 "在准入校验之前就取到并计入预算" 这两件事。
+test("A5 memory reaches the api-chat request payload", async (t) => {
+  const fx = await fixture({ extraAdapterIds: ["api-seat"] });
+  t.after(() => rm(fx.root, { recursive: true, force: true }));
+  fx.orchestrator.adapters.get("api-seat").id = "api-chat";
+  const run = { id: "api-memory-run", conversationId: "api-mem-c", conversationKind: "direct", permissionMode: "plan", status: "running", sessions: {}, round: 0, interactionStep: 0, turns: [] };
+  fx.orchestrator.runs.set(run.id, run);
+  fx.orchestrator.conversations = { get: () => ({ id: "api-mem-c", kind: "direct", directMemberId: "api-seat", memberIds: ["api-seat"], runIds: [run.id] }) };
+  fx.orchestrator.memberPromptForRun = () => "成员提示词";
+  fx.orchestrator.controllers.set(run.id, new AbortController());
+  const marker = "[长期记忆与用户已知设定]\n- [偏好] 回答用简体中文";
+  fx.orchestrator.assistantMemory = { getPromptChunk: async () => marker };
+
+  await fx.orchestrator.turn(run, "api-seat", "你好");
+  assert.equal(fx.calls.length, 1, "文本席位只派发一次");
+  assert.equal(fx.calls[0].chatMemoryPrompt, marker, "记忆必须真的进到请求输入里");
+  assert.equal(fx.calls[0].chatSystemPrompt, "成员提示词");
+
+  // 没有记忆存储时不得下发出 undefined（adapter 会把它当非法输入拒掉）
+  run.round = 0;
+  fx.orchestrator.assistantMemory = null;
+  await fx.orchestrator.turn(run, "api-seat", "再问一句");
+  assert.equal(fx.calls.length, 2);
+  assert.equal(fx.calls[1].chatMemoryPrompt, "");
+});
+
+test("A5 memory counts toward admission before any round is consumed", async (t) => {
+  const fx = await fixture({ extraAdapterIds: ["api-seat"] });
+  t.after(() => rm(fx.root, { recursive: true, force: true }));
+  fx.orchestrator.adapters.get("api-seat").id = "api-chat";
+  const run = { id: "api-memory-admission", conversationId: "api-mem-c", conversationKind: "direct", round: 0, interactionStep: 0, turns: [] };
+  fx.orchestrator.runs.set(run.id, run);
+  fx.orchestrator.conversations = { get: () => ({ id: "api-mem-c", kind: "direct", directMemberId: "api-seat", memberIds: ["api-seat"], runIds: [run.id] }) };
+  fx.orchestrator.controllers.set(run.id, new AbortController());
+  // 记忆块自身就把上下文撑爆：必须在分配 attempt/round 之前被拦下，
+  // 否则"先校验后注入"会让超限推迟到 adapter，用户看到的是提交后才失败。
+  fx.orchestrator.assistantMemory = { getPromptChunk: async () => "m".repeat(140000) };
+  await assert.rejects(fx.orchestrator.turn(run, "api-seat", "你好"), { code: "API_CONTEXT_LIMIT" });
+  assert.equal(run.round, 0);
+  assert.equal(run.interactionStep, 0);
+  assert.equal(fx.calls.length, 0);
+});
+
 test("init quarantines runs with malformed createdAt and list() never 500s", async (t) => {
   const root = await mkdtemp(resolve(appRoot, ".test-orch-malformed-createdat-"));
   t.after(async () => { await rm(root, { recursive: true, force: true }); });
@@ -384,6 +447,141 @@ test("Conversation message admission keeps an active Run instead of creating a s
   const completed = await waitTerminal(fx.orchestrator, created.id);
   assert.equal(completed.status, "succeeded");
   assert.equal(sendCount, 2);
+});
+
+test("failed or blocked Conversation run is continued in-place upon new message rather than creating a new run", async (t) => {
+  const fx = await fixture();
+  t.after(async () => {
+    await fx.orchestrator.close();
+    await rm(fx.root, { recursive: true, force: true });
+  });
+
+  const conversation = {
+    id: "conversation-continue-failed",
+    kind: "direct",
+    scope: "global",
+    roomRole: "task",
+    projectId: null,
+    directMemberId: "codex-technical",
+    memberIds: ["codex-technical"],
+    runIds: [],
+    activeRunId: null,
+  };
+  fx.orchestrator.conversations = {
+    get(id) {
+      assert.equal(id, conversation.id);
+      return conversation;
+    },
+    async attachRun(_id, runId) {
+      conversation.runIds.push(runId);
+      conversation.activeRunId = runId;
+    },
+    async detachRun() {},
+  };
+
+  const created = await fx.orchestrator.create({
+    prompt: "active first turn",
+    execute: false,
+    conversationKind: "direct",
+    conversationId: conversation.id,
+    orchestrationMode: "pipeline",
+    startAgentId: "codex-technical",
+    requestedProvider: "codex-technical",
+    maxRounds: 1,
+    permissionMode: "plan",
+  });
+  assert.equal(conversation.activeRunId, created.id);
+
+  // Simulate run failing due to error
+  const run = fx.orchestrator.get(created.id);
+  run.status = "failed";
+  run.error = "Simulated provider failure";
+  run.sessions = { "codex-technical": "preserved-session-123" };
+  await fx.orchestrator.save(run);
+
+  // User sends follow-up message to continue in the conversation
+  const admitted = await fx.orchestrator.conversationMessage(conversation.id, {
+    prompt: "继续刚才的会话",
+    recipientMemberIds: ["codex-technical"],
+    waitForTurn: false,
+  });
+
+  assert.equal(admitted.created, false, "must continue the existing run instead of creating a new run");
+  assert.equal(admitted.run.id, created.id, "run ID must remain the same");
+  assert.equal(conversation.activeRunId, created.id, "activeRunId must not change");
+  assert.equal(conversation.runIds.length, 1, "no second run should be added");
+  assert.equal(admitted.run.sessions["codex-technical"], "preserved-session-123", "sessions must be preserved");
+});
+
+test("budget_exhausted run in a conversation requires recovery acknowledgement and continues in-place", async (t) => {
+  const fx = await fixture();
+  t.after(async () => {
+    await fx.orchestrator.close();
+    await rm(fx.root, { recursive: true, force: true });
+  });
+
+  const conversation = {
+    id: "conversation-budget-exhausted",
+    kind: "direct",
+    scope: "global",
+    roomRole: "task",
+    projectId: null,
+    directMemberId: "codex-technical",
+    memberIds: ["codex-technical"],
+    runIds: [],
+    activeRunId: null,
+  };
+  fx.orchestrator.conversations = {
+    get(id) {
+      assert.equal(id, conversation.id);
+      return conversation;
+    },
+    async attachRun(_id, runId) {
+      conversation.runIds.push(runId);
+      conversation.activeRunId = runId;
+    },
+    async detachRun() {},
+  };
+
+  const created = await fx.orchestrator.create({
+    prompt: "turn that hit budget",
+    execute: false,
+    conversationKind: "direct",
+    conversationId: conversation.id,
+    orchestrationMode: "pipeline",
+    startAgentId: "codex-technical",
+    requestedProvider: "codex-technical",
+    maxRounds: 1,
+    permissionMode: "plan",
+  });
+
+  const run = fx.orchestrator.get(created.id);
+  run.status = "failed";
+  run.failureKind = "budget_exhausted";
+  run.sessions = { "codex-technical": "session-budget-1" };
+  await fx.orchestrator.save(run);
+
+  // Without acknowledgeRecovery, it must throw BUDGET_EXHAUSTED
+  await assert.rejects(
+    () => fx.orchestrator.conversationMessage(conversation.id, {
+      prompt: "继续",
+      recipientMemberIds: ["codex-technical"],
+      waitForTurn: false,
+    }),
+    (err) => err?.code === "BUDGET_EXHAUSTED",
+  );
+
+  // With acknowledgeRecovery: true, it continues in-place!
+  const admitted = await fx.orchestrator.conversationMessage(conversation.id, {
+    prompt: "继续",
+    acknowledgeRecovery: true,
+    recipientMemberIds: ["codex-technical"],
+    waitForTurn: false,
+  });
+
+  assert.equal(admitted.created, false);
+  assert.equal(admitted.run.id, created.id);
+  assert.equal(admitted.run.sessions["codex-technical"], "session-budget-1");
 });
 
 test("Conversation admission retains model preferences but never inherits prior authority or budget", async (t) => {
@@ -4969,4 +5167,33 @@ test("W3.5 shadow pair forks a second read-only run with shadowOf linkage", asyn
     () => fx.orchestrator.createShadowPair({ prompt: "no shadow target", execute: false }),
     { code: "VALIDATION_FAILED" },
   );
+});
+
+test("continue() applies a requested model override so switching models mid-conversation works", async (t) => {
+  const fx = await fixture();
+  t.after(async () => { await fx.orchestrator.close(); await rm(fx.root, { recursive: true, force: true }); });
+  const created = await fx.orchestrator.create({ prompt: "起点", execute: false, permissionMode: "plan", startAgentId: "claude-fable" });
+  // 模拟会话早先固化的旧模型（如已下架的 deepseek-flash）——续聊历史上只会复用它，
+  // 于是 CLI 报 "selected model (deepseek-flash) ... may not exist"（CLAUDE_FAILED）。
+  created.modelOverride = "deepseek-flash";
+  const target = fx.orchestrator.adapters.get("claude-fable");
+  const sentModels = [];
+  target.send = async (input) => {
+    sentModels.push(input.model);
+    await input.onSessionStarted?.({ sessionId: input.sessionId, protocol: "claude-stream-json" });
+    await input.onTurnSubmitting?.({ sessionId: input.sessionId, protocol: "claude-stream-json", clientUserMessageId: `model-switch-${sentModels.length}` });
+    return { sessionId: input.sessionId, text: "好的，已换模型", tokens: 1 };
+  };
+  // 换模型继续：请求带新模型（claude-fresh-model 同时命中 safeModelId 与回退白名单，校验必过）。
+  await fx.orchestrator.continue(created.id, { prompt: "换个模型继续", agentId: "claude-fable", model: "claude-fresh-model", waitForTurn: true });
+  const run = fx.orchestrator.get(created.id);
+  assert.equal(run.modelOverride, "claude-fresh-model", "continue 必须把请求的 model 覆写到 run.modelOverride");
+  assert.ok(sentModels.includes("claude-fresh-model"), "这一轮 adapter 必须收到新模型");
+  assert.ok(!sentModels.includes("deepseek-flash"), "不得再把固化的旧模型传给 adapter");
+
+  // 回归护栏：不传 model 时，continue 不得清空既有 override（清除覆写是热改 patchRunControls 的职责）。
+  const kept = await fx.orchestrator.create({ prompt: "起点2", execute: false, permissionMode: "plan", startAgentId: "claude-fable" });
+  kept.modelOverride = "claude-keep-me";
+  await fx.orchestrator.continue(kept.id, { prompt: "不触及模型选择", agentId: "claude-fable", waitForTurn: true });
+  assert.equal(fx.orchestrator.get(kept.id).modelOverride, "claude-keep-me", "未带 model 的续聊必须保留既有 override，不得误清成席位默认");
 });

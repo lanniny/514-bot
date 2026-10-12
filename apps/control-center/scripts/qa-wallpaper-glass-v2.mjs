@@ -35,6 +35,7 @@ const { chromium } = await import("playwright");
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
 const page = await context.newPage();
+await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
 page.on("pageerror", (err) => console.log("[pageerror]", err.message));
 page.on("console", (msg) => {
   if (msg.type() === "error") console.log("[console.error]", msg.text().slice(0, 200));
@@ -192,7 +193,8 @@ await page.evaluate(() => {
 await page.reload({ waitUntil: "domcontentloaded" });
 await page.waitForFunction(() => document.body.classList.contains("team-bg-active"), null, { timeout: 30_000 });
 await page.waitForTimeout(800);
-await page.locator("#account-dock").click({ timeout: 10_000 });
+await page.evaluate(() => { location.hash = "#config"; });
+await page.waitForFunction(() => document.querySelector("#view-config")?.classList?.contains("is-active") === true, null, { timeout: 15_000 });
 await page.waitForTimeout(500);
 await page.locator('.settings-rail-item[data-view="appearance"]').click({ timeout: 10_000 });
 await page.waitForTimeout(800);
@@ -250,7 +252,8 @@ console.log("BACK-TO-AUTO:", autoProbe);
 
 // 5b) UI 拖动验证（v5.1 交互死锁回归锁）：外观面板滑杆必须永远可拖——auto 档拖到 35
 //     立即接管（localStorage 35 + glassAlpha 35%），滑杆不得被回填拉回档位值。
-await page.locator("#account-dock").click({ timeout: 10_000 });
+await page.evaluate(() => { location.hash = "#config"; });
+await page.waitForFunction(() => document.querySelector("#view-config")?.classList?.contains("is-active") === true, null, { timeout: 15_000 });
 await page.waitForTimeout(500);
 await page.locator('.settings-rail-item[data-view="appearance"]').click({ timeout: 10_000 });
 await page.waitForTimeout(800);
@@ -329,7 +332,8 @@ await page.screenshot({ path: `${out}/v2-scroll-fade.png` });
 
 // 8) 内容卡玻璃度（v7）：拖 card 滑杆 50 → --forge-card-alpha 必须直接 50%，
 //    恢复条 computed 背景跟着变半透；切回 auto → bold 档位值 62%。
-await page.locator("#account-dock").click({ timeout: 10_000 });
+await page.evaluate(() => { location.hash = "#config"; });
+await page.waitForFunction(() => document.querySelector("#view-config")?.classList?.contains("is-active") === true, null, { timeout: 15_000 });
 await page.waitForTimeout(500);
 await page.locator('.settings-rail-item[data-view="appearance"]').click({ timeout: 10_000 });
 await page.waitForTimeout(800);

@@ -17,8 +17,9 @@
 
 import { createPetActivity } from "./pet-state.js";
 import { consumePetStream } from "./pet-stream.js";
-import { createPetChannel } from "./pet-channel.js";
-import { PET_MODELS } from "./pet-settings.js";
+import { createPetChannel, createPetCommandChannel } from "./pet-channel.js";
+import { createPetRing } from "./pet-ring.js";
+import { PET_MODELS, PET_DEFAULTS } from "./pet-settings.js";
 
 const HANDOFF_KEY = "514cc-pet-handoff";
 const PAIR_RETRY_MS = 2000;
@@ -34,7 +35,6 @@ const isDock = window.parent !== window;
 
 const body = document.body;
 const statusEl = document.getElementById("pet-status");
-const toolbarEl = document.getElementById("pet-toolbar");
 const modeBackgroundEl = document.getElementById("pet-mode-background");
 const inputOverlayEls = {
   left: document.getElementById("pet-left-input"),
@@ -57,6 +57,8 @@ const state = {
   mouseTracking: true,
   lightningCombo: true,
   sound: false,
+  /** 鼠标移入自动隐藏（上游 hide_on_hover，默认开，延迟 1s）。 */
+  hideOnHover: true,
   combo: 0,
   targetMouseX: 0,
   targetMouseY: 0,
@@ -75,6 +77,12 @@ const state = {
   baseSize: null,
   rendererStatus: "loading",
   rendererError: "",
+  /** 插件台账 revision：环形快捷栏改模型时要带它做 CAS。 */
+  pluginRevision: 0,
+  /** 环形菜单里刚改过透明度/缩放时，抑制「移入隐藏」—— 那明显是在调参，不是在路过。 */
+  tuningUntil: 0,
+  /** 已因移入而隐藏（原生侧同步执行 set_opacity）。 */
+  hoverHidden: false,
 };
 let disposed = false;
 let pixiApp = null;
@@ -85,12 +93,35 @@ let lastEventSequence = 0;
 let streamEpoch = null;
 let streamGeneration = 0;
 
+/** 当前模型的描述条目（猫或通用模型）。 */
+function currentModel(modelId = state.modelId) {
+  return PET_MODELS[modelId] || PET_MODELS[PET_DEFAULTS.model];
+}
+
+/** 通用模型（非 BongoCat 猫）没有 resources/ 目录约定，也不吃猫的输入贴图。 */
+function isGenericModel(modelId = state.modelId) {
+  return currentModel(modelId).kind === "generic";
+}
+
 function modelAsset(relative, modelId = state.modelId) {
+  if (isGenericModel(modelId)) return null;
   return `/vendor/pet-models/bongo-${modelId}/resources/${relative}`;
 }
 
 function refreshModelArtwork() {
   if (!modeBackgroundEl) return;
+  // 通用模型没有 background.png / 按键贴图；隐藏这两层而不是去 404。
+  if (isGenericModel()) {
+    modeBackgroundEl.hidden = true;
+    modeBackgroundEl.removeAttribute("src");
+    for (const node of Object.values(inputOverlayEls)) {
+      if (!node) continue;
+      node.hidden = true;
+      node.removeAttribute("src");
+      delete node.dataset.inputName;
+    }
+    return;
+  }
   modeBackgroundEl.src = modelAsset("background.png");
   modeBackgroundEl.hidden = false;
   for (const node of Object.values(inputOverlayEls)) {
@@ -107,6 +138,7 @@ function inputAssetName(code) {
 }
 
 function setInputArtwork(side, code, pressed = true) {
+  if (isGenericModel()) return;
   const node = inputOverlayEls[side];
   const name = inputAssetName(code);
   if (!node || !name) return;
@@ -153,6 +185,7 @@ function refreshState() {
   }
   const next = activity.snapshot();
   setState(next.name, next.text);
+  syncGenericExpression(next.name);
 }
 
 // ---------------------------------------------------------------- 音频合成（零依赖低延迟 Web Audio）
@@ -252,6 +285,12 @@ function startPairing() {
   const direct = consumeFragmentKey();
   if (direct) adoptToken(direct, "fragment-key");
 
+  // 反向指令通道：环形快捷栏的模型切换要落到主窗口（再落服务端台账）。
+  commandChannel = createPetCommandChannel(() => isDock ? window.parent : null, window, isDesktop);
+  commandChannel.onmessage = (event) => {
+    if (event?.data?.type === "pet-command-result") onPetCommandResult(event.data);
+  };
+
   {
     channel = createPetChannel(() => isDock ? window.parent : null, window, isDesktop);
     channel.onmessage = (event) => {
@@ -259,8 +298,10 @@ function startPairing() {
       if (data.type === "pet-token" && typeof data.token === "string" && data.token) {
         adoptToken(data.token, "broadcast");
         if (data.config) applyConfig(data.config);
+        if (Number.isSafeInteger(data.revision)) state.pluginRevision = data.revision;
       } else if (data.type === "pet-config") {
         applyConfig(data.config || {});
+        if (Number.isSafeInteger(data.revision)) state.pluginRevision = data.revision;
       } else if (data.type === "pet-mouse") {
         if (state.mouseTracking !== false) {
           state.targetMouseX = Number(data.x) || 0;
@@ -298,6 +339,95 @@ function startPairing() {
   pairingTimer = setInterval(() => { if (!state.token) announce(); }, PAIR_RETRY_MS);
 }
 
+// ---------------------------------------------------------------- 滚轮：缩放与透明度
+//
+// 对齐上游 BongoCat（window_wheel.c）：
+//   · 滚轮           → 缩放，每格 5%，范围 10%~500%（我们窗口更小，收到 60%~180%）
+//   · Ctrl + 滚轮    → 透明度，每格 5%，范围 10%~100%
+//
+// **不落台账**：上游改的是 session 值（wheel_*_target），重启回默认。这里同理 ——
+// 滚轮是临时微调，持久值由插件面板/环形菜单决定。否则连续滚轮会打爆台账 CAS。
+const WHEEL_SCALE_STEP = 0.05;
+const WHEEL_OPACITY_STEP = 0.05;
+const WHEEL_SCALE_RANGE = [0.6, 1.8];
+const WHEEL_OPACITY_RANGE = [0.1, 1];
+
+function onWheel(event) {
+  if (!state.interactive) return; // 穿透模式下窗口收不到事件，这里是防御性兜底
+  event.preventDefault();
+  // 环形菜单开着时滚轮用于翻页，不调参。
+  if (ring?.isOpen()) return;
+  const delta = Math.sign(event.deltaY);
+  if (!delta) return;
+  // 刚调过就抑制「移入隐藏」：连续滚轮显然是在调参，不是在路过。
+  state.tuningUntil = Date.now() + 1500;
+  if (event.ctrlKey) {
+    state.opacity = Math.min(WHEEL_OPACITY_RANGE[1], Math.max(WHEEL_OPACITY_RANGE[0],
+      state.opacity - delta * WHEEL_OPACITY_STEP));
+    body.style.opacity = String(isDock ? 1 : state.opacity);
+  } else {
+    state.scale = Math.min(WHEEL_SCALE_RANGE[1], Math.max(WHEEL_SCALE_RANGE[0],
+      state.scale + delta * WHEEL_SCALE_STEP));
+    fitModel();
+  }
+}
+
+// ---------------------------------------------------------------- 鼠标移入自动隐藏
+//
+// 对齐上游 BongoCat 的 hide_on_hover。**关键前提**：上游把它门控在
+// `hide_on_hover && pass_through && always_on_top`（mouse.c:18-20）——
+// 只在**穿透模式**下才隐藏。互动模式下隐藏等于自杀：鼠标一进来桌宠就没了，
+// 既没法拖也没法点，用户会以为崩了。
+//
+// **为什么必须借原生**：窗口在透明区域上是穿透的，鼠标划过模型旁边的空白，
+// 页面收不到 pointerenter/leave —— 前端判断不出"光标进来了没有"。
+// 所以页面负责上报窗口几何，原生侧拿**全局光标位置**做矩形判定。
+//
+// 隐藏用整窗透明度（Win32 SetLayeredWindowAttributes），不是 body 的 CSS opacity ——
+// 后者只影响绘制内容，未绘制区域照样挡鼠标。
+const HOVER_HIDE_DELAY_MS = 1000;
+const HOVER_POLL_MS = 250;
+let hoverTimer = null;
+let hoverInsideSince = 0;
+
+async function syncNativeHoverLoop() {
+  if (!isDesktop || hoverTimer) return;
+  const rect = await tauriInvoke("plugin:window|inner_position")?.catch?.(() => null);
+  const size = await tauriInvoke("plugin:window|inner_size")?.catch?.(() => null);
+  if (rect && size) {
+    await tauriInvoke("set_pet_overlay_rect", {
+      x: Math.round(rect.x), y: Math.round(rect.y),
+      width: Math.round(size.width), height: Math.round(size.height),
+    })?.catch?.(() => {});
+  }
+  hoverTimer = setInterval(async () => {
+    // 上游门控：只在穿透（=非互动）时隐藏。互动模式下这条整体关掉。
+    if (!isDesktop || !state.hideOnHover || state.interactive) {
+      if (state.hoverHidden) {
+        state.hoverHidden = false;
+        void tauriInvoke("set_pet_overlay_hover", { hidden: false })?.catch?.(() => {});
+      }
+      return;
+    }
+    const inside = await tauriInvoke("pet_pointer_inside")?.catch?.(() => false);
+    if (inside) {
+      if (!hoverInsideSince) hoverInsideSince = Date.now();
+      // 调参期间（刚滚过轮/开着环）不隐藏 —— 那是在用，不是在路过。
+      const tuning = ring?.isOpen() || Date.now() < state.tuningUntil;
+      if (!tuning && Date.now() - hoverInsideSince >= HOVER_HIDE_DELAY_MS && !state.hoverHidden) {
+        state.hoverHidden = true;
+        void tauriInvoke("set_pet_overlay_hover", { hidden: true })?.catch?.(() => {});
+      }
+    } else {
+      hoverInsideSince = 0;
+      if (state.hoverHidden) {
+        state.hoverHidden = false;
+        void tauriInvoke("set_pet_overlay_hover", { hidden: false })?.catch?.(() => {});
+      }
+    }
+  }, HOVER_POLL_MS);
+}
+
 // ---------------------------------------------------------------- 配置同步
 
 function applyConfig(config) {
@@ -306,6 +436,8 @@ function applyConfig(config) {
     refreshModelArtwork();
     if (rendererBooting) pendingModelReload = true;
     else if (state.model) void bootRenderer();
+    // 换了模型，环形菜单的表情/动作池也得跟着换（每个模型的素材不同）。
+    refreshRing();
   }
   if ([30, 60, 120].includes(Number(config.maxFps))) {
     state.maxFps = Number(config.maxFps);
@@ -321,6 +453,9 @@ function applyConfig(config) {
     state.nextExpressionAt = config.randomExpression ? Date.now() + 5000 : 0;
   }
   if (typeof config.interactive === "boolean") setInteractive(config.interactive);
+  // 上游 BongoCat：滚轮缩放 / Ctrl+滚轮透明度写的是 session 值，不是持久配置
+  // （window_wheel.c 只动 wheel_*_target，重启回默认）。这里同理 —— 只有**环形菜单**
+  // 里的「尺寸 / 透明度」才落台账。鼠标移入隐藏只在前端（写的是窗口原生 alpha）。
   if (Number.isFinite(config.opacity)) {
     state.opacity = Math.min(1, Math.max(0.15, Number(config.opacity)));
     body.style.opacity = String(isDock ? 1 : state.opacity);
@@ -328,6 +463,13 @@ function applyConfig(config) {
   if (Number.isFinite(config.scale)) {
     state.scale = isDock ? 1 : Math.min(1.8, Math.max(0.6, Number(config.scale)));
     fitModel();
+  }
+  // 未暴露成设置项的上游行为：移入隐藏（默认开，延迟 1s）+ 圆角（默认开）。
+  // 不放进插件清单，是为了不让设置面板继续膨胀 —— 它们是窗口观感，不是配置。
+  if (typeof config.hideOnHover === "boolean") state.hideOnHover = config.hideOnHover;
+  // 原生侧不知道窗口在哪、也收不到透明区域的鼠标事件，所以由页面主动上报几何与悬停。
+  if (isDesktop) {
+    void syncNativeHoverLoop();
   }
   const tracking = config["mouse-tracking"] ?? config.mouseTracking;
   if (typeof tracking === "boolean") {
@@ -345,7 +487,6 @@ function tauriInvoke(command, args) {
 
 function setInteractive(next) {
   state.interactive = Boolean(next);
-  toolbarEl.hidden = !state.interactive || !isDesktop;
   body.dataset.interactive = String(state.interactive);
   const canvas = document.getElementById("pet-canvas");
   if (canvas) {
@@ -359,22 +500,187 @@ function setInteractive(next) {
   result?.catch?.(() => channel?.postMessage({ type: "pet-error", message: "互动模式切换失败，请重试。" }));
 }
 
-toolbarEl?.querySelector("#pet-toggle-interactive")?.addEventListener("click", () => {
-  channel?.postMessage({ type: "pet-request", request: "interactive-off" });
-});
-toolbarEl?.querySelector("#pet-close")?.addEventListener("click", () => {
-  channel?.postMessage({ type: "pet-request", request: "close" });
-});
-toolbarEl?.addEventListener("pointerdown", (event) => {
-  if (event.button !== 0 || event.target.closest("button") || !state.interactive || !isDesktop) return;
-  event.preventDefault();
-  tauriInvoke("plugin:window|start_dragging")?.catch?.(() => {});
-});
+// 顶栏已移除（会盖住 300×280 窗口里的模型，且与「拖模型」的直觉冲突）。
+// 「退出互动 / 收起桌宠」改由右键环形菜单承担，见 handleRingSelect。
 document.getElementById("pet-retry")?.addEventListener("click", () => {
   if (state.rendererStatus === "error") void bootRenderer();
   channel?.postMessage({ type: "pet-hello" });
   if (state.token) startStreams();
 });
+
+// ---------------------------------------------------------------- 环形快捷栏
+//
+// 右键桌宠弹出环形菜单（一级：模型/表情/动作/互动/收起；二级：具体条目）。
+// 只在互动模式可用 —— 穿透模式下窗口根本收不到鼠标事件（native.rs:498
+// set_ignore_cursor_events(true)），环弹不出来，这不是缺陷是前提。
+//
+// 模型走服务端（持久配置的真源是插件台账）；表情与动作是一次性演出，本地处理。
+
+let ring = null;
+let commandChannel = null;
+let ringPendingExpression = null;
+let ringExpressionUntil = 0;
+let ringPendingMotion = null;
+let ringMotionUntil = 0;
+
+function ringOptions() {
+  const model = currentModel();
+  // 键名与 pet-ring.js 的 RING_ITEMS id 一致（单数）。名字对不上 = 二级页永远空白。
+  return {
+    model: Object.keys(PET_MODELS).map((id) => PET_MODELS[id].label || id),
+    expression: [...(model.expressions || [])],
+    motion: [...(model.motions || [])],
+  };
+}
+
+/** 二级页选中的是「标签」，要映射回内部 id / 语义名。 */
+function modelIdForLabel(label) {
+  return Object.keys(PET_MODELS).find((id) => (PET_MODELS[id].label || id) === label) || null;
+}
+
+function onPetCommandResult(data) {
+  if (data?.action !== "set-model") return;
+  if (data.ok) return; // 乐观更新已生效，回执只用于失败回滚。
+  // 服务端拒了（revision 过期 / 未知模型）：把界面拉回台账真值，别停在假状态。
+  ringPendingExpression = null;
+  ringExpressionUntil = 0;
+  ringPendingMotion = null;
+  ringMotionUntil = 0;
+  channel?.postMessage({ type: "pet-hello" });
+}
+
+const BONGO_EXPRESSION_MAP = Object.freeze({
+  "恢复": "live2d_expression0.exp3.json",
+  "墨镜": "live2d_expression1.exp3.json",
+  "升天": "live2d_expression2.exp3.json",
+});
+
+function refreshRing() {
+  if (!ring) return;
+  ring.refresh({
+    ...ringOptions(),
+    activeModel: currentModel().label || state.modelId,
+    activeExpression: ringPendingExpression,
+    activeMotion: ringPendingMotion,
+  });
+}
+
+function handleRingSelect(type, value) {
+  if (type === "close") { channel?.postMessage({ type: "pet-request", request: "close" }); return; }
+  if (type === "pass-through") { channel?.postMessage({ type: "pet-request", request: "interactive-off" }); return; }
+  if (type === "model") {
+    const model = modelIdForLabel(value);
+    if (model) commandChannel?.postMessage({ type: "set-model", model, revision: state.pluginRevision });
+    return;
+  }
+  if (type === "expression") { void playRingExpression(value); return; }
+  if (type === "motion") {
+    const model = currentModel();
+    const group = model.emoteGroup || (isGenericModel() ? "Emote" : "CAT_motion");
+    const motions = model.motions || [];
+    let index = motions.indexOf(value);
+    if (isGenericModel()) {
+      const whaleMap = { bubblegum: 0, ketchup: 1, "open-phone": 2, selfie: 3, "selfie-quick": 4, spray: 5 };
+      if (Object.hasOwn(whaleMap, value)) index = whaleMap[value];
+    }
+    if (index >= 0) {
+      ringPendingMotion = value;
+      ringMotionUntil = Date.now() + 4500;
+      if (!isGenericModel()) {
+        if (value === "拍桌") {
+          state.tapUntil = Date.now() + 2000;
+          playKeyClick();
+        }
+      }
+      playChime();
+      void state.model?.motion?.(group, index, 3)?.catch?.(() => {});
+      refreshRing();
+      window.setTimeout(() => {
+        if (ringPendingMotion !== value) return;
+        ringPendingMotion = null;
+        ringMotionUntil = 0;
+        refreshRing();
+      }, 4500);
+    }
+  }
+}
+
+/**
+ * 环形菜单选的表情是「一次性演出」：播完自动回到当前 AI 状态该有的脸，
+ * 而不是永久覆盖 —— 否则用户随手点一张，状态驱动就再也接管不回来了。
+ */
+async function playRingExpression(name) {
+  if (!name) return;
+  const model = currentModel();
+  if (!(model.expressions || []).includes(name)) return;
+  try {
+    const target = isGenericModel() ? name : (BONGO_EXPRESSION_MAP[name] || name);
+    if (!isGenericModel() && name === "恢复") {
+      ringPendingExpression = null;
+      ringExpressionUntil = 0;
+      ringPendingMotion = null;
+      ringMotionUntil = 0;
+      state.thuglifeUntil = 0;
+      state.pokeUntil = 0;
+      state.tapUntil = 0;
+      void state.model?.expression?.("live2d_expression0.exp3.json")?.catch?.(() => {});
+      playChime();
+      refreshRing();
+      return;
+    }
+    ringPendingExpression = name;
+    ringExpressionUntil = Date.now() + 6000;
+    if (!isGenericModel()) {
+      if (name === "墨镜") state.thuglifeUntil = ringExpressionUntil;
+    }
+    await state.model?.expression?.(target);
+    playChime();
+    refreshRing();
+    window.setTimeout(() => {
+      if (ringPendingExpression !== name) return;
+      ringPendingExpression = null;
+      ringExpressionUntil = 0;
+      refreshRing();
+      if (isGenericModel()) {
+        // 强制下一次 syncGenericExpression 重新应用当前状态的表情。
+        lastGenericExpression = null;
+        lastGenericPoolState = null;
+        syncGenericExpression(state.petState);
+      } else {
+        void state.model?.expression?.("live2d_expression0.exp3.json")?.catch?.(() => {});
+      }
+    }, 6000);
+  } catch {}
+}
+
+// 桌面壳与 Web Dock 都建环：环只在互动模式可弹，而互动模式在两种宿主下都可达
+// （Web Dock 里 setInteractive 早退于 tauriInvoke，但 state.interactive 照样置位）。
+// 早先只在 isDesktop 下建环，导致 Web Dock 里右键毫无反应 —— 同一个功能两种宿主两种行为。
+{
+  ring = createPetRing({
+    root: document.getElementById("pet-ring"),
+    onSelect: handleRingSelect,
+    onClose: () => {},
+  });
+  refreshRing();
+  // 右键在环与画布上都生效（互动模式下窗口已可接收鼠标事件）。
+  for (const node of [document.body, document.getElementById("pet-canvas")].filter(Boolean)) {
+    node.addEventListener("contextmenu", (event) => {
+      if (!state.interactive) return;
+      event.preventDefault();
+      ring.toggle();
+    });
+  }
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && ring.isOpen()) ring.close();
+  });
+  // 滚轮调参 + 移入隐藏：挂在 body 上（模型画布只是窗口的一部分，
+  // 用户会把光标移到模型旁边的空白处 —— 那里也该算"在桌宠上"）。
+  document.body.addEventListener("wheel", onWheel, { passive: false });
+  // 原生每 250ms 拿全局光标位置判进出；页面不再自己做 pointerenter/leave
+  // （透明区域上页面收不到事件，判不出来）。
+  if (isDesktop) void syncNativeHoverLoop();
+}
 
 // ---------------------------------------------------------------- SSE 消费
 
@@ -477,6 +783,64 @@ function ingestBotEvent(envelope) {
   refreshState();
 }
 
+/**
+ * 通用模型的语义表情切换。
+ *
+ * 与猫分支的差别：猫的表情是 0..2 索引；通用模型按条目声明的语义名寻址。
+ * exp3 是「参数=固定值 + Add」的常驻开关，不清会叠加污染 —— 所以状态一变
+ * 必须先把上一个换掉（pixi-live2d 的 resetExpression 会把当前表情换成空定义）。
+ *
+ * 两层解析（顺序不可换）：
+ *   1. stateExpression —— 瞬时状态（审批/失败/欢庆/静默/重连）要**稳定可辨识**的脸，
+ *      一旦命中就固定用它，不进轮换。
+ *   2. expressionPools —— 长驻状态（ready/typing）才是桌宠的常态，给池子轮换，
+ *      否则九成时间是一张没有表情的默认脸（这是修好之前最伤观感的缺口）。
+ *
+ * 池子每 N 秒换一张，但**状态变化时立即重抽** —— 让「AI 开始干活」这件事
+ * 在画面上立刻有反应，而不是等下一次轮换。
+ */
+let lastGenericExpression = null;
+let lastGenericPoolState = null;
+let nextPoolSwapAt = 0;
+const POOL_SWAP_MS = 12_000;
+
+/** 从池子里抽一张，尽量不重复上一张（池长 1 时退化为原地不动）。 */
+function pickFromPool(pool) {
+  if (!pool?.length) return null;
+  if (pool.length === 1) return pool[0];
+  let pick = pool[Math.floor(Math.random() * pool.length)];
+  if (pick === lastGenericExpression) {
+    pick = pool[(pool.indexOf(pick) + 1) % pool.length];
+  }
+  return pick;
+}
+
+function syncGenericExpression(petState) {
+  if (!isGenericModel() || !state.model) return;
+  if (ringPendingExpression && Date.now() < ringExpressionUntil) return;
+  const model = currentModel();
+  const semantic = model.stateExpression?.[petState] || null;
+  const pool = model.expressionPools?.[petState] || null;
+  const stateChanged = petState !== lastGenericPoolState;
+  lastGenericPoolState = petState;
+
+  let wanted = semantic;
+  if (!wanted && pool?.length) {
+    if (stateChanged || Date.now() >= nextPoolSwapAt) {
+      wanted = pickFromPool(pool);
+      nextPoolSwapAt = Date.now() + POOL_SWAP_MS;
+    } else {
+      return; // 池内轮换还没到点，保持当前这张，别每帧重设。
+    }
+  }
+  if (wanted === lastGenericExpression) return;
+  lastGenericExpression = wanted;
+  try {
+    if (wanted) void state.model.expression(wanted)?.catch?.(() => {});
+    else state.model.internalModel?.motionManager?.expressionManager?.resetExpression?.();
+  } catch {}
+}
+
 function tickState() {
   const t = Date.now();
   if (t - state.lastTapAt > COMBO_TIMEOUT_MS && state.combo > 0) {
@@ -484,7 +848,18 @@ function tickState() {
   }
   if (state.randomExpression && state.model && t >= state.nextExpressionAt) {
     state.nextExpressionAt = t + 5000;
-    try { void state.model.expression(Math.floor(Math.random() * 3))?.catch?.(() => {}); } catch {}
+    if (ringPendingExpression && t < ringExpressionUntil) return;
+    // 通用模型的表情表来自模型条目；没有声明就整体跳过（猫走原有的 0..2 索引）。
+    const generic = isGenericModel();
+    const pool = generic ? (currentModel().expressions || []) : null;
+    if (!generic || pool.length) {
+      try {
+        const pick = generic
+          ? pool[Math.floor(Math.random() * pool.length)]
+          : Math.floor(Math.random() * 3);
+        void state.model.expression(pick)?.catch?.(() => {});
+      } catch {}
+    }
   }
   refreshState();
 }
@@ -518,9 +893,94 @@ const LIGHTNING_TOGGLE_PARAM = "Param"; // 开启闪电
 const LIGHTNING_SWEEP_PARAM = "Param2"; // 闪电划过
 const CHEEK_PARAM = "ParamCheek"; // 腮红
 
+/**
+ * 通用模型（非 BongoCat 猫）的状态驱动。
+ *
+ * 与猫分支的根本差别：
+ *   1. 绝不写 CatParam* / ParamMouseX 等猫专属参数 —— 它们在这个模型上不存在，
+ *      写入会被 setParameterValueById 静默吞掉；更危险的是 Param3/Param4/Param5
+ *      在这里是「高光大小/挤压/左右」且属于物理输出，写进去会持续破坏眼睛高光。
+ *   2. 只驱动一份显式白名单，每帧先归零再按状态写，避免跨帧残留。
+ *   3. 表情走条目声明的语义名（ASCII），不走猫的 0..2 索引。
+ */
+function applyGenericStateParams(core, set, t, petState) {
+  const model = currentModel();
+  const drivable = model.drivable || {};
+  const isMotionPlaying = Boolean(
+    (ringPendingMotion && Date.now() < ringMotionUntil) ||
+    (state.model?.internalModel?.motionManager && !state.model.internalModel.motionManager.isFinished())
+  );
+  const isCustomExpression = Boolean(ringPendingExpression && Date.now() < ringExpressionUntil);
+
+  // 动作播放期间，让动作动画的头部/身体/道具/表情完整呈现，不被每帧状态逻辑抹平
+  if (isMotionPlaying) return;
+
+  // 每帧归零白名单：只碰我们确定要驱动的参数，物理输出一律不碰。
+  for (const [key, id] of Object.entries(drivable)) {
+    // 自定义表情展示期间，不要把表情定义的开眼/口型清掉
+    if (isCustomExpression && (key === "eyeLOpen" || key === "eyeROpen" || key === "mouthOpenY" || key === "mouthForm")) {
+      continue;
+    }
+    set(id, 0);
+  }
+
+  // 光标跟随 —— 驱动眼球而非“手”，这是这个模型真正有的自由度。
+  if (state.mouseTracking !== false) {
+    const pointerX = state.pointerMirror ? -state.targetMouseX : state.targetMouseX;
+    state.currentMouseX += (pointerX - state.currentMouseX) * 0.22;
+    state.currentMouseY += (state.targetMouseY - state.currentMouseY) * 0.22;
+    set(drivable.eyeBallX, state.currentMouseX * 0.6);
+    set(drivable.eyeBallY, -state.currentMouseY * 0.6);
+    set(drivable.headX, state.currentMouseX * 12);
+    set(drivable.headY, -state.currentMouseY * 8);
+  }
+
+  // 表情展示期间跳过常驻状态机对头动和嘴型的写值
+  if (isCustomExpression) return;
+
+  switch (petState) {
+    case "typing":
+      // 没有手臂骨骼，用轻微点头表达「在忙」。
+      set(drivable.headZ, Math.sin(t * 6) * 2.2);
+      set(drivable.mouthOpenY, 0.12 + Math.sin(t * 9) * 0.1);
+      break;
+    case "attention":
+      set(drivable.headX, Math.sin(t * 3) * 6);
+      break;
+    case "celebrate":
+      set(drivable.headZ, Math.sin(t * 10) * 4);
+      set(drivable.mouthOpenY, 0.5 + Math.sin(t * 12) * 0.35);
+      break;
+    case "failure":
+      set(drivable.headY, -6);
+      set(drivable.mouthForm, -1.2);
+      break;
+    case "sleep":
+      set(drivable.eyeLOpen, 0);
+      set(drivable.eyeROpen, 0);
+      set(drivable.headZ, Math.sin(t * 1.2) * 1.5);
+      break;
+    case "reconnecting":
+      set(drivable.headZ, Math.sin(t * 4) * 3);
+      break;
+    default:
+      // ready：交给模型自带的眨眼 / 呼吸 / 物理。
+      set(drivable.headZ, Math.sin(t * 1.1) * 0.8);
+      break;
+  }
+}
+
 function triggerCelebrate() {
   try {
-    state.model?.motion("CAT_motion", 1, 3)?.catch?.(() => {});
+    const model = currentModel();
+    if (model.kind === "generic") {
+      // 通用模型：只播动作，表情交给 syncGenericExpression（它按 celebrate 的语义签名切）。
+      // 不传索引 → 运行时走 startRandomMotion，在 model3.json 的实际条目里随机挑；
+      // 写死索引（曾经的 motion("Emote", 0)）会让 6 个动作里 5 个永远播不到。
+      void state.model?.motion?.(model.emoteGroup)?.catch?.(() => {});
+    } else {
+      state.model?.motion("CAT_motion", 1, 3)?.catch?.(() => {});
+    }
     playChime();
   } catch (error) {
     console.warn("[pet] celebrate motion failed", error);
@@ -553,7 +1013,8 @@ function fitModel() {
   if (!state.baseSize) {
     state.baseSize = { width: model.width || 300, height: model.height || 300 };
   }
-  const availableHeight = window.innerHeight - (state.interactive && isDesktop ? 36 : 0);
+  // 顶栏已移除，不再为它预留 36px。
+  const availableHeight = window.innerHeight;
   const scale = Math.min(availableHeight * 0.88 / state.baseSize.height,
     window.innerWidth * 0.96 / state.baseSize.width);
   model.scale.set(state.modelMirror ? -scale : scale, scale);
@@ -572,6 +1033,10 @@ async function bootRenderer() {
   state.model = null;
   state.loadedModelId = null;
   state.baseSize = null;
+  ringPendingExpression = null;
+  ringExpressionUntil = 0;
+  ringPendingMotion = null;
+  ringMotionUntil = 0;
   state.rendererStatus = "loading";
   state.rendererError = "";
   setState("loading", "正在唤醒猫…");
@@ -625,6 +1090,16 @@ async function bootRenderer() {
     app.stage.addChild(model);
     fitModel();
     window.addEventListener("resize", fitModel);
+
+    // 桌面壳的原生拖拽：tauriInvoke 的 start_dragging 必须由**真实用户手势**触发，
+    // 所以只能挂在原生监听上（合成事件会被 Tauri 拒），且只有互动模式才允许 ——
+    // 穿透模式下窗口收不到鼠标事件，这个监听根本不响，不是缺陷是前提。
+    canvas.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !state.interactive || !isDesktop) return;
+      if (event.target.closest?.(".pet-ring-item, .pet-ring-back")) return;
+      event.preventDefault();
+      tauriInvoke("plugin:window|start_dragging")?.catch?.(() => {});
+    });
 
     // 参数覆盖时机：动作/眨眼/呼吸之后、coreModel.update 之前（覆盖即生效）
     model.internalModel.on("beforeModelUpdate", () => applyStateParams(model.internalModel.coreModel));
@@ -685,6 +1160,7 @@ function applyStateParams(core) {
       core.setParameterValueById(id, value);
     } catch {}
   };
+  if (isGenericModel()) return applyGenericStateParams(core, set, t, petState);
   // Overrides must be reset each frame or previous expressions remain latched.
   for (const id of [WAVE_PARAM, KEY_PARAM, RIGHT_KEY_PARAM, ASCEND_PARAM, CHEEK_PARAM, "ParamEyeLSmile", "ParamEyeRSmile", "ParamMouthOpenY"]) set(id, 0);
   for (const id of ["ParamMouseX", "ParamMouseY", "ParamMouseLeftDown", "ParamMouseRightDown", "ParamEyeBallX", "ParamEyeBallY"]) set(id, 0);
@@ -722,8 +1198,9 @@ function applyStateParams(core) {
     setInputArtwork("right", inputOverlayEls.right?.dataset.inputName, false);
   }
 
-  // 2. 连击狂热与闪电特效（BongoCat Lightning Fever Combo）
-  const isLightningActive = state.lightningCombo !== false && (state.combo >= 8 || (petState === "typing" && state.combo >= 4));
+  // 2. 连击狂热与闪电特效（BongoCat Lightning Fever Combo / 拍桌）
+  const isDeskSlap = ringPendingMotion === "拍桌" && Date.now() < ringMotionUntil;
+  const isLightningActive = isDeskSlap || (state.lightningCombo !== false && (state.combo >= 8 || (petState === "typing" && state.combo >= 4)));
   if (isLightningActive) {
     set(LIGHTNING_TOGGLE_PARAM, 1);
     set(LIGHTNING_SWEEP_PARAM, (Math.sin(t * 26) + 1) / 2);
@@ -733,14 +1210,34 @@ function applyStateParams(core) {
   }
 
   // 3. 酷炫彩蛋表情（Thug Life 墨镜）
-  if (state.thuglifeUntil > Date.now() || state.combo >= 25) {
+  const isThugLife = state.thuglifeUntil > Date.now() || state.combo >= 25 || (ringPendingExpression === "墨镜" && Date.now() < ringExpressionUntil);
+  if (isThugLife) {
     set(THUGLIFE_PARAM, 1);
   } else {
     set(THUGLIFE_PARAM, 0);
   }
 
   // 4. 左爪打字与各情态动画
-  if (petState !== "attention" && Date.now() < (state.pokeUntil || 0)) {
+  const isAscend = petState === "celebrate" || (ringPendingExpression === "升天" && Date.now() < ringExpressionUntil);
+  const isWave = petState === "attention" || (ringPendingMotion === "挥手" && Date.now() < ringMotionUntil);
+
+  if (isDeskSlap) {
+    set(KEY_PARAM, 1);
+    set("ParamBodyAngleZ", Math.sin(t * 34) * 3.2);
+    set("ParamBodyAngleX", Math.sin(t * 9) * 1.5);
+  } else if (isWave) {
+    // 挥手
+    set(WAVE_PARAM, 1);
+    set(CHEEK_PARAM, 1);
+    set("ParamEyeLSmile", 0.7);
+    set("ParamEyeRSmile", 0.7);
+    set("ParamBodyAngleZ", Math.sin(t * 6) * 2);
+  } else if (isAscend) {
+    // 天使光环升天
+    set(ASCEND_PARAM, 1);
+    set("ParamMouthOpenY", 0.6 + Math.sin(t * 12) * 0.4);
+    set("ParamBodyAngleZ", Math.sin(t * 10) * 4);
+  } else if (petState !== "attention" && Date.now() < (state.pokeUntil || 0)) {
     // 戳一戳互动：脸颊腮红、开心眯眼与摇摆
     set(CHEEK_PARAM, 1);
     set("ParamEyeLSmile", 0.9);
@@ -758,18 +1255,6 @@ function applyStateParams(core) {
     }
     set("ParamBodyAngleZ", Math.sin(t * 34) * (isLightningActive ? 3.2 : 2.2));
     set("ParamBodyAngleX", Math.sin(t * 9) * 1.5);
-  } else if (petState === "attention") {
-    // 挥手提醒
-    set(WAVE_PARAM, 1);
-    set(CHEEK_PARAM, 1);
-    set("ParamEyeLSmile", 0.7);
-    set("ParamEyeRSmile", 0.7);
-    set("ParamBodyAngleZ", Math.sin(t * 6) * 2);
-  } else if (petState === "celebrate") {
-    // 天使光环升天欢庆
-    set(ASCEND_PARAM, 1);
-    set("ParamMouthOpenY", 0.6 + Math.sin(t * 12) * 0.4);
-    set("ParamBodyAngleZ", Math.sin(t * 10) * 4);
   } else if (petState === "sleep") {
     set("ParamEyeLOpen", 0);
     set("ParamEyeROpen", 0);

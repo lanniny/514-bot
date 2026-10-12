@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { writeConfig } from "./qa-ui-fixture.mjs";
+import { writeConfig } from "./retired-workbench-era/qa-ui-fixture.mjs";
 import { spawnTestServer, stopTestServer, waitForUrl, testModelProfiles } from "../tests/server-fixture.mjs";
 
 const serve = process.argv.includes("--serve");
@@ -30,6 +30,7 @@ Object.assign(env, {
   CONTROL_CENTER_TEST_REPO_ROOT: repo, CONTROL_CENTER_DATA_DIR: resolve(fixture, "data"), CONTROL_CENTER_TOKEN: token, CONTROL_CENTER_PORT: "0",
 });
 const server = spawnTestServer({ env });
+let insightsDiag = null;
 const report = { ok: false, boundary: "Isolated persisted identity; synthetic task, result and event responses; unavailable provider executables; no formal desktop activation", checks: [], layouts: [], errors: [] };
 let proxy;
 let browser;
@@ -115,9 +116,13 @@ try {
   } else {
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage({ viewport: { width: 1440, height: 960 }, reducedMotion: "reduce" });
-    page.on("pageerror", (error) => report.errors.push(error.message));
+    await page.addInitScript(() => { try { localStorage.setItem("514cc-product-tour-dismissed", "1"); } catch {} }); // 首跑导览对话框会挡视口点击（D-2026-09-28-018）
+    page.on("pageerror", (error) => report.errors.push(String(error && error.stack ? error.stack : error).split("\n").slice(0, 6).join(" | ")));
     await page.goto(url);
-    await page.locator(".collaboration-task").first().waitFor();
+    console.log("PAGEERRORS:", JSON.stringify(report.errors.slice(0,5)));
+console.log("BADGE:", await page.evaluate(() => document.querySelector("#api-connection-badge")?.className ?? "none").catch(e=>String(e)));
+console.log("RECOVERY_IN_DOM:", await page.evaluate(() => { const r=document.querySelector("#recovery-bar"); const s=document.querySelector("#bot-message-stream"); return { barBeforeStream: Boolean(r&&s&&r.compareDocumentPosition(s)&Node.DOCUMENT_POSITION_FOLLOWING), rParent: r?.parentElement?.className ?? null, sParent: s?.parentElement?.className ?? null }; }).catch(e=>String(e)));
+await page.locator(".collaboration-task").first().waitFor();
     assert.equal(await page.locator("[data-bot-task-id]").count(), 7);
     assert.equal(await page.locator("[data-bot-delegation-id]").count(), 5);
     assert.equal(await page.locator(".collaboration-members li").count(), 3);
@@ -193,8 +198,40 @@ try {
     tasks.push(...Array.from({ length: 1000 }, (_, index) => ({ id: `bulk-task-${index}`, title: `执行记录 ${index}`, assigneeId: "codex-technical", status: "queued" })));
     edges.push(...Array.from({ length: 1000 }, (_, index) => ({ id: `bulk-edge-${index}`, fromAgentId: "claude-fable", toAgentId: "codex-technical", kind: "route", state: "queued" })));
     await page.goto(url);
+    // D-2026-09-28-040：显式前置条件——从「空会话」视图回来之后，run 索引偶发整个是空的
+    //（实测诊断 runOptions:[""]，重载也救不回）。原先直接 reload 再等 50 条任务，
+    // 失败时只看到"任务没渲染"，分不清是索引空、注入漏、还是分页错。先咬住索引本身：
+    // 非 placeholder 的 option 就位了才重载，失败信息会直接说「run 索引没回来」。
+    await page.waitForFunction(() => document.querySelectorAll("#workspace-run-select option").length > 1, null, { timeout: 20_000 });
     await page.reload();
-    await page.waitForFunction(() => document.querySelectorAll("#workspace-insights [data-bot-task-id]").length === 50);
+    // D-2026-09-28-040：1000 条固态后等分页渲染。偶发超时（连跑 4 次红 1 次），
+    // 超时时就地取一面快照——分清「压根没渲染」（root.hidden / 不在 Bot 面）与
+    // 「渲染了但数量不对」（模型或分页），两者修法完全不同。
+    try {
+      await page.waitForFunction(() => document.querySelectorAll("#workspace-insights [data-bot-task-id]").length === 50, null, { timeout: 8000 });
+    } catch (error) {
+      // D-2026-09-28-040：goto 后立刻 reload 会让首发 /api/runs 被打断，偶发整个 run
+      // 没进索引（实测 4 跑红 2，诊断显示会话在、run 不在）。等 8s 不够就再重载一次，
+      // 仍不进才带快照抛——快照里 runOptions 能直接分辨是索引缺失还是注入漏了。
+      await page.reload();
+      try {
+        await page.waitForFunction(() => document.querySelectorAll("#workspace-insights [data-bot-task-id]").length === 50, null, { timeout: 8000 });
+      } catch (retryError) {
+        insightsDiag = await page.evaluate(() => ({
+        route: location.hash,
+        botActive: Boolean(document.getElementById("view-bot")?.classList.contains("is-active")),
+        insightsHidden: document.getElementById("workspace-insights")?.hidden,
+        insightsParent: document.getElementById("workspace-insights")?.parentElement?.id ?? null,
+        taskNodes: document.querySelectorAll("#workspace-insights [data-bot-task-id]").length,
+        graphRun: document.getElementById("workspace-insights")?.dataset?.graphRun ?? null,
+        rowsText: (document.getElementById("workspace-insights")?.innerText || "").slice(0, 240),
+        runOptions: [...document.querySelectorAll("#workspace-run-select option")].map((o) => o.value),
+        activeRunText: document.getElementById("workspace-run-select")?.value ?? null,
+        memberCount: document.querySelectorAll(".collaboration-members > *").length,
+      }));
+        throw error;
+      }
+    }
     assert.equal(await page.locator("[data-bot-delegation-id]").count(), 50);
     await page.locator('[data-workspace-graph-page="tasks"][data-direction="1"]').click();
     assert.equal(await page.locator("[data-bot-task-id]").first().getAttribute("data-bot-task-id"), tasks[50].id);
@@ -208,6 +245,7 @@ try {
   }
 } catch (error) {
   report.failure = error.stack || String(error);
+  report.diag = insightsDiag;
   console.error(report.failure);
   process.exitCode = 1;
 } finally {

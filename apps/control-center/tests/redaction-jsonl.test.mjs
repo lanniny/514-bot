@@ -180,6 +180,22 @@ test("Claude prefers a native executable over an earlier PowerShell shim", { ski
   assert.notEqual(resolved.command.toLowerCase(), "powershell.exe");
 });
 
+test("CodeBuddy prefers a .cmd executable over a PowerShell shim", { skip: process.platform !== "win32" }, async (t) => {
+  const root = await mkdtemp(resolve(appRoot, ".test-codebuddy-cmd-seat-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const binDir = resolve(root, "npm-global");
+  await import("node:fs/promises").then(({ mkdir, writeFile }) =>
+    mkdir(binDir, { recursive: true }).then(() => Promise.all([
+      writeFile(resolve(binDir, "codebuddy.ps1"), "exit 0\n"),
+      writeFile(resolve(binDir, "codebuddy.cmd"), "@echo off\n"),
+    ]))
+  );
+  const resolved = resolveCommand("codebuddy", { PATH: binDir });
+  assert.match(resolved.resolvedPath, /npm-global[\\/]codebuddy\.cmd$/i);
+  assert.equal(resolved.command.toLowerCase(), "cmd.exe");
+  assert.deepEqual(resolved.prefixArgs.slice(0, 3), ["/d", "/s", "/c"]);
+});
+
 test("grok resolves to ~/.grok/bin when PATH omits it (Phase 3 dispatch)", { skip: process.platform !== "win32" }, async (t) => {
   const home = await mkdtemp(resolve(appRoot, ".test-grok-home-"));
   t.after(() => rm(home, { recursive: true, force: true }));

@@ -48,6 +48,23 @@ export function validateClipboardImage(file) {
   return mimeType;
 }
 
+export function formatClipboardUploadError(error) {
+  const code = error?.code || error?.payload?.error?.code || "";
+  const msg = String(error?.message || error?.payload?.error?.message || "");
+  if (code === "IMAGE_TOO_LARGE" || msg.includes("exceeds") || msg.includes("超过 5 MiB")) return "图片体积超过 5 MiB 限制";
+  if (code === "UNSUPPORTED_IMAGE_TYPE" || msg.includes("unsupported clipboard image type") || msg.includes("不支持的剪贴板图片格式")) return "不支持的图片格式（仅限 PNG/JPG/GIF/WebP）";
+  if (code === "IMAGE_TYPE_MISMATCH" || msg.includes("does not match file signature")) return "图片扩展名与真实格式不符";
+  if (code === "CLIPBOARD_STORAGE_QUOTA_EXCEEDED" || msg.includes("quota is exhausted")) return "剪贴板图片存储配额已满";
+  if (code === "INVALID_IMAGE_DATA") {
+    if (msg.includes("structure is invalid or incomplete")) return "图片二进制结构损坏或不完整";
+    if (msg.includes("base64 is malformed")) return "剪贴板图片编码损坏";
+    if (msg.includes("empty") || msg.includes("为空")) return "图片内容为空";
+    return "图片数据无效";
+  }
+  if (msg.includes("读取不完整")) return "图片读取不完整";
+  return msg || "剪贴板图片上传失败";
+}
+
 function bytesToBase64(bytes) {
   let binary = "";
   const chunkSize = 0x8000;
@@ -179,7 +196,7 @@ export async function queueClipboardImageUploads({
         saved += 1;
       } catch (error) {
         item.status = "error";
-        item.error = error.message || "剪贴板图片上传失败";
+        item.error = formatClipboardUploadError(error);
         item.code = error.code || null;
         item.usage = error.payload?.error?.usage || error.usage || null;
         item.limits = error.payload?.error?.limits || error.limits || null;
@@ -251,7 +268,7 @@ export async function retryQuotaClipboardImageUploads({
         saved += 1;
       } catch (error) {
         item.status = "error";
-        item.error = error.message || "剪贴板图片上传失败";
+        item.error = formatClipboardUploadError(error);
         item.code = error.code || null;
         item.usage = error.payload?.error?.usage || error.usage || null;
         item.limits = error.payload?.error?.limits || error.limits || null;

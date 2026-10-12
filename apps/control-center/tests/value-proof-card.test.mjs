@@ -177,3 +177,19 @@ test("Bot and workbench settlement surfaces render the card and keep link target
   assert.match(css, /Phase C4：收获证明/);
   assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.value-proof-actions/);
 });
+
+test("DELTA 存在推翻记录时卡片标记 data-has-overturns", () => {
+  const model = projectValueProof({
+    run: SUCCEEDED_RUN,
+    settlement: {
+      schema: RUN_SETTLEMENT_SCHEMA,
+      artifacts: [
+        { id: "d1", kind: "delta", agent: "烛", score: 2, topic: "security", evidence: "found flaw" },
+      ],
+    },
+    events: [],
+  });
+  const html = valueProofCardMarkup(model, { surface: "bot" });
+  assert.match(html, /data-has-overturns="true"/);
+  assert.match(html, /1 次推翻主驾判断/);
+});

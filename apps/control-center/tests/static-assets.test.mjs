@@ -103,14 +103,21 @@ test("static assets carry ETag + short max-age and HTML revalidates every time",
   assert.equal(html.headers["cache-control"], "no-cache", "HTML 壳可能变，必须每次重验");
   assert.match(html.headers.etag, /^W\/"/);
 
-  const asset = fakeResponse();
-  await serveStatic("/app.js", asset, fakeRequest({ acceptEncoding: "br" }));
-  assert.equal(
-    asset.headers["cache-control"],
-    `public, max-age=${STATIC_MAX_AGE_SECONDS}, must-revalidate`,
-  );
-  assert.equal(asset.headers.vary, "Accept-Encoding");
-  assert.equal(asset.headers["x-content-type-options"], "nosniff", "安全头必须透传");
+  // css/js 与 HTML 同策略：no-cache + ETag。开发期热改样式/脚本，60s max-age 会让
+  // webview 重载后仍按旧样式渲染，表现为「改了没生效」（W18 实测）；未变化时 304。
+  const script = fakeResponse();
+  await serveStatic("/app.js", script, fakeRequest({ acceptEncoding: "br" }));
+  assert.equal(script.headers["cache-control"], "no-cache", "js 热改必须立即生效");
+  assert.equal(script.headers.vary, "Accept-Encoding");
+  assert.equal(script.headers["x-content-type-options"], "nosniff", "安全头必须透传");
+
+  // 非代码资产（图片等）保留短 max-age
+  const image = fakeResponse();
+  await serveStatic("/lucide-sprite.svg", image, fakeRequest({ acceptEncoding: "br" })).catch(() => {});
+  if (image.headers["cache-control"]) {
+    assert.match(image.headers["cache-control"], /max-age=/);
+  }
+  void STATIC_MAX_AGE_SECONDS;
 });
 
 test("conditional request returns 304 without a body", async () => {

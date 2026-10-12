@@ -78,6 +78,12 @@ test("environment panel keeps the reference layout affordances without inventing
   assert.match(server, /state\.observability\.handoffs\(\{ limit: 80, strict: true \}\)/);
   assert.match(server, /state\.observability\.deltaLedger\(\{ recent: 80, strict: true \}\)/);
   assert.match(server, /handoffs: handoffs\.map\(\(file\) => \(\{ \.\.\.file, exists: true \}\)\)/);
+  // handoffs() 返回 { handoffs, total, truncated, limit } 后，settlement 路径必须按
+  // .handoffs 取清单。若退回旧的 Array.isArray(value) 判据，会**静默**退化成 [] ——
+  // 证据全丢却不报错，正是 collectRunSettlement 注释禁止的「把缺失证据伪装成已发布」。
+  // 断言用 /s 跨行匹配：调用点在源码里被换行排版过，单行正则钉不住。
+  assert.match(server, /Array\.isArray\(handoffsResult\.value\?\.handoffs\)\s*\n?\s*\?\s*handoffsResult\.value\.handoffs/s);
+  assert.doesNotMatch(server, /Array\.isArray\(handoffsResult\.value\)\s*\n?\s*\?\s*handoffsResult\.value\s*:/s);
   assert.match(server, /deltas: Array\.isArray\(deltaLedger\?\.deltas\)/);
   assert.match(api, /releaseRecord:\s*"\/api\/release-record"/);
   assert.match(api, /runSettlement:\s*\(runId\)\s*=>/);

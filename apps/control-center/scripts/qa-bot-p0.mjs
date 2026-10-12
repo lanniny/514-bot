@@ -183,6 +183,12 @@ async function main() {
           expectedGateBlocks.push({ ...failure, code });
           return;
         }
+        // boot 壁纸对账的 HEAD 探测（D-2026-09-28-019）：无自定义壁纸时 404 是设计内的
+        // 预期响应（客户端静默catch），不是故障。
+        if (failure.status === 404 && failure.method === "HEAD" && failure.path === "/api/wallpapers/global") {
+          expectedGateBlocks.push({ ...failure, code: "WALLPAPER_ABSENT" });
+          return;
+        }
         failedResponses.push({ ...failure, code });
       })());
     });
@@ -258,7 +264,7 @@ async function main() {
     const enteredConversationId = await directRows.nth(1).getAttribute("data-bot-conversation");
     await page.keyboard.press("Enter");
     await page.waitForTimeout(500);
-    const enteredRowState = await page.locator(`[data-bot-conversation="${enteredConversationId}"]`).evaluate((node) => ({
+    const enteredRowState = await page.locator(`[data-bot-conversation="${enteredConversationId}"]`).first().evaluate((node) => ({
       active: node.classList.contains("is-active"),
       ariaSelected: node.getAttribute("aria-selected"),
     }));
@@ -374,6 +380,9 @@ async function main() {
     assert.deepEqual(JSON.parse(messageRequest.postData() || "{}"), {
       prompt: '"P0_CONVERSATION_ENDPOINT"',
       messageIntent: "steer",
+      // Bot composer 权限档随身提交（app.js composerPermissionSubmission → orchestrator.mjs:2333
+      // 受理并缺省 "plan"）；初始态未动 picker 故为 plan。D-2026-09-28-009 修為現合約。
+      permissionMode: "plan",
     });
     assert.equal(messageResponse.status(), 202);
     const admittedRun = await messageResponse.json();
@@ -426,7 +435,15 @@ async function main() {
       await page.locator("#bot-agent-info-button").click();
       await page.waitForSelector("#bot-agent-panel:not([hidden])");
       const widthAfter = Math.round(await page.locator(".bot-conversation").evaluate((node) => node.getBoundingClientRect().width));
-      assert.equal(widthAfter, widthBefore, `${viewport.width}px inspector must not reflow the Conversation column`);
+      // 响应式阶梯契约（bot-grok-face.css 设计）：>1100 四列网格，inspector 是 ops 列恒占
+      // 320px（--bot-ops）；821-1100 三列无 ops 列；≤820 单列 + inspector 绝对定位浮层。
+      // 原契约「任何视口都不挤会话列」写于 inspector 全浮层的旧设计，与现设计矛盾——
+      // D-2026-09-28-011 按现设计改写：宽屏断言让位 320px 列宽，其余断言语不挤列。
+      if (viewport.width > 1100) {
+        assert.equal(widthBefore - widthAfter, 320, `${viewport.width}px inspector 应占 320px 列（设计行为）`);
+      } else {
+        assert.equal(widthAfter, widthBefore, `${viewport.width}px inspector 必须不挤会话列（浮层/无 ops 列）`);
+      }
       await page.locator("#bot-collab-tab-tasks").click();
       const stableChat = await page.evaluate(() => ({
         streamHidden: document.querySelector("#bot-message-stream")?.hidden,

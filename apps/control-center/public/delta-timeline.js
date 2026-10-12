@@ -16,6 +16,7 @@
 import { API, request } from "./api.js";
 import { lucideIcon } from "./lucide.js";
 import { agentBrandKey } from "./team-panel.js";
+import { escapeHtml } from "./utils.js";
 
 let _containerEl = null;
 let _deltas = [];
@@ -53,7 +54,7 @@ export function appendDelta(delta) {
 
 /**
  * 自取数刷新：优先新契约 data.deltas，回退归一化旧契约 data.recent。
- * app.js 的 loadDeltaData 委托到这里。
+ * 由观测页自举调用（app.js 的启动序列），不经过中间状态层。
  * @returns {Promise<Array>} 当前已渲染的 deltas
  */
 export async function refreshDeltaTimeline() {
@@ -230,6 +231,4 @@ function formatTime(ts) {
   }
 }
 
-function escapeHtml(s) {
-  return String(s ?? "").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
-}
+// escapeHtml 统一来自 ./utils.js（本文件此前自带副本，且未转义单引号，与规范不一致）

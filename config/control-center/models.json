@@ -12,7 +12,7 @@
       "provider": "anthropic",
       "adapter": "claude-stream-json",
       "command": "claude",
-      "model": "claude-opus-5",
+      "model": "step-5-preview",
       "systemPromptFile": "config/control-center/claude-coordinator.md",
       "capabilities": [
         "*"
@@ -67,7 +67,8 @@
         "medium",
         "high",
         "xhigh",
-        "max"
+        "max",
+        "ultracode"
       ],
       "providerId": null,
       "defaultEffort": "max",
@@ -192,6 +193,58 @@
       "effortLevels": []
     },
     {
+      "id": "antigravity-agent",
+      "builtin": true,
+      "label": "衡 · Antigravity 深度攻坚",
+      "role": "agentic-specialist",
+      "description": "Google DeepMind Agentic 成员席，负责多步推理、多模态研判、复杂子代理编排与深度技术攻坚。",
+      "systemPrompt": "你是 514cc 团队的「衡」（Antigravity Agentic 专员）。专注于复杂长链任务规划、多模态图表与文档研判与自主攻坚。严格遵守先读后写与分级证据原则，如实回报执行结果与风险。",
+      "provider": "google",
+      "adapter": "antigravity-stream-json",
+      "command": "agy",
+      "model": "gemini-3.8-flash",
+      "capabilities": [
+        "*"
+      ],
+      "defaultPermissionMode": "plan",
+      "quality": 0.95,
+      "speed": 0.88,
+      "costTier": 3,
+      "enabled": true,
+      "evidence": [
+        {
+          "source": "official-docs",
+          "detail": "Antigravity CLI (agy) stream-json, subagent orchestration, and native Google Gemini 3.8/3.1 models",
+          "verifiedAt": "2026-09-17"
+        }
+      ],
+      "modelOptions": [
+        {
+          "id": "",
+          "label": "默认 (gemini-3.8-flash)"
+        },
+        {
+          "id": "gemini-3.8-flash",
+          "label": "Gemini 3.8 Flash"
+        },
+        {
+          "id": "gemini-3.1-pro",
+          "label": "Gemini 3.1 Pro"
+        },
+        {
+          "id": "gemini-next",
+          "label": "Gemini Next"
+        }
+      ],
+      "effortLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "coordinatorEligible": true
+    },
+    {
       "id": "grok-build",
       "builtin": true,
       "label": "Grok Build",
@@ -306,7 +359,11 @@
           "label": "K3-256k"
         }
       ],
-      "effortLevels": []
+      "effortLevels": [
+        "low",
+        "high",
+        "max"
+      ]
     },
     {
       "id": "pi-resident",
@@ -345,7 +402,15 @@
           "label": "默认"
         }
       ],
-      "effortLevels": []
+      "effortLevels": [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
     },
     {
       "id": "swift-responder",
@@ -377,7 +442,13 @@
       "providerId": "provider-762665b6-ef34-4749-a1d5-84ee95102e5a",
       "defaultEffort": null,
       "modelOptions": [],
-      "effortLevels": []
+      "effortLevels": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "max"
+      ]
     },
     {
       "id": "SEAT-BRAIN-001",
@@ -409,7 +480,88 @@
       "providerId": "provider-99193a73-7f96-40bf-a964-051c1577b84c",
       "defaultEffort": null,
       "modelOptions": [],
-      "effortLevels": []
+      "effortLevels": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ]
+    },
+    {
+      "id": "codebuddy-seat",
+      "builtin": false,
+      "label": "CodeBuddy 助手",
+      "role": "codebuddy-executor",
+      "description": "腾讯 CodeBuddy CLI 执行席位，支持 stream-json 规划与只读代码分析。",
+      "systemPrompt": "你是 514cc 团队的 CodeBuddy 席位。专注于代码分析、只读规划与技术咨询。严格遵守只读与安全原则。",
+      "provider": "multi-provider",
+      "adapter": "codebuddy-stream-json",
+      "command": "codebuddy",
+      "model": "glm-5.3",
+      "capabilities": [
+        "*"
+      ],
+      "defaultPermissionMode": "plan",
+      "coordinatorEligible": true,
+      "quality": 0.86,
+      "speed": 0.86,
+      "costTier": 2,
+      "enabled": true,
+      "evidence": [
+        {
+          "source": "local-cli",
+          "detail": "CodeBuddy 2.154.0 本机 stream-json 实测，glm-5.3 响应成功",
+          "verifiedAt": "2026-09-19"
+        }
+      ],
+      "providerId": null,
+      "defaultEffort": "medium",
+      "modelOptions": [
+        {
+          "id": "",
+          "label": "默认 (glm-5.3)"
+        },
+        {
+          "id": "glm-5.3",
+          "label": "GLM-5.3"
+        },
+        {
+          "id": "glm-5.2",
+          "label": "GLM-5.2"
+        },
+        {
+          "id": "gpt-5.5",
+          "label": "GPT-5.5"
+        },
+        {
+          "id": "gpt-5.4",
+          "label": "GPT-5.4"
+        },
+        {
+          "id": "gemini-3.5-flash",
+          "label": "Gemini-3.5-Flash"
+        },
+        {
+          "id": "gemini-3.1-pro",
+          "label": "Gemini-3.1-Pro"
+        },
+        {
+          "id": "hy3",
+          "label": "混元 Hy3"
+        },
+        {
+          "id": "kimi-k3",
+          "label": "Kimi-K3"
+        }
+      ],
+      "effortLevels": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
     }
   ]
 }

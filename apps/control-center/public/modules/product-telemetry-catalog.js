@@ -24,6 +24,7 @@ export const PRODUCT_ACTIONS = Object.freeze({
   "routine.enable": { id: "routine.enable", label: "启用例行" },
   "channel.open": { id: "channel.open", label: "打开渠道" },
   "value-proof.link": { id: "value-proof.link", label: "收获证明链接" },
+  "readiness.next-action": { id: "readiness.next-action", label: "首次就绪下一步" },
 });
 
 export const PRODUCT_ACTION_IDS = Object.freeze({
@@ -36,6 +37,7 @@ export const PRODUCT_ACTION_IDS = Object.freeze({
   routineEnable: "routine.enable",
   channelOpen: "channel.open",
   valueProofLink: "value-proof.link",
+  readinessNextAction: "readiness.next-action",
 });
 
 export const REGISTERED_CAPABILITIES = Object.freeze(Object.keys(PRODUCT_ACTIONS));

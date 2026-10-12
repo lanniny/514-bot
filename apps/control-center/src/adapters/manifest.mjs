@@ -1,3 +1,5 @@
+import { apiChatReadiness } from "../api-chat-config.mjs";
+
 const diagnostic = (definition) => Object.freeze({
   risk: "local-read",
   provenance: "native-cli-help",
@@ -57,6 +59,18 @@ const template = (definition) => Object.freeze({
 
 export const ADAPTER_TEMPLATES = Object.freeze([
   template({
+    id: "api-chat", label: "模型 API · 文本聊天", factoryKey: "api-chat",
+    description: "直连兼容 Chat Completions 的模型服务，支持流式文本与连续对话。",
+    transport: "https-sse", providerApp: null, providerBindingMode: "direct-api",
+    requiresCommand: false, teamMemberEligible: true, coordinatorCapable: false,
+    defaultCommand: null, defaultProvider: "openai-compatible",
+    commandMode: "none", promptMode: "messages", modelMode: "request", effortMode: "none",
+    permissionModes: ["plan", "read-only"], defaultPermissionMode: "read-only",
+    effortLevels: [], cwdMode: "none", diagnosticActions: [],
+    commandHelp: "无需安装 CLI；显式选择 Provider 连接和模型。",
+    controlNotes: ["仅支持单助手文本聊天；联网搜索、附件和本地执行尚未接入此连接。", "配置就绪不代表上游已验证；不自动重试计费请求，费用未知时保持未知。"],
+  }),
+  template({
     id: "claude-stream-json", label: "Claude Code", factoryKey: "claude-cli",
     description: "Claude Code CLI 的 stream-json 执行通道，支持原生会话恢复。",
     transport: "local-cli", providerApp: "claude", providerBindingMode: "serialized-live-projection",
@@ -66,7 +80,7 @@ export const ADAPTER_TEMPLATES = Object.freeze([
     // native:* 本机 claude 2.1.232 --help 实证（acceptEdits/bypassPermissions）；
     // manual/dontAsk/default 不透传：headless 下会交互挂起或与治理档语义重叠
     permissionModes: ["plan", "read-only", "workspace-write", "native:acceptEdits", "native:bypassPermissions"], defaultPermissionMode: "plan",
-    effortLevels: ["low", "medium", "high", "xhigh", "max"], cwdMode: "per-turn",
+    effortLevels: ["low", "medium", "high", "xhigh", "max", "ultracode"], cwdMode: "per-turn",
     routingDefaults: { quality: 0.96, speed: 0.68, costTier: 4 },
     controlNotes: [
       "原生审批档仅作用于只读轮（LO 2026-08-27 实证）：native:acceptEdits 自动接受编辑；native:bypassPermissions 全自动（需审批）。Build 写盘轮固定 acceptEdits + 审批，不走原生档。",
@@ -268,6 +282,57 @@ export const ADAPTER_TEMPLATES = Object.freeze([
       diagnostic({ id: "models", label: "列出 Pi 模型", detail: "离线读取 Pi 当前可用模型目录，不注入 Provider 凭据。", args: ["--offline", "--list-models"], timeoutMs: 45_000 }),
     ],
   }),
+  template({
+    id: "antigravity-stream-json", label: "Antigravity CLI", factoryKey: "antigravity-cli",
+    description: "Antigravity CLI 的 stream-json 执行通道，支持长链推理、多模态与会话恢复。",
+    transport: "local-cli", providerApp: "antigravity", providerBindingMode: "serialized-live-projection",
+    requiresCommand: true, teamMemberEligible: true, coordinatorCapable: true,
+    defaultCommand: "agy", defaultProvider: "google",
+    commandMode: "executable-only", promptMode: "stdin", modelMode: "argv", effortMode: "argv",
+    permissionModes: ["plan", "read-only", "workspace-write", "native:auto", "native:always-approve"], defaultPermissionMode: "plan",
+    effortLevels: ["low", "medium", "high", "xhigh"], cwdMode: "process-fixed",
+    routingDefaults: { quality: 0.95, speed: 0.88, costTier: 3 },
+    commandHelp: "本机 agy 可执行文件名或完整路径；不要在此附加参数。未绑定统一供应商时使用 Antigravity 原生登录态（agy login / Keyring）。",
+    controlNotes: [
+      "Antigravity 支持 Gemini 3.8 Flash / 3.1 Pro 等模型，具备多模态与规划执行长板。",
+      "原生审批档仅作用于只读轮：native:auto 自动批准工具调用；native:always-approve 全自动（需审批）。写盘轮由 514cc 治理模式控制。",
+    ],
+    nativeCommands: [
+      nativeCommand("/tui", "cli-attach", { detail: "Antigravity 交互式会话请用 /cli 附着原生 agy TUI。" }),
+    ],
+    diagnosticActions: [
+      versionDiagnostic(),
+      diagnostic({ id: "auth-status", label: "读取 Antigravity 登录态", detail: "检查 Antigravity CLI 的认证与账号状态。", args: ["auth", "status"] }),
+      diagnostic({ id: "doctor", label: "运行 Antigravity Doctor", detail: "诊断 Antigravity CLI 安装与配置健康度。", args: ["doctor"], risk: "process-probe" }),
+      diagnostic({ id: "skill-list", label: "列出 Antigravity Skills", detail: "读取当前配置生效的 Skills 列表。", args: ["skills", "list"] }),
+      diagnostic({ id: "mcp-list", label: "列出 Antigravity MCP", detail: "读取 Antigravity CLI 当前配置的 MCP 服务器。", args: ["mcp", "list"], risk: "network-probe" }),
+    ],
+  }),
+  template({
+    id: "codebuddy-stream-json", label: "CodeBuddy", factoryKey: "codebuddy-cli",
+    description: "CodeBuddy Code 的 stream-json 执行通道，支持原生会话恢复。",
+    transport: "local-cli", providerApp: null, providerBindingMode: "adapter-managed",
+    requiresCommand: true, teamMemberEligible: true, coordinatorCapable: true,
+    defaultCommand: "codebuddy", defaultProvider: "multi-provider",
+    commandMode: "executable-only", promptMode: "stdin", modelMode: "argv", effortMode: "argv",
+    // 只读两档都落 CLI 原生 plan 档：CodeBuddy 不支持 --permission-prompt-tool，没有许可通道，
+    // 因此写盘轮（workspace-write）在适配器入口即 fail-closed，模板也不声明该档。
+    permissionModes: ["plan", "read-only"], defaultPermissionMode: "plan",
+    effortLevels: ["minimal", "low", "medium", "high", "xhigh", "max"], cwdMode: "per-turn",
+    routingDefaults: { quality: 0.86, speed: 0.86, costTier: 2 },
+    commandHelp: "本机 codebuddy 可执行文件名或完整路径；不要在此附加参数。认证走 CodeBuddy CLI 自身登录态。",
+    controlNotes: [
+      "写盘轮未接入（结构性 fail-closed）：CodeBuddy 不支持 --permission-prompt-tool，514cc 的许可通道无载体；需要改文件的任务请派给 Codex 或 Claude 席位。",
+      "本机裸环境实测（v2.154.0，无 CODEBUDDY_API_KEY）：-p stream-json 可跑、init 报 apiKeySource=copilot.tencent.com（CLI 自身登录态）、--resume 续轮保留上下文、plan 档下写盘指令无产物。",
+      "残留风险：该 CLI 无 --disable-slash-commands（bundle 零命中），以 / 开头的提示词可能被当内部命令解释；只读档下无写盘后果，但不要把它当隔离壳。",
+      "成本以 CLI 上报为准（本机实测 total_cost_usd 为 0，网关按套餐计费）——不臆造估值，也不据此宣称免费。",
+      "effort 档位取自 codebuddy --help 公布值（minimal/low/medium/high/xhigh/max），本机未逐档实测。",
+    ],
+    nativeCommands: [
+      nativeCommand("/tui", "cli-attach", { detail: "CodeBuddy 交互式会话请用 /cli 附着原生 TUI。" }),
+    ],
+    diagnosticActions: [versionDiagnostic()],
+  }),
 ]);
 
 export const ADAPTER_BINDINGS = Object.freeze([
@@ -278,6 +343,7 @@ export const ADAPTER_BINDINGS = Object.freeze([
   { profileId: "grok-build", adapterId: "grok-build-headless", factoryKey: "grok-build", requiresCommand: true, teamMemberEligible: true, coordinatorEligible: true },
   { profileId: "kimi-frontend", adapterId: "kimi-headless-resume", factoryKey: "kimi-cli", requiresCommand: true, teamMemberEligible: true, coordinatorEligible: true },
   { profileId: "pi-resident", adapterId: "pi-rpc", factoryKey: "pi-rpc", requiresCommand: true, teamMemberEligible: true, coordinatorEligible: true },
+  { profileId: "antigravity-agent", adapterId: "antigravity-stream-json", factoryKey: "antigravity-cli", requiresCommand: true, teamMemberEligible: true, coordinatorEligible: true },
 ].map(Object.freeze));
 
 const TEMPLATE_BY_ID = new Map(ADAPTER_TEMPLATES.map((item) => [item.id, item]));
@@ -351,7 +417,11 @@ export function runtimeControlCatalog(profile = {}, discovered = {}) {
   ].map((value) => String(value).trim().toLowerCase()).filter(Boolean))];
   const effortSupported = adapterTemplate.effortMode !== "none" && declaredEffortLevels.length > 0;
   const models = modelSupported
-    ? (discovered.models || profile.modelOptions || []).map(modelOption).filter((entry) => entry.id)
+    ? (discovered.models || profile.modelOptions || []).map((entry) => ({
+        ...modelOption(entry),
+        ...(Array.isArray(entry.effortLevels) && entry.effortLevels.length ? { effortLevels: entry.effortLevels } : {}),
+        ...(entry.defaultReasoning ? { defaultReasoning: entry.defaultReasoning } : {}),
+      })).filter((entry) => entry.id)
     : [];
   const effortLevels = effortSupported ? declaredEffortLevels : [];
   const modelSource = String(discovered.modelSource || discovered.source || "fallback");
@@ -438,6 +508,10 @@ export function runtimeControlCatalog(profile = {}, discovered = {}) {
     "opencode-run-json": [
       ["native:build", "native:build", "OpenCode 原生 build agent · 全权限执行", "write"],
     ],
+    "antigravity-stream-json": [
+      ["native:auto", "native:auto", "Antigravity 原生 auto · 自动批准常规工具调用", "write"],
+      ["native:always-approve", "native:always-approve", "Antigravity 原生 always-approve · 全自动批准（需审批）", "approval-required"],
+    ],
   };
   const nativePermissionCommands = nativePermissionCatalog[adapterTemplate.id] ?? [];
   for (const [nativeMode, value, detail, risk] of nativePermissionCommands) {
@@ -467,7 +541,7 @@ export function runtimeControlCatalog(profile = {}, discovered = {}) {
 
   const actions = [
     {
-      id: "refresh-catalog", label: "刷新能力目录", detail: "清除 5 分钟缓存并重新读取当前 CLI 的模型与推理档位。",
+      id: "refresh-catalog", label: "刷新能力目录", detail: "清除 5 分钟缓存并重新读取当前连接的模型与推理档位。",
       group: "diagnostics", scope: "runtime-profile", provenance: "514cc-control-plane",
       execution: "server-catalog-refresh", risk: "read-only",
     },
@@ -490,8 +564,9 @@ export function runtimeControlCatalog(profile = {}, discovered = {}) {
   ];
   if (adapterTemplate.providerApp || adapterTemplate.providerBindingMode !== "serialized-live-projection") {
     actions.push({
-      id: "open-connection", label: adapterTemplate.providerApp ? "编辑 Provider 连接" : "查看 CLI 认证归属",
-      detail: adapterTemplate.providerApp
+      id: "open-connection", label: adapterTemplate.providerApp || adapterTemplate.providerBindingMode === "direct-api" ? "编辑 Provider 连接" : "查看 CLI 认证归属",
+      detail: adapterTemplate.providerBindingMode === "direct-api" ? "编辑当前显式绑定的模型连接。"
+        : adapterTemplate.providerApp
         ? "打开与当前 CLI 应用匹配的 Provider 配置；密钥不会进入浏览器响应。"
         : "当前 Adapter 的认证由 CLI 或 Adapter 自身管理。",
       group: "configuration", scope: "runtime-profile", provenance: "514cc-control-plane",
@@ -516,8 +591,10 @@ export function runtimeControlCatalog(profile = {}, discovered = {}) {
     },
     models,
     effortLevels,
-    defaultModel: discovered.defaultModel ?? profile.model ?? null,
     source,
+    modelSource,
+    ...(discovered.providerName ? { providerName: discovered.providerName } : {}),
+    ...(discovered.providerId ? { providerId: discovered.providerId } : {}),
     sources: { model: modelSource, effort: effortSource },
     coverage: {
       commands: "composer-native-controls",
@@ -604,6 +681,12 @@ export function runtimeDiagnosticAction(profile = {}, actionId = "") {
 // 结构性矛盾（Adapter 模板根本不支持 provider 绑定）仍是硬错误。
 export function resolveProviderBinding(profile, adapterTemplate, providerStore) {
   const providerId = profile.providerId == null ? null : String(profile.providerId).trim() || null;
+  if (adapterTemplate.providerBindingMode === "direct-api") {
+    const issue = apiChatReadiness(profile, providerStore);
+    return issue
+      ? { providerId: null, provider: null, degraded: { providerId, reason: issue.reason } }
+      : { providerId, provider: providerStore.get(providerId), degraded: null };
+  }
   if (!providerId) return { providerId: null, provider: null, degraded: null };
   if (!adapterTemplate.providerApp) {
     throw manifestError(`${profile.id} adapter ${adapterTemplate.id} cannot bind a ProviderStore connection`, { runtimeProfileId: profile.id, providerId });
@@ -631,7 +714,8 @@ export function createTeamCatalog(profiles = [], { providerStore = null, onProvi
     if (degraded) onProviderDegraded?.({ runtimeProfileId: id, adapterId: adapterTemplate.id, ...degraded });
     const commandConfigured = !adapterTemplate.requiresCommand || Boolean(String(profile.command ?? "").trim());
     const enabled = profile.enabled !== false;
-    const teamMemberEligible = adapterTemplate.teamMemberEligible && commandConfigured && enabled;
+    const apiUnavailable = adapterTemplate.providerBindingMode === "direct-api" && degraded;
+    const teamMemberEligible = adapterTemplate.teamMemberEligible && commandConfigured && enabled && !apiUnavailable;
     const coordinatorAllowed = profile.coordinatorEligible !== false;
     return Object.freeze({
       id, label: String(profile.label || id), role: String(profile.role || ""),
@@ -640,10 +724,10 @@ export function createTeamCatalog(profiles = [], { providerStore = null, onProvi
       providerApp: adapterTemplate.providerApp, providerBindingMode: adapterTemplate.providerBindingMode,
       providerDegraded: degraded ? Object.freeze({ ...degraded }) : null,
       adapter: adapterTemplate.id, adapterLabel: adapterTemplate.label, templateId: adapterTemplate.id,
-      transport: adapterTemplate.transport, capabilities: Object.freeze(["*"]), builtin: Boolean(fixedBinding), enabled, teamMemberEligible,
+      transport: adapterTemplate.transport, capabilities: Object.freeze(adapterTemplate.id === "api-chat" ? ["text-chat"] : ["*"]), builtin: Boolean(fixedBinding), enabled, teamMemberEligible,
       coordinatorCapable: adapterTemplate.coordinatorCapable, coordinatorAllowed,
       coordinatorEligible: teamMemberEligible && adapterTemplate.coordinatorCapable && coordinatorAllowed,
-      eligibilityReason: teamMemberEligible ? null : !enabled ? "profile-disabled" : !commandConfigured ? "command-not-configured" : "adapter-not-team-eligible",
+      eligibilityReason: teamMemberEligible ? null : !enabled ? "profile-disabled" : apiUnavailable ? degraded.reason : !commandConfigured ? "command-not-configured" : "adapter-not-team-eligible",
     });
   }));
 }

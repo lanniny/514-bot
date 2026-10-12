@@ -1,4 +1,4 @@
-.ace-tool/
+﻿.ace-tool/
 .ai-shared/control-center/
 apps/control-center/.control-center-token
 
@@ -101,3 +101,18 @@ apps/control-center/debug-provider-*/
 # 第三方 AI 工具的项目内状态目录
 .qoder/
 .qoder-cn/
+
+
+# 一次性 QA/调试产物补漏（2026-10-10 B0：此前 62 个产物裸奔，git add -A 会扫进公开仓库）
+# 归属上文「QA 视觉回归与调试产物」区块，补上后来新增的几种一次性产物命名
+apps/control-center/.verify-*/
+apps/control-center/.whale-*.mjs
+apps/control-center/.probe-*/
+apps/control-center/.shoot-*/
+apps/control-center/.w5-*
+apps/control-center/crop_*.png
+apps/control-center/find_*.mjs
+apps/control-center/find_*.txt
+apps/control-center/.index.html.bak-*
+# Antigravity (agy) CLI 的项目内 scratch 目录，工具产物不入库
+.gemini/
